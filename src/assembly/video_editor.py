@@ -3,18 +3,17 @@ import json
 from moviepy import VideoFileClip, AudioFileClip, TextClip, CompositeVideoClip, concatenate_videoclips
 
 def assemble_video(video_path, audio_path, output_path="master_final_video.mp4"):
-    # 1. Path Setup
+    # THE FONT PATH: This is the most common path for this specific font on Ubuntu
     font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
     
     if not os.path.exists(video_path) or not os.path.exists(audio_path):
-        print("Error: Video or Audio file missing.")
+        print("Error: Files missing.")
         return False
 
     json_path = audio_path.replace(".mp3", ".json")
     with open(json_path, 'r') as f:
         word_timings = json.load(f)
     
-    print(f"Loading media and processing {len(word_timings)} words...")
     video_clip = VideoFileClip(video_path)
     audio_clip = AudioFileClip(audio_path)
     
@@ -23,16 +22,10 @@ def assemble_video(video_path, audio_path, output_path="master_final_video.mp4")
         video_clip = concatenate_videoclips([video_clip] * loops)
     video_clip = video_clip.subclipped(0, audio_clip.duration)
 
-    # 2. Layout Settings
-    video_w, video_h = video_clip.w, video_clip.h
-    # We define a standard box for all text to live in
-    text_width = int(video_w * 0.8)
-    # 70% down the screen
-    vertical_pos = int(video_h * 0.7) 
-
     all_clips = [video_clip]
     
-    words_per_line = 4 
+    # We will show 3 words at a time for maximum readability
+    words_per_line = 3 
     for i in range(0, len(word_timings), words_per_line):
         line_chunk = word_timings[i:i + words_per_line]
         line_start = line_chunk[0]['start']
@@ -40,42 +33,42 @@ def assemble_video(video_path, audio_path, output_path="master_final_video.mp4")
         
         full_line_text = " ".join([w['text'] for w in line_chunk]).upper()
         
-        # Background White Line
+        # 1. THE BASE LINE (WHITE)
         base_txt = TextClip(
             text=full_line_text, 
-            font_size=70, 
+            font_size=80, 
             color='white',
             font=font_path,
             stroke_color='black', 
-            stroke_width=2, 
-            method='caption',
-            size=(text_width, None)
-        ).with_start(line_start).with_end(line_end).with_position(('center', vertical_pos))
+            stroke_width=2,
+            method='label' # Changed to label for better reliability
+        ).with_start(line_start).with_end(line_end).with_position(('center', 'center'))
         
         all_clips.append(base_txt)
 
-        # Yellow Highlight for active word
+        # 2. THE ACTIVE WORD OVERLAY (YELLOW)
         for word in line_chunk:
             highlight = TextClip(
                 text=word['text'].upper(), 
-                font_size=75, # Slightly larger for "pop" effect
+                font_size=85, # Slightly larger for the 'pop'
                 color='yellow',
                 font=font_path,
                 stroke_color='black', 
-                stroke_width=3, 
-                method='caption',
-                size=(text_width, None) # MANDATORY SIZE FIX
-            ).with_start(word['start']).with_end(word['start'] + word['duration']).with_position(('center', vertical_pos))
+                stroke_width=3,
+                method='label'
+            ).with_start(word['start']).with_end(word['start'] + word['duration']).with_position(('center', 'center'))
             
             all_clips.append(highlight)
 
-    print("Rendering final video...")
+    print(f"Adding {len(all_clips)} layers to the composition...")
     final_video = CompositeVideoClip(all_clips).with_audio(audio_clip)
+    
+    # We use a standard 1080x1920 vertical size to be safe
     final_video.write_videofile(output_path, fps=30, codec="libx264", preset="ultrafast", logger=None)
     
     video_clip.close()
     audio_clip.close()
-    print("Success!")
+    print("Render Complete!")
     return True
 
 if __name__ == "__main__":
