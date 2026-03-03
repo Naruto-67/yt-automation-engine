@@ -14,7 +14,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg fonts-liberation
-          ls -la /usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -25,45 +24,21 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      # WhisperX uses HuggingFace — correct cache path
-      - name: Cache WhisperX model
-        uses: actions/cache@v3
-        with:
-          path: ~/.cache/huggingface
-          key: whisperx-base-en-v1
-
-      - name: 1. Generate Voice
+      - name: 1. Generate Voice & Basic Subtitles
         run: python src/generators/audio_generator.py
 
-      - name: 2. Transcribe with WhisperX
-        run: python src/generators/transcriber.py
-
-      - name: 3. Debug — verify timings
-        run: |
-          echo "=== Files in root ==="
-          ls -la
-          echo ""
-          echo "=== First 5 caption chunks ==="
-          python3 -c "
-          import json
-          chunks = json.load(open('test_audio_timings.json'))
-          print(f'Total chunks: {len(chunks)}')
-          for c in chunks[:5]:
-              print(c)
-          "
-
-      - name: 4. Download Background Video
+      - name: 2. Download Background Video
         env:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
         run: python src/generators/video_fetcher.py
 
-      - name: 5. Assemble with Captions
+      - name: 3. Assemble with Captions
         run: python src/assembly/video_editor.py
 
-      - name: 6. Extract frame to verify captions
+      - name: 4. Extract frame to verify captions
         run: ffmpeg -i master_final_video.mp4 -ss 2 -frames:v 1 frame_check.png
 
-      - name: 7. Upload artifacts
+      - name: 5. Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: finished-youtube-short
