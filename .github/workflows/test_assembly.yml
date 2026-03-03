@@ -16,11 +16,14 @@ jobs:
         with:
           python-version: '3.10'
 
+      - name: Fix ImageMagick Security Policy for Subtitles
+        run: |
+          sudo sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml
+
       - name: Install dependencies
-        # Installing everything needed for audio, video, and editing
         run: pip install edge-tts requests moviepy Pillow
 
-      - name: 1. Generate Voiceover
+      - name: 1. Generate Voiceover & VTT
         run: python src/generators/audio_generator.py
 
       - name: 2. Download Background Video
@@ -28,7 +31,7 @@ jobs:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
         run: python src/generators/video_fetcher.py
 
-      - name: 3. Assemble Final Video
+      - name: 3. Assemble Final Video with Subtitles
         run: python src/assembly/video_editor.py
 
       - name: 4. Upload Final Masterpiece
