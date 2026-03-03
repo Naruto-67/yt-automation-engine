@@ -1,88 +1,57 @@
 import os
-import subprocess
-from moviepy import VideoFileClip, AudioFileClip, concatenate_videoclips
+import json
+from moviepy import VideoFileClip, AudioFileClip, TextClip, CompositeVideoClip, concatenate_videoclips
 
-def assemble_video(video_path, audio_path, output_path="final_video.mp4"):
-    if not os.path.exists(video_path) or not os.path.exists(audio_path):
-        print("Error: Missing media files.")
-        return False
+def assemble_video(video_path, audio_path, output_path="master_final_video.mp4"):
+    video_clip = VideoFileClip(video_path)
+    audio_clip = AudioFileClip(audio_path)
+    
+    # Sync duration
+    if video_clip.duration < audio_clip.duration:
+        loops = int(audio_clip.duration // video_clip.duration) + 1
+        video_clip = concatenate_videoclips([video_clip] * loops)
+    video_clip = video_clip.subclipped(0, audio_clip.duration)
 
-    try:
-        print("Loading media...")
-        video_clip = VideoFileClip(video_path)
-        audio_clip = AudioFileClip(audio_path)
+    # Load word timings
+    json_path = audio_path.replace(".mp3", ".json")
+    with open(json_path, 'r') as f:
+        word_timings = json.load(f)
 
-        # Loop if necessary to cover the audio
-        if video_clip.duration < audio_clip.duration:
-            loops_needed = int(audio_clip.duration // video_clip.duration) + 1
-            video_clip = concatenate_videoclips([video_clip] * loops_needed)
-
-        # Cut to exact length
-        video_clip = video_clip.subclipped(0, audio_clip.duration)
-        final_video = video_clip.with_audio(audio_clip)
-
-        temp_video = "temp_no_subs.mp4"
-        print("Rendering base video without subtitles...")
-        final_video.write_videofile(
-            temp_video, 
-            fps=30, 
-            codec="libx264", 
-            audio_codec="aac",
-            preset="ultrafast",
-            logger=None
-        )
+    all_clips = [video_clip]
+    
+    # Group words into short 4-word lines
+    words_per_line = 4 
+    for i in range(0, len(word_timings), words_per_line):
+        line_chunk = word_timings[i:i + words_per_line]
+        line_start = line_chunk[0]['start']
+        line_end = line_chunk[-1]['start'] + line_chunk[-1]['duration']
         
-        video_clip.close()
-        audio_clip.close()
-        final_video.close()
+        # 1. Background "White" Line
+        full_line_text = " ".join([w['text'] for w in line_chunk])
+        base_txt = TextClip(
+            text=full_line_text, font_size=75, color='white',
+            stroke_color='black', stroke_width=2, method='caption',
+            size=(video_clip.w * 0.8, None)
+        ).with_start(line_start).with_end(line_end).with_position(('center', 0.5), relative=True)
+        
+        all_clips.append(base_txt)
 
-        srt_path = audio_path.replace(".mp3", ".srt")
-        if not os.path.exists(srt_path):
-            print(f"Error: Subtitle file {srt_path} not found.")
-            os.rename(temp_video, output_path)
-            return True
+        # 2. "Yellow" Spoken Word Highlight
+        for word in line_chunk:
+            highlight = TextClip(
+                text=word['text'], font_size=80, color='yellow',
+                stroke_color='black', stroke_width=3, method='caption'
+            ).with_start(word['start']).with_end(word['start'] + word['duration']).with_position(('center', 0.5), relative=True)
             
-        # Debug check: ensures the SRT isn't completely empty
-        with open(srt_path, 'r', encoding='utf-8') as f:
-            if not f.read().strip():
-                print("WARNING: The SRT file is completely empty! Skipping text burn-in.")
-                os.rename(temp_video, output_path)
-                return True
+            all_clips.append(highlight)
 
-        print("Burning big yellow subtitles into the video using FFmpeg...")
-        
-        # 1. Get the absolute path so FFmpeg never loses the file
-        abs_srt = os.path.abspath(srt_path)
-        
-        # 2. Escape the path for FFmpeg's filter (replace backslashes, escape colons)
-        safe_srt = abs_srt.replace('\\', '/').replace(':', r'\:')
-        
-        # 3. Escape the commas in the style string with \, so FFmpeg doesn't split them
-        style = r"Alignment=5\,FontName=Ubuntu\,FontSize=22\,PrimaryColour=&H0000FFFF\,OutlineColour=&H00000000\,Outline=2\,Bold=1"
-        
-        # 4. Pass as a secured list to protect the backslashes from the Linux terminal
-        ffmpeg_cmd = [
-            "ffmpeg", "-y", 
-            "-i", temp_video, 
-            "-vf", f"subtitles={safe_srt}:force_style='{style}'", 
-            "-c:a", "copy", 
-            output_path
-        ]
-        
-        subprocess.run(ffmpeg_cmd, check=True)
-        
-        if os.path.exists(temp_video):
-            os.remove(temp_video)
-            
-        print(f"Success! Subtitled video rendered to {output_path}")
-        return True
-
-    except subprocess.CalledProcessError as e:
-        print(f"FFmpeg failed with error code: {e.returncode}")
-        return False
-    except Exception as e:
-        print(f"Failed to assemble video: {e}")
-        return False
+    print("Rendering final video with line-by-line captions...")
+    final_video = CompositeVideoClip(all_clips).with_audio(audio_clip)
+    final_video.write_videofile(output_path, fps=30, codec="libx264", preset="ultrafast", logger=None)
+    
+    video_clip.close()
+    audio_clip.close()
+    return True
 
 if __name__ == "__main__":
-    assemble_video("test_video.mp4", "test_audio.mp3", "master_final_video.mp4")
+    assemble_video("test_video.mp4", "test_audio.mp3")
