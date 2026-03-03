@@ -43,14 +43,20 @@ def assemble_video(video_path, audio_path, output_path="final_video.mp4"):
             return True
             
         print("Burning big yellow subtitles into the video using FFmpeg...")
-        # Swapped to Ubuntu font to ensure Linux compatibility 
-        style = "Alignment=5,FontName=Ubuntu,FontSize=22,PrimaryColour=&H0000FFFF,OutlineColour=&H00000000,Outline=2,Bold=1"
         
-        # THE FIX: Formatted as a single raw shell string so Python doesn't mangle the quotes
-        ffmpeg_cmd = f'ffmpeg -y -i "{temp_video}" -vf "subtitles={srt_path}:force_style=\'{style}\'" -c:a copy "{output_path}"'
+        # THE FIX: We use a raw string (r"") and backslashes (\,) to hide the commas from FFmpeg
+        style = r"Alignment=5\,FontName=Ubuntu\,FontSize=22\,PrimaryColour=&H0000FFFF\,OutlineColour=&H00000000\,Outline=2\,Bold=1"
         
-        # Run it directly through the Linux shell
-        subprocess.run(ffmpeg_cmd, shell=True, check=True)
+        # We pass the command as a secure list so it cannot be scrambled
+        ffmpeg_cmd = [
+            "ffmpeg", "-y", 
+            "-i", temp_video, 
+            "-vf", f"subtitles={srt_path}:force_style='{style}'", 
+            "-c:a", "copy", 
+            output_path
+        ]
+        
+        subprocess.run(ffmpeg_cmd, check=True)
         
         # Clean up temp file
         if os.path.exists(temp_video):
