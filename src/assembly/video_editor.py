@@ -66,7 +66,7 @@ def assemble_video(video_path, audio_path, output_path="final_video.mp4"):
         for sub in subtitles:
             # Create a big, yellow text graphic with a black stroke
             txt_clip = TextClip(
-                font="Ubuntu-Bold", # Standard Linux font built into GitHub
+                font="Ubuntu-Bold",
                 text=sub['text'], 
                 font_size=90, 
                 color='yellow', 
@@ -98,4 +98,14 @@ def assemble_video(video_path, audio_path, output_path="final_video.mp4"):
         
         video_clip.close()
         audio_clip.close()
-        final_video.
+        final_video.close()
+        
+        print(f"Success! Subtitled video rendered to {output_path}")
+        return True
+
+    except Exception as e:
+        print(f"Failed to assemble video: {e}")
+        return False
+
+if __name__ == "__main__":
+    assemble_video("test_video.mp4", "test_audio.mp3", "master_final_video.mp4")
