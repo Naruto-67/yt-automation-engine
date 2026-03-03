@@ -9,5 +9,6 @@ python-dotenv
 moviepy
 Pillow
 numpy
+opencv-python-headless
 google-generativeai
 edge-tts
