@@ -10,11 +10,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Install Fonts and ImageMagick
+      - name: Install FFmpeg with LibAss
         run: |
           sudo apt-get update
-          sudo apt-get install -y fonts-dejavu-core imagemagick
-          sudo sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml
+          sudo apt-get install -y ffmpeg libass-dev
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -25,7 +24,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: 1. Generate Voice & JSON
+      - name: 1. Generate Voice & ASS Subtitles
         run: python src/generators/audio_generator.py
 
       - name: 2. Download Video
@@ -33,7 +32,7 @@ jobs:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
         run: python src/generators/video_fetcher.py
 
-      - name: 3. Assemble Master Video
+      - name: 3. Assemble Master Video (FFmpeg Burn)
         run: python src/assembly/video_editor.py
 
       - name: 4. Upload
