@@ -10,10 +10,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Install FFmpeg
+      - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          sudo apt-get install -y ffmpeg fonts-liberation
+          # Confirm font exists at the exact path our code uses
+          ls -la /usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -24,29 +26,20 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      - name: Download Montserrat Bold font
-        run: |
-          mkdir -p assets
-          wget -q -O assets/Montserrat-Bold.ttf \
-            "https://github.com/JulietaUla/Montserrat/raw/master/fonts/ttf/Montserrat-Bold.ttf"
-          echo "Font size: $(wc -c < assets/Montserrat-Bold.ttf) bytes"
-
       - name: 1. Generate Voice + Timings
         run: python src/generators/audio_generator.py
 
-      - name: 2. Debug — verify files
+      - name: 2. Debug — verify timings
         run: |
-          echo "=== Root files ==="
+          echo "=== Files in root ==="
           ls -la
-          echo ""
-          echo "=== Assets folder ==="
-          ls -la assets/
           echo ""
           echo "=== First 3 caption chunks ==="
           python3 -c "
           import json
-          d = json.load(open('test_audio_timings.json'))
-          for c in d[:3]:
+          chunks = json.load(open('test_audio_timings.json'))
+          print(f'Total chunks: {len(chunks)}')
+          for c in chunks[:3]:
               print(c)
           "
 
@@ -55,16 +48,21 @@ jobs:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
         run: python src/generators/video_fetcher.py
 
-      - name: 4. Assemble Video with CapCut Captions
+      - name: 4. Assemble with CapCut Captions
         run: python src/assembly/video_editor.py
 
-      - name: 5. Verify output
+      - name: 5. Verify output exists
         run: |
           ls -lh master_final_video.mp4
-          echo "✅ Done"
+          echo "File exists and has size above. Done."
 
       - name: 6. Upload Result
         uses: actions/upload-artifact@v4
         with:
           name: finished-youtube-short
           path: master_final_video.mp4
+
+python-dotenv
+Pillow
+google-generativeai
+edge-tts
