@@ -10,10 +10,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Install FFmpeg and LibAss
+      - name: Install FFmpeg, LibAss and Fonts
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg libass-dev libfreetype6-dev
+          sudo apt-get install -y ffmpeg libass-dev libfreetype6-dev fonts-liberation
 
       - name: Set up Python
         uses: actions/setup-python@v4
