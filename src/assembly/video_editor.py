@@ -2,52 +2,87 @@ import os
 import subprocess
 from moviepy import VideoFileClip, AudioFileClip, concatenate_videoclips
 
-def assemble_video(video_path, audio_path, output_path="master_final_video.mp4"):
-    temp_no_subs = "temp_no_subs.mp4"
-    
-    # Absolute path for the SRT
-    raw_srt = os.path.abspath(audio_path.replace(".mp3", ".srt"))
-    
-    # Escape colons for FFmpeg's filtergraph syntax
-    escaped_srt = raw_srt.replace("\\", "/").replace(":", "\\:")
-
-    if not os.path.exists(raw_srt):
-        print(f"Error: Subtitle file {raw_srt} not found!")
+def assemble_video(video_path, audio_path, output_path="final_video.mp4"):
+    if not os.path.exists(video_path) or not os.path.exists(audio_path):
+        print("Error: Missing media files.")
         return False
 
-    print("Step 1: Syncing audio and video...")
-    v_clip = VideoFileClip(video_path)
-    a_clip = AudioFileClip(audio_path)
-    
-    if v_clip.duration < a_clip.duration:
-        loops = int(a_clip.duration // v_clip.duration) + 1
-        v_clip = concatenate_videoclips([v_clip] * loops)
-    
-    final_v = v_clip.subclipped(0, a_clip.duration).with_audio(a_clip)
-    final_v.write_videofile(temp_no_subs, fps=30, codec="libx264", audio_codec="aac", logger=None)
-    v_clip.close()
-    a_clip.close()
+    try:
+        print("Loading media...")
+        video_clip = VideoFileClip(video_path)
+        audio_clip = AudioFileClip(audio_path)
 
-    print("Step 2: Burning stable SRT captions...")
-    
-    # THE FIX: Removed the single quotes around {escaped_srt}
-    cmd = [
-        "ffmpeg", "-y", "-i", temp_no_subs,
-        "-vf", f"subtitles={escaped_srt}:force_style='Alignment=6,FontSize=18,Outline=1'",
-        "-c:a", "copy",
-        output_path
-    ]
-    
-    # Print the exact command to the GitHub logs for easy debugging
-    print(f"Running FFmpeg command: {' '.join(cmd)}")
-    
-    subprocess.run(cmd, check=True)
-    
-    if os.path.exists(temp_no_subs): 
-        os.remove(temp_no_subs)
-    
-    print("Success! Stable video rendered.")
-    return True
+        # Loop if necessary to cover the audio
+        if video_clip.duration < audio_clip.duration:
+            loops_needed = int(audio_clip.duration // video_clip.duration) + 1
+            video_clip = concatenate_videoclips([video_clip] * loops_needed)
+
+        # Cut to exact length
+        video_clip = video_clip.subclipped(0, audio_clip.duration)
+        final_video = video_clip.with_audio(audio_clip)
+
+        temp_video = "temp_no_subs.mp4"
+        print("Rendering base video without subtitles...")
+        final_video.write_videofile(
+            temp_video, 
+            fps=30, 
+            codec="libx264", 
+            audio_codec="aac",
+            preset="ultrafast",
+            logger=None
+        )
+        
+        video_clip.close()
+        audio_clip.close()
+        final_video.close()
+
+        srt_path = audio_path.replace(".mp3", ".srt")
+        if not os.path.exists(srt_path):
+            print(f"Error: Subtitle file {srt_path} not found.")
+            os.rename(temp_video, output_path)
+            return True
+            
+        # Debug check: ensures the SRT isn't completely empty
+        with open(srt_path, 'r', encoding='utf-8') as f:
+            if not f.read().strip():
+                print("WARNING: The SRT file is completely empty! Skipping text burn-in.")
+                os.rename(temp_video, output_path)
+                return True
+
+        print("Burning big yellow subtitles into the video using FFmpeg...")
+        
+        # 1. Get the absolute path so FFmpeg never loses the file
+        abs_srt = os.path.abspath(srt_path)
+        
+        # 2. Escape the path for FFmpeg's filter (replace backslashes, escape colons)
+        safe_srt = abs_srt.replace('\\', '/').replace(':', r'\:')
+        
+        # 3. Escape the commas in the style string with \, so FFmpeg doesn't split them
+        style = r"Alignment=5\,FontName=Ubuntu\,FontSize=22\,PrimaryColour=&H0000FFFF\,OutlineColour=&H00000000\,Outline=2\,Bold=1"
+        
+        # 4. Pass as a secured list to protect the backslashes from the Linux terminal
+        ffmpeg_cmd = [
+            "ffmpeg", "-y", 
+            "-i", temp_video, 
+            "-vf", f"subtitles={safe_srt}:force_style='{style}'", 
+            "-c:a", "copy", 
+            output_path
+        ]
+        
+        subprocess.run(ffmpeg_cmd, check=True)
+        
+        if os.path.exists(temp_video):
+            os.remove(temp_video)
+            
+        print(f"Success! Subtitled video rendered to {output_path}")
+        return True
+
+    except subprocess.CalledProcessError as e:
+        print(f"FFmpeg failed with error code: {e.returncode}")
+        return False
+    except Exception as e:
+        print(f"Failed to assemble video: {e}")
+        return False
 
 if __name__ == "__main__":
-    assemble_video("test_video.mp4", "test_audio.mp3")
+    assemble_video("test_video.mp4", "test_audio.mp3", "master_final_video.mp4")
