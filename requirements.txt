@@ -7,5 +7,9 @@ requests
 pytz
 python-dotenv
 Pillow
+numpy
 google-generativeai
 edge-tts
+whisperx
+torch
+torchaudio
