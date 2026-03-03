@@ -15,11 +15,10 @@ async def generate_audio_async(text, output_file, voice="en-US-ChristopherNeural
         async for chunk in communicate.stream():
             if chunk["type"] == "audio":
                 file.write(chunk["data"])
-            elif chunk["type"] == "WordBoundary":
-                # Feed the new SubMaker with the word chunks
+            # THE FIX: We now tell the script to catch both Word and Sentence boundaries
+            elif chunk["type"] in ["WordBoundary", "SentenceBoundary"]:
                 submaker.feed(chunk)
                 
-    # Save the subtitle file with the same name as the audio, but .srt extension
     srt_path = output_file.replace(".mp3", ".srt")
     with open(srt_path, "w", encoding="utf-8") as file:
         file.write(submaker.get_srt())
