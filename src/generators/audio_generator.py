@@ -2,26 +2,24 @@ import asyncio
 import edge_tts
 import os
 
-async def generate_audio_async(text, output_filename, voice="en-US-ChristopherNeural"):
-    root_dir    = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
-    output_path = os.path.join(root_dir, output_filename)
-
+async def generate_audio_async(text, output_file, voice="en-US-ChristopherNeural"):
     communicate = edge_tts.Communicate(text, voice)
-
-    with open(output_path, "wb") as f:
+    submaker = edge_tts.SubMaker()
+    
+    with open(output_file, "wb") as file:
         async for chunk in communicate.stream():
             if chunk["type"] == "audio":
-                f.write(chunk["data"])
-
-    size_kb = os.path.getsize(output_path) / 1024
-    print(f"✅ Audio saved: {output_path} ({size_kb:.1f} KB)")
-    return output_path
+                file.write(chunk["data"])
+            elif chunk["type"] == "WordBoundary":
+                submaker.feed(chunk)
+                
+    srt_path = output_file.replace(".mp3", ".srt")
+    with open(srt_path, "w", encoding="utf-8") as file:
+        file.write(submaker.get_srt())
+    return True
 
 def generate_audio(text, output_file, voice="en-US-ChristopherNeural"):
     return asyncio.run(generate_audio_async(text, output_file, voice))
 
 if __name__ == "__main__":
-    generate_audio(
-        "Testing captions. Every word should pop and highlight yellow when spoken.",
-        "test_audio.mp3"
-    )
+    generate_audio("This is the stable, simple captioning system.", "test_audio.mp3")
