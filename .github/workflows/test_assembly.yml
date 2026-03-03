@@ -10,15 +10,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
+      - name: Install Fonts and ImageMagick
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-dejavu-core imagemagick
+          sudo sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
           cache: 'pip'
-
-      - name: Fix ImageMagick Security Policy
-        run: |
-          sudo sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml
 
       - name: Install dependencies
         run: pip install -r requirements.txt
