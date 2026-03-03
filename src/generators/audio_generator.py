@@ -3,25 +3,43 @@ import edge_tts
 import os
 
 async def generate_audio_async(text, output_file, voice="en-US-ChristopherNeural"):
+    """
+    Generates TTS audio AND a matching .srt subtitle file with exact word timings.
+    """
     communicate = edge_tts.Communicate(text, voice)
     submaker = edge_tts.SubMaker()
+    
+    print("Generating audio and subtitle timestamps...")
     
     with open(output_file, "wb") as file:
         async for chunk in communicate.stream():
             if chunk["type"] == "audio":
                 file.write(chunk["data"])
-            elif chunk["type"] == "WordBoundary":
+            # THE FIX: We now tell the script to catch both Word and Sentence boundaries
+            elif chunk["type"] in ["WordBoundary", "SentenceBoundary"]:
                 submaker.feed(chunk)
                 
     srt_path = output_file.replace(".mp3", ".srt")
     with open(srt_path, "w", encoding="utf-8") as file:
         file.write(submaker.get_srt())
-    
-    print(f"Success! Audio and Subtitles saved to {output_file} and {srt_path}")
-    return True
 
 def generate_audio(text, output_file, voice="en-US-ChristopherNeural"):
-    return asyncio.run(generate_audio_async(text, output_file, voice))
+    """Wrapper to run the async audio and subtitle generation."""
+    try:
+        asyncio.run(generate_audio_async(text, output_file, voice))
+        
+        srt_path = output_file.replace(".mp3", ".srt")
+        if os.path.exists(output_file) and os.path.exists(srt_path):
+            print(f"Success! Audio and subtitles saved.")
+            return True
+        else:
+            print("Error: Files were not created properly.")
+            return False
+    except Exception as e:
+        print(f"Failed to generate audio/subtitles: {e}")
+        return False
 
 if __name__ == "__main__":
-    generate_audio("This is the stable, simple captioning system. We have removed the heavy AI modules.", "test_audio.mp3")
+    test_text = "System online. We are now generating audio and exact subtitle timestamps at the very same time. This is the foundation of viral retention."
+    output_path = "test_audio.mp3"
+    generate_audio(test_text, output_path)
