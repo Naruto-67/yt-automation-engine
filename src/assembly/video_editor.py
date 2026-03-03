@@ -3,19 +3,16 @@ import json
 import subprocess
 from PIL import Image, ImageDraw, ImageFont
 
-# ── Caption style ────────────────────────────────────────────────────────────
-FONT_SIZE_NORMAL  = 72
-FONT_SIZE_ACTIVE  = 92    # pop scale for active word
-COLOR_NORMAL      = "white"
-COLOR_ACTIVE      = "yellow"
-BORDER_W_NORMAL   = 4
-BORDER_W_ACTIVE   = 6
-SPACE_PX          = 20    # pixels between words
-CAPTION_Y_FROM_BOTTOM = 240  # px from bottom of frame
+FONT_SIZE_NORMAL      = 72
+FONT_SIZE_ACTIVE      = 90
+COLOR_NORMAL          = "white"
+COLOR_ACTIVE          = "yellow"
+BORDER_W_NORMAL       = 4
+BORDER_W_ACTIVE       = 6
+SPACE_PX              = 20
+CAPTION_Y_FROM_BOTTOM = 240
 
-# Font pre-installed on Ubuntu via fonts-liberation (apt)
 FONT_PATH = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
-# Fallback if running locally on macOS
 FONT_PATH_FALLBACK = "/System/Library/Fonts/Supplemental/Arial Bold.ttf"
 
 
@@ -24,14 +21,10 @@ def get_font_path():
         return FONT_PATH
     if os.path.exists(FONT_PATH_FALLBACK):
         return FONT_PATH_FALLBACK
-    raise RuntimeError(
-        f"No font found. Install fonts-liberation:\n"
-        f"  sudo apt-get install -y fonts-liberation"
-    )
+    raise RuntimeError(f"No font found at {FONT_PATH} — run: sudo apt-get install -y fonts-liberation")
 
 
 def get_video_info(video_path):
-    """Use ffprobe to get video width, height, fps, duration."""
     result = subprocess.run([
         "ffprobe", "-v", "quiet",
         "-print_format", "json",
@@ -42,11 +35,10 @@ def get_video_info(video_path):
         if s.get("codec_type") == "video":
             w = int(s["width"])
             h = int(s["height"])
-            # fps can be "30/1" or "30000/1001"
             fps_parts = s.get("r_frame_rate", "30/1").split("/")
             fps = float(fps_parts[0]) / float(fps_parts[1])
             return w, h, fps
-    raise RuntimeError("No video stream found in file.")
+    raise RuntimeError("No video stream found.")
 
 
 def get_audio_duration(audio_path):
@@ -63,7 +55,6 @@ def get_audio_duration(audio_path):
 
 
 def measure_word_width(text, font_path, font_size):
-    """Use Pillow purely for pixel-accurate text measurement."""
     font = ImageFont.truetype(font_path, font_size)
     img  = Image.new("RGB", (4000, 400))
     draw = ImageDraw.Draw(img)
@@ -72,81 +63,77 @@ def measure_word_width(text, font_path, font_size):
 
 
 def esc(text):
-    """
-    Escape text for FFmpeg drawtext filter.
-    When passed via subprocess list (no shell), only FFmpeg's own
-    filter parser rules apply — not shell escaping.
-    """
+    """Escape text for FFmpeg drawtext filter value."""
+    text = str(text)
     text = text.replace("\\", "\\\\")
+    text = text.replace("'", "\u2019")   # replace smart apostrophe — safest
     text = text.replace(":", "\\:")
-    text = text.replace("'", "\\'")
-    text = text.replace("%", "%%")
+    text = text.replace("%", "\\%")
     return text
 
 
 def build_drawtext_filters(chunks, font_path, video_w, video_h):
     """
-    Build list of drawtext filter strings for the full video.
-
-    Strategy (CapCut combo):
-      Layer 1 — all words in WHITE at normal size, enabled for chunk duration
-      Layer 2 — active word in YELLOW at larger size, enabled for word duration
-                (yellow draws on top of white → creates highlight + pop effect)
+    Returns a list of drawtext filter strings.
+    Layer 1: all words white (full chunk duration)
+    Layer 2: active word yellow + bigger (word duration only) — draws on top
     """
     filters = []
-    escaped_font = font_path.replace(":", "\\:")
+    # FFmpeg needs forward slashes and escaped colons in fontfile path
+    escaped_font = font_path.replace("\\", "/").replace(":", "\\:")
 
-    for chunk in chunks:
-        words      = chunk["words"]
-        chunk_s    = f"{chunk['start']:.3f}"
-        chunk_e    = f"{chunk['end']:.3f}"
+    print(f"  Building filters for {len(chunks)} chunks...")
+
+    for ci, chunk in enumerate(chunks):
+        words      = chunk.get("words", [])
+        if not words:
+            print(f"  WARNING: chunk {ci} has no words, skipping")
+            continue
+
+        chunk_s    = f"{float(chunk['start']):.3f}"
+        chunk_e    = f"{float(chunk['end']):.3f}"
         word_texts = [w["text"].upper() for w in words]
 
-        # Measure each word at NORMAL size to calculate line layout
-        widths = [measure_word_width(wt, font_path, FONT_SIZE_NORMAL) for wt in word_texts]
+        # Measure at normal size for layout
+        widths  = [measure_word_width(wt, font_path, FONT_SIZE_NORMAL) for wt in word_texts]
         total_w = sum(widths) + SPACE_PX * (len(widths) - 1)
         x_start = (video_w - total_w) // 2
         y_pos   = video_h - CAPTION_Y_FROM_BOTTOM - FONT_SIZE_NORMAL
 
-        # ── Layer 1: all words white, normal size, full chunk duration ──────
         x = x_start
         for wt, ww in zip(word_texts, widths):
             filters.append(
-                f"drawtext="
-                f"fontfile='{escaped_font}':"
-                f"text='{esc(wt)}':"
-                f"fontsize={FONT_SIZE_NORMAL}:"
-                f"fontcolor={COLOR_NORMAL}:"
-                f"x={x}:y={y_pos}:"
-                f"bordercolor=black:borderw={BORDER_W_NORMAL}:"
-                f"enable='between(t,{chunk_s},{chunk_e})'"
+                f"drawtext=fontfile='{escaped_font}'"
+                f":text='{esc(wt)}'"
+                f":fontsize={FONT_SIZE_NORMAL}"
+                f":fontcolor={COLOR_NORMAL}"
+                f":x={x}:y={y_pos}"
+                f":bordercolor=black:borderw={BORDER_W_NORMAL}"
+                f":enable='between(t,{chunk_s},{chunk_e})'"
             )
             x += ww + SPACE_PX
 
-        # ── Layer 2: active word yellow+bigger, only during its spoken time ─
+        # Layer 2: active word yellow + pop scale
         x = x_start
-        for i, (word, wt, ww) in enumerate(zip(words, word_texts, widths)):
-            word_s = f"{word['start']:.3f}"
-            word_e = f"{word['end']:.3f}"
-
-            # Measure at ACTIVE size and center it over the normal-size slot
+        for word, wt, ww in zip(words, word_texts, widths):
+            word_s   = f"{float(word['start']):.3f}"
+            word_e   = f"{float(word['end']):.3f}"
             active_w = measure_word_width(wt, font_path, FONT_SIZE_ACTIVE)
             x_active = x + (ww - active_w) // 2
-            # Raise y slightly so it grows upward (looks like a pop)
             y_active = y_pos - (FONT_SIZE_ACTIVE - FONT_SIZE_NORMAL) // 2
 
             filters.append(
-                f"drawtext="
-                f"fontfile='{escaped_font}':"
-                f"text='{esc(wt)}':"
-                f"fontsize={FONT_SIZE_ACTIVE}:"
-                f"fontcolor={COLOR_ACTIVE}:"
-                f"x={x_active}:y={y_active}:"
-                f"bordercolor=black:borderw={BORDER_W_ACTIVE}:"
-                f"enable='between(t,{word_s},{word_e})'"
+                f"drawtext=fontfile='{escaped_font}'"
+                f":text='{esc(wt)}'"
+                f":fontsize={FONT_SIZE_ACTIVE}"
+                f":fontcolor={COLOR_ACTIVE}"
+                f":x={x_active}:y={y_active}"
+                f":bordercolor=black:borderw={BORDER_W_ACTIVE}"
+                f":enable='between(t,{word_s},{word_e})'"
             )
             x += ww + SPACE_PX
 
+    print(f"  Total filters generated: {len(filters)}")
     return filters
 
 
@@ -172,16 +159,27 @@ def assemble_video(video_filename, audio_filename, output_filename="master_final
     font_path = get_font_path()
     print(f"✅ Font: {font_path}")
 
+    # ── Load + validate timings ──────────────────────────────────────────────
     with open(timings_path) as f:
-        chunks = json.load(f)
+        raw = f.read()
+
+    print(f"  Timings JSON raw length: {len(raw)} bytes")
+    print(f"  First 300 chars: {raw[:300]}")
+
+    chunks = json.loads(raw)
     print(f"✅ Loaded {len(chunks)} caption chunks")
 
-    audio_dur  = get_audio_duration(audio_path)
+    if len(chunks) == 0:
+        print("❌ FATAL: Timings JSON is empty — audio_generator.py produced no WordBoundary events")
+        return False
+
+    # ── Video info ───────────────────────────────────────────────────────────
+    audio_dur          = get_audio_duration(audio_path)
     video_w, video_h, fps = get_video_info(video_path)
     print(f"✅ Audio: {audio_dur:.2f}s | Video: {video_w}x{video_h} @ {fps:.1f}fps")
 
-    # ── Step 1: Loop background video to match audio length ──────────────────
-    print("🔄 Looping background to match audio duration...")
+    # ── Step 1: Loop background ──────────────────────────────────────────────
+    print("🔄 Looping background...")
     loop_result = subprocess.run([
         "ffmpeg", "-y",
         "-stream_loop", "-1",
@@ -198,20 +196,34 @@ def assemble_video(video_filename, audio_filename, output_filename="master_final
         return False
     print("✅ Background looped")
 
-    # ── Step 2: Build drawtext filtergraph ───────────────────────────────────
-    print("🖊️  Building caption filters...")
+    # ── Step 2: Build filters ────────────────────────────────────────────────
     filters = build_drawtext_filters(chunks, font_path, video_w, video_h)
-    filter_str = ",\n".join(filters)
-    print(f"   {len(filters)} drawtext filters generated")
 
-    # ── Step 3: Burn captions + mux audio in one FFmpeg pass ─────────────────
-    # We pass filter_str as a single list element — no shell, no shell escaping
-    print("🎬 Burning captions...")
+    if not filters:
+        print("❌ FATAL: No drawtext filters were generated.")
+        print("   Check that chunks have a 'words' key with content.")
+        print("   First chunk sample:", chunks[0] if chunks else "N/A")
+        return False
+
+    # Join with comma ONLY — no newlines inside filter string
+    filter_str = ",".join(filters)
+    print(f"✅ Filter string length: {len(filter_str)} chars")
+    print(f"   First 200 chars: {filter_str[:200]}")
+
+    # ── Step 3: Write filter script file ─────────────────────────────────────
+    # Using -filter_script instead of -vf avoids any command-line length limits
+    filter_script_path = os.path.join(root_dir, "caption_filters.txt")
+    with open(filter_script_path, "w") as f:
+        f.write(filter_str)
+    print(f"✅ Filter script written: {filter_script_path}")
+
+    # ── Step 4: Burn captions ────────────────────────────────────────────────
+    print("🎬 Burning captions with FFmpeg...")
     burn_result = subprocess.run([
         "ffmpeg", "-y",
         "-i", looped_path,
         "-i", audio_path,
-        "-vf", filter_str,          # passed directly, no shell interpretation
+        "-filter_script:v", filter_script_path,   # ← avoids CLI length limits
         "-map", "0:v",
         "-map", "1:a",
         "-c:v", "libx264", "-preset", "fast", "-crf", "23",
@@ -222,13 +234,14 @@ def assemble_video(video_filename, audio_filename, output_filename="master_final
     ], capture_output=True, text=True)
 
     if burn_result.returncode != 0:
-        print("❌ Caption burn failed. FFmpeg stderr:")
+        print("❌ Caption burn failed. FFmpeg stderr (last 3000 chars):")
         print(burn_result.stderr[-3000:])
         return False
 
     # Cleanup
-    if os.path.exists(looped_path):
-        os.remove(looped_path)
+    for f in [looped_path, filter_script_path]:
+        if os.path.exists(f):
+            os.remove(f)
 
     size_mb = os.path.getsize(output_path) / (1024 * 1024)
     print(f"\n✅ SUCCESS → {output_path} ({size_mb:.1f} MB)")
