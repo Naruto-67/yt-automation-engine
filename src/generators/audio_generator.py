@@ -41,6 +41,5 @@ def generate_audio(text, output_file, voice="en-US-ChristopherNeural"):
         return False
 
 if __name__ == "__main__":
-    # Use a longer sentence to ensure we trigger multiple boundaries
-    test_text = "The quick brown fox jumps over the lazy dog to test the subtitle system."
+    test_text = "This is a much longer sentence to test the dynamic line by line captioning system. We want to see the yellow highlight move across the words as they are spoken."
     generate_audio(test_text, "test_audio.mp3")
