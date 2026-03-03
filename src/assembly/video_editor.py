@@ -1,159 +1,97 @@
 import os
 import json
 import subprocess
+import cv2
 import numpy as np
-from moviepy import VideoFileClip, AudioFileClip, concatenate_videoclips, VideoClip
 from PIL import Image, ImageDraw, ImageFont
 
-# ── Font setup ──────────────────────────────────────────────────────────────
-# Try to find a bold TTF on the system. On GitHub Actions Ubuntu,
-# fonts-dejavu-core is pre-installed and always at this path.
-FONT_CANDIDATES = [
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-    "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
-    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-    "/usr/share/fonts/liberation/LiberationSans-Bold.ttf",
-    "/System/Library/Fonts/Helvetica.ttc",        # macOS fallback
-]
+# ── CapCut-style caption config ─────────────────────────────────────────────
+FONT_PATH        = os.path.join(os.path.dirname(__file__), "../../assets/Montserrat-Bold.ttf")
+FONT_SIZE_NORMAL = 72
+FONT_SIZE_ACTIVE = 90        # 1.25x pop-up scale for active word
+THICKNESS_NORMAL = 4
+THICKNESS_ACTIVE = 6
+COLOR_NORMAL     = (255, 255, 255)     # RGB white
+COLOR_ACTIVE     = (255, 220,   0)     # RGB warm yellow
+COLOR_OUTLINE    = (0,     0,   0)     # RGB black
+CAPTION_BOTTOM_MARGIN = 200            # px from bottom of frame
+SPACE_EXTRA      = 18                  # extra px between words
 
-def find_font():
-    for path in FONT_CANDIDATES:
-        if os.path.exists(path):
-            return path
-    # Last resort: PIL default (always exists, not pretty but works)
-    return None
 
-def draw_outline_text(draw, x, y, text, font, fill_color, outline_color=(0, 0, 0), outline_width=4):
-    """Draw text with a solid outline for readability."""
-    for dx in range(-outline_width, outline_width + 1):
-        for dy in range(-outline_width, outline_width + 1):
+def get_audio_duration(audio_path):
+    result = subprocess.run([
+        "ffprobe", "-v", "quiet",
+        "-print_format", "json",
+        "-show_streams", audio_path
+    ], capture_output=True, text=True, check=True)
+    info = json.loads(result.stdout)
+    for stream in info.get("streams", []):
+        if "duration" in stream:
+            return float(stream["duration"])
+    raise RuntimeError("ffprobe could not determine audio duration.")
+
+
+def draw_outline_text(draw, x, y, text, font, fill, outline=COLOR_OUTLINE, outline_w=4):
+    """Draw text with a solid pixel outline — works on any background."""
+    for dx in range(-outline_w, outline_w + 1):
+        for dy in range(-outline_w, outline_w + 1):
             if dx != 0 or dy != 0:
-                draw.text((x + dx, y + dy), text, font=font, fill=outline_color)
-    draw.text((x, y), text, font=font, fill=fill_color)
+                draw.text((x + dx, y + dy), text, font=font, fill=outline)
+    draw.text((x, y), text, font=font, fill=fill)
 
-def make_caption_frame(frame_array, t, caption_chunks, font, video_w, video_h):
-    """
-    Given a raw video frame (numpy array) and a timestamp t,
-    finds the active caption chunk, determines the active word,
-    and burns the caption onto the frame using Pillow.
-    Returns a numpy array.
-    """
-    img = Image.fromarray(frame_array)
-    draw = ImageDraw.Draw(img)
 
-    # Find the active chunk for this timestamp
-    active_chunk = None
-    for chunk in caption_chunks:
+def draw_caption_on_frame(pil_img, t, chunks, font_normal, font_active):
+    """
+    Draws CapCut-combo captions onto a PIL Image:
+      - Active word: YELLOW + larger font (pop scale) + thicker outline
+      - Other words: WHITE + normal font
+    Returns modified PIL Image.
+    """
+    # Find the active chunk
+    active = None
+    for chunk in chunks:
         if chunk["start"] <= t <= chunk["end"]:
-            active_chunk = chunk
+            active = chunk
             break
+    if active is None:
+        return pil_img
 
-    if active_chunk is None:
-        return frame_array  # No caption for this frame
+    words = active["words"]
 
-    # Find the active word within the chunk
-    active_word_idx = 0
-    for i, word in enumerate(active_chunk["words"]):
-        if word["start"] <= t:
-            active_word_idx = i
+    # Which word is active right now
+    active_idx = 0
+    for i, w in enumerate(words):
+        if w["start"] <= t:
+            active_idx = i
 
-    words = active_chunk["words"]
-
-    # ── Calculate positions ─────────────────────────────────────────────
-    # Measure each word's pixel width so we can center the whole line
     word_texts = [w["text"].upper() for w in words]
-    word_widths = []
-    space_width = font.getbbox(" ")[2]
 
-    for wt in word_texts:
-        bbox = font.getbbox(wt)
-        word_widths.append(bbox[2] - bbox[0])
+    # Measure each word at its own font size so we can center the line
+    draw = ImageDraw.Draw(pil_img)
+    word_data = []
+    for i, wt in enumerate(word_texts):
+        font = font_active if i == active_idx else font_normal
+        bbox = draw.textbbox((0, 0), wt, font=font)
+        w_w  = bbox[2] - bbox[0]
+        w_h  = bbox[3] - bbox[1]
+        word_data.append({"text": wt, "font": font, "w": w_w, "h": w_h})
 
-    # Total line width including spaces between words
-    total_width = sum(word_widths) + space_width * (len(word_texts) - 1)
-    x_start = (video_w - total_width) // 2
+    total_w = sum(d["w"] for d in word_data) + SPACE_EXTRA * (len(word_data) - 1)
+    img_w, img_h = pil_img.size
+    x = (img_w - total_w) // 2
 
-    # Position captions in the lower third — safe for 9:16
-    font_height = font.getbbox("A")[3]
-    y = video_h - font_height - 180
+    # Baseline y: anchor to bottom margin, align all words to same baseline
+    max_h   = max(d["h"] for d in word_data)
+    y_base  = img_h - CAPTION_BOTTOM_MARGIN
 
-    # ── Draw each word ──────────────────────────────────────────────────
-    x = x_start
-    for i, (word_text, word_width) in enumerate(zip(word_texts, word_widths)):
-        # Active word = yellow, rest = white
-        color = (255, 230, 0) if i == active_word_idx else (255, 255, 255)
-        draw_outline_text(draw, x, y, word_text, font, fill_color=color, outline_width=5)
-        x += word_width + space_width
+    cur_x = x
+    for i, d in enumerate(word_data):
+        color   = COLOR_ACTIVE if i == active_idx else COLOR_NORMAL
+        outline = THICKNESS_ACTIVE if i == active_idx else THICKNESS_NORMAL
 
-    return np.array(img)
+        # Vertically align smaller words to the same baseline as the tallest
+        y_offset = y_base + (max_h - d["h"])
 
-def assemble_video(video_filename, audio_filename, output_filename="master_final_video.mp4"):
-    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
-
-    video_path   = os.path.join(root_dir, video_filename)
-    audio_path   = os.path.join(root_dir, audio_filename)
-    timings_path = audio_path.replace(".mp3", "_timings.json")
-    output_path  = os.path.join(root_dir, output_filename)
-
-    # ── Sanity checks ───────────────────────────────────────────────────
-    for path, label in [(video_path, "Video"), (audio_path, "Audio"), (timings_path, "Timings JSON")]:
-        if not os.path.exists(path):
-            print(f"CRITICAL ERROR: {label} file missing: {path}")
-            print("Files in root:", os.listdir(root_dir))
-            return False
-
-    # ── Load caption data ───────────────────────────────────────────────
-    with open(timings_path, "r") as f:
-        caption_chunks = json.load(f)
-    print(f"Loaded {len(caption_chunks)} caption chunks from timings JSON.")
-
-    # ── Load font ───────────────────────────────────────────────────────
-    font_path = find_font()
-    if font_path:
-        print(f"Using font: {font_path}")
-        font = ImageFont.truetype(font_path, 85)
-    else:
-        print("WARNING: No TTF font found. Using PIL default font (captions will be small).")
-        font = ImageFont.load_default()
-
-    # ── Load and loop video to match audio length ───────────────────────
-    v_clip = VideoFileClip(video_path)
-    a_clip = AudioFileClip(audio_path)
-
-    if v_clip.duration < a_clip.duration:
-        loops = int(a_clip.duration // v_clip.duration) + 1
-        v_clip = concatenate_videoclips([v_clip] * loops)
-
-    v_clip = v_clip.subclipped(0, a_clip.duration).with_audio(a_clip)
-
-    video_w = v_clip.w
-    video_h = v_clip.h
-
-    # ── Apply Pillow caption overlay frame by frame ─────────────────────
-    print("Burning captions onto frames (this takes a moment)...")
-
-    def process_frame(get_frame, t):
-        frame = get_frame(t)
-        return make_caption_frame(frame, t, caption_chunks, font, video_w, video_h)
-
-    captioned = v_clip.transform(process_frame)
-
-    # ── Write final video ───────────────────────────────────────────────
-    captioned.write_videofile(
-        output_path,
-        fps=30,
-        codec="libx264",
-        audio_codec="aac",
-        threads=4,
-        logger=None
-    )
-
-    v_clip.close()
-    a_clip.close()
-    captioned.close()
-
-    print(f"\n✅ Success! Final video at: {output_path}")
-    return True
-
-if __name__ == "__main__":
-    assemble_video("test_video.mp4", "test_audio.mp3")
+        draw_outline_text(draw, cur_x, y_offset, d["text"], d["font"],
+                          fill=color, outline_w=outline)
+        cur
