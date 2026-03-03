@@ -4,11 +4,20 @@ from moviepy import VideoFileClip, AudioFileClip, concatenate_videoclips
 
 def assemble_video(video_path, audio_path, output_path="master_final_video.mp4"):
     temp_no_subs = "temp_no_subs.mp4"
-    srt_path = audio_path.replace(".mp3", ".srt")
+    
+    # Force the absolute path and escape it for the Linux FFmpeg engine
+    raw_srt = os.path.abspath(audio_path.replace(".mp3", ".srt"))
+    # FFmpeg requires colons and slashes to be escaped in the subtitles filter
+    escaped_srt = raw_srt.replace("\\", "/").replace(":", "\\:")
 
-    # 1. Sync Video/Audio
+    if not os.path.exists(raw_srt):
+        print(f"Error: Subtitle file {raw_srt} not found!")
+        return False
+
+    print("Step 1: Syncing audio and video...")
     v_clip = VideoFileClip(video_path)
     a_clip = AudioFileClip(audio_path)
+    
     if v_clip.duration < a_clip.duration:
         loops = int(a_clip.duration // v_clip.duration) + 1
         v_clip = concatenate_videoclips([v_clip] * loops)
@@ -18,17 +27,19 @@ def assemble_video(video_path, audio_path, output_path="master_final_video.mp4")
     v_clip.close()
     a_clip.close()
 
-    # 2. Basic FFmpeg Burn
-    # No complex styles, just centered white text with a black outline
+    print("Step 2: Burning stable SRT captions...")
     cmd = [
         "ffmpeg", "-y", "-i", temp_no_subs,
-        "-vf", f"subtitles={srt_path}:force_style='Alignment=6,FontSize=18,Outline=1'",
+        # Using the escaped absolute path guarantees FFmpeg finds the file
+        "-vf", f"subtitles='{escaped_srt}':force_style='Alignment=6,FontSize=18,Outline=1'",
         "-c:a", "copy",
         output_path
     ]
     
     subprocess.run(cmd, check=True)
     if os.path.exists(temp_no_subs): os.remove(temp_no_subs)
+    
+    print("Success! Stable video rendered.")
     return True
 
 if __name__ == "__main__":
