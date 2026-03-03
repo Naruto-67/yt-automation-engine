@@ -15,7 +15,6 @@ def assemble_video(video_path, audio_path, output_path="master_final_video.mp4")
     video_clip = VideoFileClip(video_path)
     audio_clip = AudioFileClip(audio_path)
     
-    # Sync duration
     if video_clip.duration < audio_clip.duration:
         loops = int(audio_clip.duration // video_clip.duration) + 1
         video_clip = concatenate_videoclips([video_clip] * loops)
@@ -23,10 +22,11 @@ def assemble_video(video_path, audio_path, output_path="master_final_video.mp4")
 
     all_clips = [video_clip]
     
-    # BOX SETTINGS: This prevents the 'Giant Word' issue
-    # We create a box that is 80% of the video width
-    box_w = int(video_clip.w * 0.8)
-    box_h = None # Height adjusts automatically based on text
+    # BOX SETTINGS: 
+    # text_w = 90% of screen width
+    # text_h = 200 pixels (plenty of vertical room to prevent stretching)
+    text_w = int(video_clip.w * 0.9)
+    text_h = 200 
 
     words_per_line = 3 
     for i in range(0, len(word_timings), words_per_line):
@@ -39,13 +39,14 @@ def assemble_video(video_path, audio_path, output_path="master_final_video.mp4")
         # 1. THE BASE LINE (WHITE)
         base_txt = TextClip(
             text=full_line_text, 
-            font_size=70, 
+            font_size=60, 
             color='white',
             font=font_path,
             stroke_color='black', 
             stroke_width=2,
             method='caption',
-            size=(box_w, box_h) # This 'size' keeps the text contained
+            text_align='center', # Internal alignment
+            size=(text_w, text_h) 
         ).with_start(line_start).with_end(line_end).with_position(('center', 'center'))
         
         all_clips.append(base_txt)
@@ -54,18 +55,18 @@ def assemble_video(video_path, audio_path, output_path="master_final_video.mp4")
         for word in line_chunk:
             highlight = TextClip(
                 text=word['text'].upper(), 
-                font_size=72, 
+                font_size=60, 
                 color='yellow',
                 font=font_path,
                 stroke_color='black', 
                 stroke_width=2,
                 method='caption',
-                size=(box_w, box_h)
+                text_align='center',
+                size=(text_w, text_h)
             ).with_start(word['start']).with_end(word['start'] + word['duration']).with_position(('center', 'center'))
             
             all_clips.append(highlight)
 
-    print(f"Final Assembly: {len(all_clips)} layers...")
     final_video = CompositeVideoClip(all_clips).with_audio(audio_clip)
     final_video.write_videofile(output_path, fps=30, codec="libx264", preset="ultrafast", logger=None)
     
