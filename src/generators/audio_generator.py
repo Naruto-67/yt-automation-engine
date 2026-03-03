@@ -8,9 +8,9 @@ async def generate_audio_async(text, output_filename, voice="en-US-ChristopherNe
     output_path  = os.path.join(root_dir, output_filename)
     timings_path = output_path.replace(".mp3", "_timings.json")
 
-    # boundary_type="word" is REQUIRED in edge-tts v7.2.0+
-    # The library changed its default to SentenceBoundary in that release
-    communicate = edge_tts.Communicate(text, voice, boundary_type="word")
+    # boundary="WordBoundary" is REQUIRED in edge-tts v7.2.0+
+    # Default changed to SentenceBoundary in that release
+    communicate = edge_tts.Communicate(text, voice, boundary="WordBoundary")
     words = []
 
     with open(output_path, "wb") as f:
@@ -29,7 +29,7 @@ async def generate_audio_async(text, output_filename, voice="en-US-ChristopherNe
     if len(words) == 0:
         raise RuntimeError(
             "No WordBoundary events received from edge-tts. "
-            "Check edge-tts version and boundary_type parameter."
+            "Check edge-tts version and boundary parameter."
         )
 
     # Group into 3-word caption chunks
