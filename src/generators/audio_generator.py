@@ -9,14 +9,13 @@ def format_ass_time(seconds):
     return f"{h}:{m:02d}:{s:05.2f}"
 
 async def generate_audio_async(text, output_filename, voice="en-US-ChristopherNeural"):
-    # Force the file to save in the project root
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
     output_path = os.path.join(root_dir, output_filename)
     ass_path = output_path.replace(".mp3", ".ass")
 
     communicate = edge_tts.Communicate(text, voice)
     words = []
-    
+
     with open(output_path, "wb") as file:
         async for chunk in communicate.stream():
             if chunk["type"] == "audio":
@@ -29,11 +28,18 @@ async def generate_audio_async(text, output_filename, voice="en-US-ChristopherNe
                 })
 
     header = [
-        "[Script Info]", "ScriptType: v4.00+", "PlayResX: 1080", "PlayResY: 1920", "",
+        "[Script Info]",
+        "ScriptType: v4.00+",
+        "PlayResX: 1080",
+        "PlayResY: 1920",
+        "",
         "[V4+ Styles]",
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-        "Style: Default,Arial,80,&H00FFFFFF,&H0000FFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,3,1,5,10,10,960,1", "",
-        "[Events]", "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
+        # FIX 3: Alignment=2 (bottom center), MarginV=80 (not 960), semi-transparent black background
+        "Style: Default,Arial,80,&H00FFFFFF,&H0000FFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,2,10,10,80,1",
+        "",
+        "[Events]",
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
     ]
 
     with open(ass_path, "w", encoding="utf-8") as f:
@@ -47,7 +53,7 @@ async def generate_audio_async(text, output_filename, voice="en-US-ChristopherNe
                 duration_cs = int((w['end'] - w['start']) * 100)
                 processed_text += f"{{\\k{duration_cs}}}{w['text'].upper()} "
             f.write(f"Dialogue: 0,{line_start},{line_end},Default,,0,0,0,,{processed_text.strip()}\n")
-    
+
     print(f"Subtitles successfully saved to: {ass_path}")
     return True
 
