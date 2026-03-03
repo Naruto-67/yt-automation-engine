@@ -1,41 +1,8 @@
 import os
-import re
-from moviepy import VideoFileClip, AudioFileClip, TextClip, CompositeVideoClip, concatenate_videoclips
-
-def parse_srt(srt_file):
-    """Bulletproof SRT parser using regular expressions."""
-    if not os.path.exists(srt_file):
-        print(f"Warning: Subtitle file {srt_file} not found.")
-        return []
-
-    with open(srt_file, 'r', encoding='utf-8') as f:
-        content = f.read()
-
-    # Regex to mathematically extract exact start, end, and text chunks
-    pattern = re.compile(r'(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})\s*\n(.*?)(?=\n\n|\Z)', re.DOTALL)
-    
-    subs = []
-    for match in pattern.finditer(content):
-        start_str = match.group(1)
-        end_str = match.group(2)
-        text = match.group(3).replace('\n', ' ').strip()
-        
-        def time_to_sec(t_str):
-            h, m, s_ms = t_str.split(':')
-            sec, ms = s_ms.split(',')
-            return int(h)*3600 + int(m)*60 + int(sec) + int(ms)/1000.0
-            
-        subs.append({
-            "start": time_to_sec(start_str),
-            "end": time_to_sec(end_str),
-            "text": text
-        })
-        
-    print(f"DEBUG: Successfully parsed {len(subs)} subtitle blocks from SRT.")
-    return subs
+import subprocess
+from moviepy import VideoFileClip, AudioFileClip, concatenate_videoclips
 
 def assemble_video(video_path, audio_path, output_path="final_video.mp4"):
-    """Stitches video, audio, and subtitles together into a viral Short."""
     if not os.path.exists(video_path) or not os.path.exists(audio_path):
         print("Error: Missing media files.")
         return False
@@ -52,40 +19,12 @@ def assemble_video(video_path, audio_path, output_path="final_video.mp4"):
 
         # Cut to exact length
         video_clip = video_clip.subclipped(0, audio_clip.duration)
-        
-        # Build the Subtitle Clips
-        srt_path = audio_path.replace(".mp3", ".srt")
-        subtitles = parse_srt(srt_path)
-        
-        # Start our layers with the background video
-        clips = [video_clip]
-        
-        print("Generating heavy subtitle text graphics...")
-        for sub in subtitles:
-            # Removed the specific font to allow Ubuntu to use its safe default
-            txt_clip = TextClip(
-                text=sub['text'], 
-                font_size=90, 
-                color='yellow', 
-                stroke_color='black', 
-                stroke_width=3,
-                method='caption',
-                size=(video_clip.w * 0.8, None)
-            )
-            
-            # Place it dead center and time it perfectly
-            txt_clip = txt_clip.with_position(('center', 'center'))
-            txt_clip = txt_clip.with_start(sub['start']).with_end(sub['end'])
-            
-            clips.append(txt_clip)
+        final_video = video_clip.with_audio(audio_clip)
 
-        print(f"Overlaying {len(clips)} total layers (1 Video + {len(subtitles)} Text Clips)...")
-        final_video = CompositeVideoClip(clips)
-        final_video = final_video.with_audio(audio_clip)
-
-        print("Rendering final masterpiece...")
+        temp_video = "temp_no_subs.mp4"
+        print("Rendering base video without subtitles...")
         final_video.write_videofile(
-            output_path, 
+            temp_video, 
             fps=30, 
             codec="libx264", 
             audio_codec="aac",
@@ -96,7 +35,37 @@ def assemble_video(video_path, audio_path, output_path="final_video.mp4"):
         video_clip.close()
         audio_clip.close()
         final_video.close()
+
+        srt_path = audio_path.replace(".mp3", ".srt")
+        if not os.path.exists(srt_path):
+            print(f"Error: Subtitle file {srt_path} not found. Skipping text burn-in.")
+            os.rename(temp_video, output_path)
+            return True
+            
+        # Debug check to ensure SRT isn't actually empty
+        with open(srt_path, 'r', encoding='utf-8') as f:
+            if not f.read().strip():
+                print("WARNING: The SRT file is completely empty! Edge-TTS did not generate words.")
+            
+        print("Burning big yellow subtitles into the video using FFmpeg...")
+        # Style: Center aligned (Alignment=5), Yellow text, Black outline, Bold
+        style = "Alignment=5,FontName=Arial,FontSize=22,PrimaryColour=&H0000FFFF,OutlineColour=&H00000000,Outline=2,Bold=1"
         
+        # This 1 command does all the heavy lifting ImageMagick failed to do
+        ffmpeg_cmd = [
+            "ffmpeg", "-y", 
+            "-i", temp_video, 
+            "-vf", f"subtitles={srt_path}:force_style='{style}'", 
+            "-c:a", "copy", 
+            output_path
+        ]
+        
+        subprocess.run(ffmpeg_cmd, check=True)
+        
+        # Clean up temp file
+        if os.path.exists(temp_video):
+            os.remove(temp_video)
+            
         print(f"Success! Subtitled video rendered to {output_path}")
         return True
 
