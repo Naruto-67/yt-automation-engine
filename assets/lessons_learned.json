@@ -1,0 +1,12 @@
+{
+  "avoid": [
+    "long pauses",
+    "boring historical dates",
+    "robotic greetings like 'Hey guys'"
+  ],
+  "emphasize": [
+    "High-energy pacing",
+    "Strong visual hooks in the first 3 seconds",
+    "Direct and controversial statements"
+  ]
+}
