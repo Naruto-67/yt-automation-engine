@@ -49,4 +49,15 @@ async def generate_audio_async(text, output_file, voice="en-US-ChristopherNeural
                 duration_cs = int((w['end'] - w['start']) * 100)
                 processed_text += f"{{\\k{duration_cs}}}{w['text'].upper()} "
             
-            f.write(f"Dialogue: 0,{line_
+            f.write(f"Dialogue: 0,{line_start},{line_end},Default,,0,0,0,,{processed_text.strip()}\n")
+
+def generate_audio(text, output_file, voice="en-US-ChristopherNeural"):
+    try:
+        asyncio.run(generate_audio_async(text, output_file, voice))
+        return True
+    except Exception as e:
+        print(f"Error: {e}")
+        return False
+
+if __name__ == "__main__":
+    generate_audio("Testing the hard burn karaoke subtitle system for our viral shorts.", "test_audio.mp3")
