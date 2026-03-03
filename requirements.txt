@@ -1,3 +1,4 @@
+google-generativeai
 google-api-python-client
 google-auth-httplib2
 google-auth-oauthlib
@@ -8,5 +9,6 @@ pytz
 python-dotenv
 moviepy
 Pillow
-google-generativeai
-edge-tts
+kokoro
+soundfile
+faster-whisper
