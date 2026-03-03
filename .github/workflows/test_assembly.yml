@@ -10,10 +10,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Install system dependencies
+      - name: Install FFmpeg
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-dejavu-core
+          sudo apt-get install -y ffmpeg
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -24,24 +24,46 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
+      - name: Download Montserrat Bold font
+        run: |
+          mkdir -p assets
+          wget -q -O assets/Montserrat-Bold.ttf \
+            "https://github.com/JulietaUla/Montserrat/raw/master/fonts/ttf/Montserrat-Bold.ttf"
+          echo "Font size: $(wc -c < assets/Montserrat-Bold.ttf) bytes"
+
       - name: 1. Generate Voice + Timings
         run: python src/generators/audio_generator.py
 
-      - name: 2. Debug — List files
+      - name: 2. Debug — verify files
         run: |
+          echo "=== Root files ==="
           ls -la
-          echo "---"
-          cat test_audio_timings.json
+          echo ""
+          echo "=== Assets folder ==="
+          ls -la assets/
+          echo ""
+          echo "=== First 3 caption chunks ==="
+          python3 -c "
+          import json
+          d = json.load(open('test_audio_timings.json'))
+          for c in d[:3]:
+              print(c)
+          "
 
       - name: 3. Download Background Video
         env:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
         run: python src/generators/video_fetcher.py
 
-      - name: 4. Assemble Video with Captions
+      - name: 4. Assemble Video with CapCut Captions
         run: python src/assembly/video_editor.py
 
-      - name: 5. Upload Result
+      - name: 5. Verify output
+        run: |
+          ls -lh master_final_video.mp4
+          echo "✅ Done"
+
+      - name: 6. Upload Result
         uses: actions/upload-artifact@v4
         with:
           name: finished-youtube-short
