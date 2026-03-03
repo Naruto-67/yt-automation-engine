@@ -1,0 +1,37 @@
+name: Run Full Automation Pipeline
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-short:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-liberation
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Orchestrator (main.py)
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+        run: python main.py
+
+      - name: Upload Final Video
+        uses: actions/upload-artifact@v4
+        with:
+          name: finished-youtube-short
+          path: FINAL_YOUTUBE_SHORT.mp4
