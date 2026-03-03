@@ -6,7 +6,7 @@ def assemble_video(video_path, audio_path, output_path="master_final_video.mp4")
     temp_video = "temp_raw.mp4"
     ass_path = audio_path.replace(".mp3", ".ass")
 
-    # 1. Use MoviePy ONLY for video/audio alignment
+    print("Step 1: Aligning video and audio...")
     v_clip = VideoFileClip(video_path)
     a_clip = AudioFileClip(audio_path)
     
@@ -20,13 +20,20 @@ def assemble_video(video_path, audio_path, output_path="master_final_video.mp4")
     v_clip.close()
     a_clip.close()
 
-    # 2. Use FFmpeg to burn the .ass subtitles perfectly
-    # This is where the highlight and styling happens
-    cmd = f'ffmpeg -y -i {temp_video} -vf "ass={ass_path}" {output_path}'
-    subprocess.run(cmd, shell=True, check=True)
+    print("Step 2: Hard-burning subtitles with FFmpeg...")
+    # This command uses the libass library to burn the .ass file perfectly
+    cmd = [
+        "ffmpeg", "-y", "-i", temp_video, 
+        "-vf", f"ass={ass_path}", 
+        "-c:a", "copy", 
+        output_path
+    ]
+    
+    subprocess.run(cmd, check=True)
     
     if os.path.exists(temp_video):
         os.remove(temp_video)
+    print("Success! Video rendered.")
     return True
 
 if __name__ == "__main__":
