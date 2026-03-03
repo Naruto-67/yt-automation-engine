@@ -23,11 +23,12 @@ def assemble_video(video_path, audio_path, output_path="master_final_video.mp4")
         video_clip = concatenate_videoclips([video_clip] * loops)
     video_clip = video_clip.subclipped(0, audio_clip.duration)
 
-    # 2. Precise Pixel Positioning
-    # Instead of percentages, we use whole numbers (integers)
+    # 2. Layout Settings
     video_w, video_h = video_clip.w, video_clip.h
-    center_x = int(video_w / 2)
-    center_y = int(video_h * 0.7) # Positioned 70% down the screen (lower middle)
+    # We define a standard box for all text to live in
+    text_width = int(video_w * 0.8)
+    # 70% down the screen
+    vertical_pos = int(video_h * 0.7) 
 
     all_clips = [video_clip]
     
@@ -48,8 +49,8 @@ def assemble_video(video_path, audio_path, output_path="master_final_video.mp4")
             stroke_color='black', 
             stroke_width=2, 
             method='caption',
-            size=(int(video_w * 0.8), None) # Force integer width
-        ).with_start(line_start).with_end(line_end).with_position((center_x - int(video_w * 0.4), center_y))
+            size=(text_width, None)
+        ).with_start(line_start).with_end(line_end).with_position(('center', vertical_pos))
         
         all_clips.append(base_txt)
 
@@ -57,13 +58,14 @@ def assemble_video(video_path, audio_path, output_path="master_final_video.mp4")
         for word in line_chunk:
             highlight = TextClip(
                 text=word['text'].upper(), 
-                font_size=75, 
+                font_size=75, # Slightly larger for "pop" effect
                 color='yellow',
                 font=font_path,
                 stroke_color='black', 
                 stroke_width=3, 
-                method='caption'
-            ).with_start(word['start']).with_end(word['start'] + word['duration']).with_position((center_x - int(video_w * 0.4), center_y))
+                method='caption',
+                size=(text_width, None) # MANDATORY SIZE FIX
+            ).with_start(word['start']).with_end(word['start'] + word['duration']).with_position(('center', vertical_pos))
             
             all_clips.append(highlight)
 
