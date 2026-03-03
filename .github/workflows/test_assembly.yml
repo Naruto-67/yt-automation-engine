@@ -10,10 +10,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Install FFmpeg, LibAss and Fonts
+      - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg libass-dev libfreetype6-dev fonts-liberation
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -21,21 +21,24 @@ jobs:
           python-version: '3.10'
           cache: 'pip'
 
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      - name: 1. Generate Voice & Metadata
+      - name: 1. Generate Voice + Timings
         run: python src/generators/audio_generator.py
 
-      - name: 2. Debug - List Files
-        run: ls -R
+      - name: 2. Debug — List files
+        run: |
+          ls -la
+          echo "---"
+          cat test_audio_timings.json
 
-      - name: 3. Download Background
+      - name: 3. Download Background Video
         env:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
         run: python src/generators/video_fetcher.py
 
-      - name: 4. Assemble & Burn Subtitles
+      - name: 4. Assemble Video with Captions
         run: python src/assembly/video_editor.py
 
       - name: 5. Upload Result
