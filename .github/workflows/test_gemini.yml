@@ -1,0 +1,26 @@
+name: Test Gemini Script Writer
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-ai:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        # We are adding the google-generativeai package here for the AI
+        run: pip install google-generativeai
+
+      - name: Generate Test Script
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python src/generators/script_writer.py
