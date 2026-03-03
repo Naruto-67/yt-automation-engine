@@ -6,35 +6,35 @@ on:
 jobs:
   render-video:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-
-      - name: Install FFmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-          cache: 'pip'  # <--- THIS IS THE MAGIC SPEED BUTTON
+          cache: 'pip'
 
-      - name: Install Python dependencies
+      - name: Fix ImageMagick Security Policy
+        run: |
+          sudo sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml
+
+      - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: 1. Generate Voiceover & SRT
+      - name: 1. Generate Voice & JSON
         run: python src/generators/audio_generator.py
 
-      - name: 2. Download Background Video
+      - name: 2. Download Video
         env:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
         run: python src/generators/video_fetcher.py
 
-      - name: 3. Assemble Final Video with FFmpeg Subtitles
+      - name: 3. Assemble Master Video
         run: python src/assembly/video_editor.py
 
-      - name: 4. Upload Final Masterpiece
+      - name: 4. Upload
         uses: actions/upload-artifact@v4
         with:
           name: finished-youtube-short
