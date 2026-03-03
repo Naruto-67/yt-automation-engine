@@ -8,11 +8,16 @@ def format_ass_time(seconds):
     s = seconds % 60
     return f"{h}:{m:02d}:{s:05.2f}"
 
-async def generate_audio_async(text, output_file, voice="en-US-ChristopherNeural"):
+async def generate_audio_async(text, output_filename, voice="en-US-ChristopherNeural"):
+    # Force the file to save in the project root
+    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+    output_path = os.path.join(root_dir, output_filename)
+    ass_path = output_path.replace(".mp3", ".ass")
+
     communicate = edge_tts.Communicate(text, voice)
     words = []
     
-    with open(output_file, "wb") as file:
+    with open(output_path, "wb") as file:
         async for chunk in communicate.stream():
             if chunk["type"] == "audio":
                 file.write(chunk["data"])
@@ -23,12 +28,6 @@ async def generate_audio_async(text, output_file, voice="en-US-ChristopherNeural
                     "end": (chunk["offset"] + chunk["duration"]) / 10000000
                 })
 
-    if not words:
-        print("ERROR: No words captured!")
-        return False
-
-    ass_path = output_file.replace(".mp3", ".ass")
-    # Alignment 5 = Middle-Center. Outline 2. 
     header = [
         "[Script Info]", "ScriptType: v4.00+", "PlayResX: 1080", "PlayResY: 1920", "",
         "[V4+ Styles]",
@@ -49,11 +48,11 @@ async def generate_audio_async(text, output_file, voice="en-US-ChristopherNeural
                 processed_text += f"{{\\k{duration_cs}}}{w['text'].upper()} "
             f.write(f"Dialogue: 0,{line_start},{line_end},Default,,0,0,0,,{processed_text.strip()}\n")
     
-    print(f"Generated subtitles at: {os.path.abspath(ass_path)}")
+    print(f"Subtitles successfully saved to: {ass_path}")
     return True
 
 def generate_audio(text, output_file, voice="en-US-ChristopherNeural"):
     return asyncio.run(generate_audio_async(text, output_file, voice))
 
 if __name__ == "__main__":
-    generate_audio("Testing the hard burn system one more time for perfect captions.", "test_audio.mp3")
+    generate_audio("Testing the universal path system for perfect captions.", "test_audio.mp3")
