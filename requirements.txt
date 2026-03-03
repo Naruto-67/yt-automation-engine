@@ -10,6 +10,4 @@ Pillow
 numpy
 google-generativeai
 edge-tts
-whisperx
-torch
-torchaudio
+moviepy
