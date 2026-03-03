@@ -1,0 +1,8 @@
+name: Test Discord Connection
+
+on:
+workflow_dispatch:
+
+jobs:
+test-notification:
+runs-on: ubuntu-latest
