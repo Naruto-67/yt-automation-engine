@@ -42,17 +42,34 @@ def assemble_video(video_path, audio_path, output_path="final_video.mp4"):
             os.rename(temp_video, output_path)
             return True
             
+        # Debug check: ensures the SRT isn't completely empty
+        with open(srt_path, 'r', encoding='utf-8') as f:
+            if not f.read().strip():
+                print("WARNING: The SRT file is completely empty! Skipping text burn-in.")
+                os.rename(temp_video, output_path)
+                return True
+
         print("Burning big yellow subtitles into the video using FFmpeg...")
         
-        # THE FIX: We build the entire command as one solid string.
-        # This completely stops Python from scrambling the commas.
-        style = "Alignment=5,FontName=Ubuntu,FontSize=22,PrimaryColour=&H0000FFFF,OutlineColour=&H00000000,Outline=2,Bold=1"
+        # 1. Get the absolute path so FFmpeg never loses the file
+        abs_srt = os.path.abspath(srt_path)
         
-        ffmpeg_cmd = f'ffmpeg -y -i "{temp_video}" -vf "subtitles={srt_path}:force_style=\'{style}\'" -c:a copy "{output_path}"'
+        # 2. Escape the path for FFmpeg's filter (replace backslashes, escape colons)
+        safe_srt = abs_srt.replace('\\', '/').replace(':', r'\:')
         
-        print(f"Executing Linux command: {ffmpeg_cmd}")
-        # shell=True forces the server to run the raw string exactly as we wrote it
-        subprocess.run(ffmpeg_cmd, shell=True, check=True)
+        # 3. Escape the commas in the style string with \, so FFmpeg doesn't split them
+        style = r"Alignment=5\,FontName=Ubuntu\,FontSize=22\,PrimaryColour=&H0000FFFF\,OutlineColour=&H00000000\,Outline=2\,Bold=1"
+        
+        # 4. Pass as a secured list to protect the backslashes from the Linux terminal
+        ffmpeg_cmd = [
+            "ffmpeg", "-y", 
+            "-i", temp_video, 
+            "-vf", f"subtitles={safe_srt}:force_style='{style}'", 
+            "-c:a", "copy", 
+            output_path
+        ]
+        
+        subprocess.run(ffmpeg_cmd, check=True)
         
         if os.path.exists(temp_video):
             os.remove(temp_video)
