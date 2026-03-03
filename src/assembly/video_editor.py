@@ -2,16 +2,22 @@ import os
 import subprocess
 from moviepy import VideoFileClip, AudioFileClip, concatenate_videoclips
 
-def assemble_video(video_path, audio_path, output_path="master_final_video.mp4"):
-    temp_video = "temp_raw.mp4"
-    # Force absolute path for FFmpeg
-    ass_path = os.path.abspath(audio_path.replace(".mp3", ".ass"))
+def assemble_video(video_filename, audio_filename, output_filename="master_final_video.mp4"):
+    # Find the project root directory
+    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
     
+    video_path = os.path.join(root_dir, video_filename)
+    audio_path = os.path.join(root_dir, audio_filename)
+    ass_path = audio_path.replace(".mp3", ".ass")
+    output_path = os.path.join(root_dir, output_filename)
+    temp_video = os.path.join(root_dir, "temp_raw.mp4")
+
     if not os.path.exists(ass_path):
         print(f"CRITICAL ERROR: Subtitle file {ass_path} missing!")
+        # List files in root to help debug if it fails again
+        print("Files in root:", os.listdir(root_dir))
         return False
 
-    print("Step 1: Creating synced base video...")
     v_clip = VideoFileClip(video_path)
     a_clip = AudioFileClip(audio_path)
     
@@ -24,27 +30,20 @@ def assemble_video(video_path, audio_path, output_path="master_final_video.mp4")
     v_clip.close()
     a_clip.close()
 
-    print(f"Step 2: Hard-burning {ass_path} via FFmpeg...")
+    # Escape the path for FFmpeg
+    escaped_ass = ass_path.replace(":", "\\:").replace("\\", "/")
     
-    # FFmpeg 'ass' filter requires backslashes for colons on some Linux builds
-    escaped_ass_path = ass_path.replace(":", "\\:").replace("\\", "/")
-    
+    # Run FFmpeg burn
     cmd = [
         "ffmpeg", "-y", "-i", temp_video,
-        "-vf", f"ass='{escaped_ass_path}'",
+        "-vf", f"ass='{escaped_ass}'",
         "-c:a", "copy",
         output_path
     ]
     
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    
-    if result.returncode != 0:
-        print(f"FFmpeg Error: {result.stderr}")
-        return False
-
-    if os.path.exists(temp_video):
-        os.remove(temp_video)
-    print("Success! Download master_final_video.mp4 now.")
+    subprocess.run(cmd, check=True)
+    if os.path.exists(temp_video): os.remove(temp_video)
+    print(f"Success! Final video at {output_path}")
     return True
 
 if __name__ == "__main__":
