@@ -5,9 +5,10 @@ from moviepy import VideoFileClip, AudioFileClip, concatenate_videoclips
 def assemble_video(video_path, audio_path, output_path="master_final_video.mp4"):
     temp_no_subs = "temp_no_subs.mp4"
     
-    # Force the absolute path and escape it for the Linux FFmpeg engine
+    # Absolute path for the SRT
     raw_srt = os.path.abspath(audio_path.replace(".mp3", ".srt"))
-    # FFmpeg requires colons and slashes to be escaped in the subtitles filter
+    
+    # Escape colons for FFmpeg's filtergraph syntax
     escaped_srt = raw_srt.replace("\\", "/").replace(":", "\\:")
 
     if not os.path.exists(raw_srt):
@@ -28,16 +29,22 @@ def assemble_video(video_path, audio_path, output_path="master_final_video.mp4")
     a_clip.close()
 
     print("Step 2: Burning stable SRT captions...")
+    
+    # THE FIX: Removed the single quotes around {escaped_srt}
     cmd = [
         "ffmpeg", "-y", "-i", temp_no_subs,
-        # Using the escaped absolute path guarantees FFmpeg finds the file
-        "-vf", f"subtitles='{escaped_srt}':force_style='Alignment=6,FontSize=18,Outline=1'",
+        "-vf", f"subtitles={escaped_srt}:force_style='Alignment=6,FontSize=18,Outline=1'",
         "-c:a", "copy",
         output_path
     ]
     
+    # Print the exact command to the GitHub logs for easy debugging
+    print(f"Running FFmpeg command: {' '.join(cmd)}")
+    
     subprocess.run(cmd, check=True)
-    if os.path.exists(temp_no_subs): os.remove(temp_no_subs)
+    
+    if os.path.exists(temp_no_subs): 
+        os.remove(temp_no_subs)
     
     print("Success! Stable video rendered.")
     return True
