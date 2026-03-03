@@ -3,16 +3,19 @@ import json
 from moviepy import VideoFileClip, AudioFileClip, TextClip, CompositeVideoClip, concatenate_videoclips
 
 def assemble_video(video_path, audio_path, output_path="master_final_video.mp4"):
+    # 1. Path Setup
+    # On Ubuntu/GitHub Actions, this is the most reliable font path
+    font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+    
+    if not os.path.exists(font_path):
+        print(f"Warning: {font_path} not found. Falling back to system default.")
+        font_path = "DejaVu-Sans-Bold" # Last ditch effort
+
     if not os.path.exists(video_path) or not os.path.exists(audio_path):
         print("Error: Video or Audio file missing.")
         return False
 
-    # Load word timings
     json_path = audio_path.replace(".mp3", ".json")
-    if not os.path.exists(json_path):
-        print(f"Error: Metadata file {json_path} not found!")
-        return False
-
     with open(json_path, 'r') as f:
         word_timings = json.load(f)
     
@@ -24,7 +27,6 @@ def assemble_video(video_path, audio_path, output_path="master_final_video.mp4")
     video_clip = VideoFileClip(video_path)
     audio_clip = AudioFileClip(audio_path)
     
-    # Sync duration
     if video_clip.duration < audio_clip.duration:
         loops = int(audio_clip.duration // video_clip.duration) + 1
         video_clip = concatenate_videoclips([video_clip] * loops)
@@ -32,7 +34,7 @@ def assemble_video(video_path, audio_path, output_path="master_final_video.mp4")
 
     all_clips = [video_clip]
     
-    # Group words into short 4-word lines
+    # 2. Line-by-Line Logic
     words_per_line = 4 
     for i in range(0, len(word_timings), words_per_line):
         line_chunk = word_timings[i:i + words_per_line]
@@ -41,13 +43,12 @@ def assemble_video(video_path, audio_path, output_path="master_final_video.mp4")
         
         full_line_text = " ".join([w['text'] for w in line_chunk]).upper()
         
-        # 1. Background White Line
-        # We use 'DejaVu-Sans-Bold' because it is pre-installed on Ubuntu/GitHub Actions
+        # Background White Line
         base_txt = TextClip(
             text=full_line_text, 
             font_size=70, 
             color='white',
-            font="DejaVu-Sans-Bold",
+            font=font_path, # Using absolute path
             stroke_color='black', 
             stroke_width=2, 
             method='caption',
@@ -56,13 +57,13 @@ def assemble_video(video_path, audio_path, output_path="master_final_video.mp4")
         
         all_clips.append(base_txt)
 
-        # 2. Yellow Highlight for the active word
+        # Yellow Highlight for active word
         for word in line_chunk:
             highlight = TextClip(
                 text=word['text'].upper(), 
                 font_size=75, 
                 color='yellow',
-                font="DejaVu-Sans-Bold",
+                font=font_path, # Using absolute path
                 stroke_color='black', 
                 stroke_width=3, 
                 method='caption'
@@ -70,7 +71,7 @@ def assemble_video(video_path, audio_path, output_path="master_final_video.mp4")
             
             all_clips.append(highlight)
 
-    print("Stitching layers and rendering...")
+    print("Rendering final video...")
     final_video = CompositeVideoClip(all_clips).with_audio(audio_clip)
     final_video.write_videofile(output_path, fps=30, codec="libx264", preset="ultrafast", logger=None)
     
