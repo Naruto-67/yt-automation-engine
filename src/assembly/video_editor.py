@@ -42,25 +42,15 @@ def assemble_video(video_path, audio_path, output_path="final_video.mp4"):
             os.rename(temp_video, output_path)
             return True
             
-        # Debug check to ensure SRT isn't actually empty
-        with open(srt_path, 'r', encoding='utf-8') as f:
-            if not f.read().strip():
-                print("WARNING: The SRT file is completely empty! Edge-TTS did not generate words.")
-            
         print("Burning big yellow subtitles into the video using FFmpeg...")
-        # Style: Center aligned (Alignment=5), Yellow text, Black outline, Bold
-        style = "Alignment=5,FontName=Arial,FontSize=22,PrimaryColour=&H0000FFFF,OutlineColour=&H00000000,Outline=2,Bold=1"
+        # Swapped to Ubuntu font to ensure Linux compatibility 
+        style = "Alignment=5,FontName=Ubuntu,FontSize=22,PrimaryColour=&H0000FFFF,OutlineColour=&H00000000,Outline=2,Bold=1"
         
-        # This 1 command does all the heavy lifting ImageMagick failed to do
-        ffmpeg_cmd = [
-            "ffmpeg", "-y", 
-            "-i", temp_video, 
-            "-vf", f"subtitles={srt_path}:force_style='{style}'", 
-            "-c:a", "copy", 
-            output_path
-        ]
+        # THE FIX: Formatted as a single raw shell string so Python doesn't mangle the quotes
+        ffmpeg_cmd = f'ffmpeg -y -i "{temp_video}" -vf "subtitles={srt_path}:force_style=\'{style}\'" -c:a copy "{output_path}"'
         
-        subprocess.run(ffmpeg_cmd, check=True)
+        # Run it directly through the Linux shell
+        subprocess.run(ffmpeg_cmd, shell=True, check=True)
         
         # Clean up temp file
         if os.path.exists(temp_video):
@@ -69,6 +59,9 @@ def assemble_video(video_path, audio_path, output_path="final_video.mp4"):
         print(f"Success! Subtitled video rendered to {output_path}")
         return True
 
+    except subprocess.CalledProcessError as e:
+        print(f"FFmpeg failed with error code: {e.returncode}")
+        return False
     except Exception as e:
         print(f"Failed to assemble video: {e}")
         return False
