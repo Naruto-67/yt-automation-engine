@@ -15,6 +15,7 @@ def assemble_video(video_path, audio_path, output_path="master_final_video.mp4")
     video_clip = VideoFileClip(video_path)
     audio_clip = AudioFileClip(audio_path)
     
+    # Standard Short looping logic
     if video_clip.duration < audio_clip.duration:
         loops = int(audio_clip.duration // video_clip.duration) + 1
         video_clip = concatenate_videoclips([video_clip] * loops)
@@ -22,12 +23,8 @@ def assemble_video(video_path, audio_path, output_path="master_final_video.mp4")
 
     all_clips = [video_clip]
     
-    # BOX SETTINGS: 
-    # text_w = 90% of screen width
-    # text_h = 200 pixels (plenty of vertical room to prevent stretching)
-    text_w = int(video_clip.w * 0.9)
-    text_h = 200 
-
+    # THE FIX: Smaller font and explicit width constraints
+    # We use a 3-word chunk to keep the lines short and readable
     words_per_line = 3 
     for i in range(0, len(word_timings), words_per_line):
         line_chunk = word_timings[i:i + words_per_line]
@@ -36,38 +33,37 @@ def assemble_video(video_path, audio_path, output_path="master_final_video.mp4")
         
         full_line_text = " ".join([w['text'] for w in line_chunk]).upper()
         
-        # 1. THE BASE LINE (WHITE)
+        # 1. BASE TEXT (White with shadow)
+        # Using 'label' prevents the 'stretching' seen in your screenshot
         base_txt = TextClip(
             text=full_line_text, 
-            font_size=60, 
+            font_size=55, 
             color='white',
             font=font_path,
             stroke_color='black', 
             stroke_width=2,
-            method='caption',
-            text_align='center', # Internal alignment
-            size=(text_w, text_h) 
-        ).with_start(line_start).with_end(line_end).with_position(('center', 'center'))
+            method='label' 
+        ).with_start(line_start).with_end(line_end).with_position(('center', 0.6), relative=True)
         
         all_clips.append(base_txt)
 
-        # 2. THE ACTIVE WORD HIGHLIGHT (YELLOW)
+        # 2. ACTIVE WORD OVERLAY (Yellow)
+        # This flashes the yellow word exactly over the white text
         for word in line_chunk:
             highlight = TextClip(
                 text=word['text'].upper(), 
-                font_size=60, 
+                font_size=55, 
                 color='yellow',
                 font=font_path,
                 stroke_color='black', 
                 stroke_width=2,
-                method='caption',
-                text_align='center',
-                size=(text_w, text_h)
-            ).with_start(word['start']).with_end(word['start'] + word['duration']).with_position(('center', 'center'))
+                method='label'
+            ).with_start(word['start']).with_end(word['start'] + word['duration']).with_position(('center', 0.6), relative=True)
             
             all_clips.append(highlight)
 
-    final_video = CompositeVideoClip(all_clips).with_audio(audio_clip)
+    print(f"Assembling {len(all_clips)} layers...")
+    final_video = CompositeVideoClip(all_clips, size=video_clip.size).with_audio(audio_clip)
     final_video.write_videofile(output_path, fps=30, codec="libx264", preset="ultrafast", logger=None)
     
     video_clip.close()
