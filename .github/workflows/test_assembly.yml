@@ -13,7 +13,7 @@ jobs:
       - name: Install FFmpeg and LibAss
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg libass-dev
+          sudo apt-get install -y ffmpeg libass-dev libfreetype6-dev
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -24,18 +24,21 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: 1. Generate Voice & ASS Subtitles
+      - name: 1. Generate Voice & Metadata
         run: python src/generators/audio_generator.py
 
-      - name: 2. Download Video
+      - name: 2. Debug - List Files
+        run: ls -R
+
+      - name: 3. Download Background
         env:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
         run: python src/generators/video_fetcher.py
 
-      - name: 3. Assemble Master Video (FFmpeg Burn)
+      - name: 4. Assemble & Burn Subtitles
         run: python src/assembly/video_editor.py
 
-      - name: 4. Upload
+      - name: 5. Upload Result
         uses: actions/upload-artifact@v4
         with:
           name: finished-youtube-short
