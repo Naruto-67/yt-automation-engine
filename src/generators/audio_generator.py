@@ -8,7 +8,9 @@ async def generate_audio_async(text, output_filename, voice="en-US-ChristopherNe
     output_path  = os.path.join(root_dir, output_filename)
     timings_path = output_path.replace(".mp3", "_timings.json")
 
-    communicate = edge_tts.Communicate(text, voice)
+    # boundary_type="word" is REQUIRED in edge-tts v7.2.0+
+    # The library changed its default to SentenceBoundary in that release
+    communicate = edge_tts.Communicate(text, voice, boundary_type="word")
     words = []
 
     with open(output_path, "wb") as f:
@@ -22,7 +24,15 @@ async def generate_audio_async(text, output_filename, voice="en-US-ChristopherNe
                     "end":   (chunk["offset"] + chunk["duration"]) / 10_000_000
                 })
 
-    # Group into 3-word chunks
+    print(f"  WordBoundary events captured: {len(words)}")
+
+    if len(words) == 0:
+        raise RuntimeError(
+            "No WordBoundary events received from edge-tts. "
+            "Check edge-tts version and boundary_type parameter."
+        )
+
+    # Group into 3-word caption chunks
     chunks = []
     for i in range(0, len(words), 3):
         group = words[i:i+3]
@@ -35,8 +45,8 @@ async def generate_audio_async(text, output_filename, voice="en-US-ChristopherNe
     with open(timings_path, "w") as f:
         json.dump(chunks, f, indent=2)
 
-    print(f"✅ Audio:   {output_path}")
-    print(f"✅ Timings: {timings_path}  ({len(chunks)} chunks)")
+    print(f"✅ Audio saved:   {output_path}")
+    print(f"✅ Timings saved: {timings_path} ({len(chunks)} chunks)")
     return True
 
 def generate_audio(text, output_file, voice="en-US-ChristopherNeural"):
@@ -44,6 +54,6 @@ def generate_audio(text, output_file, voice="en-US-ChristopherNeural"):
 
 if __name__ == "__main__":
     generate_audio(
-        "Testing captions. Every word should pop and highlight yellow when spoken. This is the final test.",
+        "Testing captions. Every word should pop and highlight yellow when spoken.",
         "test_audio.mp3"
     )
