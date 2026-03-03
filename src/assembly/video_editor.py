@@ -1,14 +1,14 @@
 import os
 from moviepy import VideoFileClip, AudioFileClip, TextClip, CompositeVideoClip, concatenate_videoclips
 
-def parse_vtt(vtt_file):
-    """Reads the subtitle file and extracts the exact start/end time for each word."""
+def parse_srt(srt_file):
+    """Reads the SRT file and extracts the exact start/end time for each word."""
     subs = []
-    if not os.path.exists(vtt_file):
-        print(f"Warning: Subtitle file {vtt_file} not found.")
+    if not os.path.exists(srt_file):
+        print(f"Warning: Subtitle file {srt_file} not found.")
         return subs
 
-    with open(vtt_file, 'r', encoding='utf-8') as f:
+    with open(srt_file, 'r', encoding='utf-8') as f:
         lines = f.readlines()
 
     start_time, end_time, text = None, None, []
@@ -19,10 +19,10 @@ def parse_vtt(vtt_file):
             parts = line.split(" --> ")
             start_time, end_time = parts[0], parts[1]
         elif line == "" and start_time:
-            # Convert HH:MM:SS.mmm to exact seconds
+            # Convert HH:MM:SS,mmm to exact seconds
             def time_to_sec(t_str):
-                h, m, s = t_str.split(':')
-                sec, ms = s.split('.')
+                h, m, s_ms = t_str.split(':')
+                sec, ms = s_ms.split(',')
                 return int(h)*3600 + int(m)*60 + int(sec) + int(ms)/1000.0
             
             subs.append({
@@ -31,9 +31,21 @@ def parse_vtt(vtt_file):
                 "text": " ".join(text)
             })
             start_time, end_time, text = None, None, []
-        elif start_time and line and line != "WEBVTT":
+        elif start_time and line and not line.isdigit():
             text.append(line)
             
+    # Add the last block if there's no trailing newline
+    if start_time and text:
+        def time_to_sec(t_str):
+            h, m, s_ms = t_str.split(':')
+            sec, ms = s_ms.split(',')
+            return int(h)*3600 + int(m)*60 + int(sec) + int(ms)/1000.0
+        subs.append({
+            "start": time_to_sec(start_time),
+            "end": time_to_sec(end_time),
+            "text": " ".join(text)
+        })
+
     return subs
 
 def assemble_video(video_path, audio_path, output_path="final_video.mp4"):
@@ -56,8 +68,8 @@ def assemble_video(video_path, audio_path, output_path="final_video.mp4"):
         video_clip = video_clip.subclipped(0, audio_clip.duration)
         
         # Build the Subtitle Clips
-        vtt_path = audio_path.replace(".mp3", ".vtt")
-        subtitles = parse_vtt(vtt_path)
+        srt_path = audio_path.replace(".mp3", ".srt")
+        subtitles = parse_srt(srt_path)
         
         # Start our layers with the background video
         clips = [video_clip]
