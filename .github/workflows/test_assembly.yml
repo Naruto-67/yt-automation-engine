@@ -25,17 +25,17 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      # Cache the WhisperX model so it doesn't re-download every run (~140MB)
+      # WhisperX uses HuggingFace — correct cache path
       - name: Cache WhisperX model
         uses: actions/cache@v3
         with:
-          path: ~/.cache/whisper
-          key: whisperx-model-base-en
+          path: ~/.cache/huggingface
+          key: whisperx-base-en-v1
 
-      - name: 1. Generate Voice (MP3 only)
+      - name: 1. Generate Voice
         run: python src/generators/audio_generator.py
 
-      - name: 2. Transcribe with WhisperX (word timestamps)
+      - name: 2. Transcribe with WhisperX
         run: python src/generators/transcriber.py
 
       - name: 3. Debug — verify timings
@@ -57,13 +57,11 @@ jobs:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
         run: python src/generators/video_fetcher.py
 
-      - name: 5. Assemble with CapCut Captions
+      - name: 5. Assemble with Captions
         run: python src/assembly/video_editor.py
 
       - name: 6. Extract frame to verify captions
-        run: |
-          ffmpeg -i master_final_video.mp4 -ss 2 -frames:v 1 frame_check.png
-          echo "Frame extracted"
+        run: ffmpeg -i master_final_video.mp4 -ss 2 -frames:v 1 frame_check.png
 
       - name: 7. Upload artifacts
         uses: actions/upload-artifact@v4
