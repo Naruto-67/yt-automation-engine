@@ -1,51 +1,37 @@
 import os
+import re
 from moviepy import VideoFileClip, AudioFileClip, TextClip, CompositeVideoClip, concatenate_videoclips
 
 def parse_srt(srt_file):
-    """Reads the SRT file and extracts the exact start/end time for each word."""
-    subs = []
+    """Bulletproof SRT parser using regular expressions."""
     if not os.path.exists(srt_file):
         print(f"Warning: Subtitle file {srt_file} not found.")
-        return subs
+        return []
 
     with open(srt_file, 'r', encoding='utf-8') as f:
-        lines = f.readlines()
+        content = f.read()
 
-    start_time, end_time, text = None, None, []
+    # Regex to mathematically extract exact start, end, and text chunks
+    pattern = re.compile(r'(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})\s*\n(.*?)(?=\n\n|\Z)', re.DOTALL)
     
-    for line in lines:
-        line = line.strip()
-        if "-->" in line:
-            parts = line.split(" --> ")
-            start_time, end_time = parts[0], parts[1]
-        elif line == "" and start_time:
-            # Convert HH:MM:SS,mmm to exact seconds
-            def time_to_sec(t_str):
-                h, m, s_ms = t_str.split(':')
-                sec, ms = s_ms.split(',')
-                return int(h)*3600 + int(m)*60 + int(sec) + int(ms)/1000.0
-            
-            subs.append({
-                "start": time_to_sec(start_time),
-                "end": time_to_sec(end_time),
-                "text": " ".join(text)
-            })
-            start_time, end_time, text = None, None, []
-        elif start_time and line and not line.isdigit():
-            text.append(line)
-            
-    # Add the last block if there's no trailing newline
-    if start_time and text:
+    subs = []
+    for match in pattern.finditer(content):
+        start_str = match.group(1)
+        end_str = match.group(2)
+        text = match.group(3).replace('\n', ' ').strip()
+        
         def time_to_sec(t_str):
             h, m, s_ms = t_str.split(':')
             sec, ms = s_ms.split(',')
             return int(h)*3600 + int(m)*60 + int(sec) + int(ms)/1000.0
+            
         subs.append({
-            "start": time_to_sec(start_time),
-            "end": time_to_sec(end_time),
-            "text": " ".join(text)
+            "start": time_to_sec(start_str),
+            "end": time_to_sec(end_str),
+            "text": text
         })
-
+        
+    print(f"DEBUG: Successfully parsed {len(subs)} subtitle blocks from SRT.")
     return subs
 
 def assemble_video(video_path, audio_path, output_path="final_video.mp4"):
@@ -76,14 +62,13 @@ def assemble_video(video_path, audio_path, output_path="final_video.mp4"):
         
         print("Generating heavy subtitle text graphics...")
         for sub in subtitles:
-            # Create a big, yellow text graphic with a black stroke
+            # Removed the specific font to allow Ubuntu to use its safe default
             txt_clip = TextClip(
-                font="Ubuntu-Bold",
                 text=sub['text'], 
                 font_size=90, 
                 color='yellow', 
                 stroke_color='black', 
-                stroke_width=4,
+                stroke_width=3,
                 method='caption',
                 size=(video_clip.w * 0.8, None)
             )
@@ -94,11 +79,11 @@ def assemble_video(video_path, audio_path, output_path="final_video.mp4"):
             
             clips.append(txt_clip)
 
-        print("Overlaying all layers...")
+        print(f"Overlaying {len(clips)} total layers (1 Video + {len(subtitles)} Text Clips)...")
         final_video = CompositeVideoClip(clips)
         final_video = final_video.with_audio(audio_clip)
 
-        print("Rendering final masterpiece. This takes serious compute power...")
+        print("Rendering final masterpiece...")
         final_video.write_videofile(
             output_path, 
             fps=30, 
