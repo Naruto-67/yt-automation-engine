@@ -4,33 +4,43 @@ import os
 
 async def generate_audio_async(text, output_file, voice="en-US-ChristopherNeural"):
     """
-    Generates TTS audio using Microsoft Edge TTS.
-    'en-US-ChristopherNeural' is a deep, engaging male voice perfect for Shorts.
-    Other good options: 'en-US-EricNeural', 'en-GB-RyanNeural', 'en-US-AriaNeural'
+    Generates TTS audio AND a matching .vtt subtitle file with exact word timings.
     """
     communicate = edge_tts.Communicate(text, voice)
-    await communicate.save(output_file)
+    submaker = edge_tts.SubMaker()
+    
+    print("Generating audio and subtitle timestamps...")
+    
+    with open(output_file, "wb") as file:
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                file.write(chunk["data"])
+            elif chunk["type"] == "WordBoundary":
+                # This captures the exact millisecond each word is spoken
+                submaker.create_sub((chunk["offset"], chunk["duration"]), chunk["text"])
+                
+    # Save the subtitle file with the same name as the audio, but .vtt extension
+    vtt_path = output_file.replace(".mp3", ".vtt")
+    with open(vtt_path, "w", encoding="utf-8") as file:
+        file.write(submaker.generate_subs())
 
 def generate_audio(text, output_file, voice="en-US-ChristopherNeural"):
-    """Wrapper to run the async audio generation."""
+    """Wrapper to run the async audio and subtitle generation."""
     try:
-        # Run the async function synchronously
         asyncio.run(generate_audio_async(text, output_file, voice))
         
-        if os.path.exists(output_file):
-            print(f"Success! Audio saved to {output_file}")
+        vtt_path = output_file.replace(".mp3", ".vtt")
+        if os.path.exists(output_file) and os.path.exists(vtt_path):
+            print(f"Success! Audio and subtitles saved.")
             return True
         else:
-            print("Error: Audio file was not created.")
+            print("Error: Files were not created properly.")
             return False
     except Exception as e:
-        print(f"Failed to generate audio: {e}")
+        print(f"Failed to generate audio/subtitles: {e}")
         return False
 
 if __name__ == "__main__":
-    # Test script to make sure the voice engine is working
-    test_text = "System online. This is a test of the automated voice engine. The pipeline is running perfectly, and we are ready to dominate the algorithm."
+    test_text = "System online. We are now generating audio and exact subtitle timestamps at the very same time. This is the foundation of viral retention."
     output_path = "test_audio.mp3"
-    
-    print("Booting up Edge TTS...")
     generate_audio(test_text, output_path)
