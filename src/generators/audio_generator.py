@@ -4,7 +4,7 @@ import os
 
 async def generate_audio_async(text, output_file, voice="en-US-ChristopherNeural"):
     """
-    Generates TTS audio AND a matching .vtt subtitle file with exact word timings.
+    Generates TTS audio AND a matching .srt subtitle file with exact word timings.
     """
     communicate = edge_tts.Communicate(text, voice)
     submaker = edge_tts.SubMaker()
@@ -16,21 +16,21 @@ async def generate_audio_async(text, output_file, voice="en-US-ChristopherNeural
             if chunk["type"] == "audio":
                 file.write(chunk["data"])
             elif chunk["type"] == "WordBoundary":
-                # This captures the exact millisecond each word is spoken
-                submaker.create_sub((chunk["offset"], chunk["duration"]), chunk["text"])
+                # Feed the new SubMaker with the word chunks
+                submaker.feed(chunk)
                 
-    # Save the subtitle file with the same name as the audio, but .vtt extension
-    vtt_path = output_file.replace(".mp3", ".vtt")
-    with open(vtt_path, "w", encoding="utf-8") as file:
-        file.write(submaker.generate_subs())
+    # Save the subtitle file with the same name as the audio, but .srt extension
+    srt_path = output_file.replace(".mp3", ".srt")
+    with open(srt_path, "w", encoding="utf-8") as file:
+        file.write(submaker.get_srt())
 
 def generate_audio(text, output_file, voice="en-US-ChristopherNeural"):
     """Wrapper to run the async audio and subtitle generation."""
     try:
         asyncio.run(generate_audio_async(text, output_file, voice))
         
-        vtt_path = output_file.replace(".mp3", ".vtt")
-        if os.path.exists(output_file) and os.path.exists(vtt_path):
+        srt_path = output_file.replace(".mp3", ".srt")
+        if os.path.exists(output_file) and os.path.exists(srt_path):
             print(f"Success! Audio and subtitles saved.")
             return True
         else:
