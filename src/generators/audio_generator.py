@@ -1,6 +1,7 @@
 import asyncio
 import edge_tts
 import os
+import json
 
 def format_ass_time(seconds):
     h = int(seconds // 3600)
@@ -11,7 +12,7 @@ def format_ass_time(seconds):
 async def generate_audio_async(text, output_filename, voice="en-US-ChristopherNeural"):
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
     output_path = os.path.join(root_dir, output_filename)
-    ass_path = output_path.replace(".mp3", ".ass")
+    timings_path = output_path.replace(".mp3", "_timings.json")
 
     communicate = edge_tts.Communicate(text, voice)
     words = []
@@ -27,34 +28,22 @@ async def generate_audio_async(text, output_filename, voice="en-US-ChristopherNe
                     "end": (chunk["offset"] + chunk["duration"]) / 10000000
                 })
 
-    header = [
-        "[Script Info]",
-        "ScriptType: v4.00+",
-        "PlayResX: 1080",
-        "PlayResY: 1920",
-        "",
-        "[V4+ Styles]",
-        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-        # FIX 3: Alignment=2 (bottom center), MarginV=80 (not 960), semi-transparent black background
-        "Style: Default,Arial,80,&H00FFFFFF,&H0000FFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,2,10,10,80,1",
-        "",
-        "[Events]",
-        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
-    ]
+    # Group into 3-word caption chunks
+    chunks = []
+    for i in range(0, len(words), 3):
+        group = words[i:i+3]
+        chunks.append({
+            "start": group[0]["start"],
+            "end": group[-1]["end"],
+            "words": group
+        })
 
-    with open(ass_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(header) + "\n")
-        for i in range(0, len(words), 3):
-            chunk = words[i:i+3]
-            line_start = format_ass_time(chunk[0]['start'])
-            line_end = format_ass_time(chunk[-1]['end'])
-            processed_text = ""
-            for w in chunk:
-                duration_cs = int((w['end'] - w['start']) * 100)
-                processed_text += f"{{\\k{duration_cs}}}{w['text'].upper()} "
-            f.write(f"Dialogue: 0,{line_start},{line_end},Default,,0,0,0,,{processed_text.strip()}\n")
+    # Save timings as JSON — this is what video_editor.py reads
+    with open(timings_path, "w", encoding="utf-8") as f:
+        json.dump(chunks, f, indent=2)
 
-    print(f"Subtitles successfully saved to: {ass_path}")
+    print(f"Audio saved to: {output_path}")
+    print(f"Timings saved to: {timings_path}")
     return True
 
 def generate_audio(text, output_file, voice="en-US-ChristopherNeural"):
