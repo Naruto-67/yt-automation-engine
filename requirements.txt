@@ -8,3 +8,5 @@ pytz
 python-dotenv
 moviepy
 Pillow
+google-generativeai
+edge-tts
