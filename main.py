@@ -3,41 +3,46 @@ import sys
 import random
 import time
 import re
+import json
 from scripts.generate_script import generate_script
 from scripts.generate_voice import generate_audio
 from scripts.fetch_background import fetch_background
 from scripts.render_video import render_video
-from scripts.generate_metadata import generate_seo_metadata  # <--- Added SEO Manager
+from scripts.generate_metadata import generate_seo_metadata
 from scripts.logger import is_script_duplicate, log_completed_video
 from scripts.youtube_manager import upload_to_youtube_vault
 from scripts.discord_notifier import notify_render, notify_warning, notify_error, notify_summary
 from moviepy import VideoFileClip
 
-def main():
-    content_matrix = [
-        {
-            "niche": "fact",
-            "topic": "Bizarre, unknown USA historical event",
-            "bg_query": "mysterious dark background",
-            "style": "default"
-        },
-        {
-            "niche": "brainrot",
-            "topic": "High-energy Gen-Z internet culture",
-            "bg_query": "trippy abstract loop fast",
-            "style": "default"
-        },
-        {
-            "niche": "short story",
-            "topic": "A parable about overcoming laziness",
-            "bg_query": "cinematic nature mountain",
-            "style": "default"
-        }
+def load_content_matrix():
+    """Reads the AI-generated topic matrix. Falls back to default if empty."""
+    root_dir = os.path.dirname(os.path.abspath(__file__))
+    matrix_path = os.path.join(root_dir, "memory", "content_matrix.json")
+    
+    default_matrix = [
+        {"niche": "fact", "topic": "Bizarre USA history", "bg_query": "mysterious dark", "style": "default"},
+        {"niche": "brainrot", "topic": "Gen Z memes", "bg_query": "trippy abstract", "style": "default"}
     ]
+    
+    if os.path.exists(matrix_path):
+        try:
+            with open(matrix_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if data:
+                    print(f"🧠 Matrix Loaded: {len(data)} trending topics ready.")
+                    return data
+        except Exception as e:
+            print(f"⚠️ Failed to read matrix: {e}")
+            
+    return default_matrix
 
+def main():
+    # --- LOAD DYNAMIC TOPICS ---
+    content_matrix = load_content_matrix()
     selected = random.choice(content_matrix)
+    
     print(f"==================================================")
-    print(f"🚀 INITIALIZING YOUTUBE AUTOMATION ENGINE")
+    print(f"🚀 INITIALIZING YOUTUBE AUTOMATION ENGINE V2.0")
     print(f"🎯 Target Niche: {selected['niche'].upper()}")
     print(f"📝 Target Topic: {selected['topic']}")
     print(f"==================================================")
@@ -109,20 +114,18 @@ def main():
 
     # --- STEP 5: AI SEO GENERATOR ---
     print("\n[STEP 5/6] Generating Viral SEO Metadata...")
-    # Fetch dynamic Title, Description, and Tags from Gemini
     seo_metadata = generate_seo_metadata(selected['niche'], clean_text)
         
     # --- STEP 6: LOG & YOUTUBE VAULT ---
     print("\n[STEP 6/6] Securing Data: Logging and Vaulting in YouTube...")
     log_completed_video(selected['niche'], script_hook, final_filename)
     
-    # Upload directly to YouTube Vault using the new SEO payload
     vault_success = upload_to_youtube_vault(final_filename, selected['niche'], selected['topic'], seo_metadata)
     
     if vault_success:
-        notify_summary(True, "✅ Video successfully rendered, heavily optimized with AI SEO, and secured in private YouTube Vault.")
+        notify_summary(True, f"✅ Video Rendered & Vaulted.\n└ Niche: {selected['niche']}\n└ Topic: {selected['topic']}")
     else:
-        notify_summary(False, "⚠️ Video rendered and logged, but **FAILED** to upload to YouTube. Check GitHub Logs.")
+        notify_summary(False, "⚠️ Video rendered, but Vault Upload FAILED.")
 
     if "GITHUB_ENV" in os.environ:
         with open(os.environ["GITHUB_ENV"], "a") as env_file:
