@@ -23,7 +23,6 @@ def load_voice_settings():
         try:
             with open(tracker_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                # If the AI analyst has updated preferred audio settings, use them
                 if "best_voice" in data:
                     settings["voice"] = data["best_voice"]
                 if "best_speed" in data:
@@ -57,12 +56,11 @@ def generate_audio(text, output_base="master_audio"):
     
     try:
         # 1. GENERATE AUDIO WITH KOKORO
-        # Initialize the American English pipeline
         pipeline = KPipeline(lang_code='a') 
         generator = pipeline(text, voice=voice_choice, speed=speech_speed, split_pattern=r'\n+')
         
         audio_chunks = []
-        sample_rate = 24000 # Kokoro's default sample rate
+        sample_rate = 24000
         
         for gs, ps, audio in generator:
             if audio is not None:
@@ -72,15 +70,14 @@ def generate_audio(text, output_base="master_audio"):
             print("❌ Kokoro generated empty audio.")
             return False
             
-        # Combine all audio chunks into one continuous array
         final_audio = np.concatenate(audio_chunks)
         sf.write(wav_path, final_audio, sample_rate)
         print(f"✅ Audio saved successfully to {wav_path}")
         
         # 2. GENERATE TIMESTAMPS WITH FASTER-WHISPER
         print("⏱️ Generating precise word-level subtitle timestamps...")
-        # Using the "tiny.en" model because it is incredibly fast and highly accurate for clear TTS
-        model = WhisperModel("tiny.en", device="cpu", compute_type="int8")
+        # THE FIX: Upgraded from "tiny.en" to "base.en" for highly accurate spelling
+        model = WhisperModel("base.en", device="cpu", compute_type="int8")
         segments, info = model.transcribe(wav_path, word_timestamps=True)
         
         srt_content = []
@@ -91,11 +88,10 @@ def generate_audio(text, output_base="master_audio"):
                 start_time = format_time(word.start)
                 end_time = format_time(word.end)
                 
-                # Create the SRT block for each individual word (Karaoke style)
                 srt_content.append(str(subtitle_index))
                 srt_content.append(f"{start_time} --> {end_time}")
                 srt_content.append(word.word.strip())
-                srt_content.append("") # Empty line to separate blocks
+                srt_content.append("")
                 subtitle_index += 1
                 
         with open(srt_path, "w", encoding="utf-8") as f:
@@ -109,6 +105,5 @@ def generate_audio(text, output_base="master_audio"):
         return False
 
 if __name__ == "__main__":
-    # Test the standalone voice engine
-    test_text = "This is a test of the fully integrated, self-improving audio system. If you can hear this, the pipeline is fully operational."
+    test_text = "This is a test of the fully integrated, self-improving audio system."
     generate_audio(test_text, "test_output")
