@@ -1,0 +1,45 @@
+name: Weekly Performance Analyst
+
+# Runs every Monday at 00:00 UTC (5:30 AM IST)
+on:
+  schedule:
+    - cron: '0 0 * * 1'
+  workflow_dispatch:
+
+jobs:
+  analyze-and-learn:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # CRITICAL: Gives the action permission to push code to your repo
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Python packages
+        run: pip install google-api-python-client google-auth-oauthlib google-auth-httplib2 google-genai requests pytz
+
+      - name: Run Performance Analyst
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+        run: python -m scripts.performance_analyst
+
+      - name: Commit and Push AI Memory Updates
+        run: |
+          git config --global user.name "AI Performance Analyst"
+          git config --global user.email "actions@github.com"
+          git add assets/lessons_learned.json
+          # If there are changes, commit and push them to the main branch
+          git diff --quiet && git diff --staged --quiet || (git commit -m "🧠 AI Memory Update: Adjusted script generation rules based on analytics" && git push)
