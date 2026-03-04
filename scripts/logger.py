@@ -69,8 +69,9 @@ def log_completed_video(niche, script_hook, filename):
         return False
         
     try:
-        eastern = pytz.timezone('US/Eastern')
-        current_time = datetime.now(eastern).strftime("%Y-%m-%d %H:%M:%S")
+        # Updated to India Standard Time (IST)
+        ist_timezone = pytz.timezone('Asia/Kolkata')
+        current_time = datetime.now(ist_timezone).strftime("%Y-%m-%d %H:%M:%S")
         
         # Append a new row: [Date, Niche, Script Hook (Topic), Filename, Status]
         row_data = [current_time, niche.upper(), script_hook, filename, "RENDERED"]
