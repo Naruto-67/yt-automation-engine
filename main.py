@@ -7,7 +7,8 @@ from scripts.generate_script import generate_script
 from scripts.generate_voice import generate_audio
 from scripts.fetch_background import fetch_background
 from scripts.render_video import render_video
-from scripts.logger import is_script_duplicate, log_completed_video  # <--- Added Logger
+from scripts.logger import is_script_duplicate, log_completed_video
+from scripts.drive_manager import manage_drive_backup  # <--- Added The Vault
 
 def main():
     content_matrix = [
@@ -54,7 +55,7 @@ def main():
     print(f"--------------------------------------------------")
     
     # --- STEP 1: SCRIPT GENERATION (WITH MEMORY LOOP) ---
-    print("\n[STEP 1/4] Booting Self-Improving AI Writer...")
+    print("\n[STEP 1/5] Booting Self-Improving AI Writer...")
     max_retries = 3
     clean_text = ""
     script_hook = ""
@@ -65,7 +66,6 @@ def main():
             print("❌ Critical Failure: Script generation aborted.")
             sys.exit(1)
             
-        # Sanitize text
         temp_text = re.sub(r'\[.*?\]', '', raw_script)
         temp_text = re.sub(r'\(.*?\)', '', temp_text)
         
@@ -80,17 +80,15 @@ def main():
         temp_text = temp_text.replace("*", "").replace("_", "").replace('"', "").replace("#", "")
         temp_text = " ".join([line.strip() for line in temp_text.split('\n') if line.strip()])
         
-        # Extract the first 10 words to use as a unique fingerprint/hook for the logger
         words = temp_text.split()
         script_hook = " ".join(words[:10])
         
-        # Check the Google Sheet Vault
         if is_script_duplicate(script_hook):
             print(f"⚠️ Attempt {attempt+1}/{max_retries}: AI generated a duplicate topic. Retrying...")
-            continue # Try again!
+            continue 
         else:
             clean_text = temp_text
-            break # It's unique! Break the loop.
+            break 
             
     if not clean_text:
         print("❌ Critical Failure: AI could not generate a unique script after 3 tries.")
@@ -99,7 +97,7 @@ def main():
     print(f"✅ Unique Script Locked:\n{clean_text}\n")
     
     # --- STEP 2: VOICE & SUBTITLES ---
-    print("[STEP 2/4] Booting Kokoro TTS & Faster-Whisper...")
+    print("[STEP 2/5] Booting Kokoro TTS & Faster-Whisper...")
     audio_base_name = "master_audio"
     audio_success = generate_audio(clean_text, output_base=audio_base_name)
     if not audio_success:
@@ -107,7 +105,7 @@ def main():
         sys.exit(1)
         
     # --- STEP 3: BACKGROUND VISUALS ---
-    print(f"\n[STEP 3/4] Fetching Background ('{selected['bg_query']}') via APIs/Fallbacks...")
+    print(f"\n[STEP 3/5] Fetching Background ('{selected['bg_query']}') via APIs/Fallbacks...")
     video_filename = "master_background.mp4"
     video_success = fetch_background(selected['bg_query'], output_filename=video_filename)
     if not video_success:
@@ -115,7 +113,7 @@ def main():
         sys.exit(1)
         
     # --- STEP 4: FINAL ASSEMBLY ---
-    print("\n[STEP 4/4] Sending to FFmpeg Render Engine...")
+    print("\n[STEP 4/5] Sending to FFmpeg Render Engine...")
     run_id = int(time.time())
     final_filename = f"FINAL_SHORT_{selected['niche'].replace(' ', '_')}_{run_id}.mp4"
     
@@ -130,9 +128,12 @@ def main():
         print("❌ Critical Failure: Video assembly aborted.")
         sys.exit(1)
         
-    # --- STEP 5: LOG TO BRAIN ---
-    print("\n[STEP 5/5] Logging success to Google Sheets Memory...")
+    # --- STEP 5: LOG & BACKUP ---
+    print("\n[STEP 5/5] Securing Data: Logging and Vaulting...")
     log_completed_video(selected['niche'], script_hook, final_filename)
+    
+    # Upload to Google Drive and enforce the 5-video limit
+    manage_drive_backup(final_filename)
         
     print(f"\n==================================================")
     print(f"🎉 FACTORY RUN COMPLETE")
