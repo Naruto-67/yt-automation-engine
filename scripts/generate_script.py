@@ -1,11 +1,13 @@
 import os
 import json
+import traceback
+import re
 from google import genai
+from scripts.retry import quota_manager
 
 def load_improvement_data():
     """
     Reads historical performance data to inject into the prompt.
-    This is the foundation of the 'self-improvement' loop.
     """
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     tracker_path = os.path.join(root_dir, "assets", "lessons_learned.json")
@@ -20,10 +22,10 @@ def load_improvement_data():
     return {"avoid": [], "emphasize": ["Fast pacing", "Strong visual hooks"]}
 
 def generate_script(niche, topic):
-    """Generates a highly engaging, self-improving YouTube Shorts script."""
+    """Generates a script using the central Quota Manager to prevent 429 crashes."""
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        print("Error: GEMINI_API_KEY is missing. Check your environment variables.")
+        print("Error: GEMINI_API_KEY is missing.")
         return None
 
     client = genai.Client(api_key=api_key)
@@ -37,37 +39,36 @@ def generate_script(niche, topic):
     Write a highly engaging, fast-paced script for the following niche: {niche}
     The specific topic is: {topic}
     
-    CRITICAL RULES BASED ON PAST PERFORMANCE:
+    CRITICAL RULES:
     - Emphasize: {emphasize_list}
     - Strictly Avoid: {avoid_list}
     
-    NICHE SPECIFICS:
-    1. Facts: 100% true, strictly verified, logical order.
-    2. Brainrot: High-energy, internet culture, chaotic but retaining attention.
-    3. Short Stories: Self-improvement focus, fast pacing, viral hooks.
-    
     FORMATTING:
-    - The script must be under 130 words total to fit within a 60-second window.
+    - Under 130 words total.
     - Return ONLY the exact words to be spoken.
-    - CRITICAL: DO NOT output any stage directions, actions, or visual notes (e.g., never write "Silence", "[Pause]", or "(Sigh)").
-    - Do not use [HOOK] or [BODY] headers.
-    - If you want the voice to pause naturally, just use a comma or an ellipsis (...).
+    - No stage directions or visual notes.
     """
 
     try:
-        print(f"Generating optimized script for [{niche.upper()}] - {topic}...")
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
+        print(f"🤖 AI Writer: Generating script for {topic}...")
+        
+        # We pass the function to the quota_manager to handle retries
+        response = quota_manager.safe_execute(
+            client.models.generate_content,
+            model='gemini-2.0-flash',
+            contents=prompt
         )
-        script_text = response.text.strip()
-        print("✅ Script generated successfully.")
-        return script_text
+        
+        if response:
+            script_text = response.text.strip()
+            print("✅ Script generated successfully.")
+            return script_text
+        return None
+
     except Exception as e:
         print(f"❌ Failed to generate script: {e}")
         return None
 
 if __name__ == "__main__":
-    test_script = generate_script("fact", "Crazy hidden secrets inside the Statue of Liberty")
-    print("\n--- GENERATED SCRIPT ---")
+    test_script = generate_script("fact", "Test topic for armoring check")
     print(test_script)
