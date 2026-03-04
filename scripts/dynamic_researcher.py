@@ -2,6 +2,7 @@ import os
 import json
 import traceback
 import re
+import time
 from google import genai
 from scripts.discord_notifier import send_embed, get_ist_time, notify_error
 
@@ -13,10 +14,9 @@ def get_gemini_client():
     return genai.Client(api_key=api_key)
 
 def notify_research_complete(topics_count):
-    """Pings Discord to confirm the content matrix has been refreshed."""
     embed = {
         "title": "🕵️ AI Trend Research Complete",
-        "color": 15105570, # Orange/Gold
+        "color": 15105570,
         "fields": [
             {"name": "📈 Status", "value": f"└ Scraped web and generated {topics_count} viral topics.", "inline": False},
             {"name": "📂 Storage", "value": "└ Updated memory/content_matrix.json", "inline": False}
@@ -30,72 +30,54 @@ def run_dynamic_research():
     if not client:
         return
 
-    print("🔎 Searching the web for trending viral topics using Google Search Grounding...")
-
+    print("🔎 Searching the web for trending viral topics...")
     niches = ["fact", "brainrot", "short story"]
     
     prompt = f"""
-    You are a viral content researcher for a top-tier YouTube Shorts channel. 
-    Identify the most trending, high-retention topics in the USA right now using Google Search.
-    
+    You are a viral content researcher. Identify trending topics in the USA right now using Google Search.
     Generate exactly 21 unique content ideas (7 per niche).
     NICHES: {', '.join(niches)}
-    
-    RULES:
-    1. 'fact': Focus on bizarre, unknown, or controversial history/science.
-    2. 'brainrot': Focus on high-energy Gen-Z memes or chaotic trending lore.
-    3. 'short story': Focus on intense parables or extreme self-improvement tales.
-    
-    Return ONLY a raw JSON array of objects. No markdown formatting, no conversational text.
-    Structure:
-    [
-        {{
-            "niche": "niche_name",
-            "topic": "Specific viral topic title",
-            "bg_query": "pexels search term",
-            "style": "default"
-        }}
-    ]
+    Return ONLY a raw JSON array of objects.
     """
 
-    try:
-        # Corrected config for google-genai SDK
-        response = client.models.generate_content(
-            model='gemini-2.0-flash', 
-            contents=prompt,
-            config={
-                'tools': [{'google_search': {}}]
-            }
-        )
-        
-        raw_text = response.text.strip()
-        
-        # Professional JSON Extraction: Finds the content between the first [ and last ]
-        # This prevents errors if Gemini adds markdown or text.
-        match = re.search(r'\[.*\]', raw_text, re.DOTALL)
-        if match:
-            clean_json_str = match.group(0)
-        else:
-            clean_json_str = raw_text
-
-        new_matrix = json.loads(clean_json_str)
-        
-        # Path logic for GitHub Actions environment
-        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-        memory_dir = os.path.join(root_dir, "memory")
-        os.makedirs(memory_dir, exist_ok=True)
-        matrix_path = os.path.join(memory_dir, "content_matrix.json")
-        
-        with open(matrix_path, "w", encoding="utf-8") as f:
-            json.dump(new_matrix, f, indent=4)
+    # --- RETRY LOGIC ---
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            print(f"🚀 Attempt {attempt + 1} of {max_retries}...")
+            response = client.models.generate_content(
+                model='gemini-2.0-flash', 
+                contents=prompt,
+                config={'tools': [{'google_search': {}}]}
+            )
             
-        print(f"✅ Research Complete! Generated {len(new_matrix)} new topics.")
-        notify_research_complete(len(new_matrix))
+            raw_text = response.text.strip()
+            match = re.search(r'\[.*\]', raw_text, re.DOTALL)
+            clean_json_str = match.group(0) if match else raw_text
+            new_matrix = json.loads(clean_json_str)
+            
+            root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+            memory_dir = os.path.join(root_dir, "memory")
+            os.makedirs(memory_dir, exist_ok=True)
+            matrix_path = os.path.join(memory_dir, "content_matrix.json")
+            
+            with open(matrix_path, "w", encoding="utf-8") as f:
+                json.dump(new_matrix, f, indent=4)
+                
+            print(f"✅ Research Complete! Generated {len(new_matrix)} topics.")
+            notify_research_complete(len(new_matrix))
+            return # Exit successfully
 
-    except Exception as e:
-        print("❌ Research Failed:")
-        traceback.print_exc()
-        notify_error("Dynamic Researcher", "Generation Error", str(e)[:200])
+        except Exception as e:
+            if "429" in str(e):
+                print(f"⚠️ Quota hit. Sleeping for 35 seconds before retry...")
+                time.sleep(35)
+                continue
+            else:
+                print("❌ Research Failed permanently:")
+                traceback.print_exc()
+                notify_error("Dynamic Researcher", "Generation Error", str(e)[:200])
+                break
 
 if __name__ == "__main__":
     run_dynamic_research()
