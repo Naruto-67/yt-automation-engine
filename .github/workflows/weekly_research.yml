@@ -1,0 +1,39 @@
+name: Weekly Trending Researcher
+
+# Runs every Sunday at 18:00 UTC (11:30 PM IST)
+on:
+  schedule:
+    - cron: '0 18 * * 0'
+  workflow_dispatch:
+
+jobs:
+  scrape-trends:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Python packages
+        run: pip install google-genai requests pytz
+
+      - name: Run Trend Researcher
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: python -m scripts.dynamic_researcher
+
+      - name: Commit and Push New Topics
+        run: |
+          git config --global user.name "AI Trend Researcher"
+          git config --global user.email "actions@github.com"
+          git add memory/content_matrix.json
+          git diff --quiet && git diff --staged --quiet || (git commit -m "🔍 AI Research Update: Refreshed content matrix with trending viral topics" && git push)
