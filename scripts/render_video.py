@@ -1,88 +1,115 @@
-import os
+\import os
 import subprocess
+import json
 from moviepy import VideoFileClip, AudioFileClip, concatenate_videoclips
 
-def assemble_video(video_path, audio_path, output_path="final_video.mp4"):
+def load_style_config(style_name="default"):
+    """
+    Loads the styling configuration for the captions.
+    Allows the pipeline to dynamically swap text styles based on the niche 
+    (e.g., loading 'style_configs/horror.json' for spooky red text).
+    """
+    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    style_path = os.path.join(root_dir, "style_configs", f"{style_name}.json")
+    
+    # The default high-retention TikTok/Shorts style: Bold, centered, yellow with a black outline
+    default_style = "Alignment=5,FontName=Arial,FontSize=22,PrimaryColour=&H0000FFFF,OutlineColour=&H00000000,Outline=2,Bold=1,MarginV=25"
+    
+    if os.path.exists(style_path):
+        try:
+            with open(style_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if "ffmpeg_style" in data:
+                    print(f"🎨 Loaded custom style config: {style_name}.json")
+                    return data["ffmpeg_style"]
+        except Exception as e:
+            print(f"⚠️ Warning: Could not read style config {style_name}.json: {e}")
+            
+    return default_style
+
+def render_video(video_path, audio_path, output_path="FINAL_YOUTUBE_SHORT.mp4", style_name="default"):
+    """
+    Assembles the final video by looping the background, syncing the audio, 
+    and burning the SRT via FFmpeg.
+    """
     if not os.path.exists(video_path) or not os.path.exists(audio_path):
-        print("Error: Missing media files.")
+        print(f"❌ Error: Missing input files. Video: {video_path}, Audio: {audio_path}")
         return False
 
+    temp_no_subs = "temp_no_subs.mp4"
+    # Swap out the audio extension to find the exact matching subtitle file
+    srt_path = audio_path.replace(".wav", ".srt").replace(".mp3", ".srt")
+
     try:
-        print("Loading media...")
-        video_clip = VideoFileClip(video_path)
-        audio_clip = AudioFileClip(audio_path)
+        print(f"🎬 Loading media assets into memory...")
+        v_clip = VideoFileClip(video_path)
+        a_clip = AudioFileClip(audio_path)
 
-        # Loop if necessary to cover the audio
-        if video_clip.duration < audio_clip.duration:
-            loops_needed = int(audio_clip.duration // video_clip.duration) + 1
-            video_clip = concatenate_videoclips([video_clip] * loops_needed)
+        # Loop the background video to cover the entire spoken audio duration
+        if v_clip.duration < a_clip.duration:
+            loops = int(a_clip.duration // v_clip.duration) + 1
+            v_clip = concatenate_videoclips([v_clip] * loops)
 
-        # Cut to exact length
-        video_clip = video_clip.subclipped(0, audio_clip.duration)
-        final_video = video_clip.with_audio(audio_clip)
+        # Cut the video to the precise millisecond the audio finishes
+        final_v = v_clip.subclipped(0, a_clip.duration)
+        final_v = final_v.with_audio(a_clip)
 
-        temp_video = "temp_no_subs.mp4"
-        print("Rendering base video without subtitles...")
-        final_video.write_videofile(
-            temp_video, 
-            fps=30, 
-            codec="libx264", 
+        print("⚙️ Rendering base video without subtitles...")
+        final_v.write_videofile(
+            temp_no_subs,
+            fps=30,
+            codec="libx264",
             audio_codec="aac",
-            preset="ultrafast",
+            preset="ultrafast",  # Keeps GitHub Actions running fast
             logger=None
         )
         
-        video_clip.close()
-        audio_clip.close()
-        final_video.close()
+        # Free up server memory
+        v_clip.close()
+        a_clip.close()
+        final_v.close()
 
-        srt_path = audio_path.replace(".mp3", ".srt")
-        if not os.path.exists(srt_path):
-            print(f"Error: Subtitle file {srt_path} not found.")
-            os.rename(temp_video, output_path)
+        # Step 2: Burn the subtitles into the video using FFmpeg
+        if os.path.exists(srt_path):
+            print("🔥 Burning dynamic SRT captions into the video...")
+            
+            ass_style = load_style_config(style_name)
+            
+            # 1. Safely escape the absolute path for FFmpeg
+            abs_srt = os.path.abspath(srt_path)
+            safe_srt = abs_srt.replace('\\', '/').replace(':', r'\:')
+            
+            # 2. Escape commas in the style string so FFmpeg doesn't break
+            safe_style = ass_style.replace(',', r'\,')
+            
+            ffmpeg_cmd = [
+                "ffmpeg", "-y",
+                "-i", temp_no_subs,
+                "-vf", f"subtitles={safe_srt}:force_style='{safe_style}'",
+                "-c:a", "copy",
+                output_path
+            ]
+            
+            subprocess.run(ffmpeg_cmd, check=True)
+            
+            # Clean up the temporary track
+            if os.path.exists(temp_no_subs):
+                os.remove(temp_no_subs)
+                
+            print(f"✅ Success! Masterpiece rendered to {output_path}")
             return True
-            
-        # Debug check: ensures the SRT isn't completely empty
-        with open(srt_path, 'r', encoding='utf-8') as f:
-            if not f.read().strip():
-                print("WARNING: The SRT file is completely empty! Skipping text burn-in.")
-                os.rename(temp_video, output_path)
-                return True
-
-        print("Burning big yellow subtitles into the video using FFmpeg...")
-        
-        # 1. Get the absolute path so FFmpeg never loses the file
-        abs_srt = os.path.abspath(srt_path)
-        
-        # 2. Escape the path for FFmpeg's filter (replace backslashes, escape colons)
-        safe_srt = abs_srt.replace('\\', '/').replace(':', r'\:')
-        
-        # 3. Escape the commas in the style string with \, so FFmpeg doesn't split them
-        style = r"Alignment=5\,FontName=Ubuntu\,FontSize=22\,PrimaryColour=&H0000FFFF\,OutlineColour=&H00000000\,Outline=2\,Bold=1"
-        
-        # 4. Pass as a secured list to protect the backslashes from the Linux terminal
-        ffmpeg_cmd = [
-            "ffmpeg", "-y", 
-            "-i", temp_video, 
-            "-vf", f"subtitles={safe_srt}:force_style='{style}'", 
-            "-c:a", "copy", 
-            output_path
-        ]
-        
-        subprocess.run(ffmpeg_cmd, check=True)
-        
-        if os.path.exists(temp_video):
-            os.remove(temp_video)
-            
-        print(f"Success! Subtitled video rendered to {output_path}")
-        return True
+        else:
+            print(f"⚠️ Warning: SRT file {srt_path} not found. Outputting video without subs.")
+            os.rename(temp_no_subs, output_path)
+            return True
 
     except subprocess.CalledProcessError as e:
-        print(f"FFmpeg failed with error code: {e.returncode}")
+        print(f"❌ FFmpeg styling failed with error code: {e.returncode}")
         return False
     except Exception as e:
-        print(f"Failed to assemble video: {e}")
+        print(f"❌ Assembly failed: {e}")
         return False
 
 if __name__ == "__main__":
-    assemble_video("test_video.mp4", "test_audio.mp3", "master_final_video.mp4")
+    # Test the assembly line
+    render_video("master_background.mp4", "master_audio.wav", "test_final_render.mp4")
