@@ -2,88 +2,112 @@ import os
 import sys
 import random
 import time
-from src.generators.script_writer import generate_script
-from src.generators.audio_generator import generate_audio
-from src.generators.video_fetcher import download_pexels_video
-from src.assembly.video_editor import assemble_video
+from scripts.generate_script import generate_script
+from scripts.generate_voice import generate_audio
+from scripts.fetch_background import fetch_background
+from scripts.render_video import render_video
 
 def main():
-    # THE CONTENT MATRIX
-    # Rotates between core pillars and high-viral AI niches
+    # THE DYNAMIC CONTENT MATRIX
+    # This dictates the daily rotation to keep the USA audience highly engaged
     content_matrix = [
         {
             "niche": "fact",
             "topic": "A bizarre, 100% true, unknown historical event from the USA",
-            "bg_query": "mysterious dark background"
+            "bg_query": "mysterious dark background",
+            "style": "default"
         },
         {
             "niche": "brainrot",
-            "topic": "Absurd, high-energy internet culture topic designed for maximum USA Gen-Z retention",
-            "bg_query": "trippy abstract loop fast"
+            "topic": "Absurd, high-energy internet culture topic designed for maximum Gen-Z retention",
+            "bg_query": "trippy abstract loop fast",
+            "style": "default"
         },
         {
             "niche": "short story",
             "topic": "A 60-second self-improvement and motivation parable about overcoming laziness",
-            "bg_query": "cinematic nature mountain"
+            "bg_query": "cinematic nature mountain",
+            "style": "default"
         },
         {
             "niche": "psychology trick",
             "topic": "A dark psychology trick to read someone's body language instantly",
-            "bg_query": "dark moody city street"
-        },
-        {
-            "niche": "shower thought",
-            "topic": "Mind-bending paradoxes and shower thoughts that keep you awake",
-            "bg_query": "deep space galaxy"
+            "bg_query": "dark moody city street",
+            "style": "default" # Can change to "dark_mode" once you create a style config for it
         },
         {
             "niche": "unsolved mystery",
             "topic": "A creepy, true, unexplained internet or true crime mystery from the USA",
-            "bg_query": "creepy foggy forest"
+            "bg_query": "creepy foggy forest",
+            "style": "default" # Can change to "horror" once you create a style config for it
         }
     ]
 
-    # Randomly select one profile for this specific run
     selected = random.choice(content_matrix)
     
-    print(f"=== STEP 1: Booting Niche Engine ===")
-    print(f"Targeting Niche: {selected['niche'].upper()}")
-    print(f"Targeting Topic: {selected['topic']}")
+    print(f"==================================================")
+    print(f"🚀 INITIALIZING YOUTUBE AUTOMATION ENGINE")
+    print(f"==================================================")
+    print(f"🎯 Target Niche: {selected['niche'].upper()}")
+    print(f"📝 Target Topic: {selected['topic']}")
+    print(f"🎨 Target Style: {selected['style']}")
+    print(f"--------------------------------------------------")
     
+    # --- STEP 1: SCRIPT GENERATION ---
+    print("\n[STEP 1/4] Booting Self-Improving AI Writer...")
     raw_script = generate_script(selected['niche'], selected['topic'])
     if not raw_script:
-        print("❌ Failed to generate script.")
+        print("❌ Critical Failure: Script generation aborted.")
         sys.exit(1)
         
-    # Clean the script for the TTS (remove the AI's bracketed headers)
+    # Clean the script for the TTS
     clean_text = raw_script.replace("[HOOK]", "").replace("[BODY]", "").replace("[OUTRO]", "").strip()
     clean_text = " ".join([line.strip() for line in clean_text.split('\n') if line.strip()])
-    print(f"Cleaned Script:\n{clean_text}\n")
+    print(f"✅ Script Locked:\n{clean_text}\n")
     
-    print("=== STEP 2: Generating Audio & Subtitles ===")
-    audio_success = generate_audio(clean_text, "master_audio.mp3")
+    # --- STEP 2: VOICE & SUBTITLES ---
+    print("[STEP 2/4] Booting Kokoro TTS & Faster-Whisper...")
+    # generate_audio appends .wav and .srt to the base name automatically
+    audio_base_name = "master_audio"
+    audio_success = generate_audio(clean_text, output_base=audio_base_name)
     if not audio_success:
-        print("❌ Failed to generate audio.")
+        print("❌ Critical Failure: Audio generation aborted.")
         sys.exit(1)
         
-    print(f"=== STEP 3: Fetching Background Video ('{selected['bg_query']}') ===")
-    video_success = download_pexels_video(selected['bg_query'], "master_background.mp4")
+    # --- STEP 3: BACKGROUND VISUALS ---
+    print(f"\n[STEP 3/4] Fetching Background ('{selected['bg_query']}') via APIs/Fallbacks...")
+    video_filename = "master_background.mp4"
+    video_success = fetch_background(selected['bg_query'], output_filename=video_filename)
     if not video_success:
-        print("❌ Failed to download video.")
+        print("❌ Critical Failure: Visual generation aborted.")
         sys.exit(1)
         
-    print("=== STEP 4: Assembling Final Video ===")
-    # Adding a timestamp to the output file so two videos a day don't overwrite each other
+    # --- STEP 4: FINAL ASSEMBLY ---
+    print("\n[STEP 4/4] Sending to FFmpeg Render Engine...")
     run_id = int(time.time())
     final_filename = f"FINAL_SHORT_{selected['niche'].replace(' ', '_')}_{run_id}.mp4"
     
-    assembly_success = assemble_video("master_background.mp4", "master_audio.mp3", final_filename)
+    # We pass the exact .wav file to the renderer
+    assembly_success = render_video(
+        video_path=video_filename, 
+        audio_path=f"{audio_base_name}.wav", 
+        output_path=final_filename,
+        style_name=selected['style']
+    )
+    
     if not assembly_success:
-        print("❌ Failed to assemble video.")
+        print("❌ Critical Failure: Video assembly aborted.")
         sys.exit(1)
         
-    print(f"=== 🎉 SUCCESS: Automated Pipeline Complete! ===")
-    print(f"Output saved as: {final_filename}")
+    print(f"\n==================================================")
+    print(f"🎉 FACTORY RUN COMPLETE")
+    print(f"📦 Output File: {final_filename}")
+    print(f"==================================================")
+
+    # Secure hand-off to GitHub Actions for artifact upload
+    if "GITHUB_ENV" in os.environ:
+        with open(os.environ["GITHUB_ENV"], "a") as env_file:
+            env_file.write(f"FINAL_VIDEO_NAME={final_filename}\n")
 
 if __name__ == "__main__":
     main()
