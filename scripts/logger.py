@@ -3,47 +3,90 @@ import json
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
+import pytz
 
-def get_sheet(tab_name):
-    """Authenticates the bot and connects to the specified tab."""
+def get_google_sheet():
+    """
+    Authenticates and connects to your Google Sheet using the secure credentials stored in GitHub Secrets.
+    """
+    # Define the scope of access
     scope = [
-        "https://spreadsheets.google.com/feeds", 
+        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive.file",
         "https://www.googleapis.com/auth/drive"
     ]
     
-    creds_json = os.environ.get("GCP_CREDENTIALS_JSON")
-    if not creds_json:
-        print("Error: GCP_CREDENTIALS_JSON is missing from secrets.")
+    # Read the secure credentials JSON string from GitHub Secrets
+    creds_json_str = os.environ.get("GOOGLE_SHEETS_CREDENTIALS")
+    
+    if not creds_json_str:
+        print("⚠️  Warning: GOOGLE_SHEETS_CREDENTIALS not found in environment. Logger disabled.")
         return None
         
     try:
-        creds_dict = json.loads(creds_json)
+        creds_dict = json.loads(creds_json_str)
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
         
-        sheet_id = os.environ.get("GOOGLE_SHEETS_ID")
-        return client.open_by_key(sheet_id).worksheet(tab_name)
+        # Replace this with the exact name of your Google Sheet
+        sheet = client.open("YouTube_Automation_Logs").sheet1
+        return sheet
     except Exception as e:
-        print(f"Authentication failed: {e}")
+        print(f"❌ Failed to connect to Google Sheets: {e}")
         return None
 
-def log_action(tab_name, data_list):
-    """Appends a row of data to the specified tab with a timestamp."""
+def is_topic_duplicate(topic):
+    """
+    Scans the Google Sheet to see if this topic has already been covered.
+    Returns True if it exists, False if it is brand new.
+    """
+    sheet = get_google_sheet()
+    if not sheet:
+        return False # If sheet fails, let the factory run anyway (the show must go on)
+        
     try:
-        sheet = get_sheet(tab_name)
-        if sheet:
-            # Generate a standard timestamp
-            timestamp = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')
-            
-            # Combine timestamp with your data
-            row_to_insert = [timestamp] + data_list
-            
-            # Write it to the next empty row
-            sheet.append_row(row_to_insert)
-            print(f"Successfully logged data to the '{tab_name}' tab.")
+        # Assuming Topic is logged in Column C (Index 3)
+        existing_topics = sheet.col_values(3)
+        
+        # Simple text matching (lowercased to catch variations)
+        topic_lower = topic.lower().strip()
+        for existing in existing_topics:
+            if topic_lower in existing.lower().strip():
+                print(f"🛑 DUPLICATE DETECTED: '{topic}' has already been made.")
+                return True
+                
+        return False
     except Exception as e:
-        print(f"Failed to write to Google Sheets: {e}")
+        print(f"⚠️ Error checking duplicates: {e}")
+        return False
+
+def log_completed_video(niche, topic, filename):
+    """
+    Writes a permanent record of the successful video into the Google Sheet.
+    """
+    sheet = get_google_sheet()
+    if not sheet:
+        return False
+        
+    try:
+        # Get current time in USA Eastern Time (adjust timezone as needed)
+        eastern = pytz.timezone('US/Eastern')
+        current_time = datetime.now(eastern).strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Append a new row: [Date, Niche, Topic, Filename, Status]
+        row_data = [current_time, niche.upper(), topic, filename, "RENDERED"]
+        sheet.append_row(row_data)
+        
+        print(f"✅ Successfully logged '{topic}' to Google Sheets.")
+        return True
+    except Exception as e:
+        print(f"❌ Failed to write to Google Sheets: {e}")
+        return False
 
 if __name__ == "__main__":
-    # Test message to ensure the bot can write to the sheet
-    log_action("daily_health", ["System Check", "Logger is online and connected to the database!"])
+    # Local testing
+    print("Testing Logger Connection...")
+    sheet = get_google_sheet()
+    if sheet:
+        print("Connection Successful!")
