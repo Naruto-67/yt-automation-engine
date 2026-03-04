@@ -32,12 +32,26 @@ def notify_render(niche, topic, script, size_mb, duration_sec):
         "color": 3447003, # Blue
         "fields": [
             {"name": "🎯 Niche", "value": f"└ {niche.upper()}", "inline": False},
-            {"name": "\u200b", "value": "\u200b", "inline": False}, # Spacer
+            {"name": "\u200b", "value": "\u200b", "inline": False},
             {"name": "📝 Topic", "value": f"└ {topic}", "inline": False},
-            {"name": "\u200b", "value": "\u200b", "inline": False}, # Spacer
+            {"name": "\u200b", "value": "\u200b", "inline": False},
             {"name": "📊 Stats", "value": f"└ Size: {size_mb:.1f}MB\n└ Duration: {duration_sec}s", "inline": False},
-            {"name": "\u200b", "value": "\u200b", "inline": False}, # Spacer
+            {"name": "\u200b", "value": "\u200b", "inline": False},
             {"name": "📜 Script Preview", "value": f"└ *{script[:150]}...*", "inline": False}
+        ],
+        "footer": {"text": f"Engine Local Time: {get_ist_time()}"}
+    }
+    send_embed(embed)
+
+def notify_vault_secure(topic, video_id, playlist_id):
+    video_url = f"https://youtu.be/{video_id}"
+    embed = {
+        "title": "🔒 Video Secured in YouTube Vault",
+        "color": 9807270, # Grey
+        "fields": [
+            {"name": "📝 Topic", "value": f"└ {topic}", "inline": False},
+            {"name": "\u200b", "value": "\u200b", "inline": False},
+            {"name": "🔗 Private Link", "value": f"└ [Click to view Video]({video_url})", "inline": False}
         ],
         "footer": {"text": f"Engine Local Time: {get_ist_time()}"}
     }
@@ -49,7 +63,7 @@ def notify_upload(topic, live_time="Tomorrow, 9:00 AM"):
         "color": 5763719, # Green
         "fields": [
             {"name": "📝 Topic", "value": f"└ {topic}", "inline": False},
-            {"name": "\u200b", "value": "\u200b", "inline": False}, # Spacer
+            {"name": "\u200b", "value": "\u200b", "inline": False},
             {"name": "⏰ Goes Live", "value": f"└ {live_time}", "inline": False}
         ],
         "footer": {"text": f"Engine Local Time: {get_ist_time()}"}
@@ -62,7 +76,7 @@ def notify_warning(topic, step, attempt, max_attempt):
         "color": 16766720, # Yellow
         "fields": [
             {"name": "📝 Topic", "value": f"└ {topic}", "inline": False},
-            {"name": "\u200b", "value": "\u200b", "inline": False}, # Spacer
+            {"name": "\u200b", "value": "\u200b", "inline": False},
             {"name": "🔄 Status", "value": f"└ Attempt {attempt} of {max_attempt} failed. Retrying...", "inline": False}
         ],
         "footer": {"text": f"Engine Local Time: {get_ist_time()}"}
@@ -75,21 +89,8 @@ def notify_error(topic, step, fallback_msg):
         "color": 15158332, # Red
         "fields": [
             {"name": "📝 Topic", "value": f"└ {topic}", "inline": False},
-            {"name": "\u200b", "value": "\u200b", "inline": False}, # Spacer
-            {"name": "🛠️ Action Taken", "value": f"└ {fallback_msg}", "inline": False}
-        ],
-        "footer": {"text": f"Engine Local Time: {get_ist_time()}"}
-    }
-    send_embed(embed)
-
-def notify_cleanup(filename, retention_msg):
-    embed = {
-        "title": "🧹 Vault Auto-Janitor Executed",
-        "color": 9807270, # Grey
-        "fields": [
-            {"name": "🗑️ Deleted File", "value": f"└ `{filename}`", "inline": False},
-            {"name": "\u200b", "value": "\u200b", "inline": False}, # Spacer
-            {"name": "ℹ️ Reason", "value": f"└ {retention_msg}", "inline": False}
+            {"name": "\u200b", "value": "\u200b", "inline": False},
+            {"name": "🛠️ Action Taken / Detail", "value": f"└ {fallback_msg}", "inline": False}
         ],
         "footer": {"text": f"Engine Local Time: {get_ist_time()}"}
     }
@@ -110,6 +111,4 @@ def notify_summary(success, message):
     send_embed(embed)
 
 if __name__ == "__main__":
-    # Local Test to verify spacing and formatting
-    notify_render("Fact", "Test Spaced Layout", "This is a test script to check the new vertical spacing formatting.", 15.2, 58)
-    notify_cleanup("FINAL_SHORT_test.mp4", "Vault capacity reached (5 max).")
+    notify_vault_secure("Test Topic", "dQw4w9WgXcQ", "PL_test")
