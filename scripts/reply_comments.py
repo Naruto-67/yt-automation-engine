@@ -80,22 +80,28 @@ def run_engagement_protocol():
         uploads_playlist_id = channel_response["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
         my_channel_id = channel_response["items"][0]["id"]
 
-        # 2. Get the 5 most recently uploaded videos
+        # 2. Get the 15 most recently uploaded videos (including statuses)
         playlist_items = youtube.playlistItems().list(
-            part="snippet",
+            part="snippet,status", # ADDED STATUS FETCHING
             playlistId=uploads_playlist_id,
-            maxResults=5
+            maxResults=15
         ).execute()
 
         recent_videos = playlist_items.get("items", [])
         if not recent_videos:
-            print("⚠️ No public videos found to engage with.")
+            print("⚠️ No videos found on this channel.")
             return
 
         for video_item in recent_videos:
             video_id = video_item["snippet"]["resourceId"]["videoId"]
             video_title = video_item["snippet"]["title"]
+            privacy_status = video_item["status"]["privacyStatus"]
             
+            # THE FIX: Only attempt to engage with PUBLIC videos
+            if privacy_status != "public":
+                print(f"⏭️ Skipping '{video_title}' (Status: {privacy_status.upper()} - Comments inaccessible)")
+                continue
+                
             print(f"\n👀 Scanning comments for: '{video_title}'")
             
             try:
@@ -149,7 +155,7 @@ def run_engagement_protocol():
                         
             except HttpError as e:
                 if e.resp.status == 403:
-                    print("⚠️ Comments disabled or inaccessible for this video. Skipping.")
+                    print("⚠️ Comments disabled for this video (Likely flagged 'Made for Kids'). Skipping.")
                 else:
                     print(f"⚠️ API Error reading comments: {e}")
                     
@@ -160,7 +166,7 @@ def run_engagement_protocol():
         if total_replies_sent > 0:
             notify_summary(True, f"💬 Audience Engagement executed! AI successfully replied to {total_replies_sent} fan comments.")
         else:
-            print("No new comments needed replies.")
+            print("No new public comments needed replies.")
 
     except Exception as e:
         print("❌ Critical System Error during Engagement:")
