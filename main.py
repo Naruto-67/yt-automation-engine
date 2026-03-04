@@ -9,7 +9,6 @@ from scripts.render_video import render_video
 
 def main():
     # THE DYNAMIC CONTENT MATRIX
-    # This dictates the daily rotation to keep the USA audience highly engaged
     content_matrix = [
         {
             "niche": "fact",
@@ -33,13 +32,13 @@ def main():
             "niche": "psychology trick",
             "topic": "A dark psychology trick to read someone's body language instantly",
             "bg_query": "dark moody city street",
-            "style": "default" # Can change to "dark_mode" once you create a style config for it
+            "style": "default"
         },
         {
             "niche": "unsolved mystery",
             "topic": "A creepy, true, unexplained internet or true crime mystery from the USA",
             "bg_query": "creepy foggy forest",
-            "style": "default" # Can change to "horror" once you create a style config for it
+            "style": "default"
         }
     ]
 
@@ -60,14 +59,15 @@ def main():
         print("❌ Critical Failure: Script generation aborted.")
         sys.exit(1)
         
-    # Clean the script for the TTS
+    # THE FIX: Aggressively sanitize the script so Kokoro doesn't read punctuation
     clean_text = raw_script.replace("[HOOK]", "").replace("[BODY]", "").replace("[OUTRO]", "").strip()
+    clean_text = clean_text.replace("*", "").replace("_", "").replace('"', "").replace("#", "")
     clean_text = " ".join([line.strip() for line in clean_text.split('\n') if line.strip()])
-    print(f"✅ Script Locked:\n{clean_text}\n")
+    
+    print(f"✅ Script Locked and Sanitized:\n{clean_text}\n")
     
     # --- STEP 2: VOICE & SUBTITLES ---
     print("[STEP 2/4] Booting Kokoro TTS & Faster-Whisper...")
-    # generate_audio appends .wav and .srt to the base name automatically
     audio_base_name = "master_audio"
     audio_success = generate_audio(clean_text, output_base=audio_base_name)
     if not audio_success:
@@ -87,7 +87,6 @@ def main():
     run_id = int(time.time())
     final_filename = f"FINAL_SHORT_{selected['niche'].replace(' ', '_')}_{run_id}.mp4"
     
-    # We pass the exact .wav file to the renderer
     assembly_success = render_video(
         video_path=video_filename, 
         audio_path=f"{audio_base_name}.wav", 
@@ -104,7 +103,6 @@ def main():
     print(f"📦 Output File: {final_filename}")
     print(f"==================================================")
 
-    # Secure hand-off to GitHub Actions for artifact upload
     if "GITHUB_ENV" in os.environ:
         with open(os.environ["GITHUB_ENV"], "a") as env_file:
             env_file.write(f"FINAL_VIDEO_NAME={final_filename}\n")
