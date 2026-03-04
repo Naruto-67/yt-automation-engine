@@ -26,7 +26,6 @@ def generate_script(niche, topic):
         print("Error: GEMINI_API_KEY is missing. Check your environment variables.")
         return None
 
-    # New SDK Initialization
     client = genai.Client(api_key=api_key)
     
     improvements = load_improvement_data()
@@ -57,7 +56,6 @@ def generate_script(niche, topic):
 
     try:
         print(f"Generating optimized script for [{niche.upper()}] - {topic}...")
-        # New SDK Generation call
         response = client.models.generate_content(
             model='gemini-2.5-flash',
             contents=prompt,
