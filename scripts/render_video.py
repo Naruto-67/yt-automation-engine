@@ -92,6 +92,7 @@ def render_video(video_path, audio_path, output_path="FINAL_YOUTUBE_SHORT.mp4", 
             
             subprocess.run(ffmpeg_cmd, check=True)
             
+            # Clean up the temporary track
             if os.path.exists(temp_no_subs):
                 os.remove(temp_no_subs)
                 
@@ -110,4 +111,5 @@ def render_video(video_path, audio_path, output_path="FINAL_YOUTUBE_SHORT.mp4", 
         return False
 
 if __name__ == "__main__":
+    # Test the assembly line
     render_video("master_background.mp4", "master_audio.wav", "test_final_render.mp4")
