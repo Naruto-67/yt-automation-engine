@@ -8,15 +8,13 @@ from faster_whisper import WhisperModel
 def load_voice_settings():
     """
     Reads historical performance data to dynamically select the best voice and speed.
-    This allows the system to auto-adjust pacing based on retention analytics.
     """
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     tracker_path = os.path.join(root_dir, "assets", "lessons_learned.json")
     
-    # Default baseline settings for a USA audience
     settings = {
-        "voice": "am_adam",  # Default American Male voice
-        "speed": 1.1         # Slightly sped up for short-form retention
+        "voice": "am_adam",  
+        "speed": 1.1         
     }
     
     if os.path.exists(tracker_path):
@@ -42,8 +40,8 @@ def format_time(seconds):
 
 def generate_audio(text, output_base="master_audio"):
     """
-    Generates ultra-realistic TTS using Kokoro and creates perfectly 
-    synced word-level SRT subtitles using faster-whisper.
+    Generates ultra-realistic TTS using Kokoro, pads the start with silence 
+    to prevent player clipping, and creates synced SRT subtitles.
     """
     wav_path = f"{output_base}.wav"
     srt_path = f"{output_base}.srt"
@@ -55,7 +53,6 @@ def generate_audio(text, output_base="master_audio"):
     print(f"🎙️ Generating voice using Kokoro (Voice: {voice_choice}, Speed: {speech_speed}x)...")
     
     try:
-        # 1. GENERATE AUDIO WITH KOKORO
         pipeline = KPipeline(lang_code='a') 
         generator = pipeline(text, voice=voice_choice, speed=speech_speed, split_pattern=r'\n+')
         
@@ -70,13 +67,20 @@ def generate_audio(text, output_base="master_audio"):
             print("❌ Kokoro generated empty audio.")
             return False
             
-        final_audio = np.concatenate(audio_chunks)
-        sf.write(wav_path, final_audio, sample_rate)
-        print(f"✅ Audio saved successfully to {wav_path}")
+        # Combine all spoken audio chunks
+        raw_audio = np.concatenate(audio_chunks)
         
-        # 2. GENERATE TIMESTAMPS WITH FASTER-WHISPER
+        # THE FIX: Create 0.3 seconds of pure silence
+        silence_duration = 0.3 
+        silence_array = np.zeros(int(sample_rate * silence_duration), dtype=np.float32)
+        
+        # Append the silence to the VERY FRONT of the spoken audio
+        final_audio = np.concatenate([silence_array, raw_audio])
+        
+        sf.write(wav_path, final_audio, sample_rate)
+        print(f"✅ Audio saved successfully to {wav_path} (with 0.3s starting buffer)")
+        
         print("⏱️ Generating precise word-level subtitle timestamps...")
-        # THE FIX: Upgraded from "tiny.en" to "base.en" for highly accurate spelling
         model = WhisperModel("base.en", device="cpu", compute_type="int8")
         segments, info = model.transcribe(wav_path, word_timestamps=True)
         
