@@ -6,13 +6,10 @@ from moviepy import VideoFileClip, AudioFileClip, concatenate_videoclips
 def load_style_config(style_name="default"):
     """
     Loads the styling configuration for the captions.
-    Allows the pipeline to dynamically swap text styles based on the niche 
-    (e.g., loading 'style_configs/horror.json' for spooky red text).
     """
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     style_path = os.path.join(root_dir, "style_configs", f"{style_name}.json")
     
-    # The default high-retention TikTok/Shorts style: Bold, centered, yellow with a black outline
     default_style = "Alignment=5,FontName=Arial,FontSize=22,PrimaryColour=&H0000FFFF,OutlineColour=&H00000000,Outline=2,Bold=1,MarginV=25"
     
     if os.path.exists(style_path):
@@ -29,7 +26,7 @@ def load_style_config(style_name="default"):
 
 def render_video(video_path, audio_path, output_path="FINAL_YOUTUBE_SHORT.mp4", style_name="default"):
     """
-    Assembles the final video by looping the background, syncing the audio, 
+    Assembles the final 60fps video by looping the background, syncing the audio, 
     and burning the SRT via FFmpeg.
     """
     if not os.path.exists(video_path) or not os.path.exists(audio_path):
@@ -37,7 +34,6 @@ def render_video(video_path, audio_path, output_path="FINAL_YOUTUBE_SHORT.mp4", 
         return False
 
     temp_no_subs = "temp_no_subs.mp4"
-    # Swap out the audio extension to find the exact matching subtitle file
     srt_path = audio_path.replace(".wav", ".srt").replace(".mp3", ".srt")
 
     try:
@@ -45,41 +41,33 @@ def render_video(video_path, audio_path, output_path="FINAL_YOUTUBE_SHORT.mp4", 
         v_clip = VideoFileClip(video_path)
         a_clip = AudioFileClip(audio_path)
 
-        # Loop the background video to cover the entire spoken audio duration
         if v_clip.duration < a_clip.duration:
             loops = int(a_clip.duration // v_clip.duration) + 1
             v_clip = concatenate_videoclips([v_clip] * loops)
 
-        # Cut the video to the precise millisecond the audio finishes
         final_v = v_clip.subclipped(0, a_clip.duration)
         final_v = final_v.with_audio(a_clip)
 
-        print("⚙️ Rendering base video without subtitles...")
+        print("⚙️ Rendering base video at buttery smooth 60 FPS...")
         final_v.write_videofile(
             temp_no_subs,
-            fps=30,
+            fps=60,  # UPGRADED TO 60 FPS
             codec="libx264",
             audio_codec="aac",
-            preset="ultrafast",  # Keeps GitHub Actions running fast
+            preset="ultrafast",  
             logger=None
         )
         
-        # Free up server memory
         v_clip.close()
         a_clip.close()
         final_v.close()
 
-        # Step 2: Burn the subtitles into the video using FFmpeg
         if os.path.exists(srt_path):
             print("🔥 Burning dynamic SRT captions into the video...")
             
             ass_style = load_style_config(style_name)
-            
-            # 1. Safely escape the absolute path for FFmpeg
             abs_srt = os.path.abspath(srt_path)
             safe_srt = abs_srt.replace('\\', '/').replace(':', r'\:')
-            
-            # 2. Escape commas in the style string so FFmpeg doesn't break
             safe_style = ass_style.replace(',', r'\,')
             
             ffmpeg_cmd = [
@@ -92,7 +80,6 @@ def render_video(video_path, audio_path, output_path="FINAL_YOUTUBE_SHORT.mp4", 
             
             subprocess.run(ffmpeg_cmd, check=True)
             
-            # Clean up the temporary track
             if os.path.exists(temp_no_subs):
                 os.remove(temp_no_subs)
                 
@@ -109,7 +96,3 @@ def render_video(video_path, audio_path, output_path="FINAL_YOUTUBE_SHORT.mp4", 
     except Exception as e:
         print(f"❌ Assembly failed: {e}")
         return False
-
-if __name__ == "__main__":
-    # Test the assembly line
-    render_video("master_background.mp4", "master_audio.wav", "test_final_render.mp4")
