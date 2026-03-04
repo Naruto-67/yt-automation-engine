@@ -2,6 +2,7 @@ import os
 import sys
 import random
 import time
+import re  # <--- Added for advanced text filtering
 from scripts.generate_script import generate_script
 from scripts.generate_voice import generate_audio
 from scripts.fetch_background import fetch_background
@@ -59,8 +60,23 @@ def main():
         print("❌ Critical Failure: Script generation aborted.")
         sys.exit(1)
         
-    # THE FIX: Aggressively sanitize the script so Kokoro doesn't read punctuation
-    clean_text = raw_script.replace("[HOOK]", "").replace("[BODY]", "").replace("[OUTRO]", "").strip()
+    # --- TEXT SANITIZATION & PRONUNCIATION LOGIC ---
+    # 1. Erase Stage Directions: Delete anything inside [brackets] or (parentheses) completely.
+    clean_text = re.sub(r'\[.*?\]', '', raw_script)
+    clean_text = re.sub(r'\(.*?\)', '', clean_text)
+    
+    # 2. Pronunciation Dictionary: Map tricky numbers and symbols to exact words.
+    # \b ensures it only replaces the exact word (e.g., won't turn 1911 into 1nine one one)
+    pronunciation_map = {
+        r"\b911\b": "nine one one",
+        r"\b100%\b": "one hundred percent",
+        r"\bUSA\b": "U S A"
+    }
+    
+    for pattern, replacement in pronunciation_map.items():
+        clean_text = re.sub(pattern, replacement, clean_text, flags=re.IGNORECASE)
+        
+    # 3. Clean up rogue punctuation (leave periods, commas, and ellipses for natural TTS pauses)
     clean_text = clean_text.replace("*", "").replace("_", "").replace('"', "").replace("#", "")
     clean_text = " ".join([line.strip() for line in clean_text.split('\n') if line.strip()])
     
