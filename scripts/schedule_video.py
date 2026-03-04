@@ -40,7 +40,7 @@ def get_playlist_id(youtube, title):
 
 def create_playlist(youtube, title, privacy_status="public"):
     """Creates a new playlist and returns the ID."""
-    print(f"📁 Creating new playlist: '{title}'")
+    print(f"📁 Creating new {privacy_status.upper()} playlist: '{title}'")
     request = youtube.playlists().insert(
         part="snippet,status",
         body={
@@ -50,6 +50,23 @@ def create_playlist(youtube, title, privacy_status="public"):
     )
     response = request.execute()
     return response["id"]
+
+def determine_niche_playlist(snippet):
+    """
+    Scans the AI-generated metadata (Title, Desc, Tags) to intelligently 
+    route the video to the correct public niche playlist.
+    """
+    tags = snippet.get("tags", [])
+    text_blob = (snippet.get("title", "") + " " + snippet.get("description", "") + " " + " ".join(tags)).lower()
+    
+    if "brainrot" in text_blob or "gen z" in text_blob or "trippy" in text_blob:
+        return "Brainrot Shorts"
+    elif "fact" in text_blob or "history" in text_blob or "bizarre" in text_blob:
+        return "Fact Shorts"
+    elif "story" in text_blob or "parable" in text_blob or "tale" in text_blob:
+        return "Short Stories"
+    else:
+        return "Viral Shorts" # Safe fallback playlist
 
 def publish_oldest_vault_video():
     youtube = get_youtube_client()
@@ -86,7 +103,7 @@ def publish_oldest_vault_video():
 
         print(f"🎯 Target Locked: '{video_title}' (ID: {video_id})")
 
-        # 2. FETCH EXISTING METADATA (To prevent accidental deletion)
+        # 2. FETCH EXISTING METADATA
         video_response = youtube.videos().list(
             part="snippet,status",
             id=video_id
@@ -99,7 +116,11 @@ def publish_oldest_vault_video():
         video_data = video_response["items"][0]
         snippet = video_data["snippet"]
         
-        # 3. SCHEDULE THE VIDEO (For 12 hours from exactly right now)
+        # Determine the dynamic target playlist based on SEO data
+        target_playlist_name = determine_niche_playlist(snippet)
+        print(f"🧠 AI Metadata Scanner routed video to niche: {target_playlist_name}")
+        
+        # 3. SCHEDULE THE VIDEO (For 12 hours from right now)
         publish_time = (datetime.utcnow() + timedelta(hours=12))
         iso_publish_time = publish_time.isoformat() + "Z"
         
@@ -109,9 +130,9 @@ def publish_oldest_vault_video():
             part="snippet,status",
             body={
                 "id": video_id,
-                "snippet": snippet,  # Put the exact title/desc/tags back so they aren't lost
+                "snippet": snippet,  # Preserve the AI SEO
                 "status": {
-                    "privacyStatus": "private", # Must remain private until the scheduled time hits
+                    "privacyStatus": "private", # Must remain private until the schedule hits
                     "publishAt": iso_publish_time,
                     "selfDeclaredMadeForKids": False
                 }
@@ -120,13 +141,14 @@ def publish_oldest_vault_video():
         
         print("✅ Video successfully scheduled!")
 
-        # 4. MOVE VIDEO TO PUBLIC PLAYLIST
-        print("🚚 Moving video out of Vault and into 'Published Shorts'...")
+        # 4. MOVE VIDEO TO THE DYNAMIC PUBLIC PLAYLIST
+        print(f"🚚 Moving video out of Vault and into '{target_playlist_name}'...")
         youtube.playlistItems().delete(id=playlist_item_id).execute()
         
-        public_playlist_id = get_playlist_id(youtube, "Published Shorts")
+        public_playlist_id = get_playlist_id(youtube, target_playlist_name)
         if not public_playlist_id:
-            public_playlist_id = create_playlist(youtube, "Published Shorts", "public")
+            # Automatically create the niche playlist as PUBLIC if it doesn't exist
+            public_playlist_id = create_playlist(youtube, target_playlist_name, "public")
             
         youtube.playlistItems().insert(
             part="snippet",
@@ -143,9 +165,8 @@ def publish_oldest_vault_video():
 
         print("✅ Pipeline Complete. Pinging Discord...")
         
-        # Format a nice readable time for Discord
         readable_time = publish_time.strftime("%B %d, %Y at %H:%M UTC")
-        notify_upload(video_title, readable_time)
+        notify_upload(video_title, f"{readable_time} (Playlist: {target_playlist_name})")
 
     except HttpError as e:
         error_details = json.loads(e.content.decode('utf-8'))
