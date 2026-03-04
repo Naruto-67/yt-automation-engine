@@ -7,9 +7,8 @@ import pytz
 
 def get_google_sheet():
     """
-    Authenticates and connects to your Google Sheet using the secure credentials stored in GitHub Secrets.
+    Authenticates and connects to your Google Sheet using Phase 0 secure credentials.
     """
-    # Define the scope of access
     scope = [
         "https://spreadsheets.google.com/feeds",
         "https://www.googleapis.com/auth/spreadsheets",
@@ -17,11 +16,12 @@ def get_google_sheet():
         "https://www.googleapis.com/auth/drive"
     ]
     
-    # Read the secure credentials JSON string from GitHub Secrets
-    creds_json_str = os.environ.get("GOOGLE_SHEETS_CREDENTIALS")
+    # Pulling the exact Phase 0 credentials you provided
+    creds_json_str = os.environ.get("GCP_CREDENTIALS_JSON")
+    sheet_id = os.environ.get("GOOGLE_SHEETS_ID") 
     
-    if not creds_json_str:
-        print("⚠️  Warning: GOOGLE_SHEETS_CREDENTIALS not found in environment. Logger disabled.")
+    if not creds_json_str or not sheet_id:
+        print("⚠️ Warning: GCP_CREDENTIALS_JSON or GOOGLE_SHEETS_ID missing. Logger bypassed.")
         return None
         
     try:
@@ -29,31 +29,30 @@ def get_google_sheet():
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
         
-        # Replace this with the exact name of your Google Sheet
-        sheet = client.open("YouTube_Automation_Logs").sheet1
+        # Locks onto your exact sheet using the ID
+        sheet = client.open_by_key(sheet_id).sheet1
         return sheet
     except Exception as e:
         print(f"❌ Failed to connect to Google Sheets: {e}")
         return None
 
-def is_topic_duplicate(topic):
+def is_script_duplicate(script_hook):
     """
-    Scans the Google Sheet to see if this topic has already been covered.
+    Scans the Google Sheet to see if the AI has used this exact script hook before.
     Returns True if it exists, False if it is brand new.
     """
     sheet = get_google_sheet()
     if not sheet:
-        return False # If sheet fails, let the factory run anyway (the show must go on)
+        return False 
         
     try:
-        # Assuming Topic is logged in Column C (Index 3)
-        existing_topics = sheet.col_values(3)
+        # We assume the unique script hook/topic is logged in Column C (Index 3)
+        existing_hooks = sheet.col_values(3)
         
-        # Simple text matching (lowercased to catch variations)
-        topic_lower = topic.lower().strip()
-        for existing in existing_topics:
-            if topic_lower in existing.lower().strip():
-                print(f"🛑 DUPLICATE DETECTED: '{topic}' has already been made.")
+        hook_lower = script_hook.lower().strip()
+        for existing in existing_hooks:
+            if hook_lower in existing.lower().strip():
+                print(f"🛑 DUPLICATE DETECTED: The AI tried to use a similar script. Regenerating...")
                 return True
                 
         return False
@@ -61,7 +60,7 @@ def is_topic_duplicate(topic):
         print(f"⚠️ Error checking duplicates: {e}")
         return False
 
-def log_completed_video(niche, topic, filename):
+def log_completed_video(niche, script_hook, filename):
     """
     Writes a permanent record of the successful video into the Google Sheet.
     """
@@ -70,23 +69,22 @@ def log_completed_video(niche, topic, filename):
         return False
         
     try:
-        # Get current time in USA Eastern Time (adjust timezone as needed)
         eastern = pytz.timezone('US/Eastern')
         current_time = datetime.now(eastern).strftime("%Y-%m-%d %H:%M:%S")
         
-        # Append a new row: [Date, Niche, Topic, Filename, Status]
-        row_data = [current_time, niche.upper(), topic, filename, "RENDERED"]
+        # Append a new row: [Date, Niche, Script Hook (Topic), Filename, Status]
+        row_data = [current_time, niche.upper(), script_hook, filename, "RENDERED"]
         sheet.append_row(row_data)
         
-        print(f"✅ Successfully logged '{topic}' to Google Sheets.")
+        print(f"✅ Successfully logged video to Google Sheets.")
         return True
     except Exception as e:
         print(f"❌ Failed to write to Google Sheets: {e}")
         return False
 
 if __name__ == "__main__":
-    # Local testing
-    print("Testing Logger Connection...")
-    sheet = get_google_sheet()
-    if sheet:
-        print("Connection Successful!")
+    # Local testing execution
+    print("Testing Phase 0 Logger Connection...")
+    test_sheet = get_google_sheet()
+    if test_sheet:
+        print("✅ Connection Successful! The AI now has a memory.")
