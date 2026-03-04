@@ -5,9 +5,6 @@ from googleapiclient.http import MediaFileUpload
 from scripts.discord_notifier import notify_vault_secure, notify_error
 
 def get_youtube_client():
-    """
-    Authenticates with the YouTube API using your Master Refresh Token.
-    """
     client_id = os.environ.get("YOUTUBE_CLIENT_ID")
     client_secret = os.environ.get("YOUTUBE_CLIENT_SECRET")
     refresh_token = os.environ.get("YOUTUBE_REFRESH_TOKEN")
@@ -20,7 +17,7 @@ def get_youtube_client():
         creds = Credentials(
             token=None,
             refresh_token=refresh_token,
-            token_uri="https://oauth2.googleapis.com/token",
+            token_uri="[https://oauth2.googleapis.com/token](https://oauth2.googleapis.com/token)",
             client_id=client_id,
             client_secret=client_secret
         )
@@ -30,10 +27,6 @@ def get_youtube_client():
         return None
 
 def get_or_create_playlist(youtube, title, privacy_status="private"):
-    """
-    Checks if a playlist exists. If not, it creates it.
-    Returns the Playlist ID.
-    """
     request = youtube.playlists().list(part="snippet", mine=True, maxResults=50)
     response = request.execute()
     
@@ -52,30 +45,27 @@ def get_or_create_playlist(youtube, title, privacy_status="private"):
     response = request.execute()
     return response["id"]
 
-def upload_to_youtube_vault(video_path, niche, topic):
+def upload_to_youtube_vault(video_path, niche, topic, metadata):
     """
-    Uploads the video as Private and adds it to the 'Vault Backup' playlist.
+    Uploads the video as Private using the dynamically generated AI SEO metadata.
     """
     youtube = get_youtube_client()
     if not youtube:
         return False
         
-    print(f"☁️ Uploading '{topic}' to YouTube Vault (Private)...")
-    
-    # YouTube has a strict 100-character title limit
-    video_title = f"{topic}"[:80] + " #shorts"
-    description = f"{topic}\n\n#shorts #{niche.replace(' ', '')} #viral"
+    print(f"☁️ Uploading to YouTube Vault with optimized SEO...")
     
     try:
-        # 1. UPLOAD THE VIDEO
+        # 1. UPLOAD THE VIDEO WITH AI METADATA
         media = MediaFileUpload(video_path, chunksize=1024*1024*5, resumable=True, mimetype="video/mp4")
         request = youtube.videos().insert(
             part="snippet,status",
             body={
                 "snippet": {
-                    "title": video_title,
-                    "description": description,
-                    "categoryId": "22" # 22 = People & Blogs
+                    "title": metadata["title"][:100],  # Hard cap at 100 chars just to be safe
+                    "description": metadata["description"],
+                    "tags": metadata["tags"],
+                    "categoryId": "22" 
                 },
                 "status": {
                     "privacyStatus": "private", 
@@ -94,7 +84,7 @@ def upload_to_youtube_vault(video_path, niche, topic):
         video_id = response["id"]
         print(f"✅ Video uploaded successfully! ID: {video_id}")
         
-        # 2. ADD TO PLAYLIST
+        # 2. ADD TO BACKUP PLAYLIST
         vault_playlist_id = get_or_create_playlist(youtube, "Vault Backup", "private")
         
         youtube.playlistItems().insert(
@@ -111,16 +101,11 @@ def upload_to_youtube_vault(video_path, niche, topic):
         ).execute()
         
         print("✅ Video successfully secured in 'Vault Backup' Playlist.")
-        notify_vault_secure(topic, video_id, vault_playlist_id)
+        # Ping Discord with the awesome new AI Title
+        notify_vault_secure(metadata["title"], video_id, vault_playlist_id)
         return True
 
     except Exception as e:
         print(f"❌ YouTube Vault upload failed: {e}")
         notify_error(topic, "YouTube Vault Upload", str(e)[:200])
         return False
-
-if __name__ == "__main__":
-    # Local Test
-    client = get_youtube_client()
-    if client:
-        print("✅ YouTube Master Token is valid and connected!")
