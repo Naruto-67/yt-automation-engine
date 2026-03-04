@@ -1,12 +1,16 @@
 {
-  "avoid": [
-    "long pauses",
-    "boring historical dates",
-    "robotic greetings like 'Hey guys'"
-  ],
-  "emphasize": [
-    "High-energy pacing",
-    "Strong visual hooks in the first 3 seconds",
-    "Direct and controversial statements"
-  ]
+    "emphasize": [
+        "Titles explicitly mentioning '3D Animated Short' or 'Animated Short' for clarity on content type.",
+        "Unique and curiosity-provoking character concepts, such as 'Invisible Painter', to generate intrigue.",
+        "Including powerful, abstract positive themes like 'Hidden Talent' and 'True Creativity', often separated by a pipe `|`."
+    ],
+    "avoid": [
+        "Generic emotional descriptors like 'Heartwarming Story' in titles.",
+        "Less unique or overly common character/object concepts, such as 'Lantern Keeper'.",
+        "Primary focus on vague, widely used positive themes like 'Hope and Unity' without a stronger, specific hook."
+    ],
+    "preferred_visuals": [
+        "cinematic",
+        "dark"
+    ]
 }
