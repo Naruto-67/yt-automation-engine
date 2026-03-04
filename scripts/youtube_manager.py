@@ -1,7 +1,10 @@
 import os
+import json
+import traceback
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+from googleapiclient.errors import HttpError
 from scripts.discord_notifier import notify_vault_secure, notify_error
 
 def get_youtube_client():
@@ -13,11 +16,16 @@ def get_youtube_client():
         print("⚠️ YouTube OAuth Credentials missing.")
         return None
 
+    # Hard Failsafe: Detect if user pasted wrong data in token
+    if "{" in client_secret or "[" in refresh_token:
+        print("❌ CRITICAL: Invalid Token format detected in Secrets. Check your YOUTUBE_REFRESH_TOKEN.")
+        return None
+
     try:
         creds = Credentials(
             token=None,
             refresh_token=refresh_token,
-            token_uri="[https://oauth2.googleapis.com/token](https://oauth2.googleapis.com/token)",
+            token_uri="https://oauth2.googleapis.com/token",
             client_id=client_id,
             client_secret=client_secret
         )
@@ -46,9 +54,6 @@ def get_or_create_playlist(youtube, title, privacy_status="private"):
     return response["id"]
 
 def upload_to_youtube_vault(video_path, niche, topic, metadata):
-    """
-    Uploads the video as Private using the dynamically generated AI SEO metadata.
-    """
     youtube = get_youtube_client()
     if not youtube:
         return False
@@ -56,15 +61,14 @@ def upload_to_youtube_vault(video_path, niche, topic, metadata):
     print(f"☁️ Uploading to YouTube Vault with optimized SEO...")
     
     try:
-        # 1. UPLOAD THE VIDEO WITH AI METADATA
         media = MediaFileUpload(video_path, chunksize=1024*1024*5, resumable=True, mimetype="video/mp4")
         request = youtube.videos().insert(
             part="snippet,status",
             body={
                 "snippet": {
-                    "title": metadata["title"][:100],  # Hard cap at 100 chars just to be safe
-                    "description": metadata["description"],
-                    "tags": metadata["tags"],
+                    "title": metadata.get("title", f"{topic} #shorts")[:100], 
+                    "description": metadata.get("description", "A new YouTube Short!"),
+                    "tags": metadata.get("tags", ["shorts", "viral"]),
                     "categoryId": "22" 
                 },
                 "status": {
@@ -84,7 +88,6 @@ def upload_to_youtube_vault(video_path, niche, topic, metadata):
         video_id = response["id"]
         print(f"✅ Video uploaded successfully! ID: {video_id}")
         
-        # 2. ADD TO BACKUP PLAYLIST
         vault_playlist_id = get_or_create_playlist(youtube, "Vault Backup", "private")
         
         youtube.playlistItems().insert(
@@ -101,11 +104,29 @@ def upload_to_youtube_vault(video_path, niche, topic, metadata):
         ).execute()
         
         print("✅ Video successfully secured in 'Vault Backup' Playlist.")
-        # Ping Discord with the awesome new AI Title
-        notify_vault_secure(metadata["title"], video_id, vault_playlist_id)
+        notify_vault_secure(metadata.get("title", topic), video_id, vault_playlist_id)
         return True
 
-    except Exception as e:
-        print(f"❌ YouTube Vault upload failed: {e}")
-        notify_error(topic, "YouTube Vault Upload", str(e)[:200])
+    # 🚨 X-RAY DEBUGGER: This catches the EXACT Google API rejection reason
+    except HttpError as e:
+        try:
+            error_details = json.loads(e.content.decode('utf-8'))
+            error_message = error_details.get('error', {}).get('message', str(e))
+            print(f"\n❌ YOUTUBE API REJECTED THE UPLOAD:")
+            print(f"Reason: {error_message}\n")
+            notify_error(topic, "YouTube API Rejection", error_message)
+        except:
+            print(f"❌ YouTube API Error (Unparseable): {e}")
+            notify_error(topic, "YouTube API Error", str(e)[:200])
         return False
+        
+    except Exception as e:
+        print(f"❌ YouTube Vault upload failed due to a system error:")
+        traceback.print_exc() 
+        notify_error(topic, "System Upload Error", str(e)[:200])
+        return False
+
+if __name__ == "__main__":
+    client = get_youtube_client()
+    if client:
+        print("✅ YouTube Master Token is valid and connected!")
