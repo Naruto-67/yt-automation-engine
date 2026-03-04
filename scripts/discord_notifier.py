@@ -19,12 +19,17 @@ def send_embed(embed_data):
         print("📢 Pinging Discord Mission Control...")
         payload = {
             "username": "YouTube Automation Engine",
-            "avatar_url": "[https://cdn-icons-png.flaticon.com/512/1384/1384060.png](https://cdn-icons-png.flaticon.com/512/1384/1384060.png)",
+            "avatar_url": "https://cdn-icons-png.flaticon.com/512/1384/1384060.png", # Fixed raw URL
             "embeds": [embed_data]
         }
-        requests.post(webhook, json=payload)
+        response = requests.post(webhook, json=payload)
+        
+        # Explicitly catch silent API rejections from Discord
+        if response.status_code >= 400:
+            print(f"❌ Discord API Error {response.status_code}: {response.text}")
+            
     except Exception as e:
-        print(f"❌ Discord notification failed: {e}")
+        print(f"❌ Discord request failed entirely: {e}")
 
 def notify_render(niche, topic, script, size_mb, duration_sec):
     embed = {
@@ -44,7 +49,7 @@ def notify_render(niche, topic, script, size_mb, duration_sec):
     send_embed(embed)
 
 def notify_vault_secure(seo_title, video_id, playlist_id):
-    video_url = f"[https://youtu.be/](https://youtu.be/){video_id}"
+    video_url = f"https://youtu.be/{video_id}" # Fixed raw URL formatting
     embed = {
         "title": "🔒 Video Secured in YouTube Vault",
         "color": 9807270, 
