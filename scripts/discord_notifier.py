@@ -19,7 +19,7 @@ def send_embed(embed_data):
         print("📢 Pinging Discord Mission Control...")
         payload = {
             "username": "YouTube Automation Engine",
-            "avatar_url": "https://cdn-icons-png.flaticon.com/512/1384/1384060.png",
+            "avatar_url": "[https://cdn-icons-png.flaticon.com/512/1384/1384060.png](https://cdn-icons-png.flaticon.com/512/1384/1384060.png)",
             "embeds": [embed_data]
         }
         requests.post(webhook, json=payload)
@@ -29,7 +29,7 @@ def send_embed(embed_data):
 def notify_render(niche, topic, script, size_mb, duration_sec):
     embed = {
         "title": "🎬 Masterpiece Rendered & Locked",
-        "color": 3447003, # Blue
+        "color": 3447003, 
         "fields": [
             {"name": "🎯 Niche", "value": f"└ {niche.upper()}", "inline": False},
             {"name": "\u200b", "value": "\u200b", "inline": False},
@@ -43,15 +43,15 @@ def notify_render(niche, topic, script, size_mb, duration_sec):
     }
     send_embed(embed)
 
-def notify_vault_secure(topic, video_id, playlist_id):
-    video_url = f"https://youtu.be/{video_id}"
+def notify_vault_secure(seo_title, video_id, playlist_id):
+    video_url = f"[https://youtu.be/](https://youtu.be/){video_id}"
     embed = {
         "title": "🔒 Video Secured in YouTube Vault",
-        "color": 9807270, # Grey
+        "color": 9807270, 
         "fields": [
-            {"name": "📝 Topic", "value": f"└ {topic}", "inline": False},
+            {"name": "📝 SEO Title Applied", "value": f"└ {seo_title}", "inline": False},
             {"name": "\u200b", "value": "\u200b", "inline": False},
-            {"name": "🔗 Private Link", "value": f"└ [Click to view Video]({video_url})", "inline": False}
+            {"name": "🔗 Private Link", "value": f"└ [Click to view Video in Vault]({video_url})", "inline": False}
         ],
         "footer": {"text": f"Engine Local Time: {get_ist_time()}"}
     }
@@ -60,7 +60,7 @@ def notify_vault_secure(topic, video_id, playlist_id):
 def notify_upload(topic, live_time="Tomorrow, 9:00 AM"):
     embed = {
         "title": "📤 Video Uploaded & Scheduled",
-        "color": 5763719, # Green
+        "color": 5763719, 
         "fields": [
             {"name": "📝 Topic", "value": f"└ {topic}", "inline": False},
             {"name": "\u200b", "value": "\u200b", "inline": False},
@@ -73,7 +73,7 @@ def notify_upload(topic, live_time="Tomorrow, 9:00 AM"):
 def notify_warning(topic, step, attempt, max_attempt):
     embed = {
         "title": f"⚠️ Retry Triggered: {step}",
-        "color": 16766720, # Yellow
+        "color": 16766720, 
         "fields": [
             {"name": "📝 Topic", "value": f"└ {topic}", "inline": False},
             {"name": "\u200b", "value": "\u200b", "inline": False},
@@ -86,7 +86,7 @@ def notify_warning(topic, step, attempt, max_attempt):
 def notify_error(topic, step, fallback_msg):
     embed = {
         "title": f"🚨 Critical Error: {step}",
-        "color": 15158332, # Red
+        "color": 15158332, 
         "fields": [
             {"name": "📝 Topic", "value": f"└ {topic}", "inline": False},
             {"name": "\u200b", "value": "\u200b", "inline": False},
@@ -97,7 +97,7 @@ def notify_error(topic, step, fallback_msg):
     send_embed(embed)
 
 def notify_summary(success, message):
-    color = 3066993 if success else 15158332 # Green if success, Red if fail
+    color = 3066993 if success else 15158332 
     title = "✅ Daily Pipeline Complete" if success else "❌ Daily Pipeline Failed"
     
     embed = {
@@ -109,6 +109,3 @@ def notify_summary(success, message):
         "footer": {"text": f"Mission Control • {get_ist_time()}"}
     }
     send_embed(embed)
-
-if __name__ == "__main__":
-    notify_vault_secure("Test Topic", "dQw4w9WgXcQ", "PL_test")
