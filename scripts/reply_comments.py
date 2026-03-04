@@ -5,7 +5,7 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from google import genai
-from scripts.discord_notifier import notify_summary, notify_error
+from scripts.discord_notifier import notify_summary, notify_error, notify_engagement
 
 def get_youtube_client():
     client_id = os.environ.get("YOUTUBE_CLIENT_ID")
@@ -109,13 +109,11 @@ def run_engagement_protocol():
                 
                 for thread in comments_response.get("items", []):
                     top_comment = thread["snippet"]["topLevelComment"]["snippet"]
-                    comment_id = top_comment["id"] # Need this to reply
                     comment_text = top_comment["textDisplay"]
                     author_id = top_comment.get("authorChannelId", {}).get("value", "")
                     reply_count = thread["snippet"]["totalReplyCount"]
                     
                     # 4. Strict Filtering Rules
-                    # Don't reply to ourselves, and don't reply if we (or someone else) already replied
                     if author_id == my_channel_id:
                         continue
                     if reply_count > 0:
@@ -139,21 +137,23 @@ def run_engagement_protocol():
                     ).execute()
                     
                     print("✅ Reply successfully posted!")
+                    
+                    # 7. Ping Discord so you can see the interaction
+                    notify_engagement(video_title, comment_text, ai_reply)
+                    
                     total_replies_sent += 1
                     time.sleep(2) # Brief pause to respect API limits
                     
-                    # Limit to 2 replies per video to avoid looking like a spam bot
                     if total_replies_sent >= 5: 
                         break 
                         
             except HttpError as e:
-                # Some videos might have comments disabled, skip gracefully
                 if e.resp.status == 403:
                     print("⚠️ Comments disabled or inaccessible for this video. Skipping.")
                 else:
                     print(f"⚠️ API Error reading comments: {e}")
                     
-            if total_replies_sent >= 5: # Global limit per run
+            if total_replies_sent >= 5: 
                 break
 
         print(f"\n🎉 Engagement Protocol Complete. Total replies sent: {total_replies_sent}")
