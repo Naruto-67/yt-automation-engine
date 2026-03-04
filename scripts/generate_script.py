@@ -1,14 +1,12 @@
 import os
-import sys
 import json
-import google.generativeai as genai
+from google import genai
 
 def load_improvement_data():
     """
     Reads historical performance data to inject into the prompt.
     This is the foundation of the 'self-improvement' loop.
     """
-    # Calculate the absolute path to the assets folder from this script's location
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     tracker_path = os.path.join(root_dir, "assets", "lessons_learned.json")
     
@@ -19,7 +17,6 @@ def load_improvement_data():
         except Exception as e:
             print(f"Warning: Could not read lessons_learned.json: {e}")
             
-    # Fallback baseline if the file is missing
     return {"avoid": [], "emphasize": ["Fast pacing", "Strong visual hooks"]}
 
 def generate_script(niche, topic):
@@ -29,16 +26,13 @@ def generate_script(niche, topic):
         print("Error: GEMINI_API_KEY is missing. Check your environment variables.")
         return None
 
-    genai.configure(api_key=api_key)
-    # Using the fast, cost-effective model optimized for text generation
-    model = genai.GenerativeModel('gemini-2.5-flash')
+    # New SDK Initialization
+    client = genai.Client(api_key=api_key)
     
-    # 1. Load the self-improvement data
     improvements = load_improvement_data()
     avoid_list = ", ".join(improvements.get("avoid", []))
     emphasize_list = ", ".join(improvements.get("emphasize", []))
 
-    # 2. Construct the dynamic, data-driven prompt
     prompt = f"""
     You are an elite YouTube Shorts scriptwriter targeting a USA demographic.
     Write a highly engaging, fast-paced script for the following niche: {niche}
@@ -63,7 +57,11 @@ def generate_script(niche, topic):
 
     try:
         print(f"Generating optimized script for [{niche.upper()}] - {topic}...")
-        response = model.generate_content(prompt)
+        # New SDK Generation call
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+        )
         script_text = response.text.strip()
         print("✅ Script generated successfully.")
         return script_text
@@ -72,7 +70,6 @@ def generate_script(niche, topic):
         return None
 
 if __name__ == "__main__":
-    # Test the self-improving script writer
     test_script = generate_script("fact", "Crazy hidden secrets inside the Statue of Liberty")
     print("\n--- GENERATED SCRIPT ---")
     print(test_script)
