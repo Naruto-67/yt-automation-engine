@@ -9,7 +9,6 @@ def get_gemini_client():
     if not api_key:
         print("⚠️ GEMINI_API_KEY missing.")
         return None
-    # Initialize the newer GenAI client
     return genai.Client(api_key=api_key)
 
 def notify_research_complete(topics_count):
@@ -35,19 +34,12 @@ def run_dynamic_research():
     niches = ["fact", "brainrot", "short story"]
     
     prompt = f"""
-    You are a viral content researcher for a top-tier YouTube Shorts channel. 
-    Identify the most trending, high-retention topics in the USA right now using Google Search.
+    You are a viral content researcher. Identify the most trending, high-retention topics in the USA right now using Google Search.
     
     Generate exactly 21 unique content ideas (7 per niche).
     NICHES: {', '.join(niches)}
     
-    RULES:
-    1. 'fact': Focus on bizarre, unknown, or controversial history/science.
-    2. 'brainrot': Focus on high-energy Gen-Z memes or chaotic trending lore.
-    3. 'short story': Focus on intense parables or extreme self-improvement tales.
-    
-    Return EXACTLY a JSON array of objects. No markdown, no preamble.
-    Structure:
+    Return EXACTLY a JSON array of objects. No markdown preamble or blocks.
     [
         {{
             "niche": "niche_name",
@@ -59,7 +51,7 @@ def run_dynamic_research():
     """
 
     try:
-        # CORRECT SYNTAX: tools must be inside the config dictionary
+        # FIXED: Tools must be inside the config object for the google-genai SDK
         response = client.models.generate_content(
             model='gemini-2.0-flash', 
             contents=prompt,
@@ -70,7 +62,7 @@ def run_dynamic_research():
         
         raw_text = response.text.strip()
         
-        # Clean up potential markdown formatting
+        # Clean up potential markdown formatting if Gemini hallucinates it
         if "```json" in raw_text:
             raw_text = raw_text.split("```json")[1].split("```")[0].strip()
         elif "```" in raw_text:
@@ -78,21 +70,16 @@ def run_dynamic_research():
 
         new_matrix = json.loads(raw_text)
         
-        # --- ROBUST FILE WRITING ---
+        # Determine paths
         root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         memory_dir = os.path.join(root_dir, "memory")
-        
-        if not os.path.exists(memory_dir):
-            os.makedirs(memory_dir, exist_ok=True)
-            
+        os.makedirs(memory_dir, exist_ok=True)
         matrix_path = os.path.join(memory_dir, "content_matrix.json")
         
         with open(matrix_path, "w", encoding="utf-8") as f:
             json.dump(new_matrix, f, indent=4)
             
         print(f"✅ Research Complete! Generated {len(new_matrix)} new topics.")
-        print(f"📍 Saved to: {matrix_path}")
-        
         notify_research_complete(len(new_matrix))
 
     except Exception as e:
