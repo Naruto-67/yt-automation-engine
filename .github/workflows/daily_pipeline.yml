@@ -1,0 +1,38 @@
+name: Daily YouTube Shorts Pipeline
+
+on:
+  workflow_dispatch: # Keeps it manual for now so we can safely test
+
+jobs:
+  build-and-render:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install system dependencies (FFmpeg & Kokoro Voice Engine)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-liberation espeak-ng
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install Python packages
+        run: pip install -r requirements.txt
+
+      - name: Run Master Orchestrator
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+        run: python main.py
+
+      - name: Upload Final Video Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: finished-youtube-short
+          path: ${{ env.FINAL_VIDEO_NAME }}
