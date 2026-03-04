@@ -29,28 +29,28 @@ def send_embed(embed_data):
 def notify_render(niche, topic, script, size_mb, duration_sec):
     embed = {
         "title": "🎬 Masterpiece Rendered & Locked",
-        "color": 3447003, # Blue Sidebar
+        "color": 3447003, # Blue
         "fields": [
-            {
-                "name": "🎯 Niche", 
-                "value": f"└ {niche.upper()}", 
-                "inline": False
-            },
-            {
-                "name": "📝 Topic", 
-                "value": f"└ {topic}", 
-                "inline": False
-            },
-            {
-                "name": "📊 Stats", 
-                "value": f"└ Size: {size_mb:.1f}MB\n└ Duration: {duration_sec}s", 
-                "inline": False
-            },
-            {
-                "name": "📜 Script Preview", 
-                "value": f"└ {script[:150]}...", 
-                "inline": False
-            }
+            {"name": "🎯 Niche", "value": f"└ {niche.upper()}", "inline": False},
+            {"name": "\u200b", "value": "\u200b", "inline": False}, # Spacer
+            {"name": "📝 Topic", "value": f"└ {topic}", "inline": False},
+            {"name": "\u200b", "value": "\u200b", "inline": False}, # Spacer
+            {"name": "📊 Stats", "value": f"└ Size: {size_mb:.1f}MB\n└ Duration: {duration_sec}s", "inline": False},
+            {"name": "\u200b", "value": "\u200b", "inline": False}, # Spacer
+            {"name": "📜 Script Preview", "value": f"└ *{script[:150]}...*", "inline": False}
+        ],
+        "footer": {"text": f"Engine Local Time: {get_ist_time()}"}
+    }
+    send_embed(embed)
+
+def notify_upload(topic, live_time="Tomorrow, 9:00 AM"):
+    embed = {
+        "title": "📤 Video Uploaded & Scheduled",
+        "color": 5763719, # Green
+        "fields": [
+            {"name": "📝 Topic", "value": f"└ {topic}", "inline": False},
+            {"name": "\u200b", "value": "\u200b", "inline": False}, # Spacer
+            {"name": "⏰ Goes Live", "value": f"└ {live_time}", "inline": False}
         ],
         "footer": {"text": f"Engine Local Time: {get_ist_time()}"}
     }
@@ -59,24 +59,39 @@ def notify_render(niche, topic, script, size_mb, duration_sec):
 def notify_warning(topic, step, attempt, max_attempt):
     embed = {
         "title": f"⚠️ Retry Triggered: {step}",
-        "description": f"**Topic:** {topic}\nAttempt {attempt} of {max_attempt} failed. Retrying...",
-        "color": 16766720 # Yellow
+        "color": 16766720, # Yellow
+        "fields": [
+            {"name": "📝 Topic", "value": f"└ {topic}", "inline": False},
+            {"name": "\u200b", "value": "\u200b", "inline": False}, # Spacer
+            {"name": "🔄 Status", "value": f"└ Attempt {attempt} of {max_attempt} failed. Retrying...", "inline": False}
+        ],
+        "footer": {"text": f"Engine Local Time: {get_ist_time()}"}
     }
     send_embed(embed)
 
 def notify_error(topic, step, fallback_msg):
     embed = {
-        "title": f"🚨 Critical Error at {step}",
-        "description": f"**Topic:** {topic}\n**Action Taken:** {fallback_msg}",
-        "color": 15158332 # Red
+        "title": f"🚨 Critical Error: {step}",
+        "color": 15158332, # Red
+        "fields": [
+            {"name": "📝 Topic", "value": f"└ {topic}", "inline": False},
+            {"name": "\u200b", "value": "\u200b", "inline": False}, # Spacer
+            {"name": "🛠️ Action Taken", "value": f"└ {fallback_msg}", "inline": False}
+        ],
+        "footer": {"text": f"Engine Local Time: {get_ist_time()}"}
     }
     send_embed(embed)
 
 def notify_cleanup(filename, retention_msg):
     embed = {
         "title": "🧹 Vault Auto-Janitor Executed",
-        "description": f"**Deleted:** `{filename}`\n**Reason:** {retention_msg}",
-        "color": 9807270 # Grey
+        "color": 9807270, # Grey
+        "fields": [
+            {"name": "🗑️ Deleted File", "value": f"└ `{filename}`", "inline": False},
+            {"name": "\u200b", "value": "\u200b", "inline": False}, # Spacer
+            {"name": "ℹ️ Reason", "value": f"└ {retention_msg}", "inline": False}
+        ],
+        "footer": {"text": f"Engine Local Time: {get_ist_time()}"}
     }
     send_embed(embed)
 
@@ -86,8 +101,15 @@ def notify_summary(success, message):
     
     embed = {
         "title": title,
-        "description": message,
         "color": color,
-        "footer": {"text": f"Engine Local Time: {get_ist_time()}"}
+        "fields": [
+            {"name": "📊 Summary", "value": f"└ {message}", "inline": False}
+        ],
+        "footer": {"text": f"Mission Control • {get_ist_time()}"}
     }
     send_embed(embed)
+
+if __name__ == "__main__":
+    # Local Test to verify spacing and formatting
+    notify_render("Fact", "Test Spaced Layout", "This is a test script to check the new vertical spacing formatting.", 15.2, 58)
+    notify_cleanup("FINAL_SHORT_test.mp4", "Vault capacity reached (5 max).")
