@@ -48,10 +48,10 @@ def generate_script(niche, topic):
     
     FORMATTING:
     - The script must be under 130 words total to fit within a 60-second window.
-    - Return ONLY the spoken text. 
-    - Do not use [HOOK], [BODY], or [OUTRO] headers.
-    - Do not include stage directions, music cues, or visual notes. 
-    - Just output the exact words to be spoken by the TTS engine.
+    - Return ONLY the exact words to be spoken.
+    - CRITICAL: DO NOT output any stage directions, actions, or visual notes (e.g., never write "Silence", "[Pause]", or "(Sigh)").
+    - Do not use [HOOK] or [BODY] headers.
+    - If you want the voice to pause naturally, just use a comma or an ellipsis (...).
     """
 
     try:
