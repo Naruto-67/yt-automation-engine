@@ -2,14 +2,14 @@ import os
 import sys
 import random
 import time
-import re  # <--- Added for advanced text filtering
+import re
 from scripts.generate_script import generate_script
 from scripts.generate_voice import generate_audio
 from scripts.fetch_background import fetch_background
 from scripts.render_video import render_video
+from scripts.logger import is_script_duplicate, log_completed_video  # <--- Added Logger
 
 def main():
-    # THE DYNAMIC CONTENT MATRIX
     content_matrix = [
         {
             "niche": "fact",
@@ -53,34 +53,50 @@ def main():
     print(f"🎨 Target Style: {selected['style']}")
     print(f"--------------------------------------------------")
     
-    # --- STEP 1: SCRIPT GENERATION ---
+    # --- STEP 1: SCRIPT GENERATION (WITH MEMORY LOOP) ---
     print("\n[STEP 1/4] Booting Self-Improving AI Writer...")
-    raw_script = generate_script(selected['niche'], selected['topic'])
-    if not raw_script:
-        print("❌ Critical Failure: Script generation aborted.")
+    max_retries = 3
+    clean_text = ""
+    script_hook = ""
+    
+    for attempt in range(max_retries):
+        raw_script = generate_script(selected['niche'], selected['topic'])
+        if not raw_script:
+            print("❌ Critical Failure: Script generation aborted.")
+            sys.exit(1)
+            
+        # Sanitize text
+        temp_text = re.sub(r'\[.*?\]', '', raw_script)
+        temp_text = re.sub(r'\(.*?\)', '', temp_text)
+        
+        pronunciation_map = {
+            r"\b911\b": "nine one one",
+            r"\b100%\b": "one hundred percent",
+            r"\bUSA\b": "U S A"
+        }
+        for pattern, replacement in pronunciation_map.items():
+            temp_text = re.sub(pattern, replacement, temp_text, flags=re.IGNORECASE)
+            
+        temp_text = temp_text.replace("*", "").replace("_", "").replace('"', "").replace("#", "")
+        temp_text = " ".join([line.strip() for line in temp_text.split('\n') if line.strip()])
+        
+        # Extract the first 10 words to use as a unique fingerprint/hook for the logger
+        words = temp_text.split()
+        script_hook = " ".join(words[:10])
+        
+        # Check the Google Sheet Vault
+        if is_script_duplicate(script_hook):
+            print(f"⚠️ Attempt {attempt+1}/{max_retries}: AI generated a duplicate topic. Retrying...")
+            continue # Try again!
+        else:
+            clean_text = temp_text
+            break # It's unique! Break the loop.
+            
+    if not clean_text:
+        print("❌ Critical Failure: AI could not generate a unique script after 3 tries.")
         sys.exit(1)
-        
-    # --- TEXT SANITIZATION & PRONUNCIATION LOGIC ---
-    # 1. Erase Stage Directions: Delete anything inside [brackets] or (parentheses) completely.
-    clean_text = re.sub(r'\[.*?\]', '', raw_script)
-    clean_text = re.sub(r'\(.*?\)', '', clean_text)
-    
-    # 2. Pronunciation Dictionary: Map tricky numbers and symbols to exact words.
-    # \b ensures it only replaces the exact word (e.g., won't turn 1911 into 1nine one one)
-    pronunciation_map = {
-        r"\b911\b": "nine one one",
-        r"\b100%\b": "one hundred percent",
-        r"\bUSA\b": "U S A"
-    }
-    
-    for pattern, replacement in pronunciation_map.items():
-        clean_text = re.sub(pattern, replacement, clean_text, flags=re.IGNORECASE)
-        
-    # 3. Clean up rogue punctuation (leave periods, commas, and ellipses for natural TTS pauses)
-    clean_text = clean_text.replace("*", "").replace("_", "").replace('"', "").replace("#", "")
-    clean_text = " ".join([line.strip() for line in clean_text.split('\n') if line.strip()])
-    
-    print(f"✅ Script Locked and Sanitized:\n{clean_text}\n")
+
+    print(f"✅ Unique Script Locked:\n{clean_text}\n")
     
     # --- STEP 2: VOICE & SUBTITLES ---
     print("[STEP 2/4] Booting Kokoro TTS & Faster-Whisper...")
@@ -113,6 +129,10 @@ def main():
     if not assembly_success:
         print("❌ Critical Failure: Video assembly aborted.")
         sys.exit(1)
+        
+    # --- STEP 5: LOG TO BRAIN ---
+    print("\n[STEP 5/5] Logging success to Google Sheets Memory...")
+    log_completed_video(selected['niche'], script_hook, final_filename)
         
     print(f"\n==================================================")
     print(f"🎉 FACTORY RUN COMPLETE")
