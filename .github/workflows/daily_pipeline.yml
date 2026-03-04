@@ -1,7 +1,7 @@
 name: Daily YouTube Shorts Pipeline
 
 on:
-  workflow_dispatch: # Keeps it manual for now so we can safely test
+  workflow_dispatch:
 
 jobs:
   build-and-render:
@@ -16,10 +16,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg fonts-liberation espeak-ng
 
-      - name: Set up Python 3.10
+      - name: Set up Python 3.11
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: '3.11'
           cache: 'pip'
 
       - name: Install Python packages
