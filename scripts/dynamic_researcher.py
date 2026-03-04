@@ -12,10 +12,9 @@ def get_gemini_client():
     return genai.Client(api_key=api_key)
 
 def notify_research_complete(topics_count):
-    """Pings Discord to confirm the content matrix has been refreshed."""
     embed = {
         "title": "🕵️ AI Trend Research Complete",
-        "color": 15105570, # Orange/Gold
+        "color": 15105570,
         "fields": [
             {"name": "📈 Status", "value": f"└ Scraped web and generated {topics_count} viral topics.", "inline": False},
             {"name": "📂 Storage", "value": "└ Updated memory/content_matrix.json", "inline": False}
@@ -31,35 +30,25 @@ def run_dynamic_research():
 
     print("🔎 Searching the web for trending viral topics...")
 
-    # We provide context of our niches so Gemini knows what to look for
     niches = ["fact", "brainrot", "short story"]
     
     prompt = f"""
-    You are a viral content researcher for a top-tier YouTube Shorts channel. 
-    Using your search tools, identify the most trending, high-retention topics in the USA right now.
-    
+    You are a viral content researcher. Using your search tools, identify trending, high-retention topics in the USA right now.
     Generate exactly 21 unique content ideas (7 per niche).
     NICHES: {', '.join(niches)}
     
-    RULES:
-    1. 'fact': Focus on bizarre, unknown, or controversial history/science that people will share.
-    2. 'brainrot': Focus on high-energy Gen-Z memes, internet lore, or chaotic trending sound-bites.
-    3. 'short story': Focus on intense parables, psychological thrillers, or extreme self-improvement tales.
-    
-    Return EXACTLY this JSON structure and absolutely nothing else. No markdown blocks.
+    Return EXACTLY this JSON structure (Raw text only):
     [
         {{
             "niche": "niche_name",
-            "topic": "Specific, detailed viral topic title",
-            "bg_query": "specific search terms for Pexels video",
+            "topic": "Topic title",
+            "bg_query": "pexels search term",
             "style": "default"
-        }},
-        ...
+        }}
     ]
     """
 
     try:
-        # Use Google Search grounding to find real-world trends
         response = client.models.generate_content(
             model='gemini-2.5-flash',
             contents=prompt,
@@ -67,24 +56,29 @@ def run_dynamic_research():
         )
         
         raw_json = response.text.replace("```json", "").replace("```", "").strip()
-        # Handle cases where Gemini adds unexpected leading text
         if "[" in raw_json:
             raw_json = raw_json[raw_json.find("["):raw_json.rfind("]")+1]
             
         new_matrix = json.loads(raw_json)
         
-        # Save to memory folder
+        # --- FORCE PATHING FIX ---
         root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         memory_dir = os.path.join(root_dir, "memory")
+        
         if not os.path.exists(memory_dir):
             os.makedirs(memory_dir)
+            print(f"📁 Created memory directory at: {memory_dir}")
             
         matrix_path = os.path.join(memory_dir, "content_matrix.json")
         
         with open(matrix_path, "w", encoding="utf-8") as f:
             json.dump(new_matrix, f, indent=4)
             
-        print(f"✅ Research Complete! Generated {len(new_matrix)} new topics.")
+        # Verify file exists after writing
+        if os.path.exists(matrix_path):
+            print(f"✅ SUCCESS: content_matrix.json created at {matrix_path}")
+            print(f"📄 File Size: {os.path.getsize(matrix_path)} bytes")
+        
         notify_research_complete(len(new_matrix))
 
     except Exception as e:
