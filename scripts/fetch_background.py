@@ -16,7 +16,6 @@ def load_visual_preferences():
         try:
             with open(tracker_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                # If analytics show certain visual styles retain better, append them
                 if "preferred_visuals" in data:
                     modifiers = " " + " ".join(data["preferred_visuals"])
         except Exception as e:
@@ -46,7 +45,6 @@ def get_fallback_video(output_filename):
     source_path = os.path.join(fallback_dir, chosen_fallback)
     
     try:
-        # Copy the fallback file to the working directory, renaming it to the expected output
         with open(source_path, 'rb') as src, open(output_filename, 'wb') as dst:
             dst.write(src.read())
         print(f"✅ Fallback successful. Using local asset: {chosen_fallback}")
@@ -57,7 +55,7 @@ def get_fallback_video(output_filename):
 
 def fetch_background(base_query, output_filename="master_background.mp4"):
     """
-    Searches Pexels for a 1080p vertical video matching the dynamic query.
+    Searches Pexels for a high-retention vertical video matching the dynamic query.
     If it fails, it instantly triggers the fallback protocol.
     """
     api_key = os.environ.get("PEXELS_API_KEY")
@@ -65,14 +63,12 @@ def fetch_background(base_query, output_filename="master_background.mp4"):
         print("Warning: PEXELS_API_KEY is missing. Defaulting to local fallbacks.")
         return get_fallback_video(output_filename)
 
-    # Inject learned visual preferences into the query
     visual_modifiers = load_visual_preferences()
     optimized_query = f"{base_query}{visual_modifiers}".strip()
     
     print(f"🔍 Searching Pexels for optimized query: '{optimized_query}'...")
     
     headers = {"Authorization": api_key}
-    # Enforcing portrait (9:16) and large (1080p/4K) for YouTube Shorts
     url = f"https://api.pexels.com/videos/search?query={optimized_query}&orientation=portrait&size=large&per_page=15"
 
     try:
@@ -84,20 +80,27 @@ def fetch_background(base_query, output_filename="master_background.mp4"):
             print(f"⚠️ No Pexels results for '{optimized_query}'.")
             return get_fallback_video(output_filename)
 
-        # Pick a random video from the top 15 to prevent visual repetition
         video = random.choice(data["videos"])
-        
         video_files = video.get("video_files", [])
+        
         if not video_files:
             print("⚠️ Selected Pexels video has no downloadable files.")
             return get_fallback_video(output_filename)
             
-        # Sort by resolution (width * height) to guarantee the crispest file
-        video_files.sort(key=lambda x: x.get("width", 0) * x.get("height", 0), reverse=True)
-        target_file = video_files[0]
+        # THE 2K SWEET SPOT FILTER
+        # Keep all files strictly below 4K width (2160 pixels)
+        below_4k_files = [f for f in video_files if f.get("width", 0) < 2160]
+        
+        # Fallback to any file if no non-4k files exist
+        valid_files = below_4k_files if below_4k_files else video_files
+        
+        # Sort the remaining files by highest resolution first. 
+        # If a 1440p file exists, it wins. If not, 1080p wins.
+        valid_files.sort(key=lambda x: x.get("width", 0) * x.get("height", 0), reverse=True)
+        target_file = valid_files[0]
         download_link = target_file.get("link")
         
-        print(f"⬇️ Downloading high-quality asset ({target_file.get('width')}x{target_file.get('height')})...")
+        print(f"⬇️ Downloading optimized asset ({target_file.get('width')}x{target_file.get('height')})...")
         vid_response = requests.get(download_link, stream=True, timeout=30)
         vid_response.raise_for_status()
         
@@ -114,5 +117,4 @@ def fetch_background(base_query, output_filename="master_background.mp4"):
         return get_fallback_video(output_filename)
 
 if __name__ == "__main__":
-    # Test the fetcher (will use Pexels if API key exists, otherwise local fallback)
     fetch_background("creepy abandoned hospital", "test_background.mp4")
