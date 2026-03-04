@@ -29,12 +29,28 @@ def send_embed(embed_data):
 def notify_render(niche, topic, script, size_mb, duration_sec):
     embed = {
         "title": "🎬 Masterpiece Rendered & Locked",
-        "color": 3447003, # Blue
+        "color": 3447003, # Blue Sidebar
         "fields": [
-            {"name": "🎯 Niche", "value": niche.upper(), "inline": True},
-            {"name": "📝 Topic", "value": topic, "inline": True},
-            {"name": "📊 Stats", "value": f"**Size:** {size_mb:.1f}MB\n**Duration:** {duration_sec}s", "inline": False},
-            {"name": "📜 Script Preview", "value": f"*{script[:150]}...*", "inline": False}
+            {
+                "name": "🎯 Niche", 
+                "value": f"└ {niche.upper()}", 
+                "inline": False
+            },
+            {
+                "name": "📝 Topic", 
+                "value": f"└ {topic}", 
+                "inline": False
+            },
+            {
+                "name": "📊 Stats", 
+                "value": f"└ Size: {size_mb:.1f}MB\n└ Duration: {duration_sec}s", 
+                "inline": False
+            },
+            {
+                "name": "📜 Script Preview", 
+                "value": f"└ {script[:150]}...", 
+                "inline": False
+            }
         ],
         "footer": {"text": f"Engine Local Time: {get_ist_time()}"}
     }
@@ -72,10 +88,6 @@ def notify_summary(success, message):
         "title": title,
         "description": message,
         "color": color,
-        "footer": {"text": "Mission Control Dashboard"}
+        "footer": {"text": f"Engine Local Time: {get_ist_time()}"}
     }
     send_embed(embed)
-
-if __name__ == "__main__":
-    # Local Test of the new embed system
-    notify_render("Fact", "Test Topic", "This is a test script...", 15.2, 58)
