@@ -1,6 +1,5 @@
 name: Weekly Trending Researcher
 
-# Runs every Sunday at 18:00 UTC (11:30 PM IST)
 on:
   schedule:
     - cron: '0 18 * * 0'
@@ -15,6 +14,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -22,8 +23,11 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: Install Python packages
+      - name: Install dependencies
         run: pip install google-genai requests pytz
+
+      - name: Create memory folder
+        run: mkdir -p memory
 
       - name: Run Trend Researcher
         env:
@@ -36,4 +40,6 @@ jobs:
           git config --global user.name "AI Trend Researcher"
           git config --global user.email "actions@github.com"
           git add memory/content_matrix.json
-          git diff --quiet && git diff --staged --quiet || (git commit -m "🔍 AI Research Update: Refreshed content matrix with trending viral topics" && git push)
+          # Force the commit even if it's the first time
+          git commit -m "🔍 AI Research Update: Refreshed content matrix" || echo "No changes to commit"
+          git push origin main
