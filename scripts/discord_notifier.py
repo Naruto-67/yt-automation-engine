@@ -19,17 +19,16 @@ def send_embed(embed_data):
         print("📢 Pinging Discord Mission Control...")
         payload = {
             "username": "YouTube Automation Engine",
-            "avatar_url": "https://cdn-icons-png.flaticon.com/512/1384/1384060.png", # Fixed raw URL
+            "avatar_url": "https://cdn-icons-png.flaticon.com/512/1384/1384060.png",
             "embeds": [embed_data]
         }
         response = requests.post(webhook, json=payload)
         
-        # Explicitly catch silent API rejections from Discord
         if response.status_code >= 400:
             print(f"❌ Discord API Error {response.status_code}: {response.text}")
             
     except Exception as e:
-        print(f"❌ Discord request failed entirely: {e}")
+        print(f"❌ Discord notification failed: {e}")
 
 def notify_render(niche, topic, script, size_mb, duration_sec):
     embed = {
@@ -46,7 +45,7 @@ def notify_render(niche, topic, script, size_mb, duration_sec):
     send_embed(embed)
 
 def notify_vault_secure(seo_title, video_id, playlist_id):
-    video_url = f"https://youtu.be/{video_id}" # Fixed raw URL formatting
+    video_url = f"https://youtu.be/{video_id}"
     embed = {
         "title": "🔒 Video Secured in YouTube Vault",
         "color": 9807270, 
@@ -65,6 +64,19 @@ def notify_upload(topic, live_time="Tomorrow, 9:00 AM"):
         "fields": [
             {"name": "📝 Topic", "value": f"└ {topic}", "inline": False},
             {"name": "⏰ Goes Live", "value": f"└ {live_time}", "inline": False}
+        ],
+        "footer": {"text": f"Engine Local Time: {get_ist_time()}"}
+    }
+    send_embed(embed)
+
+def notify_engagement(video_title, comment_text, ai_reply):
+    embed = {
+        "title": "💬 AI Audience Engagement",
+        "color": 10181046, # Purple for AI interactions
+        "fields": [
+            {"name": "📝 Video", "value": f"└ {video_title}", "inline": False},
+            {"name": "👤 Viewer Comment", "value": f"└ *\"{comment_text[:150]}\"*", "inline": False},
+            {"name": "🤖 AI Reply", "value": f"└ {ai_reply}", "inline": False}
         ],
         "footer": {"text": f"Engine Local Time: {get_ist_time()}"}
     }
@@ -94,6 +106,18 @@ def notify_error(topic, step, fallback_msg):
     }
     send_embed(embed)
 
+def notify_cleanup(filename, retention_msg):
+    embed = {
+        "title": "🧹 Vault Auto-Janitor Executed",
+        "color": 9807270, 
+        "fields": [
+            {"name": "🗑️ Deleted File", "value": f"└ `{filename}`", "inline": False},
+            {"name": "ℹ️ Reason", "value": f"└ {retention_msg}", "inline": False}
+        ],
+        "footer": {"text": f"Engine Local Time: {get_ist_time()}"}
+    }
+    send_embed(embed)
+
 def notify_summary(success, message):
     color = 3066993 if success else 15158332 
     title = "✅ Daily Pipeline Complete" if success else "❌ Daily Pipeline Failed"
@@ -107,3 +131,6 @@ def notify_summary(success, message):
         "footer": {"text": f"Mission Control • {get_ist_time()}"}
     }
     send_embed(embed)
+
+if __name__ == "__main__":
+    notify_engagement("Bizarre History Shorts", "Wow, I never knew this happened!!", "Right?! History is crazy sometimes. 🤯")
