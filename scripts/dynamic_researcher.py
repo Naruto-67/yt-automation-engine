@@ -1,6 +1,7 @@
 import os
 import json
 import traceback
+import re
 from google import genai
 from scripts.discord_notifier import send_embed, get_ist_time, notify_error
 
@@ -34,12 +35,19 @@ def run_dynamic_research():
     niches = ["fact", "brainrot", "short story"]
     
     prompt = f"""
-    You are a viral content researcher. Identify the most trending, high-retention topics in the USA right now using Google Search.
+    You are a viral content researcher for a top-tier YouTube Shorts channel. 
+    Identify the most trending, high-retention topics in the USA right now using Google Search.
     
     Generate exactly 21 unique content ideas (7 per niche).
     NICHES: {', '.join(niches)}
     
-    Return EXACTLY a JSON array of objects. No markdown preamble or blocks.
+    RULES:
+    1. 'fact': Focus on bizarre, unknown, or controversial history/science.
+    2. 'brainrot': Focus on high-energy Gen-Z memes or chaotic trending lore.
+    3. 'short story': Focus on intense parables or extreme self-improvement tales.
+    
+    Return ONLY a raw JSON array of objects. No markdown formatting, no conversational text.
+    Structure:
     [
         {{
             "niche": "niche_name",
@@ -51,7 +59,7 @@ def run_dynamic_research():
     """
 
     try:
-        # FIXED: Tools must be inside the config object for the google-genai SDK
+        # Corrected config for google-genai SDK
         response = client.models.generate_content(
             model='gemini-2.0-flash', 
             contents=prompt,
@@ -62,15 +70,17 @@ def run_dynamic_research():
         
         raw_text = response.text.strip()
         
-        # Clean up potential markdown formatting if Gemini hallucinates it
-        if "```json" in raw_text:
-            raw_text = raw_text.split("```json")[1].split("```")[0].strip()
-        elif "```" in raw_text:
-            raw_text = raw_text.split("```")[1].split("```")[0].strip()
+        # Professional JSON Extraction: Finds the content between the first [ and last ]
+        # This prevents errors if Gemini adds markdown or text.
+        match = re.search(r'\[.*\]', raw_text, re.DOTALL)
+        if match:
+            clean_json_str = match.group(0)
+        else:
+            clean_json_str = raw_text
 
-        new_matrix = json.loads(raw_text)
+        new_matrix = json.loads(clean_json_str)
         
-        # Determine paths
+        # Path logic for GitHub Actions environment
         root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         memory_dir = os.path.join(root_dir, "memory")
         os.makedirs(memory_dir, exist_ok=True)
