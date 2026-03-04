@@ -1,29 +1,35 @@
 import os
-import json
-from google.oauth2 import service_account
+from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from scripts.discord_notifier import notify_cleanup
 
 def authenticate_drive():
     """
-    Authenticates with the Google Drive API using Phase 0 credentials.
+    Authenticates with Google Drive using the User OAuth tokens 
+    to bypass the Service Account 0-byte storage quota limit.
     """
-    creds_json_str = os.environ.get("GCP_CREDENTIALS_JSON")
-    if not creds_json_str:
-        print("⚠️ GCP_CREDENTIALS_JSON missing. Drive upload bypassed.")
+    client_id = os.environ.get("YOUTUBE_CLIENT_ID")
+    client_secret = os.environ.get("YOUTUBE_CLIENT_SECRET")
+    refresh_token = os.environ.get("YOUTUBE_REFRESH_TOKEN")
+    
+    if not all([client_id, client_secret, refresh_token]):
+        print("⚠️ OAuth Credentials missing. Drive upload bypassed.")
         return None
     
     try:
-        creds_dict = json.loads(creds_json_str)
-        credentials = service_account.Credentials.from_service_account_info(
-            creds_dict, 
-            scopes=["https://www.googleapis.com/auth/drive"]
+        # Create user credentials using the refresh token
+        creds = Credentials(
+            token=None,
+            refresh_token=refresh_token,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=client_id,
+            client_secret=client_secret
         )
-        service = build('drive', 'v3', credentials=credentials)
+        service = build('drive', 'v3', credentials=creds)
         return service
     except Exception as e:
-        print(f"❌ Failed to authenticate Google Drive: {e}")
+        print(f"❌ Failed to authenticate Google Drive via OAuth: {e}")
         return None
 
 def manage_drive_backup(file_path, video_title):
@@ -42,7 +48,7 @@ def manage_drive_backup(file_path, video_title):
     file_name = os.path.basename(file_path)
     
     # --- 1. UPLOAD NEW VIDEO ---
-    print(f"☁️ Uploading {file_name} to Google Drive Vault...")
+    print(f"☁️ Uploading {file_name} to Google Drive Vault via User OAuth...")
     try:
         file_metadata = {
             'name': file_name,
@@ -74,8 +80,7 @@ def manage_drive_backup(file_path, video_title):
                 old_file = files[i]
                 print(f"🗑️ Deleting oldest backup: {old_file['name']}")
                 service.files().delete(fileId=old_file['id']).execute()
-                # 📢 DISCORD PING FOR CLEANUP
-                notify_cleanup(old_file['name'], "deleted from Drive (Vault capacity reached)")
+                notify_cleanup(old_file['name'], "Vault capacity reached (5 max).")
                 
             print("✅ Vault capacity restored.")
         return True
