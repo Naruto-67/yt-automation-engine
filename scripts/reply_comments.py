@@ -1,5 +1,6 @@
 import os
 import time
+import json
 import traceback
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -80,9 +81,9 @@ def run_engagement_protocol():
         uploads_playlist_id = channel_response["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
         my_channel_id = channel_response["items"][0]["id"]
 
-        # 2. Get the 15 most recently uploaded videos (including statuses)
+        # 2. Get the 15 most recently uploaded videos
         playlist_items = youtube.playlistItems().list(
-            part="snippet,status", # ADDED STATUS FETCHING
+            part="snippet",
             playlistId=uploads_playlist_id,
             maxResults=15
         ).execute()
@@ -92,20 +93,35 @@ def run_engagement_protocol():
             print("⚠️ No videos found on this channel.")
             return
 
+        # 3. Batch query the actual Video database for TRUE privacy status
+        video_ids = [item["snippet"]["resourceId"]["videoId"] for item in recent_videos]
+        
+        video_status_response = youtube.videos().list(
+            part="status",
+            id=",".join(video_ids)
+        ).execute()
+        
+        # Create a dictionary mapping Video ID to its True Privacy Status
+        true_status_map = {}
+        for vid in video_status_response.get("items", []):
+            true_status_map[vid["id"]] = vid["status"]["privacyStatus"]
+
         for video_item in recent_videos:
             video_id = video_item["snippet"]["resourceId"]["videoId"]
             video_title = video_item["snippet"]["title"]
-            privacy_status = video_item["status"]["privacyStatus"]
             
-            # THE FIX: Only attempt to engage with PUBLIC videos
-            if privacy_status != "public":
-                print(f"⏭️ Skipping '{video_title}' (Status: {privacy_status.upper()} - Comments inaccessible)")
+            # Look up the true status in our mapped dictionary
+            actual_privacy = true_status_map.get(video_id, "private")
+            
+            # Safely skip Private/Scheduled videos before touching the comments API
+            if actual_privacy != "public":
+                print(f"⏭️ Skipping '{video_title}' (Status is {actual_privacy.upper()})")
                 continue
                 
-            print(f"\n👀 Scanning comments for: '{video_title}'")
+            print(f"\n👀 Scanning comments for PUBLIC video: '{video_title}'")
             
             try:
-                # 3. Fetch top comments for this video
+                # 4. Fetch top comments for this PUBLIC video
                 comments_response = youtube.commentThreads().list(
                     part="snippet",
                     videoId=video_id,
@@ -119,7 +135,7 @@ def run_engagement_protocol():
                     author_id = top_comment.get("authorChannelId", {}).get("value", "")
                     reply_count = thread["snippet"]["totalReplyCount"]
                     
-                    # 4. Strict Filtering Rules
+                    # 5. Strict Filtering Rules
                     if author_id == my_channel_id:
                         continue
                     if reply_count > 0:
@@ -127,11 +143,11 @@ def run_engagement_protocol():
                         
                     print(f"💬 Found unanswered comment: '{comment_text[:50]}...'")
                     
-                    # 5. Generate AI Reply
+                    # 6. Generate AI Reply
                     ai_reply = generate_ai_reply(video_title, comment_text)
                     print(f"🤖 AI generated reply: '{ai_reply}'")
                     
-                    # 6. Post the Reply via YouTube API
+                    # 7. Post the Reply via YouTube API
                     youtube.comments().insert(
                         part="snippet",
                         body={
@@ -144,7 +160,7 @@ def run_engagement_protocol():
                     
                     print("✅ Reply successfully posted!")
                     
-                    # 7. Ping Discord so you can see the interaction
+                    # 8. Ping Discord
                     notify_engagement(video_title, comment_text, ai_reply)
                     
                     total_replies_sent += 1
@@ -153,11 +169,18 @@ def run_engagement_protocol():
                     if total_replies_sent >= 5: 
                         break 
                         
+            # 🔥 THE NEW X-RAY ERROR HANDLER
             except HttpError as e:
-                if e.resp.status == 403:
-                    print("⚠️ Comments disabled for this video (Likely flagged 'Made for Kids'). Skipping.")
-                else:
-                    print(f"⚠️ API Error reading comments: {e}")
+                try:
+                    error_details = json.loads(e.content.decode('utf-8'))
+                    error_reason = error_details.get('error', {}).get('errors', [{}])[0].get('reason', 'unknown')
+                    error_message = error_details.get('error', {}).get('message', 'No message provided')
+                    
+                    print(f"🚨 API REJECTED REQUEST FOR '{video_title}'")
+                    print(f"   └─ Google Reason: {error_reason}")
+                    print(f"   └─ Exact Message: {error_message}")
+                except:
+                    print(f"⚠️ Unparseable API Error: {e}")
                     
             if total_replies_sent >= 5: 
                 break
