@@ -13,22 +13,23 @@ from scripts.discord_notifier import notify_render, notify_warning, notify_error
 from moviepy import VideoFileClip
 
 def main():
+    # Cleaned up topics for logging/Discord. AI instructions are moved to the dynamic fetcher later.
     content_matrix = [
         {
             "niche": "fact",
-            "topic": "A bizarre, 100% true, unknown historical event from the USA",
+            "topic": "Bizarre, unknown USA historical event",
             "bg_query": "mysterious dark background",
             "style": "default"
         },
         {
             "niche": "brainrot",
-            "topic": "Absurd, high-energy internet culture topic designed for maximum Gen-Z retention",
+            "topic": "High-energy Gen-Z internet culture",
             "bg_query": "trippy abstract loop fast",
             "style": "default"
         },
         {
             "niche": "short story",
-            "topic": "A 60-second self-improvement and motivation parable about overcoming laziness",
+            "topic": "A parable about overcoming laziness",
             "bg_query": "cinematic nature mountain",
             "style": "default"
         }
@@ -38,6 +39,7 @@ def main():
     print(f"==================================================")
     print(f"🚀 INITIALIZING YOUTUBE AUTOMATION ENGINE")
     print(f"🎯 Target Niche: {selected['niche'].upper()}")
+    print(f"📝 Target Topic: {selected['topic']}")
     print(f"==================================================")
     
     # --- STEP 1: SCRIPT GENERATION ---
@@ -64,27 +66,30 @@ def main():
         script_hook = " ".join(words[:10])
         
         if is_script_duplicate(script_hook):
-            notify_warning(selected['topic'], "Script Generation (Duplicate)", attempt+1, max_retries)
+            notify_warning(selected['topic'], "Script Gen (Duplicate Detected)", attempt+1, max_retries)
             continue 
         else:
             clean_text = temp_text
             break 
             
     if not clean_text:
-        notify_error(selected['topic'], "Script Generation", "Job Aborted")
+        notify_error(selected['topic'], "Script Generation", "Job Aborted - Too many duplicates")
         sys.exit(1)
 
+    print(f"✅ Unique Script Locked:\n{clean_text[:100]}...\n")
+    
     # --- STEP 2: VOICE & SUBTITLES ---
     print("[STEP 2/5] Booting Kokoro TTS & Faster-Whisper...")
     audio_base_name = "master_audio"
     if not generate_audio(clean_text, output_base=audio_base_name):
+        notify_error(selected['topic'], "Audio Generation", "Job Aborted")
         sys.exit(1)
         
     # --- STEP 3: BACKGROUND VISUALS ---
-    print(f"\n[STEP 3/5] Fetching Background ('{selected['bg_query']}') via APIs/Fallbacks...")
+    print(f"\n[STEP 3/5] Fetching Background via APIs/Fallbacks...")
     video_filename = "master_background.mp4"
     if not fetch_background(selected['bg_query'], output_filename=video_filename):
-        notify_error(selected['topic'], "Pexels Download", "Local Assets Vault")
+        notify_error(selected['topic'], "Pexels Download", "Fell back to Local Assets")
         
     # --- STEP 4: FINAL ASSEMBLY ---
     print("\n[STEP 4/5] Sending to FFmpeg Render Engine...")
@@ -92,6 +97,7 @@ def main():
     final_filename = f"FINAL_SHORT_{selected['niche'].replace(' ', '_')}_{run_id}.mp4"
     
     if not render_video(video_filename, f"{audio_base_name}.wav", final_filename, selected['style']):
+        notify_error(selected['topic'], "FFmpeg Render", "Job Aborted")
         sys.exit(1)
         
     # CALCULATE PRECISE STATS FOR DISCORD
@@ -100,15 +106,19 @@ def main():
     duration_sec = int(clip.duration)
     clip.close()
     
-    # 📢 DISCORD PING: Render Complete
-    notify_render(selected['topic'], file_size_mb, duration_sec)
+    notify_render(selected['niche'], selected['topic'], clean_text, file_size_mb, duration_sec)
         
     # --- STEP 5: LOG & BACKUP ---
     print("\n[STEP 5/5] Securing Data: Logging and Vaulting...")
     log_completed_video(selected['niche'], script_hook, final_filename)
-    manage_drive_backup(final_filename, selected['topic'])
     
-    notify_summary(f"1 Video Rendered | Backed up to Vault")
+    # STRICT BOOLEAN CHECK FOR DRIVE SUCCESS
+    vault_success = manage_drive_backup(final_filename, selected['topic'])
+    
+    if vault_success:
+        notify_summary(True, "✅ Video successfully rendered, logged to Sheets, and secured in Google Drive Vault.")
+    else:
+        notify_summary(False, "⚠️ Video rendered and logged, but **FAILED** to upload to Google Drive Vault. Check GitHub Logs.")
 
     if "GITHUB_ENV" in os.environ:
         with open(os.environ["GITHUB_ENV"], "a") as env_file:
