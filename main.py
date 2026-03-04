@@ -7,8 +7,9 @@ from scripts.generate_script import generate_script
 from scripts.generate_voice import generate_audio
 from scripts.fetch_background import fetch_background
 from scripts.render_video import render_video
+from scripts.generate_metadata import generate_seo_metadata  # <--- Added SEO Manager
 from scripts.logger import is_script_duplicate, log_completed_video
-from scripts.youtube_manager import upload_to_youtube_vault  # <--- Replaced Drive Manager
+from scripts.youtube_manager import upload_to_youtube_vault
 from scripts.discord_notifier import notify_render, notify_warning, notify_error, notify_summary
 from moviepy import VideoFileClip
 
@@ -42,7 +43,7 @@ def main():
     print(f"==================================================")
     
     # --- STEP 1: SCRIPT GENERATION ---
-    print("\n[STEP 1/5] Booting Self-Improving AI Writer...")
+    print("\n[STEP 1/6] Booting Self-Improving AI Writer...")
     max_retries = 3
     clean_text, script_hook = "", ""
     
@@ -78,20 +79,20 @@ def main():
     print(f"✅ Unique Script Locked:\n{clean_text[:100]}...\n")
     
     # --- STEP 2: VOICE & SUBTITLES ---
-    print("[STEP 2/5] Booting Kokoro TTS & Faster-Whisper...")
+    print("[STEP 2/6] Booting Kokoro TTS & Faster-Whisper...")
     audio_base_name = "master_audio"
     if not generate_audio(clean_text, output_base=audio_base_name):
         notify_error(selected['topic'], "Audio Generation", "Job Aborted")
         sys.exit(1)
         
     # --- STEP 3: BACKGROUND VISUALS ---
-    print(f"\n[STEP 3/5] Fetching Background via APIs/Fallbacks...")
+    print(f"\n[STEP 3/6] Fetching Background via APIs/Fallbacks...")
     video_filename = "master_background.mp4"
     if not fetch_background(selected['bg_query'], output_filename=video_filename):
         notify_error(selected['topic'], "Pexels Download", "Fell back to Local Assets")
         
     # --- STEP 4: FINAL ASSEMBLY ---
-    print("\n[STEP 4/5] Sending to FFmpeg Render Engine...")
+    print("\n[STEP 4/6] Sending to FFmpeg Render Engine...")
     run_id = int(time.time())
     final_filename = f"FINAL_SHORT_{selected['niche'].replace(' ', '_')}_{run_id}.mp4"
     
@@ -105,16 +106,21 @@ def main():
     clip.close()
     
     notify_render(selected['niche'], selected['topic'], clean_text, file_size_mb, duration_sec)
+
+    # --- STEP 5: AI SEO GENERATOR ---
+    print("\n[STEP 5/6] Generating Viral SEO Metadata...")
+    # Fetch dynamic Title, Description, and Tags from Gemini
+    seo_metadata = generate_seo_metadata(selected['niche'], clean_text)
         
-    # --- STEP 5: LOG & YOUTUBE VAULT ---
-    print("\n[STEP 5/5] Securing Data: Logging and Vaulting in YouTube...")
+    # --- STEP 6: LOG & YOUTUBE VAULT ---
+    print("\n[STEP 6/6] Securing Data: Logging and Vaulting in YouTube...")
     log_completed_video(selected['niche'], script_hook, final_filename)
     
-    # UPLOAD DIRECTLY TO YOUTUBE VAULT
-    vault_success = upload_to_youtube_vault(final_filename, selected['niche'], selected['topic'])
+    # Upload directly to YouTube Vault using the new SEO payload
+    vault_success = upload_to_youtube_vault(final_filename, selected['niche'], selected['topic'], seo_metadata)
     
     if vault_success:
-        notify_summary(True, "✅ Video successfully rendered, logged, and secured in private YouTube Vault.")
+        notify_summary(True, "✅ Video successfully rendered, heavily optimized with AI SEO, and secured in private YouTube Vault.")
     else:
         notify_summary(False, "⚠️ Video rendered and logged, but **FAILED** to upload to YouTube. Check GitHub Logs.")
 
