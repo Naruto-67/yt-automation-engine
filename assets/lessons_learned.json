@@ -1,16 +1,17 @@
 {
     "emphasize": [
-        "Titles explicitly mentioning '3D Animated Short' or 'Animated Short' for clarity on content type.",
-        "Unique and curiosity-provoking character concepts, such as 'Invisible Painter', to generate intrigue.",
-        "Including powerful, abstract positive themes like 'Hidden Talent' and 'True Creativity', often separated by a pipe `|`."
+        "Unique, intriguing, or paradoxical character concepts in titles (e.g., 'Invisible Painter', 'Boy Who Collected Stars').",
+        "Explicitly specify the animation style (e.g., '3D Animated Short') in the title for animated content.",
+        "Themes focused on hidden talent, true creativity, or unlocking potential.",
+        "Using clear separators (like '|') to structure titles, separating the main concept from the descriptive elements."
     ],
     "avoid": [
-        "Generic emotional descriptors like 'Heartwarming Story' in titles.",
-        "Less unique or overly common character/object concepts, such as 'Lantern Keeper'.",
-        "Primary focus on vague, widely used positive themes like 'Hope and Unity' without a stronger, specific hook."
+        "Overly generic or broad themes like 'heartwarming stories,' 'hope and unity,' or general 'memories' without a unique narrative hook.",
+        "Character descriptions that are common or lack an element of mystery or an unusual attribute (e.g., 'Lantern Keeper').",
+        "Using emojis in the primary title, as they did not correlate with higher view counts in the top-performing shorts."
     ],
     "preferred_visuals": [
-        "cinematic",
-        "dark"
+        "dark",
+        "cinematic"
     ]
 }
