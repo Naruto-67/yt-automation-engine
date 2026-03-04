@@ -37,11 +37,8 @@ def notify_render(niche, topic, script, size_mb, duration_sec):
         "color": 3447003, 
         "fields": [
             {"name": "🎯 Niche", "value": f"└ {niche.upper()}", "inline": False},
-            {"name": "\u200b", "value": "\u200b", "inline": False},
             {"name": "📝 Topic", "value": f"└ {topic}", "inline": False},
-            {"name": "\u200b", "value": "\u200b", "inline": False},
             {"name": "📊 Stats", "value": f"└ Size: {size_mb:.1f}MB\n└ Duration: {duration_sec}s", "inline": False},
-            {"name": "\u200b", "value": "\u200b", "inline": False},
             {"name": "📜 Script Preview", "value": f"└ *{script[:150]}...*", "inline": False}
         ],
         "footer": {"text": f"Engine Local Time: {get_ist_time()}"}
@@ -55,7 +52,6 @@ def notify_vault_secure(seo_title, video_id, playlist_id):
         "color": 9807270, 
         "fields": [
             {"name": "📝 SEO Title Applied", "value": f"└ {seo_title}", "inline": False},
-            {"name": "\u200b", "value": "\u200b", "inline": False},
             {"name": "🔗 Private Link", "value": f"└ [Click to view Video in Vault]({video_url})", "inline": False}
         ],
         "footer": {"text": f"Engine Local Time: {get_ist_time()}"}
@@ -68,7 +64,6 @@ def notify_upload(topic, live_time="Tomorrow, 9:00 AM"):
         "color": 5763719, 
         "fields": [
             {"name": "📝 Topic", "value": f"└ {topic}", "inline": False},
-            {"name": "\u200b", "value": "\u200b", "inline": False},
             {"name": "⏰ Goes Live", "value": f"└ {live_time}", "inline": False}
         ],
         "footer": {"text": f"Engine Local Time: {get_ist_time()}"}
@@ -81,7 +76,6 @@ def notify_warning(topic, step, attempt, max_attempt):
         "color": 16766720, 
         "fields": [
             {"name": "📝 Topic", "value": f"└ {topic}", "inline": False},
-            {"name": "\u200b", "value": "\u200b", "inline": False},
             {"name": "🔄 Status", "value": f"└ Attempt {attempt} of {max_attempt} failed. Retrying...", "inline": False}
         ],
         "footer": {"text": f"Engine Local Time: {get_ist_time()}"}
@@ -94,7 +88,6 @@ def notify_error(topic, step, fallback_msg):
         "color": 15158332, 
         "fields": [
             {"name": "📝 Topic", "value": f"└ {topic}", "inline": False},
-            {"name": "\u200b", "value": "\u200b", "inline": False},
             {"name": "🛠️ Action Taken / Detail", "value": f"└ {fallback_msg}", "inline": False}
         ],
         "footer": {"text": f"Engine Local Time: {get_ist_time()}"}
