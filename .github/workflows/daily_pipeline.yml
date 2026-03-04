@@ -32,7 +32,7 @@ jobs:
         run: python main.py
 
       - name: Upload Final Video Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: finished-youtube-short
           path: ${{ env.FINAL_VIDEO_NAME }}
