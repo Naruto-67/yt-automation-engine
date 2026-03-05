@@ -8,9 +8,7 @@ from pydub.silence import detect_leading_silence
 from scripts.groq_client import groq_client
 from scripts.quota_manager import quota_manager
 
-# 🧠 MASTER DEVELOPER NOTE: 
-# NO global imports of 'kokoro', 'torch', or 'faster_whisper' here.
-# They are strictly quarantined inside the fallback functions below.
+# LAZY LOADING: AI models are NOT globally imported here.
 
 def load_voice_settings():
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -37,7 +35,6 @@ def trim_audio_precision(file_path):
         start_trim = detect_leading_silence(audio)
         end_trim = detect_leading_silence(audio.reverse())
         trimmed = audio[start_trim:len(audio)-end_trim]
-        # Adding a tiny buffer so words aren't cut off abruptly
         final = AudioSegment.silent(duration=200) + trimmed + AudioSegment.silent(duration=200)
         final.export(file_path, format="wav")
         return True
@@ -52,22 +49,23 @@ def generate_audio(text, output_base="temp_audio"):
     
     success = False
     
-    # 1. Primary: Groq Orpheus API (Ultra-Fast, bypasses HuggingFace)
+    # 1. Primary: Groq Orpheus API (Ultra-Fast)
     print("🎙️ [VOICE] Attempting Primary: Groq Orpheus TTS...")
     if groq_client.generate_audio(text, temp_mp3):
         try:
-            subprocess.run(["ffmpeg", "-y", "-i", temp_mp3, final_wav], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+            # Added timeout=30 to prevent FFmpeg from becoming an orphan process
+            subprocess.run(["ffmpeg", "-y", "-i", temp_mp3, final_wav], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=30)
             if os.path.exists(temp_mp3): os.remove(temp_mp3)
             success = True
-        except: success = False
+        except Exception as e:
+            print(f"❌ [VOICE] FFmpeg conversion failed or timed out: {e}")
+            success = False
 
-    # 2. Failsafe: Kokoro Local Engine (LAZY LOADED)
+    # 2. Failsafe: Kokoro Local Engine
     if not success:
         print("🎙️ [VOICE] Orpheus failed. Booting Kokoro Local Fallback...")
         try:
-            # 🔥 Isolated Import: Only triggers if Groq fails
             from kokoro import KPipeline
-            
             settings = load_voice_settings()
             pipeline = KPipeline(lang_code='a') 
             gen = pipeline(text, voice=settings['voice'], speed=settings['speed'], split_pattern=r'\n+')
@@ -84,13 +82,12 @@ def generate_audio(text, output_base="temp_audio"):
     
     trim_audio_precision(final_wav)
 
-    # 3. Generate Word-Level Captions (LAZY LOADED)
+    # 3. Generate Word-Level Captions
     try:
         print("📝 [VOICE] Transcribing with Faster-Whisper...")
-        # 🔥 Isolated Import: Prevents HF Hub freeze on boot
         from faster_whisper import WhisperModel
         
-        # CPU optimized compute type to prevent errors
+        # Will use the pre-downloaded cache from the GitHub Workflow
         model = WhisperModel("base", device="cpu", compute_type="int8")
         segments, _ = model.transcribe(final_wav, word_timestamps=True)
         
@@ -107,5 +104,5 @@ def generate_audio(text, output_base="temp_audio"):
         return True
     except Exception as e:
         print(f"⚠️ [VOICE] Transcription failed: {e}")
-        # Audio still succeeded, so we return True to let the video render proceed
+        # Audio succeeded, return True so the video render can proceed without text
         return True
