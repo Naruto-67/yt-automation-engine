@@ -5,7 +5,6 @@ import re
 from pydub import AudioSegment
 
 def get_style_config(style_name="default"):
-    """Returns the high-retention default ASS subtitle style."""
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     config_path = os.path.join(root_dir, "style_configs", f"{style_name}.json")
     
@@ -18,7 +17,7 @@ def get_style_config(style_name="default"):
         "Outline": "2",
         "BorderStyle": "1",
         "Alignment": "5",
-        "MarginV": "40"
+        "MarginV": "50"
     }
 
     if os.path.exists(config_path):
@@ -29,7 +28,6 @@ def get_style_config(style_name="default"):
     return default_style
 
 def srt_to_ass(srt_path, ass_path, style):
-    """Converts standard SRT into customized ASS for FFmpeg burning."""
     print("🎨 [RENDERER] Generating High-Impact ASS style...")
     header = (
         "[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n\n"
@@ -43,11 +41,9 @@ def srt_to_ass(srt_path, ass_path, style):
     )
 
     try:
-        with open(srt_path, 'r', encoding='utf-8') as f:
-            content = f.read()
+        with open(srt_path, 'r', encoding='utf-8') as f: content = f.read()
 
-        def convert_time(ts):
-            return ts.replace(',', '.')[:-1] 
+        def convert_time(ts): return ts.replace(',', '.')[:-1] 
 
         events = []
         blocks = content.strip().split('\n\n')
@@ -65,45 +61,53 @@ def srt_to_ass(srt_path, ass_path, style):
     except: return False
 
 def render_video(video_path, audio_path, output_path, style_name="default"):
-    """
-    Executes the Master Render. 
-    Strictly locks duration to prevent the Infinite Loop bug.
-    """
-    print("⚙️ [RENDERER] Executing Multi-Track FFmpeg Master Render...")
+    print("⚙️ [RENDERER] Executing 2-Step Master Render...")
     srt_path = audio_path.replace(".wav", ".srt").replace(".mp3", ".srt")
     ass_path = audio_path.replace(".wav", ".ass").replace(".mp3", ".ass")
+    temp_no_subs = "temp_no_subs.mp4"
     
-    style = get_style_config(style_name)
-    srt_to_ass(srt_path, ass_path, style)
+    srt_to_ass(srt_path, ass_path, get_style_config(style_name))
 
-    # 🚨 THE FIX: Calculate absolute duration of the audio to cap FFmpeg
+    # Calculate exact duration to clip the video
     try:
-        audio_segment = AudioSegment.from_file(audio_path)
-        duration_seconds = len(audio_segment) / 1000.0
-    except Exception as e:
-        print(f"⚠️ [RENDERER] Duration calculation failed: {e}")
-        duration_seconds = 60 # Safe default cutoff
+        duration_seconds = len(AudioSegment.from_file(audio_path)) / 1000.0
+    except: duration_seconds = 60 
 
     safe_ass = ass_path.replace('\\', '/').replace(':', r'\:')
-    
-    cmd = [
+
+    # STEP 1: Loop background and merge audio (Fixes the 2-frame freeze bug completely)
+    cmd_step_1 = [
         "ffmpeg", "-y",
-        "-stream_loop", "-1",        # Loop background video
+        "-stream_loop", "-1", "-fflags", "+genpts", # Recalculates timestamps for perfect looping
         "-i", video_path, 
         "-i", audio_path,
-        "-t", str(duration_seconds), # 🚨 STRICT DURATION CAP (Prevents 3GB infinite file)
-        "-vf", f"ass='{safe_ass}'",  # Burn subtitles
-        "-c:v", "libx264", 
-        "-preset", "ultrafast", 
-        "-crf", "23",
-        "-c:a", "aac", 
-        "-b:a", "192k", 
-        "-pix_fmt", "yuv420p",
+        "-map", "0:v:0", "-map", "1:a:0",
+        "-t", str(duration_seconds),
+        "-vf", "scale=-2:1920,crop=1080:1920,fps=30",
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+        "-c:a", "aac", "-b:a", "192k", "-pix_fmt", "yuv420p",
+        "-shortest", temp_no_subs
+    ]
+
+    # STEP 2: Burn subtitles onto the perfectly flat, un-looped video
+    cmd_step_2 = [
+        "ffmpeg", "-y",
+        "-i", temp_no_subs,
+        "-vf", f"ass='{safe_ass}'",
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+        "-c:a", "copy", # Copy audio untouched
         output_path
     ]
 
     try:
-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        print("🎬 [RENDERER] Phase 1: Merging Audio and Video...")
+        subprocess.run(cmd_step_1, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        
+        print("🔥 [RENDERER] Phase 2: Burning Subtitles...")
+        subprocess.run(cmd_step_2, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        
+        # Cleanup
+        if os.path.exists(temp_no_subs): os.remove(temp_no_subs)
         if os.path.exists(ass_path): os.remove(ass_path)
         return True
     except subprocess.CalledProcessError as e:
