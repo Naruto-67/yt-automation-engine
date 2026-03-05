@@ -2,7 +2,7 @@ name: 01_Ghost_Daily_Production
 
 on:
   schedule:
-    - cron: '0 8 * * *' # 08:00 UTC = 1:30 PM IST
+    - cron: '0 8 * * *' # 1:30 PM IST
   workflow_dispatch:
 
 jobs:
@@ -25,12 +25,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg espeak-ng
 
-      - name: Cache Kokoro Models
+      - name: Cache Kokoro Models (Surgical)
         id: cache-models
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.cache/kokoro
-          key: ${{ runner.os }}-kokoro-v1
+          # We lock this key so GitHub doesn't create multiple versions
+          key: ${{ runner.os }}-kokoro-v1-stable
 
       - name: Install Python Requirements
         run: pip install -r requirements.txt
@@ -59,4 +60,7 @@ jobs:
 
       - name: Cleanup Binary Artifacts
         if: always()
-        run: rm -rf *.mp4 *.wav *.mp3 *.srt *.ass temp_*
+        run: |
+          rm -rf *.mp4 *.wav *.mp3 *.srt *.ass temp_*
+          # Clear internal pip cache to free up runner space
+          pip cache purge
