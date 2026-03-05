@@ -21,7 +21,6 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          # Added pytz which is required by the notifier module
           pip install google-genai requests pytz
           echo "PYTHONPATH=$PYTHONPATH:$(pwd)" >> $GITHUB_ENV
 
@@ -36,7 +35,12 @@ jobs:
         run: |
           git config --global user.name "Ghost-Engine-Bot"
           git config --global user.email "bot@ghostengine.ai"
-          git add memory/content_matrix.json
-          git pull --rebase origin main
-          git commit -m "Lock New Content Matrix [skip ci]" || echo "No changes to commit"
-          git push origin main
+          # Master Fix: Check if file exists before adding to Git
+          if [ -f memory/content_matrix.json ]; then
+            git add memory/content_matrix.json
+            git pull --rebase origin main
+            git commit -m "Lock New Content Matrix [skip ci]" || echo "No changes to commit"
+            git push origin main
+          else
+            echo "⚠️ No content_matrix.json found. Skipping commit phase."
+          fi
