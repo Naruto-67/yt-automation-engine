@@ -23,7 +23,7 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg espeak-ng
+          sudo apt-get install -y ffmpeg espeak-ng fonts-liberation
 
       - name: Initialize Cache Directories
         run: mkdir -p ~/.cache/huggingface ~/.cache/kokoro
@@ -32,10 +32,8 @@ jobs:
         id: cache-models
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.cache/huggingface
-            ~/.cache/kokoro
-          key: ${{ runner.os }}-ai-models-v4
+          path: ~/.cache/huggingface
+          key: ${{ runner.os }}-hf-models-v5
 
       - name: Install PyTorch CPU (Turbo Boost)
         run: pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
@@ -44,10 +42,24 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
+          
+          echo "🛡️ Natively pre-fetching AI Models to bypass HF Throttling..."
+          python -c "
+          from huggingface_hub import snapshot_download
+          import sys
+          try:
+              print('Downloading Whisper Model...')
+              snapshot_download(repo_id='Systran/faster-whisper-tiny.en')
+              print('Downloading Kokoro Model...')
+              snapshot_download(repo_id='hexgrad/Kokoro-82M')
+              print('✅ Models successfully cached.')
+          except Exception as e:
+              print(f'⚠️ HF Network Warning: {e}')
+          "
 
       - name: Run Production Heart
         env:
-          PYTHONUNBUFFERED: "1"  # 🚨 THE MAGIC KEY: Forces real-time log streaming
+          PYTHONUNBUFFERED: "1"  # 🚨 Shatters the Log Illusion (Real-time logs)
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
