@@ -53,13 +53,11 @@ jobs:
           git config --global user.name "Ghost-Engine-Bot"
           git config --global user.email "bot@ghostengine.ai"
           
-          # Add and check for actual changes
           git add memory/*.json assets/lessons_learned.json
           
           if git diff --staged --quiet; then
             echo "No changes to commit."
           else
-            # Master Sync Protocol: Commit Locally -> Pull Rebase -> Push
             git commit -m "Update API State & Memory [skip ci]"
             git pull --rebase origin main
             git push origin main
