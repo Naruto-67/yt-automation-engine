@@ -10,15 +10,15 @@ def get_style_config(style_name="default"):
     
     default_style = {
         "FontName": "Montserrat-Bold",
-        "FontSize": "55",
-        "PrimaryColour": "&H0000FFFF", # Vibrant Yellow
+        "FontSize": "50",
+        "PrimaryColour": "&H00FFFFFF", # Pure White Text
         "OutlineColour": "&H00000000", # Pure Black Outline
         "BackColour": "&H80000000",    # Black Shadow
-        "Outline": "6",                # Very thick outline to prevent blending
-        "Shadow": "3",                 # Drop shadow for extra depth
-        "BorderStyle": "1",            # 1 = Outline + Shadow
-        "Alignment": "2",              # 2 = Bottom Center (so it's not covering faces in the middle)
-        "MarginV": "450"               # Pushes it up from the bottom so it sits perfectly above the YT UI
+        "Outline": "8",                # MASSIVE thick outline so it never blends
+        "Shadow": "2",                 # Slight drop shadow for depth
+        "BorderStyle": "1",            
+        "Alignment": "2",              # Bottom Center Alignment
+        "MarginV": "250"               # Pushed up 250 pixels to sit perfectly in the lower third
     }
 
     if os.path.exists(config_path):
