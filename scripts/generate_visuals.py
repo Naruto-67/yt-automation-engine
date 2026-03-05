@@ -5,7 +5,7 @@ import time
 from google import genai
 
 def generate_gemini_image(prompt, output_path):
-    print("      [Tier 1: Gemini] Attempting Imagen 3 generation...")
+    print("      [Tier 1: Gemini] Attempting Imagen generation...")
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key: return False
         
@@ -13,7 +13,7 @@ def generate_gemini_image(prompt, output_path):
         client = genai.Client(api_key=api_key)
         enhanced_prompt = f"{prompt}, cinematic lighting, 8k, highly detailed"
         result = client.models.generate_images(
-            model='imagen-3.0-generate-002',
+            model='imagen-3.0-generate-001', # Using the standard stable endpoint
             prompt=enhanced_prompt,
             config=dict(number_of_images=1, aspect_ratio="9:16", output_mime_type="image/jpeg")
         )
@@ -93,5 +93,5 @@ def fetch_scene_images(prompts_list, base_filename="temp_scene"):
             
         time.sleep(2) 
         
-    # 🚨 BUG FIX: Must return BOTH the images and the provider name!
+    # 🚨 CRITICAL FIX: Ensure returning a tuple to prevent ValueError in main.py
     return successful_images, primary_provider
