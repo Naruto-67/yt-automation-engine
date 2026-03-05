@@ -11,33 +11,29 @@ def load_improvement_data():
             with open(tracker_path, "r", encoding="utf-8") as f:
                 return json.load(f)
         except: pass
-    return {"avoid": [], "emphasize": ["Fast pacing", "Strong visual hooks"]}
+    return {"avoid": [], "emphasize": []}
 
 def generate_script(niche, topic):
     improvements = load_improvement_data()
-    avoid_list = ", ".join(improvements.get("avoid", []))
-    emphasize_list = ", ".join(improvements.get("emphasize", []))
+    avoid_list = ", ".join(improvements.get("avoid", ["Boring intros", "Slow pacing"]))
+    emphasize_list = ", ".join(improvements.get("emphasize", ["High energy", "Curiosity"]))
     
     prompt = f"""
     You are an Elite YouTube Shorts Director. Create a viral script for niche: '{niche}', Topic: '{topic}'.
     
     CRITICAL RULES:
-    - Length: The script MUST be exactly 130 to 150 words to ensure a 45-second video.
-    - Structure: Start with a heavy hook, build intense curiosity, and end with a quick call to action.
-    - Emphasize: {emphasize_list}
-    - Avoid: {avoid_list}
-    - Visuals (DYNAMIC AESTHETIC): First, decide the BEST visual aesthetic for this specific niche/topic (e.g., 'Pixar 3D animation' for stories, 'Hyper-realistic dark cinematic' for true crime, 'Vibrant Cyberpunk' for tech, etc.).
-      Provide EXACTLY 4 highly detailed image prompts. EVERY prompt MUST begin with the aesthetic you chose!
+    1. STANDALONE SHORT: Do NOT say "Welcome back", "Part 1", or "In this series". This is a standalone micro-documentary.
+    2. LENGTH: The script MUST be exactly 130 to 150 words (45 seconds of speech).
+    3. STRUCTURE: Start immediately with a shocking hook. Build intense curiosity. 
+    4. SYSTEM BRAIN: Emphasize: {emphasize_list}. Strictly Avoid: {avoid_list}.
+    5. VISUALS: Pick the best visual aesthetic (e.g. 'Pixar 3D animation', 'Dark Cinematic', 'Cyberpunk'). Provide 4 image prompts starting with that aesthetic.
     
     FORMAT: Return ONLY valid JSON.
     {{
         "hook": "...",
         "body": "...",
         "image_prompts": [
-            "[Chosen Aesthetic], highly detailed, ...",
-            "[Chosen Aesthetic], highly detailed, ...",
-            "[Chosen Aesthetic], highly detailed, ...",
-            "[Chosen Aesthetic], highly detailed, ..."
+            "...", "...", "...", "..."
         ]
     }}
     """
@@ -58,10 +54,8 @@ def generate_script(niche, topic):
                     prompts.append(f"cinematic highly detailed scene of {topic}")
                 prompts = prompts[:4]
                 
-                print("✅ [WRITER] Script and 4 Camera Shots successfully parsed.")
+                print("✅ [WRITER] Script and Camera Shots secured.")
                 return full_script, data['hook'], prompts
-        
         return None, None, []
     except Exception as e:
-        quota_manager.diagnose_fatal_error("generate_script.py", e)
         return None, None, []
