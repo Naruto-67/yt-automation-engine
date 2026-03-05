@@ -2,23 +2,18 @@ import os
 import json
 import traceback
 import re
-from google import genai
-# WE IMPORT OUR NEW MANAGER HERE
+
+# Import the new Central Nervous System
 from scripts.retry import quota_manager
 from scripts.discord_notifier import send_embed, get_ist_time, notify_error
 
-def get_gemini_client():
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        return None
-    return genai.Client(api_key=api_key)
-
 def notify_research_complete(topics_count):
+    """Sends a success ping to Discord when the new matrix is locked."""
     embed = {
         "title": "🕵️ AI Trend Research Complete",
         "color": 15105570,
         "fields": [
-            {"name": "📈 Status", "value": f"└ Scraped web and generated {topics_count} viral topics.", "inline": False},
+            {"name": "📈 Status", "value": f"└ Scraped live web. Generated {topics_count} viral topics.", "inline": False},
             {"name": "📂 Storage", "value": "└ Updated memory/content_matrix.json", "inline": False}
         ],
         "footer": {"text": f"Engine Local Time: {get_ist_time()}"}
@@ -26,39 +21,48 @@ def notify_research_complete(topics_count):
     send_embed(embed)
 
 def run_dynamic_research():
-    client = get_gemini_client()
-    if not client:
-        return
-
-    print("🔎 Searching the web for trending viral topics...")
+    """
+    The Brain of the Engine.
+    Uses Gemini's live Google Search grounding to find 21 viral topics 
+    and saves them to the content matrix for the daily publisher to consume.
+    """
+    print("🔎 [RESEARCHER] Searching the live web for trending viral topics...")
     niches = ["fact", "brainrot", "short story"]
     
     prompt = f"""
-    Identify trending topics in the USA right now using Google Search.
+    You are an elite YouTube Shorts strategist.
+    Identify highly trending, viral topics in the USA right now using Google Search.
     Generate exactly 21 unique content ideas (7 per niche).
     NICHES: {', '.join(niches)}
-    Return ONLY a raw JSON array of objects.
+    
+    Return ONLY a raw JSON array of objects. Do not include markdown formatting.
+    Format exactly like this:
+    [
+        {{"niche": "fact", "topic": "The 1904 Olympic Marathon", "bg_query": "old marathon runner dark", "style": "default"}},
+        {{"niche": "brainrot", "topic": "Gen Z slang explained", "bg_query": "trippy abstract colorful", "style": "default"}}
+    ]
     """
 
     try:
-        # NOTICE: We wrapped the call inside quota_manager.safe_execute
-        # This prevents the 429 crash!
-        response = quota_manager.safe_execute(
-            client.models.generate_content,
-            model='gemini-2.0-flash', 
-            contents=prompt,
-            config={'tools': [{'google_search': {}}]}
-        )
+        # task_type="research" forces the router to use Gemini with Google Search enabled
+        raw_text = quota_manager.generate_text(prompt, task_type="research")
         
-        if not response:
-            print("❌ Failed to get a response from Gemini after retries.")
-            return
+        if not raw_text:
+            raise Exception("Master Router failed to return research data.")
 
-        raw_text = response.text.strip()
-        match = re.search(r'\[.*\]', raw_text, re.DOTALL)
-        clean_json_str = match.group(0) if match else raw_text
+        # Bulletproof JSON extraction
+        clean_json_str = raw_text.replace("```json", "").replace("```", "").strip()
+        match = re.search(r'\[.*\]', clean_json_str, re.DOTALL)
+        
+        if match:
+            clean_json_str = match.group(0)
+            
         new_matrix = json.loads(clean_json_str)
         
+        if not isinstance(new_matrix, list) or len(new_matrix) == 0:
+            raise ValueError("AI returned an invalid or empty JSON array.")
+            
+        # Save to memory vault
         root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         memory_dir = os.path.join(root_dir, "memory")
         os.makedirs(memory_dir, exist_ok=True)
@@ -67,13 +71,14 @@ def run_dynamic_research():
         with open(matrix_path, "w", encoding="utf-8") as f:
             json.dump(new_matrix, f, indent=4)
             
-        print(f"✅ Research Complete! Generated {len(new_matrix)} topics.")
+        print(f"✅ [RESEARCHER] Research Complete! Matrix updated with {len(new_matrix)} fresh topics.")
         notify_research_complete(len(new_matrix))
 
     except Exception as e:
-        print("❌ Research Failed:")
-        traceback.print_exc()
+        print("❌ [RESEARCHER] Critical Research Failure:")
+        quota_manager.diagnose_fatal_error("dynamic_researcher.py", e)
         notify_error("Dynamic Researcher", "Generation Error", str(e)[:200])
 
 if __name__ == "__main__":
+    # Local execution test
     run_dynamic_research()
