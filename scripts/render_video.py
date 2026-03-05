@@ -5,11 +5,10 @@ import traceback
 import re
 
 def get_style_config(style_name="default"):
-    """Loads style configurations or returns the 'MrBeast' high-retention default."""
+    """Returns the 'MrBeast' high-retention default style."""
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     config_path = os.path.join(root_dir, "style_configs", f"{style_name}.json")
     
-    # The 'MrBeast/Hormozi' High-Retention Preset
     default_style = {
         "FontName": "Montserrat-Bold",
         "FontSize": "24",
@@ -31,11 +30,8 @@ def get_style_config(style_name="default"):
     return default_style
 
 def srt_to_ass(srt_path, ass_path, style):
-    """
-    Converts standard SRT to Advanced Substation Alpha (ASS).
-    This allows us to force professional styling that creates 'Viral' visual impact.
-    """
-    print("🎨 [RENDERER] Converting SRT to High-Impact ASS style...")
+    """Converts SRT to Advanced Substation Alpha (ASS) for professional visual styling."""
+    print("🎨 [RENDERER] Generating High-Impact ASS style...")
     header = (
         "[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n\n"
         "[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
@@ -51,10 +47,9 @@ def srt_to_ass(srt_path, ass_path, style):
         with open(srt_path, 'r', encoding='utf-8') as f:
             content = f.read()
 
-        # Simple regex to convert SRT timestamps to ASS format (H:MM:SS.cc)
         def convert_time(ts):
             ts = ts.replace(',', '.')
-            return ts[:-1] # Remove last digit to match centisecond precision
+            return ts[:-1] 
 
         events = []
         blocks = content.strip().split('\n\n')
@@ -71,66 +66,46 @@ def srt_to_ass(srt_path, ass_path, style):
         with open(ass_path, 'w', encoding='utf-8') as f:
             f.write(header + "\n".join(events))
         return True
-    except Exception as e:
-        print(f"⚠️ [RENDERER] ASS conversion failed: {e}")
-        return False
+    except: return False
 
 def render_video(video_path, audio_path, output_path, style_name="default"):
-    """
-    The Ghost Engine V4.0 Master Renderer.
-    Pure FFmpeg: BGM Mixing + Sidechain Ducking + SFX + Bouncy Subtitles.
-    """
+    """Pure FFmpeg Rendering: BGM Sidechain + SFX + Bouncy Subtitles."""
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     srt_path = audio_path.replace(".wav", ".srt").replace(".mp3", ".srt")
     ass_path = audio_path.replace(".wav", ".ass").replace(".mp3", ".ass")
     
-    # Asset Pathing
     bgm_path = os.path.join(root_dir, "assets", "audio", "bgm_sigma.mp3")
     sfx_path = os.path.join(root_dir, "assets", "audio", "whoosh.mp3")
     font_path = os.path.join(root_dir, "assets", "fonts", "Montserrat-Bold.ttf")
 
     if not os.path.exists(video_path) or not os.path.exists(audio_path):
-        print("❌ [RENDERER] Critical Input Missing.")
         return False
 
-    # 1. Prepare Styles
     style = get_style_config(style_name)
     srt_to_ass(srt_path, ass_path, style)
 
-    # 2. Build Complex Filter
-    # [0:v] Background Loop
-    # [1:a] Voiceover
-    # [2:a] BGM (Duck to 10% volume)
-    # [3:a] SFX (Whoosh at start)
-    
-    # Path escaping for FFmpeg
     safe_ass = ass_path.replace('\\', '/').replace(':', r'\:')
     safe_font = font_path.replace('\\', '/').replace(':', r'\:')
 
-    print("⚙️ [RENDERER] Executing Multi-Track FFmpeg Render...")
+    print("⚙️ [RENDERER] Executing Multi-Track FFmpeg Master Render...")
     
     cmd = [
         "ffmpeg", "-y",
-        "-stream_loop", "-1", "-i", video_path,  # Input 0: Video
-        "-i", audio_path,                       # Input 1: Voiceover
+        "-stream_loop", "-1", "-i", video_path, 
+        "-i", audio_path,                      
     ]
 
-    # Add BGM if exists
     if os.path.exists(bgm_path):
         cmd.extend(["-i", bgm_path])
     else:
-        cmd.extend(["-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo"]) # Silent dummy
+        cmd.extend(["-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo"])
 
-    # Add SFX if exists
     if os.path.exists(sfx_path):
         cmd.extend(["-i", sfx_path])
     else:
-        cmd.extend(["-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo"]) # Silent dummy
+        cmd.extend(["-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo"])
 
-    # Filter Complex Logic:
-    # 1. Duck BGM volume
-    # 2. Mix Voiceover + BGM + SFX
-    # 3. Apply Subtitles with custom font provider
+    # BGM Ducking Filter Complex
     filter_complex = (
         "[1:a]volume=1.0[voice]; "
         "[2:a]volume=0.10[bgm]; "
@@ -141,31 +116,15 @@ def render_video(video_path, audio_path, output_path, style_name="default"):
 
     cmd.extend([
         "-filter_complex", filter_complex,
-        "-map", "[outv]",
-        "-map", "[outa]",
-        "-c:v", "libx264",
-        "-preset", "ultrafast",
-        "-crf", "21",
-        "-c:a", "aac",
-        "-b:a", "192k",
-        "-shortest", # Clip to audio length
-        output_path
+        "-map", "[outv]", "-map", "[outa]",
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "21",
+        "-c:a", "aac", "-b:a", "192k", "-shortest", output_path
     ])
 
     try:
-        process = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        print(f"✅ [RENDERER] Video Rendered Successfully: {output_path}")
-        
-        # Cleanup temp ASS
+        subprocess.run(cmd, capture_output=True, text=True, check=True)
         if os.path.exists(ass_path): os.remove(ass_path)
         return True
     except subprocess.CalledProcessError as e:
-        print(f"❌ [RENDERER] FFmpeg Error:\n{e.stderr}")
+        print(f"❌ [RENDERER] FFmpeg Error: {e.stderr}")
         return False
-    except Exception as e:
-        print(f"❌ [RENDERER] System Crash: {e}")
-        return False
-
-if __name__ == "__main__":
-    # Test execution
-    render_video("test_bg.mp4", "test_audio.wav", "FINAL_OUTPUT.mp4")
