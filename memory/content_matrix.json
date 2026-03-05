@@ -44,7 +44,8 @@
     {
         "niche": "brainrot",
         "topic": "Ridiculous Guinness Records",
-        "bg_query": "guinness world records weird"
+        "bg_query": "guinness world records weird",
+        "processed": true
     },
     {
         "niche": "brainrot",
