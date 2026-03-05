@@ -13,6 +13,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -22,7 +23,8 @@ jobs:
       - name: Install Dependencies
         run: |
           pip install google-genai requests pytz
-          echo "PYTHONPATH=$PYTHONPATH:$(pwd)" >> $GITHUB_ENV
+          # Clean PYTHONPATH injection
+          echo "PYTHONPATH=$(pwd)" >> $GITHUB_ENV
 
       - name: Run Trend Researcher
         env:
@@ -35,12 +37,25 @@ jobs:
         run: |
           git config --global user.name "Ghost-Engine-Bot"
           git config --global user.email "bot@ghostengine.ai"
-          # Master Fix: Check if file exists before adding to Git
+          
+          # 1. Check if the file was created
           if [ -f memory/content_matrix.json ]; then
             git add memory/content_matrix.json
-            git pull --rebase origin main
-            git commit -m "Lock New Content Matrix [skip ci]" || echo "No changes to commit"
-            git push origin main
+            
+            # 2. Check if there are actual changes staged
+            if git diff --staged --quiet; then
+              echo "No changes detected in content_matrix.json. Skipping."
+            else
+              # 3. Commit locally first
+              git commit -m "Lock New Content Matrix [skip ci]"
+              
+              # 4. Pull rebase to handle remote changes made during the run
+              git pull --rebase origin main
+              
+              # 5. Push the unified history
+              git push origin main
+              echo "✅ Matrix synchronized successfully."
+            fi
           else
-            echo "⚠️ No content_matrix.json found. Skipping commit phase."
+            echo "⚠️ No content_matrix.json found. Research failed or returned empty."
           fi
