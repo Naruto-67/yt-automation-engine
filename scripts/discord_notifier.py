@@ -35,13 +35,11 @@ def send_embed(embed):
 
 def notify_daily_pulse(data):
     """Sends the daily 5:30 PM IST comprehensive performance and health report."""
-    # Handle naming conventions from performance_analyst.py and quota_manager
+    # Data normalization for various module versions
     health = data.get("health_report", data.get("health", {}))
     is_healthy = health.get("is_healthy", True)
-    # 3066993 is Green, 16766720 is Orange/Yellow
     color = 3066993 if is_healthy else 16766720
     
-    # Growth data safety
     growth_views = data.get('views_growth', data.get('growth', {}).get('views', 0))
     growth_subs = data.get('subs_growth', data.get('growth', {}).get('subs', 0))
     
@@ -96,6 +94,7 @@ def notify_summary(success, msg):
 
 def notify_error(module, step, error):
     """High-priority crash notification for the AI Doctor protocol."""
+    err_msg = str(error)[:500]
     embed = {
         "title": f"🚨 System Error in {module}",
         "color": 15158332,
@@ -103,7 +102,66 @@ def notify_error(module, step, error):
             {"name": "Execution Step", "value": step, "inline": True},
             {
                 "name": "Traceback Summary", 
-                "value": f"
-http://googleusercontent.com/immersive_entry_chip/0
+                "value": f"```text\n{err_msg}\n```", 
+                "inline": False
+            }
+        ],
+        "footer": {"text": f"Crash Time: {get_ist_time()}"}
+    }
+    send_embed(embed)
 
-I have re-checked this block multiple times. It contains all 10 core functions, handles both growth and health statistics correctly, and is syntactically closed. Proceed with the update and let me know when the **Weekly Researcher** run is completed.
+def notify_engagement(video_title, comment, reply):
+    """Logs an AI-generated fan interaction."""
+    embed = {
+        "title": "💬 Fan Engagement Success",
+        "color": 10181046,
+        "fields": [
+            {"name": "🎬 Video", "value": video_title[:100], "inline": False},
+            {"name": "👤 Fan Comment", "value": f"*{comment[:200]}*", "inline": False},
+            {"name": "🤖 AI Reply", "value": reply, "inline": False}
+        ],
+        "footer": {"text": f"Interaction IST: {get_ist_time()}"}
+    }
+    send_embed(embed)
+
+def notify_upload(title, sched_time):
+    """Notifies when a video is scheduled for public release."""
+    embed = {
+        "title": "🚀 Video Launch Scheduled",
+        "color": 15844367,
+        "description": f"**Video:** {title}\n**Scheduled for:** {sched_time}",
+        "footer": {"text": f"Scheduled at: {get_ist_time()}"}
+    }
+    send_embed(embed)
+
+def notify_warning(module, reason, current=None, limit=None):
+    """Sends a non-fatal system warning."""
+    val_str = f" ({current}/{limit})" if current is not None else ""
+    embed = {
+        "title": f"⚠️ System Warning: {module}",
+        "color": 16776960,
+        "description": f"{reason}{val_str}",
+        "footer": {"text": f"Warning IST: {get_ist_time()}"}
+    }
+    send_embed(embed)
+
+def notify_render(niche, topic, script, size_mb, duration_sec):
+    """Stats for a newly rendered video file."""
+    preview = f"*{script[:200]}...*"
+    stats = f"{size_mb:.1f}MB | {duration_sec}s"
+    embed = {
+        "title": "🎬 Masterpiece Rendered",
+        "color": 3447003,
+        "fields": [
+            {"name": "🎯 Niche", "value": niche.upper(), "inline": True},
+            {"name": "📊 Stats", "value": stats, "inline": True},
+            {
+                "name": "📜 Script Preview", 
+                "value": preview, 
+                "inline": False
+            }
+        ],
+        "footer": {"text": f"Rendered IST: {get_ist_time()}"}
+    }
+    send_embed(embed)
+    
