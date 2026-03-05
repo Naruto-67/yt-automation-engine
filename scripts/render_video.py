@@ -1,6 +1,3 @@
-# ================================================
-# FILE: scripts/render_video.py
-# ================================================
 import os
 import subprocess
 import json
@@ -13,14 +10,14 @@ def get_style_config(style_name="default"):
     
     default_style = {
         "FontName": "Montserrat-Bold",
-        "FontSize": "22",
+        "FontSize": "55",           # MASSIVE font size for Shorts
         "PrimaryColour": "&H0000FFFF", # Vibrant Yellow
-        "OutlineColour": "&H00000000", # Black Outline
-        "BackColour": "&H40000000",
-        "Outline": "2",
+        "OutlineColour": "&H00000000", # Pure Black
+        "BackColour": "&H80000000",
+        "Outline": "4",             # Thick bold outline to pop off the screen
         "BorderStyle": "1",
-        "Alignment": "5", # Center alignment
-        "MarginV": "60"   # Perfect height for Shorts
+        "Alignment": "5",           # Center alignment
+        "MarginV": "90"             # Placed perfectly above the YouTube UI
     }
 
     if os.path.exists(config_path):
@@ -31,7 +28,6 @@ def get_style_config(style_name="default"):
     return default_style
 
 def srt_to_ass(srt_path, ass_path, style):
-    """Converts standard SRT to high-retention Advanced SubStation Alpha (ASS) format."""
     print("🎨 [RENDERER] Generating High-Impact Subtitle Styling...")
     header = (
         "[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n\n"
@@ -46,7 +42,6 @@ def srt_to_ass(srt_path, ass_path, style):
 
     try:
         with open(srt_path, 'r', encoding='utf-8') as f: content = f.read()
-
         def convert_time(ts): return ts.replace(',', '.')[:-1] 
 
         events = []
@@ -57,7 +52,6 @@ def srt_to_ass(srt_path, ass_path, style):
                 times = re.findall(r'(\d+:\d+:\d+,\d+)', lines[1])
                 if len(times) == 2:
                     text = " ".join(lines[2:])
-                    # Remove any formatting tags that might break ASS
                     text = re.sub(r'<[^>]+>', '', text)
                     events.append(f"Dialogue: 0,{convert_time(times[0])},{convert_time(times[1])},Default,,0,0,0,,{text}")
 
@@ -69,12 +63,8 @@ def srt_to_ass(srt_path, ass_path, style):
         return False
 
 def create_ken_burns_clip(image_path, duration, output_path, fps=60):
-    """Takes a static image and creates a buttery smooth zooming video clip."""
     print(f"   -> Animating scene: {image_path} ({duration:.2f}s)")
     frames = int(duration * fps)
-    
-    # Zoompan math: Zooms in slowly over the duration of the clip.
-    # z='1.0+it/2000' creates a gentle, continuous zoom.
     cmd = [
         "ffmpeg", "-y",
         "-loop", "1", "-i", image_path,
@@ -83,19 +73,14 @@ def create_ken_burns_clip(image_path, duration, output_path, fps=60):
         "-pix_fmt", "yuv420p", "-preset", "ultrafast", "-crf", "23",
         output_path
     ]
-    
     try:
         subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True)
         return True
     except subprocess.CalledProcessError as e:
-        print(f"❌ [RENDERER] Ken Burns effect failed on {image_path}: {e.stderr.decode()}")
+        print(f"❌ [RENDERER] Ken Burns failed on {image_path}: {e.stderr.decode()}")
         return False
 
 def render_video(image_paths, audio_path, output_path, style_name="default"):
-    """
-    The Master Orchestrator for final video assembly.
-    Accepts a list of image paths instead of a single background video.
-    """
     print(f"⚙️ [RENDERER] Executing Master Render Engine (1080p, 60FPS)...")
     
     srt_path = audio_path.replace(".wav", ".srt").replace(".mp3", ".srt")
@@ -103,27 +88,23 @@ def render_video(image_paths, audio_path, output_path, style_name="default"):
     temp_concat_file = "concat_list.txt"
     temp_merged_video = "temp_merged_no_subs.mp4"
     
-    # 1. Convert Subtitles
     if not srt_to_ass(srt_path, ass_path, get_style_config(style_name)):
         return False
 
-    # 2. Calculate Timings
     try:
         audio = AudioSegment.from_file(audio_path)
-        total_duration = len(audio) / 1000.0  # Convert to seconds
+        total_duration = len(audio) / 1000.0 
     except Exception as e:
         print(f"❌ [RENDERER] Failed to read audio duration: {e}")
         return False
 
     num_images = len(image_paths)
     if num_images == 0:
-        print("❌ [RENDERER] No images provided for rendering.")
         return False
 
     clip_duration = total_duration / num_images
-    print(f"⏱️ [RENDERER] Total Audio: {total_duration:.2f}s | Clips: {num_images} | Duration per clip: {clip_duration:.2f}s")
+    print(f"⏱️ [RENDERER] Audio: {total_duration:.2f}s | Clips: {num_images} | Duration per clip: {clip_duration:.2f}s")
 
-    # 3. Animate Individual Clips
     print("🎬 [RENDERER] Phase 1: Forging Ken Burns Sequences...")
     clip_files = []
     for i, img in enumerate(image_paths):
@@ -133,7 +114,6 @@ def render_video(image_paths, audio_path, output_path, style_name="default"):
         else:
             return False
 
-    # 4. Concatenate Clips
     print("🧵 [RENDERER] Phase 2: Stitching Scenes...")
     with open(temp_concat_file, "w") as f:
         for clip in clip_files:
@@ -153,7 +133,6 @@ def render_video(image_paths, audio_path, output_path, style_name="default"):
         print(f"❌ [RENDERER] Stitching failed: {e.stderr.decode()}")
         return False
 
-    # 5. Burn Subtitles
     print("🔥 [RENDERER] Phase 3: Burning High-Retention Subtitles...")
     safe_ass = ass_path.replace('\\', '/').replace(':', r'\:')
     
@@ -174,7 +153,6 @@ def render_video(image_paths, audio_path, output_path, style_name="default"):
         print(f"❌ [RENDERER] Subtitle burn failed: {e.stderr.decode()}")
         success = False
 
-    # 6. Cleanup Render Engine Memory
     print("🧹 [RENDERER] Sweeping temporary render artifacts...")
     for f in clip_files + [temp_concat_file, temp_merged_video, ass_path]:
         if os.path.exists(f): os.remove(f)
