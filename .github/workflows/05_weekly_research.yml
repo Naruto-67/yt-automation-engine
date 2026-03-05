@@ -18,13 +18,17 @@ jobs:
           python-version: '3.10'
 
       - name: Install Dependencies
-        run: pip install google-genai requests
+        run: |
+          pip install google-genai requests
+          # Ensure the scripts folder is in the path
+          echo "PYTHONPATH=$PYTHONPATH:$(pwd)" >> $GITHUB_ENV
 
       - name: Run Trend Researcher
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        # We use -m and ensure the working directory is root
         run: python -m scripts.dynamic_researcher
 
       - name: Sync and Commit Matrix
