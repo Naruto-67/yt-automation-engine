@@ -13,7 +13,7 @@ def generate_gemini_image(prompt, output_path):
         client = genai.Client(api_key=api_key)
         enhanced_prompt = f"{prompt}, cinematic lighting, 8k, highly detailed"
         result = client.models.generate_images(
-            model='imagen-3.0-generate-001', # Using the standard stable endpoint
+            model='imagen-3.0-generate-001',
             prompt=enhanced_prompt,
             config=dict(number_of_images=1, aspect_ratio="9:16", output_mime_type="image/jpeg")
         )
@@ -91,7 +91,8 @@ def fetch_scene_images(prompts_list, base_filename="temp_scene"):
         else:
             print(f"   ❌ Scene {i+1} failed completely.")
             
-        time.sleep(2) 
+        # 🚨 THE PACING PROTOCOL: Sleep 6s to prevent IP/RPM bans across all services
+        print("   ⏳ Pacing generation engines to prevent IP bans (Sleeping 6s)...")
+        time.sleep(6) 
         
-    # 🚨 CRITICAL FIX: Ensure returning a tuple to prevent ValueError in main.py
     return successful_images, primary_provider
