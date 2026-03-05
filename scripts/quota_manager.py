@@ -55,11 +55,15 @@ class MasterQuotaManager:
         print(f"\n🚨 [AI DOCTOR] Crash in {module_name}:\n{tb}\n")
 
     def generate_text(self, prompt, task_type="creative"):
+        """
+        UNIVERSAL ROUTER: Primary = Gemini, Fallback = Groq.
+        Returns: (generated_text, provider_name)
+        """
         state = self._get_active_state()
         
         print(f"🛡️ [ROUTER] Routing '{task_type.upper()}' to Primary (Gemini)...")
         
-        # Keep a 100 request safety buffer for the 1500 daily free limit
+        # 1. Primary Engine: Gemini (With a 100 request safety buffer)
         if state.get("gemini_used", 0) < 1400: 
             try:
                 from google import genai
@@ -69,12 +73,15 @@ class MasterQuotaManager:
                     contents=prompt
                 )
                 self.consume_points("gemini", 1)
-                return response.text
+                return response.text, "Gemini 2.0 Flash"
             except Exception as e:
-                print(f"❌ [GEMINI] Failed: {e}. Switching to Tier 2 (Groq)...")
+                print(f"❌ [GEMINI] Failed: {e}. Executing Fallback Protocol...")
         else:
-            print("⚠️ [ROUTER] Gemini daily limit reached. Switching to Tier 2 (Groq)...")
+            print("⚠️ [ROUTER] Gemini daily limit reached. Executing Fallback Protocol...")
             
-        return groq_client.generate_text(prompt, role=task_type)
+        # 2. Universal Fallback: Groq
+        print("⚡ [ROUTER] Routing to Fallback (Groq)...")
+        fallback_text = groq_client.generate_text(prompt, role=task_type)
+        return fallback_text, "Groq Llama 3.3"
 
 quota_manager = MasterQuotaManager()
