@@ -1,136 +1,102 @@
 import os
 import requests
+import json
 from datetime import datetime
 import pytz
 
-def get_webhook():
-    return os.environ.get("DISCORD_WEBHOOK_URL")
-
 def get_ist_time():
+    """Returns formatted IST time for the 5:30 PM report."""
     ist = pytz.timezone('Asia/Kolkata')
-    return datetime.now(ist).strftime("%I:%M %p")
+    return datetime.now(ist).strftime("%Y-%m-%d | %I:%M %p")
 
-def send_embed(embed_data):
-    webhook = get_webhook()
+def send_to_discord(payload):
+    """Sends the formatted JSON payload to the Discord Webhook."""
+    webhook = os.environ.get("DISCORD_WEBHOOK_URL")
     if not webhook:
-        print("⚠️ Discord Webhook missing. Skipping notification.")
+        print("⚠️ [DISCORD] Webhook URL missing. Bypassing notification.")
         return
     try:
-        print("📢 Pinging Discord Mission Control...")
-        payload = {
-            "username": "YouTube Automation Engine",
-            "avatar_url": "https://cdn-icons-png.flaticon.com/512/1384/1384060.png",
-            "embeds": [embed_data]
-        }
-        response = requests.post(webhook, json=payload)
-        
+        response = requests.post(webhook, json=payload, timeout=10)
         if response.status_code >= 400:
-            print(f"❌ Discord API Error {response.status_code}: {response.text}")
-            
+            print(f"❌ [DISCORD] Error {response.status_code}: {response.text}")
     except Exception as e:
-        print(f"❌ Discord notification failed: {e}")
+        print(f"❌ [DISCORD] Connection failed: {e}")
+
+def notify_daily_pulse(data):
+    """
+    Formats and sends the 5:30 PM IST Daily Health & Stats Pulse.
+    Includes logic for the 'Baby Steps' Token Alarm.
+    """
+    health = data["health_report"]
+    # Color: Green (3066993) if healthy, Yellow (16766720) if warning
+    color = 3066993 if health["is_healthy"] else 16766720
+    
+    embed = {
+        "title": f"📊 Daily Pulse: {data['channel_name']}",
+        "color": color,
+        "fields": [
+            {
+                "name": "📈 Growth (Last 24h)",
+                "value": f"└ Views: **+{data['views_growth']}**\n└ Subs: **+{data['subs_growth']}**",
+                "inline": True
+            },
+            {
+                "name": "🌎 Channel Totals",
+                "value": f"└ Total Views: {data['views']:,}\n└ Total Subs: {data['subs']:,}",
+                "inline": True
+            },
+            {
+                "name": "🤖 Gemini Assessment",
+                "value": f"*{data['ai_take']}*",
+                "inline": False
+            }
+        ],
+        "footer": {"text": f"Mission Control • IST: {get_ist_time()}"}
+    }
+
+    # If token health is failing, inject the Baby Steps guide
+    if not health["is_healthy"]:
+        embed["fields"].append({
+            "name": "🚨 SECURITY ALERT: TOKEN EXPIRING",
+            "value": f"{health['msg']}\n\n{health['baby_steps']}",
+            "inline": False
+        })
+
+    payload = {
+        "username": "Ghost Engine Pulse",
+        "avatar_url": "https://cdn-icons-png.flaticon.com/512/1384/1384060.png",
+        "embeds": [embed]
+    }
+    send_to_discord(payload)
+
+# --- STANDARD NOTIFICATIONS ---
 
 def notify_render(niche, topic, script, size_mb, duration_sec):
     embed = {
-        "title": "🎬 Masterpiece Rendered & Locked",
-        "color": 3447003, 
+        "title": "🎬 Masterpiece Rendered",
+        "color": 3447003,
         "fields": [
-            {"name": "🎯 Niche", "value": f"└ {niche.upper()}", "inline": False},
-            {"name": "📝 Topic", "value": f"└ {topic}", "inline": False},
-            {"name": "📊 Stats", "value": f"└ Size: {size_mb:.1f}MB\n└ Duration: {duration_sec}s", "inline": False},
-            {"name": "📜 Script Preview", "value": f"└ *{script[:150]}...*", "inline": False}
-        ],
-        "footer": {"text": f"Engine Local Time: {get_ist_time()}"}
+            {"name": "🎯 Niche", "value": niche.upper(), "inline": True},
+            {"name": "📊 Stats", "value": f"{size_mb:.1f}MB | {duration_sec}s", "inline": True},
+            {"name": "📜 Script", "value": f"*{script[:200]}...*", "inline": False}
+        ]
     }
-    send_embed(embed)
+    send_to_discord({"embeds": [embed]})
 
-def notify_vault_secure(seo_title, video_id, playlist_id):
-    video_url = f"https://youtu.be/{video_id}"
+def notify_error(module, step, error_msg):
     embed = {
-        "title": "🔒 Video Secured in YouTube Vault",
-        "color": 9807270, 
-        "fields": [
-            {"name": "📝 SEO Title Applied", "value": f"└ {seo_title}", "inline": False},
-            {"name": "🔗 Private Link", "value": f"└ [Click to view Video in Vault]({video_url})", "inline": False}
-        ],
-        "footer": {"text": f"Engine Local Time: {get_ist_time()}"}
+        "title": f"🚨 Error in {module}",
+        "color": 15158332,
+        "description": f"**Step:** {step}\n**Error:** {error_msg}"
     }
-    send_embed(embed)
-
-def notify_upload(topic, live_time="Tomorrow, 9:00 AM"):
-    embed = {
-        "title": "📤 Video Uploaded & Scheduled",
-        "color": 5763719, 
-        "fields": [
-            {"name": "📝 Topic", "value": f"└ {topic}", "inline": False},
-            {"name": "⏰ Goes Live", "value": f"└ {live_time}", "inline": False}
-        ],
-        "footer": {"text": f"Engine Local Time: {get_ist_time()}"}
-    }
-    send_embed(embed)
-
-def notify_engagement(video_title, comment_text, ai_reply):
-    embed = {
-        "title": "💬 AI Audience Engagement",
-        "color": 10181046, # Purple for AI interactions
-        "fields": [
-            {"name": "📝 Video", "value": f"└ {video_title}", "inline": False},
-            {"name": "👤 Viewer Comment", "value": f"└ *\"{comment_text[:150]}\"*", "inline": False},
-            {"name": "🤖 AI Reply", "value": f"└ {ai_reply}", "inline": False}
-        ],
-        "footer": {"text": f"Engine Local Time: {get_ist_time()}"}
-    }
-    send_embed(embed)
-
-def notify_warning(topic, step, attempt, max_attempt):
-    embed = {
-        "title": f"⚠️ Retry Triggered: {step}",
-        "color": 16766720, 
-        "fields": [
-            {"name": "📝 Topic", "value": f"└ {topic}", "inline": False},
-            {"name": "🔄 Status", "value": f"└ Attempt {attempt} of {max_attempt} failed. Retrying...", "inline": False}
-        ],
-        "footer": {"text": f"Engine Local Time: {get_ist_time()}"}
-    }
-    send_embed(embed)
-
-def notify_error(topic, step, fallback_msg):
-    embed = {
-        "title": f"🚨 Critical Error: {step}",
-        "color": 15158332, 
-        "fields": [
-            {"name": "📝 Topic", "value": f"└ {topic}", "inline": False},
-            {"name": "🛠️ Action Taken / Detail", "value": f"└ {fallback_msg}", "inline": False}
-        ],
-        "footer": {"text": f"Engine Local Time: {get_ist_time()}"}
-    }
-    send_embed(embed)
-
-def notify_cleanup(filename, retention_msg):
-    embed = {
-        "title": "🧹 Vault Auto-Janitor Executed",
-        "color": 9807270, 
-        "fields": [
-            {"name": "🗑️ Deleted File", "value": f"└ `{filename}`", "inline": False},
-            {"name": "ℹ️ Reason", "value": f"└ {retention_msg}", "inline": False}
-        ],
-        "footer": {"text": f"Engine Local Time: {get_ist_time()}"}
-    }
-    send_embed(embed)
+    send_to_discord({"embeds": [embed]})
 
 def notify_summary(success, message):
-    color = 3066993 if success else 15158332 
-    title = "✅ Daily Pipeline Complete" if success else "❌ Daily Pipeline Failed"
-    
+    title = "✅ Production Pipeline Complete" if success else "❌ Production Pipeline Failed"
+    color = 3066993 if success else 15158332
     embed = {
         "title": title,
         "color": color,
-        "fields": [
-            {"name": "📊 Summary", "value": f"└ {message}", "inline": False}
-        ],
-        "footer": {"text": f"Mission Control • {get_ist_time()}"}
+        "description": message
     }
-    send_embed(embed)
-
-if __name__ == "__main__":
-    notify_engagement("Bizarre History Shorts", "Wow, I never knew this happened!!", "Right?! History is crazy sometimes. 🤯")
+    send_to_discord({"embeds": [embed]})
