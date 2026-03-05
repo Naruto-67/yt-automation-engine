@@ -26,7 +26,8 @@
     {
         "niche": "fact",
         "topic": "Famous Conspiracies",
-        "bg_query": "conspiracy theories secrets"
+        "bg_query": "conspiracy theories secrets",
+        "processed": true
     },
     {
         "niche": "brainrot",
