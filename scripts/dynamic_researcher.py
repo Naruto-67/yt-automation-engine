@@ -3,60 +3,62 @@ import json
 import traceback
 import re
 
-# Corrected Import Path
+# Corrected Import for Ghost Engine V4.0
 from scripts.quota_manager import quota_manager
 from scripts.discord_notifier import notify_summary
 
 def run_dynamic_research():
     """
-    Scrapes viral trends using Gemini Search grounding and 
-    locks them into the memory/content_matrix.json.
+    The Brain of the Engine.
+    Uses Gemini's live Google Search grounding to find 21 viral topics 
+    and saves them to the content matrix for the daily production to consume.
     """
-    print("🔎 [RESEARCHER] Searching the live web for trending topics...")
+    print("🔎 [RESEARCHER] Scouring the live web for trending viral topics...")
+    # These niches align with your historical high-performance metrics
     niches = ["fact", "brainrot", "short story"]
     
     prompt = f"""
-    Elite YouTube Strategist: Identify highly trending, viral topics in the USA right now using Google Search.
+    You are an elite YouTube Strategist. Identify highly trending, viral topics in the USA right now using Google Search.
     Generate exactly 21 unique content ideas (7 per niche).
     NICHES: {', '.join(niches)}
     
-    Return ONLY a raw JSON array.
-    Format:
+    Return ONLY a raw JSON array of objects.
+    FORMAT:
     [
-        {{"niche": "fact", "topic": "Historical Fact", "bg_query": "visual search query"}},
-        {{"niche": "brainrot", "topic": "Gen Z Meme", "bg_query": "trippy visual"}}
+        {{"niche": "fact", "topic": "The 1904 Olympic Marathon", "bg_query": "vintage chaotic marathon runners marathon"}},
+        {{"niche": "brainrot", "topic": "Gen Alpha Slang explained", "bg_query": "trippy abstract neon colorful dynamic"}}
     ]
     """
 
     try:
-        # task_type="research" triggers the Gemini + Google Search route
+        # task_type="research" forces the router to use Gemini with Google Search enabled
         raw_text = quota_manager.generate_text(prompt, task_type="research")
         
         if not raw_text:
             raise Exception("Master Router failed to return research data.")
 
-        # Clean up Markdown artifacts
+        # Robust extraction: Strip Markdown code blocks if the AI includes them
         clean_json_str = raw_text.replace("```json", "").replace("```", "").strip()
         match = re.search(r'\[.*\]', clean_json_str, re.DOTALL)
         
         if match:
             new_matrix = json.loads(match.group(0))
             
-            # Save to memory/content_matrix.json
+            # Ensure memory folder exists
             root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
             matrix_path = os.path.join(root_dir, "memory", "content_matrix.json")
-            
             os.makedirs(os.path.dirname(matrix_path), exist_ok=True)
+            
             with open(matrix_path, "w", encoding="utf-8") as f:
                 json.dump(new_matrix, f, indent=4)
                 
-            print(f"✅ [RESEARCHER] Matrix updated with {len(new_matrix)} fresh topics.")
-            notify_summary(True, f"Research Cycle Complete. {len(new_matrix)} viral topics locked in matrix.")
+            print(f"✅ [RESEARCHER] Research Complete! Matrix updated with {len(new_matrix)} fresh topics.")
+            notify_summary(True, f"Scout Protocol Complete: {len(new_matrix)} trending topics locked in memory.")
         else:
-            raise ValueError("AI response did not contain a valid JSON array.")
+            raise ValueError("AI failed to provide a parsable JSON array.")
 
     except Exception as e:
-        print(f"❌ [RESEARCHER] Failure: {e}")
+        print(f"❌ [RESEARCHER] Critical failure in Scouting phase: {e}")
         quota_manager.diagnose_fatal_error("dynamic_researcher.py", e)
 
 if __name__ == "__main__":
