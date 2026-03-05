@@ -55,35 +55,26 @@ class MasterQuotaManager:
         print(f"\n🚨 [AI DOCTOR] Crash in {module_name}:\n{tb}\n")
 
     def generate_text(self, prompt, task_type="creative"):
-        """
-        The CEO Router: 
-        Research & Analysis -> ALWAYS Gemini (Protected Quota)
-        Creative (Scripts) -> ALWAYS Groq (Sweatshop Worker)
-        """
         state = self._get_active_state()
         
-        # 1. CEO TASKS (Gemini Only)
-        if task_type in ["research", "analysis"]:
-            print("🛡️ [ROUTER] Routing CEO Task to Gemini...")
-            if state.get("gemini_used", 0) > 1400: # Protect against 1500 daily limit
-                print("⚠️ [ROUTER] Gemini daily limit approaching. Halting CEO task.")
-                return None
-                
+        print(f"🛡️ [ROUTER] Routing '{task_type.upper()}' to Primary (Gemini)...")
+        
+        # Keep a 100 request safety buffer for the 1500 daily free limit
+        if state.get("gemini_used", 0) < 1400: 
             try:
                 from google import genai
                 client = genai.Client(api_key=self.gemini_key)
                 response = client.models.generate_content(
-                    model='gemini-2.0-flash',
+                    model='gemini-2.0-flash', 
                     contents=prompt
                 )
                 self.consume_points("gemini", 1)
                 return response.text
             except Exception as e:
-                print(f"❌ [GEMINI] CEO Task failed: {e}")
-                return None
-                
-        # 2. CREATIVE TASKS (Groq Only)
-        print("⚡ [ROUTER] Routing Creative Task to Groq...")
+                print(f"❌ [GEMINI] Failed: {e}. Switching to Tier 2 (Groq)...")
+        else:
+            print("⚠️ [ROUTER] Gemini daily limit reached. Switching to Tier 2 (Groq)...")
+            
         return groq_client.generate_text(prompt, role=task_type)
 
 quota_manager = MasterQuotaManager()
