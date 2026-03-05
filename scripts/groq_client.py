@@ -1,3 +1,6 @@
+# ================================================
+# FILE: scripts/groq_client.py
+# ================================================
 import os
 import time
 import requests
@@ -55,7 +58,8 @@ class GroqAPIClient:
             "model": self.AUDIO_MODEL,
             "input": text,
             "voice": selected_voice,
-            "response_format": "mp3"
+            # 🚨 BUG FIX: Orpheus ONLY accepts 'wav', not 'mp3'.
+            "response_format": "wav" 
         }
         
         audio_bytes = self._execute_request("audio/speech", payload, is_audio=True)
