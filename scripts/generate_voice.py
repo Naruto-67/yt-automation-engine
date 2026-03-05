@@ -2,7 +2,6 @@ import os
 import json
 import numpy as np
 import soundfile as sf
-import traceback
 import subprocess
 import asyncio
 import edge_tts
@@ -10,6 +9,7 @@ from pydub import AudioSegment
 from pydub.silence import detect_leading_silence
 from kokoro import KPipeline
 from faster_whisper import WhisperModel
+from scripts.groq_client import groq_client
 from scripts.quota_manager import quota_manager
 
 def load_voice_settings():
@@ -40,7 +40,6 @@ def trim_audio_precision(file_path):
         end_trim = detect_leading_silence(audio.reverse())
         duration = len(audio)
         trimmed_audio = audio[start_trim:duration-end_trim]
-        # Add 300ms buffer for better pacing
         final_audio = AudioSegment.silent(duration=200) + trimmed_audio + AudioSegment.silent(duration=200)
         final_audio.export(file_path, format="wav")
         return True
@@ -48,64 +47,63 @@ def trim_audio_precision(file_path):
         print(f"⚠️ [VOICE] Precision trimming failed: {e}")
         return False
 
-def generate_kokoro_local(text, output_path):
-    settings = load_voice_settings()
-    print(f"🎙️ [VOICE] Synthesizing with Kokoro V1 (Voice: {settings['voice']})...")
-    try:
-        pipeline = KPipeline(lang_code='a') 
-        generator = pipeline(text, voice=settings['voice'], speed=settings['speed'], split_pattern=r'\n+')
-        audio_chunks = [audio for _, _, audio in generator if audio is not None]
-        if not audio_chunks: return False
-        raw_audio = np.concatenate(audio_chunks)
-        sf.write(output_path, raw_audio, 24000)
-        return True
-    except Exception as e:
-        print(f"⚠️ [VOICE] Kokoro local failed: {e}")
-        return False
-
-def generate_edge_fallback(text, output_path):
-    print("🎙️ [VOICE] Engaging Edge-TTS Fallback...")
-    try:
-        async def _run():
-            communicate = edge_tts.Communicate(text, "en-US-ChristopherNeural", rate="+10%")
-            await communicate.save(output_path)
-        asyncio.run(_run())
-        return True
-    except Exception as e:
-        print(f"❌ [VOICE] Edge-TTS failed: {e}")
-        return False
-
 def generate_audio(text, output_base="temp_audio"):
     final_wav = f"{output_base}.wav"
+    temp_mp3 = f"{output_base}.mp3"
     srt_path = f"{output_base}.srt"
     
-    # Bypass Groq Orpheus due to terms-acceptance requirement
-    success = generate_kokoro_local(text, final_wav)
+    success = False
+    
+    # Tier 1: Groq Orpheus (Now terms are accepted)
+    print("🎙️ [VOICE] Attempting Primary: Groq Orpheus TTS...")
+    if groq_client.generate_audio(text, temp_mp3):
+        try:
+            subprocess.run(["ffmpeg", "-y", "-i", temp_mp3, final_wav], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+            if os.path.exists(temp_mp3): os.remove(temp_mp3)
+            success = True
+        except: success = False
+
+    # Tier 2: Kokoro Local Fallback
     if not success:
-        success = generate_edge_fallback(text, final_wav)
+        print("🎙️ [VOICE] Attempting Fallback: Kokoro V1 Local...")
+        settings = load_voice_settings()
+        try:
+            pipeline = KPipeline(lang_code='a') 
+            gen = pipeline(text, voice=settings['voice'], speed=settings['speed'], split_pattern=r'\n+')
+            audio_chunks = [audio for _, _, audio in gen if audio is not None]
+            if audio_chunks:
+                sf.write(final_wav, np.concatenate(audio_chunks), 24000)
+                success = True
+        except: success = False
+
+    # Tier 3: Edge-TTS (No-Cost Failsafe)
+    if not success:
+        print("🎙️ [VOICE] Attempting Failsafe: Edge-TTS...")
+        try:
+            async def _run():
+                comm = edge_tts.Communicate(text, "en-US-ChristopherNeural", rate="+10%")
+                await comm.save(final_wav)
+            asyncio.run(_run())
+            success = True
+        except: success = False
 
     if not success: return False
     
     trim_audio_precision(final_wav)
 
     try:
-        print("📝 [VOICE] Transcribing for word-level captions...")
+        print("📝 [VOICE] Transcribing with Faster-Whisper...")
         model = WhisperModel("base", device="cpu", compute_type="int8")
         segments, _ = model.transcribe(final_wav, word_timestamps=True)
-        
         srt_lines = []
         idx = 1
         for segment in segments:
             for word in segment.words:
-                start = format_time(word.start)
-                end = format_time(word.end)
+                start, end = format_time(word.start), format_time(word.end)
                 srt_lines.append(f"{idx}\n{start} --> {end}\n{word.word.strip().upper()}\n")
                 idx += 1
-                
-        with open(srt_path, "w", encoding="utf-8") as f:
-            f.write("\n".join(srt_lines))
+        with open(srt_path, "w", encoding="utf-8") as f: f.write("\n".join(srt_lines))
         return True
     except Exception as e:
-        print(f"⚠️ [VOICE] Whisper SRT generation failed: {e}")
-        # Return True anyway as the audio exists, render_video will handle missing SRT
-        return True
+        print(f"⚠️ [VOICE] Transcription failed: {e}")
+        return True # Return True because audio exists
