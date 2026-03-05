@@ -22,21 +22,22 @@ def generate_script(niche, topic):
     You are an Elite YouTube Shorts Director. Create a viral script for niche: '{niche}', Topic: '{topic}'.
     
     CRITICAL RULES:
-    - Length: The script MUST be exactly 130 to 150 words to ensure a 45-second video. Do not write a short script!
-    - Structure: Start with a heavy hook, build intense curiosity in the body, and end with a quick call to action.
+    - Length: The script MUST be exactly 130 to 150 words to ensure a 45-second video.
+    - Structure: Start with a heavy hook, build intense curiosity, and end with a quick call to action.
     - Emphasize: {emphasize_list}
     - Avoid: {avoid_list}
-    - Visuals: Provide EXACTLY 4 highly detailed image generation prompts that match the chronological flow of the story. Make them descriptive (e.g., "hyper realistic dark cinematic 8k ancient city at night").
+    - Visuals (CRITICAL): Provide EXACTLY 4 highly detailed image prompts. You MUST enforce a 3D animation aesthetic. 
+      Every prompt MUST begin with: "3D animated style, Pixar style, Disney style, highly detailed 3D render..." followed by the scene description.
     
-    FORMAT: Return ONLY valid JSON. No markdown, no intro.
+    FORMAT: Return ONLY valid JSON.
     {{
         "hook": "...",
         "body": "...",
         "image_prompts": [
-            "prompt for part 1",
-            "prompt for part 2",
-            "prompt for part 3",
-            "prompt for part 4"
+            "3D animated style, Pixar style, Disney style, highly detailed 3D render, ...",
+            "3D animated style, Pixar style, Disney style, highly detailed 3D render, ...",
+            "3D animated style, Pixar style, Disney style, highly detailed 3D render, ...",
+            "3D animated style, Pixar style, Disney style, highly detailed 3D render, ..."
         ]
     }}
     """
@@ -54,7 +55,7 @@ def generate_script(niche, topic):
                 
                 prompts = data.get('image_prompts', [])
                 while len(prompts) < 4:
-                    prompts.append(f"cinematic dark atmospheric scene about {topic}")
+                    prompts.append(f"3D animated style, Pixar style, highly detailed 3D render of {topic}")
                 prompts = prompts[:4]
                 
                 print("✅ [WRITER] Script and 4 Camera Shots successfully parsed.")
