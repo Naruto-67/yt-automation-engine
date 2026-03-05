@@ -1,0 +1,21 @@
+name: 99_Cache_Nuke_Cleanup
+
+on:
+  workflow_dispatch:
+
+jobs:
+  purge_cache:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Purge All Project Caches
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "🧹 Initializing System-Wide Cache Purge..."
+          gh cache delete --all
+          echo "✅ Cache Storage Reset to 0GB. Your repository is now lean."
