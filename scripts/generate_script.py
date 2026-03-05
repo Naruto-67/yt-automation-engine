@@ -29,7 +29,7 @@ def generate_script(niche, topic):
        - Prompt 1 must perfectly illustrate exactly what happens in the first 25% of the script.
        - Prompt 2 must perfectly illustrate the next 25%, etc.
        - Pick a visual style (e.g. 'Pixar 3D animation', 'Dark Cinematic') and begin EVERY prompt with that style.
-       - Make the prompts literal and highly specific to the action being described.
+       - Make the prompts literal and highly specific to the action being described in that exact moment.
     
     FORMAT: Return ONLY valid JSON.
     {{
