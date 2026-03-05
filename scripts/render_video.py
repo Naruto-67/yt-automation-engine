@@ -10,14 +10,15 @@ def get_style_config(style_name="default"):
     
     default_style = {
         "FontName": "Montserrat-Bold",
-        "FontSize": "55",           # MASSIVE font size for Shorts
+        "FontSize": "55",
         "PrimaryColour": "&H0000FFFF", # Vibrant Yellow
-        "OutlineColour": "&H00000000", # Pure Black
-        "BackColour": "&H80000000",
-        "Outline": "4",             # Thick bold outline to pop off the screen
-        "BorderStyle": "1",
-        "Alignment": "5",           # Center alignment
-        "MarginV": "90"             # Placed perfectly above the YouTube UI
+        "OutlineColour": "&H00000000", # Pure Black Outline
+        "BackColour": "&H80000000",    # Black Shadow
+        "Outline": "6",                # Very thick outline to prevent blending
+        "Shadow": "3",                 # Drop shadow for extra depth
+        "BorderStyle": "1",            # 1 = Outline + Shadow
+        "Alignment": "2",              # 2 = Bottom Center (so it's not covering faces in the middle)
+        "MarginV": "450"               # Pushes it up from the bottom so it sits perfectly above the YT UI
     }
 
     if os.path.exists(config_path):
@@ -36,7 +37,7 @@ def srt_to_ass(srt_path, ass_path, style):
         "Alignment, MarginL, MarginR, MarginV, Encoding\n"
         f"Style: Default,{style['FontName']},{style['FontSize']},{style['PrimaryColour']},&H000000FF,"
         f"{style['OutlineColour']},{style['BackColour']},1,0,0,0,100,100,0,0,{style['BorderStyle']},"
-        f"{style['Outline']},1,{style['Alignment']},10,10,{style['MarginV']},1\n\n"
+        f"{style['Outline']},{style['Shadow']},{style['Alignment']},10,10,{style['MarginV']},1\n\n"
         "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
     )
 
