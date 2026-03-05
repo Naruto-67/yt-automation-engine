@@ -8,19 +8,17 @@ def get_style_config(style_name="default"):
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     config_path = os.path.join(root_dir, "style_configs", f"{style_name}.json")
     
-    # ASS Colors are in BGR format (Blue Green Red). 
-    # &H00FF00FF is a bright, vibrant Magenta/Purple.
     default_style = {
         "FontName": "Montserrat-Bold",
         "FontSize": "55",
         "PrimaryColour": "&H00FFFFFF", # Pure White Text
-        "OutlineColour": "&H00FF00FF", # Vibrant Magenta/Purple Outline (Matches Reference)
-        "BackColour": "&H80000000",    # Black Shadow
-        "Outline": "7",                # Thick glowing outline
+        "OutlineColour": "&H00FF00FF", # Vibrant Magenta/Purple Outline (BGR format)
+        "BackColour": "&H80000000",    # Black Drop Shadow
+        "Outline": "8",                # MASSIVE thick outline to match reference
         "Shadow": "3",                 # Drop shadow for extra pop
         "BorderStyle": "1",            
         "Alignment": "2",              # Bottom Center
-        "MarginV": "350"               # Placed exactly where the reference video has it
+        "MarginV": "400"               # Pushed up safely above TikTok/Shorts UI
     }
 
     if os.path.exists(config_path):
