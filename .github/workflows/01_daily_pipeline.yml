@@ -25,6 +25,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg espeak-ng
 
+      - name: Initialize Cache Directory
+        run: mkdir -p ~/.cache/kokoro
+
       - name: Cache Kokoro Models
         id: cache-models
         uses: actions/cache@v4
@@ -53,8 +56,10 @@ jobs:
           git config --global user.name "Ghost-Engine-Bot"
           git config --global user.email "bot@ghostengine.ai"
           
+          # Add memory files
           git add memory/*.json assets/lessons_learned.json
           
+          # Master Sync Protocol: Commit -> Pull Rebase -> Push
           if git diff --staged --quiet; then
             echo "No changes to commit."
           else
