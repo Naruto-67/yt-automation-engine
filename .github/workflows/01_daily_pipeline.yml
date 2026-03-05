@@ -14,19 +14,16 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Python
+      - name: Set up Python 3.11 (Stable)
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: '3.11'
           cache: 'pip'
 
       - name: Install FFmpeg & System Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg espeak-ng
-
-      - name: Initialize Cache Directory
-        run: mkdir -p ~/.cache/kokoro
 
       - name: Cache Kokoro Models
         id: cache-models
@@ -35,8 +32,11 @@ jobs:
           path: ~/.cache/kokoro
           key: ${{ runner.os }}-kokoro-v1-stable
 
-      - name: Install Python Requirements
-        run: pip install -r requirements.txt
+      - name: Install Python Requirements & Preload Models
+        run: |
+          pip install -r requirements.txt
+          # Pre-install the NLP model so main.py doesn't hang
+          pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
 
       - name: Run Production Heart
         env:
@@ -49,6 +49,8 @@ jobs:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
           GCP_CREDENTIALS_JSON: ${{ secrets.GCP_CREDENTIALS_JSON }}
+          # Mute HuggingFace warnings
+          HF_HUB_DISABLE_SYMLINKS_WARNING: 1
         run: python main.py
 
       - name: Sync and Commit Memory State
@@ -56,10 +58,8 @@ jobs:
           git config --global user.name "Ghost-Engine-Bot"
           git config --global user.email "bot@ghostengine.ai"
           
-          # Add memory files
           git add memory/*.json assets/lessons_learned.json
           
-          # Master Sync Protocol: Commit -> Pull Rebase -> Push
           if git diff --staged --quiet; then
             echo "No changes to commit."
           else
