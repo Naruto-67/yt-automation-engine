@@ -10,6 +10,7 @@ class MasterQuotaManager:
         self.memory_dir = os.path.join(self.root_dir, "memory")
         self.state_file = os.path.join(self.memory_dir, "api_state.json")
         self.gemini_key = os.environ.get("GEMINI_API_KEY")
+        self.gemini_blocked_for_run = False # 🚨 THE NEW TRIPWIRE
         self._ensure_state_exists()
 
     def _ensure_state_exists(self):
@@ -55,15 +56,15 @@ class MasterQuotaManager:
         print(f"\n🚨 [AI DOCTOR] Crash in {module_name}:\n{tb}\n")
 
     def generate_text(self, prompt, task_type="creative"):
-        """
-        UNIVERSAL ROUTER: Primary = Gemini, Fallback = Groq.
-        Returns: (generated_text, provider_name)
-        """
         state = self._get_active_state()
         
+        # 1. CHECK THE TRIPWIRE FIRST
+        if self.gemini_blocked_for_run:
+            print(f"⚠️ [ROUTER] Gemini is cooling down. Auto-routing '{task_type.upper()}' to Groq Fallback.")
+            return groq_client.generate_text(prompt, role=task_type), "Groq Llama 3.3"
+
         print(f"🛡️ [ROUTER] Routing '{task_type.upper()}' to Primary (Gemini)...")
         
-        # 1. Primary Engine: Gemini (With a 100 request safety buffer)
         if state.get("gemini_used", 0) < 1400: 
             try:
                 from google import genai
@@ -75,13 +76,19 @@ class MasterQuotaManager:
                 self.consume_points("gemini", 1)
                 return response.text, "Gemini 2.0 Flash"
             except Exception as e:
-                print(f"❌ [GEMINI] Failed: {e}. Executing Fallback Protocol...")
+                error_msg = str(e).lower()
+                print(f"❌ [GEMINI] Failed: {e}")
+                
+                # 🚨 IF RATE LIMITED, TRiP THE WIRE FOR THE REST OF THE RUN
+                if "429" in error_msg or "quota" in error_msg or "exhausted" in error_msg:
+                    print("🚨 [ROUTER] Rate limit hit! Locking Gemini out for the rest of this workflow.")
+                    self.gemini_blocked_for_run = True
+                    
+                print("⚡ [ROUTER] Executing Fallback Protocol...")
+                return groq_client.generate_text(prompt, role=task_type), "Groq Llama 3.3"
         else:
-            print("⚠️ [ROUTER] Gemini daily limit reached. Executing Fallback Protocol...")
-            
-        # 2. Universal Fallback: Groq
-        print("⚡ [ROUTER] Routing to Fallback (Groq)...")
-        fallback_text = groq_client.generate_text(prompt, role=task_type)
-        return fallback_text, "Groq Llama 3.3"
+            self.gemini_blocked_for_run = True
+            print("⚠️ [ROUTER] Gemini daily limit reached. Auto-routing to Groq.")
+            return groq_client.generate_text(prompt, role=task_type), "Groq Llama 3.3"
 
 quota_manager = MasterQuotaManager()
