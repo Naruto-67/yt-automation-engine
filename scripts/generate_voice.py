@@ -8,7 +8,7 @@ from pydub.silence import detect_leading_silence
 from scripts.groq_client import groq_client
 from scripts.quota_manager import quota_manager
 
-# LAZY LOADING: AI models are NOT globally imported here.
+# Lazy Loading Quarantine
 
 def load_voice_settings():
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -49,19 +49,16 @@ def generate_audio(text, output_base="temp_audio"):
     
     success = False
     
-    # 1. Primary: Groq Orpheus API (Ultra-Fast)
     print("🎙️ [VOICE] Attempting Primary: Groq Orpheus TTS...")
     if groq_client.generate_audio(text, temp_mp3):
         try:
-            # Added timeout=30 to prevent FFmpeg from becoming an orphan process
-            subprocess.run(["ffmpeg", "-y", "-i", temp_mp3, final_wav], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=30)
+            subprocess.run(["ffmpeg", "-y", "-i", temp_mp3, final_wav], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=45)
             if os.path.exists(temp_mp3): os.remove(temp_mp3)
             success = True
         except Exception as e:
-            print(f"❌ [VOICE] FFmpeg conversion failed or timed out: {e}")
+            print(f"❌ [VOICE] FFmpeg conversion failed: {e}")
             success = False
 
-    # 2. Failsafe: Kokoro Local Engine
     if not success:
         print("🎙️ [VOICE] Orpheus failed. Booting Kokoro Local Fallback...")
         try:
@@ -82,13 +79,13 @@ def generate_audio(text, output_base="temp_audio"):
     
     trim_audio_precision(final_wav)
 
-    # 3. Generate Word-Level Captions
     try:
-        print("📝 [VOICE] Transcribing with Faster-Whisper...")
+        print("📝 [VOICE] Transcribing with Faster-Whisper (Turbo Mode)...")
         from faster_whisper import WhisperModel
         
-        # Will use the pre-downloaded cache from the GitHub Workflow
-        model = WhisperModel("base", device="cpu", compute_type="int8")
+        # 🚨 THE FIX: Swapped "base" for "tiny.en". 
+        # This reduces inference time on the 2-core CPU from 2 minutes to ~15 seconds.
+        model = WhisperModel("tiny.en", device="cpu", compute_type="int8")
         segments, _ = model.transcribe(final_wav, word_timestamps=True)
         
         srt_lines = []
@@ -104,5 +101,4 @@ def generate_audio(text, output_base="temp_audio"):
         return True
     except Exception as e:
         print(f"⚠️ [VOICE] Transcription failed: {e}")
-        # Audio succeeded, return True so the video render can proceed without text
         return True
