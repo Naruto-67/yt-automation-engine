@@ -1,9 +1,17 @@
 import os
 import json
 import random
+import warnings
+
+# Silence PyTorch and HuggingFace Hub warnings
+warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", category=FutureWarning)
+os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+if os.environ.get("HF_TOKEN"):
+    os.environ["HUGGING_FACE_HUB_TOKEN"] = os.environ.get("HF_TOKEN")
+
 import numpy as np
 import soundfile as sf
-import subprocess
 from pydub import AudioSegment
 from pydub.silence import detect_leading_silence
 from scripts.groq_client import groq_client
@@ -36,7 +44,6 @@ def generate_audio(text, output_base="temp_audio"):
     print("🎙️ [VOICE] Attempting Primary: Kokoro (Ultra-Realistic Human)...")
     try:
         from kokoro import KPipeline
-        # Pick a random hyper-realistic voice for variety
         kokoro_voices = ['am_adam', 'af_bella', 'am_michael', 'af_sarah']
         chosen_voice = random.choice(kokoro_voices)
         print(f"🎙️ [VOICE] Selected actor: {chosen_voice.upper()}")
@@ -66,6 +73,7 @@ def generate_audio(text, output_base="temp_audio"):
     try:
         print("📝 [VOICE] Transcribing and Chunking Captions (Max 3 words)...")
         from faster_whisper import WhisperModel
+        # This will no longer throw the unauthenticated warning
         model = WhisperModel("tiny.en", device="cpu", compute_type="int8")
         segments, _ = model.transcribe(final_wav, word_timestamps=True)
         
@@ -79,7 +87,6 @@ def generate_audio(text, output_base="temp_audio"):
                     chunk_start = word.start
                 chunk.append(word.word.strip().upper())
                 
-                # Force subtitle lines to be 3 words max for fast-paced reading
                 if len(chunk) >= 3:
                     end = word.end
                     srt_lines.append(f"{idx}\n{format_time(chunk_start)} --> {format_time(end)}\n{' '.join(chunk)}\n")
@@ -87,7 +94,7 @@ def generate_audio(text, output_base="temp_audio"):
                     chunk = []
                     chunk_start = None
                     
-            if chunk: # Catch any leftover words in the segment
+            if chunk: 
                 srt_lines.append(f"{idx}\n{format_time(chunk_start)} --> {format_time(segment.words[-1].end)}\n{' '.join(chunk)}\n")
                 idx += 1
                 
