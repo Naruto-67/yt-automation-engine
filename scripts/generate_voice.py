@@ -3,8 +3,6 @@ import json
 import numpy as np
 import soundfile as sf
 import subprocess
-import asyncio
-import edge_tts
 from pydub import AudioSegment
 from pydub.silence import detect_leading_silence
 from scripts.groq_client import groq_client
