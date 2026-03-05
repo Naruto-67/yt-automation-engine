@@ -32,7 +32,8 @@
     {
         "niche": "brainrot",
         "topic": "Weird Internet Trends",
-        "bg_query": "viral memes internet culture"
+        "bg_query": "viral memes internet culture",
+        "processed": true
     },
     {
         "niche": "brainrot",
