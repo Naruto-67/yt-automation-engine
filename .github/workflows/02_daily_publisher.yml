@@ -2,7 +2,7 @@ name: 02_Ghost_Daily_Publisher
 
 on:
   schedule:
-    - cron: '0 12 * * *' # 12:00 UTC = 5:30 PM IST
+    - cron: '0 12 * * *' # 5:30 PM IST
   workflow_dispatch:
 
 jobs:
@@ -27,7 +27,7 @@ jobs:
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        run: python scripts/schedule_video.py
+        run: python -m scripts.schedule_video
 
       - name: Sync and Commit
         run: |
