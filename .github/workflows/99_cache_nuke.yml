@@ -16,6 +16,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          echo "🔍 Checking for existing caches..."
+          gh cache list --limit 100
+          
           echo "🧹 Initializing System-Wide Cache Purge..."
-          gh cache delete --all
-          echo "✅ Cache Storage Reset to 0GB. Your repository is now lean."
+          # The '|| true' ensures that even if no caches are found, the script doesn't error out.
+          gh cache delete --all || echo "⚠️ No caches were found in the current context, or they are already being evicted."
+          
+          echo "✅ Cache Storage Reset Protocol Complete."
