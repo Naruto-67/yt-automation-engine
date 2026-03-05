@@ -1,5 +1,6 @@
 import os
 import json
+import random
 import numpy as np
 import soundfile as sf
 import subprocess
@@ -7,19 +8,6 @@ from pydub import AudioSegment
 from pydub.silence import detect_leading_silence
 from scripts.groq_client import groq_client
 from scripts.quota_manager import quota_manager
-
-def load_voice_settings():
-    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    tracker_path = os.path.join(root_dir, "assets", "lessons_learned.json")
-    settings = {"voice": "am_adam", "speed": 1.1} 
-    if os.path.exists(tracker_path):
-        try:
-            with open(tracker_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if "best_voice" in data: settings["voice"] = data["best_voice"]
-                if "best_speed" in data: settings["speed"] = data["best_speed"]
-        except: pass
-    return settings
 
 def format_time(seconds):
     if seconds < 0: seconds = 0
@@ -45,24 +33,30 @@ def generate_audio(text, output_base="temp_audio"):
     success = False
     provider = "Unknown"
     
-    print("🎙️ [VOICE] Attempting Primary: Groq Orpheus TTS...")
-    if groq_client.generate_audio(text, final_wav):
-        success = True
-        provider = "Groq Orpheus API"
+    print("🎙️ [VOICE] Attempting Primary: Kokoro (Ultra-Realistic Human)...")
+    try:
+        from kokoro import KPipeline
+        # Pick a random hyper-realistic voice for variety
+        kokoro_voices = ['am_adam', 'af_bella', 'am_michael', 'af_sarah']
+        chosen_voice = random.choice(kokoro_voices)
+        print(f"🎙️ [VOICE] Selected actor: {chosen_voice.upper()}")
+        
+        pipeline = KPipeline(lang_code='a') 
+        gen = pipeline(text, voice=chosen_voice, speed=1.1, split_pattern=r'\n+')
+        audio_chunks = [audio for _, _, audio in gen if audio is not None]
+        if audio_chunks:
+            sf.write(final_wav, np.concatenate(audio_chunks), 24000)
+            success = True
+            provider = f"Kokoro ({chosen_voice})"
+    except Exception as e: 
+        print(f"⚠️ Kokoro failed: {e}")
+        success = False
 
     if not success:
-        print("🎙️ [VOICE] Orpheus failed. Booting Kokoro Local Fallback...")
-        try:
-            from kokoro import KPipeline
-            settings = load_voice_settings()
-            pipeline = KPipeline(lang_code='a') 
-            gen = pipeline(text, voice=settings['voice'], speed=settings['speed'], split_pattern=r'\n+')
-            audio_chunks = [audio for _, _, audio in gen if audio is not None]
-            if audio_chunks:
-                sf.write(final_wav, np.concatenate(audio_chunks), 24000)
-                success = True
-                provider = "Kokoro V1 (Local)"
-        except: success = False
+        print("🎙️ [VOICE] Kokoro failed. Booting Groq Fallback...")
+        if groq_client.generate_audio(text, final_wav):
+            success = True
+            provider = "Groq Orpheus API"
 
     if not success: 
         return False, provider
@@ -70,7 +64,7 @@ def generate_audio(text, output_base="temp_audio"):
     trim_audio_precision(final_wav)
 
     try:
-        print("📝 [VOICE] Transcribing with Faster-Whisper...")
+        print("📝 [VOICE] Transcribing and Chunking Captions (Max 3 words)...")
         from faster_whisper import WhisperModel
         model = WhisperModel("tiny.en", device="cpu", compute_type="int8")
         segments, _ = model.transcribe(final_wav, word_timestamps=True)
@@ -78,13 +72,28 @@ def generate_audio(text, output_base="temp_audio"):
         srt_lines = []
         idx = 1
         for segment in segments:
+            chunk = []
+            chunk_start = None
             for word in segment.words:
-                start, end = format_time(word.start), format_time(word.end)
-                srt_lines.append(f"{idx}\n{start} --> {end}\n{word.word.strip().upper()}\n")
+                if chunk_start is None:
+                    chunk_start = word.start
+                chunk.append(word.word.strip().upper())
+                
+                # Force subtitle lines to be 3 words max for fast-paced reading
+                if len(chunk) >= 3:
+                    end = word.end
+                    srt_lines.append(f"{idx}\n{format_time(chunk_start)} --> {format_time(end)}\n{' '.join(chunk)}\n")
+                    idx += 1
+                    chunk = []
+                    chunk_start = None
+                    
+            if chunk: # Catch any leftover words in the segment
+                srt_lines.append(f"{idx}\n{format_time(chunk_start)} --> {format_time(segment.words[-1].end)}\n{' '.join(chunk)}\n")
                 idx += 1
                 
         with open(srt_path, "w", encoding="utf-8") as f: 
             f.write("\n".join(srt_lines))
-    except: pass
+    except Exception as e: 
+        print(f"⚠️ Transcription error: {e}")
     
     return True, provider
