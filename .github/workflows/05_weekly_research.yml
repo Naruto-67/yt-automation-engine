@@ -1,0 +1,35 @@
+name: 05_Ghost_Weekly_Research
+
+on:
+  schedule:
+    - cron: '0 0 * * 0' # 00:00 UTC Sunday = 5:30 AM IST
+  workflow_dispatch:
+
+jobs:
+  scrape_trends:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: pip install google-genai requests
+
+      - name: Run Trend Researcher
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python scripts/dynamic_researcher.py
+
+      - name: Sync and Commit Matrix
+        run: |
+          git config --global user.name "Ghost-Engine-Bot"
+          git config --global user.email "bot@ghostengine.ai"
+          git add memory/content_matrix.json
+          git pull --rebase origin main
+          git commit -m "Lock New Content Matrix [skip ci]" || echo "No changes to commit"
+          git push origin main
