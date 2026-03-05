@@ -2,6 +2,8 @@ import os
 import requests
 import urllib.parse
 import time
+import random
+from google import genai
 
 def generate_huggingface_image(prompt, output_path):
     print("      [HuggingFace] Attempting FLUX AI generation...")
@@ -10,11 +12,14 @@ def generate_huggingface_image(prompt, output_path):
         print("      [HuggingFace] ⚠️ No HF_TOKEN found in environment secrets.")
         return False
         
-    # BUG FIX: The new, supported Hugging Face Router URL
+    # THE FIX: Updated to the new Hugging Face Router infrastructure
     url = "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell"
-    headers = {"Authorization": f"Bearer {hf_token}"}
+    headers = {
+        "Authorization": f"Bearer {hf_token}",
+        "Content-Type": "application/json"
+    }
     
-    enhanced_prompt = f"{prompt}, vertical 9:16 format, highly detailed, cinematic lighting, 8k resolution"
+    enhanced_prompt = f"{prompt}, vertical 9:16 format, 8k resolution, masterpiece"
     payload = {"inputs": enhanced_prompt}
     
     for attempt in range(2):
@@ -54,10 +59,8 @@ def fallback_pexels_image(prompt, output_path):
                 f.write(img_data)
             return True
         else:
-            print(f"      [Pexels] ⚠️ No images found for query: {search_query}")
             return False
     except Exception as e:
-        print(f"      [Pexels] ⚠️ Error: {e}")
         return False
 
 def fetch_scene_images(prompts_list, base_filename="temp_scene"):
@@ -68,7 +71,7 @@ def fetch_scene_images(prompts_list, base_filename="temp_scene"):
         output_path = f"{base_filename}_{i}.jpg"
         print(f"\n   -> Scene {i+1} Prompt: {prompt[:40]}...")
         
-        # We are intentionally skipping Gemini here to test HuggingFace
+        # We are intentionally skipping Gemini here to test HuggingFace (Tier 2)
         success = generate_huggingface_image(prompt, output_path)
             
         # Ultimate Free Failsafe (Pexels Stock Image)
