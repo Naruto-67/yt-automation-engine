@@ -11,6 +11,8 @@ kokoro==0.9.4
 soundfile==0.13.1
 faster-whisper==1.2.1
 edge-tts
+pydub
+numpy
 
 # Video & Visuals
 moviepy==2.2.1
