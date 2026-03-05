@@ -26,44 +26,46 @@ def run_dynamic_research():
     """
 
     try:
-        # Attempt Primary Brain (Gemini + Google Search)
+        # Step 1: Attempt Primary Brain (Gemini + Google Search)
+        used_fallback = False
         raw_text = quota_manager.generate_text(prompt, task_type="research")
         
-        # Engage Fallback Brain if Gemini is exhausted
+        # Step 2: Engage Fallback Brain if Gemini is exhausted
         if not raw_text:
             print("⚠️ [RESEARCHER] Gemini Quota Hit. Engaging Fallback Brain (Groq)...")
+            used_fallback = True
             raw_text = quota_manager.generate_text(prompt, task_type="creative")
             if not raw_text:
                 raise Exception("Critical: All AI providers failed to respond.")
 
-        # Robust JSON extraction from AI string
+        # Robust JSON extraction
         clean_json_str = raw_text.replace("```json", "").replace("```", "").strip()
         match = re.search(r'\[.*\]', clean_json_str, re.DOTALL)
         
         if match:
             new_matrix = json.loads(match.group(0))
             
-            # Resolve absolute paths for the GitHub Runner environment
+            # Resolve absolute paths
             root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
             matrix_dir = os.path.join(root_dir, "memory")
             matrix_path = os.path.join(matrix_dir, "content_matrix.json")
             
-            # Ensure directory exists before writing
             os.makedirs(matrix_dir, exist_ok=True)
             with open(matrix_path, "w", encoding="utf-8") as f:
                 json.dump(new_matrix, f, indent=4)
                 
             print(f"✅ [RESEARCHER] Matrix updated with {len(new_matrix)} topics.")
-            # Determine which brain was used for the notification
-            brain_used = "Groq (Fallback)" if "⚠️" in raw_text or quota_manager.gemini_locked else "Gemini (Search)"
-            notify_summary(True, f"Scout Cycle Successful. Matrix generated via {brain_used}.")
+            
+            # Final Success Notification
+            brain_name = "Groq (Fallback)" if used_fallback else "Gemini (Search)"
+            notify_summary(True, f"Scout Cycle Successful. Matrix generated via {brain_name}.")
         else:
             raise ValueError("AI returned non-JSON parsable content.")
 
     except Exception as e:
         print(f"❌ [RESEARCHER] Scouting Failure: {e}")
         notify_warning("Researcher", f"Research cycle failed: {str(e)[:100]}")
-        # satisfy git by ensuring the folder at least exists
+        # Ensure directory exists for Git safety
         root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         os.makedirs(os.path.join(root_dir, "memory"), exist_ok=True)
 
