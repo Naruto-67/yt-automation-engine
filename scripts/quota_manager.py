@@ -1,6 +1,7 @@
 import os
 import json
 import traceback
+import time
 from datetime import datetime
 from scripts.groq_client import groq_client
 
@@ -10,7 +11,7 @@ class MasterQuotaManager:
         self.memory_dir = os.path.join(self.root_dir, "memory")
         self.state_file = os.path.join(self.memory_dir, "api_state.json")
         self.gemini_key = os.environ.get("GEMINI_API_KEY")
-        self.gemini_blocked_for_run = False # 🚨 THE NEW TRIPWIRE
+        self.gemini_text_limit = 250 # The 50/50 Rule (50% of 500 RPD limit)
         self._ensure_state_exists()
 
     def _ensure_state_exists(self):
@@ -57,38 +58,36 @@ class MasterQuotaManager:
 
     def generate_text(self, prompt, task_type="creative"):
         state = self._get_active_state()
+        usage = state.get("gemini_used", 0)
         
-        # 1. CHECK THE TRIPWIRE FIRST
-        if self.gemini_blocked_for_run:
-            print(f"⚠️ [ROUTER] Gemini is cooling down. Auto-routing '{task_type.upper()}' to Groq Fallback.")
-            return groq_client.generate_text(prompt, role=task_type), "Groq Llama 3.3"
-
-        print(f"🛡️ [ROUTER] Routing '{task_type.upper()}' to Primary (Gemini)...")
+        print(f"🛡️ [ROUTER] Routing '{task_type.upper()}' to Primary (Gemini 3.1 Flash Lite)...")
         
-        if state.get("gemini_used", 0) < 1400: 
-            try:
-                from google import genai
-                client = genai.Client(api_key=self.gemini_key)
-                response = client.models.generate_content(
-                    model='gemini-2.0-flash', 
-                    contents=prompt
-                )
-                self.consume_points("gemini", 1)
-                return response.text, "Gemini 2.0 Flash"
-            except Exception as e:
-                error_msg = str(e).lower()
-                print(f"❌ [GEMINI] Failed: {e}")
-                
-                # 🚨 IF RATE LIMITED, TRiP THE WIRE FOR THE REST OF THE RUN
-                if "429" in error_msg or "quota" in error_msg or "exhausted" in error_msg:
-                    print("🚨 [ROUTER] Rate limit hit! Locking Gemini out for the rest of this workflow.")
-                    self.gemini_blocked_for_run = True
-                    
-                print("⚡ [ROUTER] Executing Fallback Protocol...")
-                return groq_client.generate_text(prompt, role=task_type), "Groq Llama 3.3"
+        if usage < self.gemini_text_limit:
+            # RETRY LOGIC FOR RPM LIMITS
+            for attempt in range(3):
+                try:
+                    from google import genai
+                    client = genai.Client(api_key=self.gemini_key)
+                    response = client.models.generate_content(
+                        model='gemini-3.1-flash-lite', 
+                        contents=prompt
+                    )
+                    self.consume_points("gemini", 1)
+                    return response.text, "Gemini 3.1 Flash Lite"
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    if "429" in error_msg or "quota" in error_msg or "exhausted" in error_msg:
+                        print(f"⚠️ [ROUTER] Gemini 429 RPM Limit Hit! (Attempt {attempt+1}/3)")
+                        print("⏳ [ROUTER] 50/50 Rule Active: Quota remaining. Waiting 60 seconds for RPM to reset...")
+                        time.sleep(60)
+                    else:
+                        print(f"❌ [GEMINI] Non-rate-limit error: {e}")
+                        break # Break loop, go to Fallback
         else:
-            self.gemini_blocked_for_run = True
-            print("⚠️ [ROUTER] Gemini daily limit reached. Auto-routing to Groq.")
-            return groq_client.generate_text(prompt, role=task_type), "Groq Llama 3.3"
+            print(f"⚠️ [ROUTER] 50/50 Rule Limit Reached ({usage}/{self.gemini_text_limit}). Saving remaining quota.")
+            
+        print("⚡ [ROUTER] Executing Fallback Protocol (Groq)...")
+        fallback_text = groq_client.generate_text(prompt, role=task_type)
+        return fallback_text, "Groq Llama 3.3"
 
 quota_manager = MasterQuotaManager()
