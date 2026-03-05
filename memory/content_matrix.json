@@ -50,7 +50,8 @@
     {
         "niche": "brainrot",
         "topic": "Crazy Gaming Fails",
-        "bg_query": "gaming fails montages"
+        "bg_query": "gaming fails montages",
+        "processed": true
     },
     {
         "niche": "brainrot",
