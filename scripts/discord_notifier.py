@@ -43,3 +43,9 @@ def notify_warning(module, message):
     webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
     notifier = DiscordNotifier(webhook_url)
     notifier.send_embed(f"⚠️ Warning in {module}", message, 0xf1c40f)
+
+# 🚨 THE FIX: Re-adding the missing function that youtube_manager.py expects!
+def notify_vault_secure(topic, *args, **kwargs):
+    webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
+    notifier = DiscordNotifier(webhook_url)
+    notifier.send_embed("🏦 Vault Secured", f"Video successfully vaulted: {topic}", 0x3498db)
