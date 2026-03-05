@@ -1,0 +1,40 @@
+name: 03_Ghost_Daily_Pulse
+
+on:
+  schedule:
+    - cron: '5 12 * * *' # 12:05 UTC = 5:35 PM IST
+  workflow_dispatch:
+
+jobs:
+  channel_health_pulse:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: pip install google-api-python-client google-auth google-genai pytz requests
+
+      - name: Run Performance Analysis
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: python scripts/performance_analyst.py
+
+      - name: Sync and Commit History
+        run: |
+          git config --global user.name "Ghost-Engine-Bot"
+          git config --global user.email "bot@ghostengine.ai"
+          git add memory/channel_stats_history.json
+          git pull --rebase origin main
+          git commit -m "Update Channel History [skip ci]" || echo "No changes to commit"
+          git push origin main
