@@ -1,167 +1,122 @@
-import os
-import requests
 import json
-from datetime import datetime
-import pytz
+import logging
+import requests
+from typing import Optional, List, Dict, Any
 
-def get_ist_time():
-    """Returns formatted India Standard Time (IST) for reporting."""
-    try:
-        ist = pytz.timezone('Asia/Kolkata')
-        return datetime.now(ist).strftime("%Y-%m-%d | %I:%M %p")
-    except Exception:
-        # Fallback to UTC if pytz or timezone logic fails
-        return datetime.utcnow().strftime("%Y-%m-%d | %H:%M UTC")
+# Configure basic logging for professional monitoring
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger("DiscordNotifier")
 
-def send_embed(embed):
-    """Internal helper to send a formatted JSON embed to the Discord Webhook."""
-    webhook = os.environ.get("DISCORD_WEBHOOK_URL")
-    if not webhook:
-        print("⚠️ [DISCORD] Webhook URL missing. Bypassing notification.")
-        return
-    
-    payload = {
-        "username": "Ghost Engine Mission Control",
-        "avatar_url": "https://cdn-icons-png.flaticon.com/512/1384/1384060.png",
-        "embeds": [embed]
-    }
-    
-    try:
-        response = requests.post(webhook, json=payload, timeout=15)
-        if response.status_code >= 400:
-            print(f"❌ [DISCORD] HTTP Error {response.status_code}: {response.text}")
-    except Exception as e:
-        print(f"❌ [DISCORD] Connection failed: {e}")
+class DiscordNotifier:
+    """
+    A robust class for sending text messages and rich embeds to a Discord Webhook.
+    """
+    def __init__(self, webhook_url: str, default_username: Optional[str] = None, default_avatar_url: Optional[str] = None):
+        """
+        Initializes the Discord notifier.
+        
+        :param webhook_url: The full Discord webhook URL.
+        :param default_username: Optional username to override the webhook's default name.
+        :param default_avatar_url: Optional avatar URL to override the webhook's default avatar.
+        """
+        self.webhook_url = webhook_url
+        self.default_username = default_username
+        self.default_avatar_url = default_avatar_url
 
-def notify_daily_pulse(data):
-    """Sends the daily 5:30 PM IST comprehensive performance and health report."""
-    # Data normalization for various module versions
-    health = data.get("health_report", data.get("health", {}))
-    is_healthy = health.get("is_healthy", True)
-    color = 3066993 if is_healthy else 16766720
+    def _send_payload(self, payload: Dict[str, Any]) -> bool:
+        """Internal method to dispatch the JSON payload to the Discord webhook."""
+        # Inject default username and avatar if provided and not already in payload
+        if self.default_username and "username" not in payload:
+            payload["username"] = self.default_username
+        if self.default_avatar_url and "avatar_url" not in payload:
+            payload["avatar_url"] = self.default_avatar_url
+
+        try:
+            response = requests.post(
+                self.webhook_url,
+                data=json.dumps(payload),
+                headers={"Content-Type": "application/json"},
+                timeout=10 # Prevents hanging indefinitely
+            )
+            response.raise_for_status() # Raises HTTPError for bad responses (4xx or 5xx)
+            logger.info("Successfully sent notification to Discord.")
+            return True
+            
+        except requests.exceptions.Timeout:
+            logger.error("Request to Discord webhook timed out.")
+            return False
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"HTTP error occurred: {e.response.status_code} - {e.response.text}")
+            return False
+        except requests.exceptions.RequestException as e:
+            logger.error(f"An unexpected error occurred while sending to Discord: {e}")
+            return False
+
+    def send_message(self, content: str) -> bool:
+        """
+        Sends a simple plain-text message.
+        """
+        if not content.strip():
+            logger.warning("Attempted to send an empty message.")
+            return False
+        return self._send_payload({"content": content})
+
+    def send_embed(self, 
+                   title: str, 
+                   description: str, 
+                   color: int = 0x3498db, 
+                   fields: Optional[List[Dict[str, Any]]] = None, 
+                   footer_text: Optional[str] = None) -> bool:
+        """
+        Sends a rich embed message (useful for alerts, formatted data, etc.).
+        
+        :param title: The title of the embed.
+        :param description: The main body text of the embed.
+        :param color: Hex color code (integer). Default is a nice blue.
+        :param fields: List of dictionaries containing 'name', 'value', and optional 'inline' boolean.
+        :param footer_text: Optional small text at the bottom of the embed.
+        """
+        embed: Dict[str, Any] = {
+            "title": title,
+            "description": description,
+            "color": color
+        }
+
+        if fields:
+            embed["fields"] = fields
+
+        if footer_text:
+            embed["footer"] = {"text": footer_text}
+
+        return self._send_payload({"embeds": [embed]})
+
+if __name__ == "__main__":
+    # --- Example Usage / Testing ---
+    # Replace the string below with your actual webhook URL to test
+    WEBHOOK_URL = "https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN"
     
-    growth_views = data.get('views_growth', data.get('growth', {}).get('views', 0))
-    growth_subs = data.get('subs_growth', data.get('growth', {}).get('subs', 0))
-    
-    embed = {
-        "title": f"📊 Daily Pulse: {data.get('channel_name', data.get('channel', 'Channel'))}",
-        "color": color,
-        "fields": [
-            {
-                "name": "📈 Growth (Last 24h)", 
-                "value": f"└ Views: **+{growth_views}**\n└ Subs: **+{growth_subs}**", 
-                "inline": True
-            },
-            {
-                "name": "🤖 AI Strategy", 
-                "value": f"*{data.get('ai_take', data.get('assessment', 'N/A'))}*", 
-                "inline": False
-            }
+    # Initialize the notifier
+    notifier = DiscordNotifier(
+        webhook_url=WEBHOOK_URL,
+        default_username="System Monitor",
+        default_avatar_url="https://cdn-icons-png.flaticon.com/512/2889/2889312.png"
+    )
+
+    # 1. Sending a standard text message
+    notifier.send_message("🟢 System startup sequence initiated successfully.")
+
+    # 2. Sending a detailed alert embed
+    notifier.send_embed(
+        title="⚠️ System Alert: High CPU Usage",
+        description="The server CPU usage has exceeded the normal threshold for the last 5 minutes.",
+        color=0xe74c3c, # Red color for error/alert
+        fields=[
+            {"name": "Server Node", "value": "us-east-1-prod-04", "inline": True},
+            {"name": "Current CPU", "value": "94.2%", "inline": True},
+            {"name": "Action Taken", "value": "Auto-scaling rules triggered. Provisioning new instances...", "inline": False}
         ],
-        "footer": {"text": f"Engine IST: {get_ist_time()}"}
-    }
-    
-    if not is_healthy:
-        embed["fields"].append({
-            "name": "🚨 SECURITY ALERT: TOKEN EXPIRING",
-            "value": f"{health.get('msg', 'Warning')}\n\n{health.get('baby_steps', health.get('steps', ''))}",
-            "inline": False
-        })
-    
-    send_embed(embed)
-
-def notify_vault_secure(title, vid_id, playlist_id):
-    """Confirmation notification when a video is moved to the private vault."""
-    embed = {
-        "title": "🔒 Video Secured in Vault",
-        "color": 3447003,
-        "description": f"**Title:** {title}\n**URL:** https://youtu.be/{vid_id}\n**Vault Playlist:** {playlist_id}",
-        "footer": {"text": f"Logged at: {get_ist_time()}"}
-    }
-    send_embed(embed)
-
-def notify_summary(success, msg):
-    """General status update for pipeline completion or research cycles."""
-    title = "✅ Mission Success" if success else "⚠️ Mission Alert"
-    color = 3066993 if success else 15158332
-    embed = {
-        "title": title,
-        "color": color,
-        "description": msg,
-        "footer": {"text": f"Event Logged: {get_ist_time()}"}
-    }
-    send_embed(embed)
-
-def notify_error(module, step, error):
-    """High-priority crash notification for the AI Doctor protocol."""
-    err_msg = str(error)[:500]
-    embed = {
-        "title": f"🚨 System Error in {module}",
-        "color": 15158332,
-        "fields": [
-            {"name": "Execution Step", "value": step, "inline": True},
-            {
-                "name": "Traceback Summary", 
-                "value": f"```text\n{err_msg}\n```", 
-                "inline": False
-            }
-        ],
-        "footer": {"text": f"Crash Time: {get_ist_time()}"}
-    }
-    send_embed(embed)
-
-def notify_engagement(video_title, comment, reply):
-    """Logs an AI-generated fan interaction."""
-    embed = {
-        "title": "💬 Fan Engagement Success",
-        "color": 10181046,
-        "fields": [
-            {"name": "🎬 Video", "value": video_title[:100], "inline": False},
-            {"name": "👤 Fan Comment", "value": f"*{comment[:200]}*", "inline": False},
-            {"name": "🤖 AI Reply", "value": reply, "inline": False}
-        ],
-        "footer": {"text": f"Interaction IST: {get_ist_time()}"}
-    }
-    send_embed(embed)
-
-def notify_upload(title, sched_time):
-    """Notifies when a video is scheduled for public release."""
-    embed = {
-        "title": "🚀 Video Launch Scheduled",
-        "color": 15844367,
-        "description": f"**Video:** {title}\n**Scheduled for:** {sched_time}",
-        "footer": {"text": f"Scheduled at: {get_ist_time()}"}
-    }
-    send_embed(embed)
-
-def notify_warning(module, reason, current=None, limit=None):
-    """Sends a non-fatal system warning."""
-    val_str = f" ({current}/{limit})" if current is not None else ""
-    embed = {
-        "title": f"⚠️ System Warning: {module}",
-        "color": 16776960,
-        "description": f"{reason}{val_str}",
-        "footer": {"text": f"Warning IST: {get_ist_time()}"}
-    }
-    send_embed(embed)
-
-def notify_render(niche, topic, script, size_mb, duration_sec):
-    """Stats for a newly rendered video file."""
-    preview = f"*{script[:200]}...*"
-    stats = f"{size_mb:.1f}MB | {duration_sec}s"
-    embed = {
-        "title": "🎬 Masterpiece Rendered",
-        "color": 3447003,
-        "fields": [
-            {"name": "🎯 Niche", "value": niche.upper(), "inline": True},
-            {"name": "📊 Stats", "value": stats, "inline": True},
-            {
-                "name": "📜 Script Preview", 
-                "value": preview, 
-                "inline": False
-            }
-        ],
-        "footer": {"text": f"Rendered IST: {get_ist_time()}"}
-    }
-    send_embed(embed)
-    
+        footer_text="Monitoring Infrastructure v2.1"
+    )
