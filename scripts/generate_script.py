@@ -26,18 +26,18 @@ def generate_script(niche, topic):
     - Structure: Start with a heavy hook, build intense curiosity, and end with a quick call to action.
     - Emphasize: {emphasize_list}
     - Avoid: {avoid_list}
-    - Visuals (CRITICAL): Provide EXACTLY 4 highly detailed image prompts. You MUST enforce a 3D animation aesthetic. 
-      Every prompt MUST begin with: "3D animated style, Pixar style, Disney style, highly detailed 3D render..." followed by the scene description.
+    - Visuals (DYNAMIC AESTHETIC): First, decide the BEST visual aesthetic for this specific niche/topic (e.g., 'Pixar 3D animation' for stories, 'Hyper-realistic dark cinematic' for true crime, 'Vibrant Cyberpunk' for tech, etc.).
+      Provide EXACTLY 4 highly detailed image prompts. EVERY prompt MUST begin with the aesthetic you chose!
     
     FORMAT: Return ONLY valid JSON.
     {{
         "hook": "...",
         "body": "...",
         "image_prompts": [
-            "3D animated style, Pixar style, Disney style, highly detailed 3D render, ...",
-            "3D animated style, Pixar style, Disney style, highly detailed 3D render, ...",
-            "3D animated style, Pixar style, Disney style, highly detailed 3D render, ...",
-            "3D animated style, Pixar style, Disney style, highly detailed 3D render, ..."
+            "[Chosen Aesthetic], highly detailed, ...",
+            "[Chosen Aesthetic], highly detailed, ...",
+            "[Chosen Aesthetic], highly detailed, ...",
+            "[Chosen Aesthetic], highly detailed, ..."
         ]
     }}
     """
@@ -55,7 +55,7 @@ def generate_script(niche, topic):
                 
                 prompts = data.get('image_prompts', [])
                 while len(prompts) < 4:
-                    prompts.append(f"3D animated style, Pixar style, highly detailed 3D render of {topic}")
+                    prompts.append(f"cinematic highly detailed scene of {topic}")
                 prompts = prompts[:4]
                 
                 print("✅ [WRITER] Script and 4 Camera Shots successfully parsed.")
