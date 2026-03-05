@@ -2,22 +2,26 @@
     {
         "niche": "fact",
         "topic": "Historical Mystery",
-        "bg_query": "cinematic dark history"
+        "bg_query": "cinematic dark history",
+        "processed": true
     },
     {
         "niche": "fact",
         "topic": "Space Exploration",
-        "bg_query": "galaxy space travel"
+        "bg_query": "galaxy space travel",
+        "processed": true
     },
     {
         "niche": "fact",
         "topic": "Unexplained Phenomena",
-        "bg_query": "strange occurrences paranormal"
+        "bg_query": "strange occurrences paranormal",
+        "processed": true
     },
     {
         "niche": "fact",
         "topic": "Mind-Blowing Science",
-        "bg_query": "science experiments technology"
+        "bg_query": "science experiments technology",
+        "processed": true
     },
     {
         "niche": "fact",
