@@ -2,8 +2,6 @@ import os
 import requests
 import urllib.parse
 import time
-import random
-from google import genai
 
 def generate_huggingface_image(prompt, output_path):
     print("      [HuggingFace] Attempting FLUX AI generation...")
@@ -12,7 +10,7 @@ def generate_huggingface_image(prompt, output_path):
         print("      [HuggingFace] ⚠️ No HF_TOKEN found in environment secrets.")
         return False
         
-    # THE FIX: Updated to the new Hugging Face Router infrastructure
+    # 🚨 THE 410 FIX: New Router URL
     url = "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell"
     headers = {
         "Authorization": f"Bearer {hf_token}",
@@ -59,8 +57,10 @@ def fallback_pexels_image(prompt, output_path):
                 f.write(img_data)
             return True
         else:
+            print(f"      [Pexels] ⚠️ No images found for query: {search_query}")
             return False
     except Exception as e:
+        print(f"      [Pexels] ⚠️ Error: {e}")
         return False
 
 def fetch_scene_images(prompts_list, base_filename="temp_scene"):
