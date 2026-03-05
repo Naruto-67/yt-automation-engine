@@ -15,7 +15,6 @@ faster-whisper
 
 # Video & Visuals
 ffmpeg-python
-moviepy==1.0.3
 
 # System & Utilities
 pytz
