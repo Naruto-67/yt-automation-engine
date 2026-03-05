@@ -1,38 +1,37 @@
+# ================================================
+# FILE: scripts/generate_visuals.py
+# ================================================
 import os
 import requests
-import json
-import subprocess
-import random
 import urllib.parse
-from google import genai
+import time
 from scripts.quota_manager import quota_manager
 
-def animate_image_to_video(image_path, output_filename):
-    print(f"🎞️ [VISUALS] Animating AI image into cinematic background...")
+def generate_pollinations_image(prompt, output_path):
+    """
+    Primary Free Engine: Pollinations.ai. 
+    No auth, no quota, highly reliable for 1080x1920 images.
+    """
+    # Enhancing prompt for Shorts aesthetics
+    enhanced_prompt = f"{prompt}, ultra realistic, 8k, highly detailed, cinematic lighting, dramatic, vertical 9:16 aspect ratio"
+    safe_prompt = urllib.parse.quote(enhanced_prompt)
+    
+    url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1080&height=1920&nologo=true"
+    
     try:
-        cmd = [
-            "ffmpeg", "-y", "-loop", "1", "-i", image_path,
-            "-vf", "scale=-2:1920,crop=1080:1920,zoompan=z='min(zoom+0.0005,1.15)':d=1800:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1080x1920",
-            "-c:v", "libx264", "-t", "60", "-r", "30", "-preset", "ultrafast", output_filename
-        ]
-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-        return True
-    except: return False
-
-def generate_imagen_image(prompt, output_path):
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key: return False
-    try:
-        client = genai.Client(api_key=api_key)
-        response = client.models.generate_image(model='imagen-3', prompt=prompt, config={'aspect_ratio': '9:16'})
-        with open(output_path, 'wb') as f:
-            f.write(response.generated_images[0].image_bytes)
-        return True
-    except: return False
+        response = requests.get(url, timeout=30)
+        if response.status_code == 200:
+            with open(output_path, 'wb') as f:
+                f.write(response.content)
+            return True
+        return False
+    except:
+        return False
 
 def generate_hercai_image(prompt, output_path):
-    """Secondary Failsafe: Hercai free API (bypasses Pollinations IP block)"""
-    safe_prompt = urllib.parse.quote(prompt)
+    """Secondary Free Engine: Hercai v3."""
+    enhanced_prompt = f"{prompt}, cinematic vertical 9:16"
+    safe_prompt = urllib.parse.quote(enhanced_prompt)
     url = f"https://hercai.onrender.com/v3/text2image?prompt={safe_prompt}"
     try:
         res = requests.get(url, timeout=30).json()
@@ -41,44 +40,35 @@ def generate_hercai_image(prompt, output_path):
             with open(output_path, 'wb') as f:
                 f.write(img_data)
             return True
-    except: return False
+    except:
+        return False
     return False
 
-def download_pexels_fallback(query, output_filename):
-    """Ultimate Failsafe: Pexels Video (Now works perfectly with 2-step Render)"""
-    api_key = os.environ.get("PEXELS_API_KEY")
-    if not api_key: return False
-    print(f"📽️ [VISUALS] AI Blocked. Sourcing Pexels fallback video for: {query}")
-    try:
-        url = f"https://api.pexels.com/videos/search?query={query}&orientation=portrait&per_page=1"
-        headers = {"Authorization": api_key}
-        res = requests.get(url, headers=headers, timeout=15).json()
-        if not res.get('videos'):
-            url = f"https://api.pexels.com/videos/search?query=cinematic+abstract&orientation=portrait&per_page=1"
-            res = requests.get(url, headers=headers, timeout=15).json()
-            
-        video_url = res['videos'][0]['video_files'][0]['link']
-        vid_data = requests.get(video_url, stream=True)
-        with open(output_filename, 'wb') as f:
-            for chunk in vid_data.iter_content(chunksize=1024): f.write(chunk)
-        return True
-    except: return False
-
-def fetch_background(base_query, output_filename="temp_background.mp4"):
-    full_prompt = f"{base_query}, ultra realistic, 8k, cinematic lighting, vertical portrait"
-    temp_img = "temp_visual.jpg"
+def fetch_scene_images(prompts_list, base_filename="temp_scene"):
+    """
+    Takes a list of prompts and downloads an image for each.
+    Returns a list of successful image file paths.
+    """
+    print(f"🖼️ [VISUALS] Sourcing {len(prompts_list)} AI scene images...")
+    successful_images = []
     
-    print(f"🖼️ [VISUALS] Attempting AI Image Generation (Primary: Gemini)...")
-    if generate_imagen_image(full_prompt, temp_img):
-        if animate_image_to_video(temp_img, output_filename):
-            if os.path.exists(temp_img): os.remove(temp_img)
-            return True
-
-    print(f"🖼️ [VISUALS] Gemini failed. Attempting AI Secondary (Hercai)...")
-    if generate_hercai_image(full_prompt, temp_img):
-        if animate_image_to_video(temp_img, output_filename):
-            if os.path.exists(temp_img): os.remove(temp_img)
-            return True
-
-    # Pexels Video Failsafe
-    return download_pexels_fallback(base_query, output_filename)
+    for i, prompt in enumerate(prompts_list):
+        output_path = f"{base_filename}_{i}.jpg"
+        print(f"   -> Scene {i+1}: Attempting Pollinations API...")
+        
+        # 1. Try Pollinations
+        success = generate_pollinations_image(prompt, output_path)
+        
+        # 2. Fallback to Hercai if Pollinations fails
+        if not success:
+            print(f"   -> Scene {i+1}: Pollinations failed. Fallback to Hercai...")
+            success = generate_hercai_image(prompt, output_path)
+            
+        if success:
+            successful_images.append(output_path)
+        else:
+            print(f"   ❌ Scene {i+1} completely failed. Skipping this frame.")
+            
+        time.sleep(1) # Gentle pacing
+        
+    return successful_images
