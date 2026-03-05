@@ -30,7 +30,7 @@ jobs:
 
       - name: Run Master Orchestrator
         env:
-          PYTHONUNBUFFERED: "1"  # 🚨 Shows logs in real-time. No more "silent" freezes!
+          PYTHONUNBUFFERED: "1"
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
