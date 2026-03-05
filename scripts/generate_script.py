@@ -15,32 +15,29 @@ def load_improvement_data():
 
 def generate_script(niche, topic):
     improvements = load_improvement_data()
-    avoid_list = ", ".join(improvements.get("avoid", ["Boring intros", "Slow pacing"]))
-    emphasize_list = ", ".join(improvements.get("emphasize", ["High energy", "Curiosity"]))
+    avoid_list = ", ".join(improvements.get("avoid", ["Boring intros"]))
+    emphasize_list = ", ".join(improvements.get("emphasize", ["High energy"]))
     
     prompt = f"""
-    You are an Elite YouTube Shorts Director. Create a viral script for niche: '{niche}', Topic: '{topic}'.
+    You are an Elite YouTube Shorts Documentary Writer. Create a script for niche: '{niche}', Topic: '{topic}'.
     
     CRITICAL RULES:
-    1. STANDALONE SHORT: Do NOT say "Welcome back", "Part 1", or "In this series". This is a standalone micro-documentary.
-    2. LENGTH: The script MUST be exactly 130 to 150 words (45 seconds of speech).
-    3. STRUCTURE: Start immediately with a shocking hook. Build intense curiosity. 
-    4. SYSTEM BRAIN: Emphasize: {emphasize_list}. Strictly Avoid: {avoid_list}.
-    5. VISUALS: Pick the best visual aesthetic (e.g. 'Pixar 3D animation', 'Dark Cinematic', 'Cyberpunk'). Provide 4 image prompts starting with that aesthetic.
+    1. FACTUAL & DIRECT: This is a standalone micro-documentary. It must be 100% true, logical, and factual. No random creations.
+    2. NO META-COMMENTARY: NEVER break the fourth wall. NEVER say "In this video", "Our 3D animation shows", "Welcome back", or "Imagine a world". Start immediately with the core hook.
+    3. LENGTH: The script MUST be exactly 130 to 150 words (45 seconds of speech).
+    4. VISUALS: Pick the best aesthetic for this specific topic (e.g., 'Pixar 3D animation', 'Dark Cinematic', 'Vibrant Cyberpunk'). Provide 4 image prompts. Every prompt MUST start with that aesthetic.
     
     FORMAT: Return ONLY valid JSON.
     {{
         "hook": "...",
         "body": "...",
-        "image_prompts": [
-            "...", "...", "...", "..."
-        ]
+        "image_prompts": ["...", "...", "...", "..."]
     }}
     """
 
     try:
-        print(f"🤖 [WRITER] Tasking Groq Director for '{topic}'...")
-        raw_response = quota_manager.generate_text(prompt, task_type="creative")
+        print(f"🤖 [WRITER] Tasking AI Director for '{topic}'...")
+        raw_response, provider = quota_manager.generate_text(prompt, task_type="creative")
         
         if raw_response:
             clean_json = raw_response.replace("```json", "").replace("```", "").strip()
@@ -54,8 +51,9 @@ def generate_script(niche, topic):
                     prompts.append(f"cinematic highly detailed scene of {topic}")
                 prompts = prompts[:4]
                 
-                print("✅ [WRITER] Script and Camera Shots secured.")
-                return full_script, data['hook'], prompts
-        return None, None, []
+                print(f"✅ [WRITER] Script secured via {provider}.")
+                return full_script, data['hook'], prompts, provider
+        return None, None, [], "Failed"
     except Exception as e:
-        return None, None, []
+        quota_manager.diagnose_fatal_error("generate_script.py", e)
+        return None, None, [], "Failed"
