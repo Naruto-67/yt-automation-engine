@@ -7,13 +7,14 @@ import asyncio
 import edge_tts
 from pydub import AudioSegment
 from pydub.silence import detect_leading_silence
+from faster_whisper import WhisperModel
+from kokoro import KPipeline
 from scripts.groq_client import groq_client
-from scripts.quota_manager import quota_manager
 
 def load_voice_settings():
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     tracker_path = os.path.join(root_dir, "assets", "lessons_learned.json")
-    settings = {"voice": "am_adam", "speed": 1.1} # Matched to your successful run
+    settings = {"voice": "am_adam", "speed": 1.1} 
     if os.path.exists(tracker_path):
         try:
             with open(tracker_path, "r", encoding="utf-8") as f:
@@ -49,7 +50,7 @@ def generate_audio(text, output_base="temp_audio"):
     
     success = False
     
-    # 1. Primary: Groq Orpheus API (Fastest)
+    # 1. Primary: Groq Orpheus API
     print("🎙️ [VOICE] Attempting Primary: Groq Orpheus TTS...")
     if groq_client.generate_audio(text, temp_mp3):
         try:
@@ -62,7 +63,6 @@ def generate_audio(text, output_base="temp_audio"):
     if not success:
         print("🎙️ [VOICE] Booting Kokoro Local Fallback...")
         try:
-            from kokoro import KPipeline
             settings = load_voice_settings()
             pipeline = KPipeline(lang_code='a') 
             gen = pipeline(text, voice=settings['voice'], speed=settings['speed'], split_pattern=r'\n+')
@@ -93,9 +93,6 @@ def generate_audio(text, output_base="temp_audio"):
     # Transcription Phase
     try:
         print("📝 [VOICE] Transcribing with Faster-Whisper...")
-        from faster_whisper import WhisperModel
-        
-        # Uses tiny.en for ultra-fast, accurate captioning on 2-cores
         model = WhisperModel("tiny.en", device="cpu", compute_type="int8")
         segments, _ = model.transcribe(final_wav, word_timestamps=True)
         
