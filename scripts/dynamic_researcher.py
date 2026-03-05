@@ -3,63 +3,67 @@ import json
 import traceback
 import re
 
-# Corrected Import for Ghost Engine V4.0
 from scripts.quota_manager import quota_manager
-from scripts.discord_notifier import notify_summary
+from scripts.discord_notifier import notify_summary, notify_warning
 
 def run_dynamic_research():
     """
-    The Brain of the Engine.
-    Uses Gemini's live Google Search grounding to find 21 viral topics 
-    and saves them to the content matrix for the daily production to consume.
+    Elite Scout Module: Finds viral topics.
+    Now includes a Fallback Mode if Gemini Quota is exhausted.
     """
     print("🔎 [RESEARCHER] Scouring the live web for trending viral topics...")
-    # These niches align with your historical high-performance metrics
     niches = ["fact", "brainrot", "short story"]
     
     prompt = f"""
-    You are an elite YouTube Strategist. Identify highly trending, viral topics in the USA right now using Google Search.
-    Generate exactly 21 unique content ideas (7 per niche).
+    Identify 21 highly trending YouTube topics for USA audience.
     NICHES: {', '.join(niches)}
-    
-    Return ONLY a raw JSON array of objects.
-    FORMAT:
+    Return ONLY a raw JSON array of objects:
     [
-        {{"niche": "fact", "topic": "The 1904 Olympic Marathon", "bg_query": "vintage chaotic marathon runners marathon"}},
-        {{"niche": "brainrot", "topic": "Gen Alpha Slang explained", "bg_query": "trippy abstract neon colorful dynamic"}}
+        {{"niche": "fact", "topic": "Topic Name", "bg_query": "search term"}},
+        ...
     ]
     """
 
     try:
-        # task_type="research" forces the router to use Gemini with Google Search enabled
+        # Step 1: Try Gemini with Search Grounding (High Quality)
         raw_text = quota_manager.generate_text(prompt, task_type="research")
         
+        # Step 2: Fallback to Groq if Gemini fails/quota hit
         if not raw_text:
-            raise Exception("Master Router failed to return research data.")
+            print("⚠️ [RESEARCHER] Gemini Quota Hit. Engaging Fallback Brain (Groq)...")
+            raw_text = quota_manager.generate_text(prompt, task_type="creative")
+            if not raw_text:
+                raise Exception("Both Primary and Fallback AI brains are unresponsive.")
 
-        # Robust extraction: Strip Markdown code blocks if the AI includes them
+        # Robust JSON Extraction
         clean_json_str = raw_text.replace("```json", "").replace("```", "").strip()
         match = re.search(r'\[.*\]', clean_json_str, re.DOTALL)
         
         if match:
             new_matrix = json.loads(match.group(0))
             
-            # Ensure memory folder exists
             root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-            matrix_path = os.path.join(root_dir, "memory", "content_matrix.json")
-            os.makedirs(os.path.dirname(matrix_path), exist_ok=True)
+            matrix_dir = os.path.join(root_dir, "memory")
+            matrix_path = os.path.join(matrix_dir, "content_matrix.json")
             
+            os.makedirs(matrix_dir, exist_ok=True)
             with open(matrix_path, "w", encoding="utf-8") as f:
                 json.dump(new_matrix, f, indent=4)
                 
-            print(f"✅ [RESEARCHER] Research Complete! Matrix updated with {len(new_matrix)} fresh topics.")
-            notify_summary(True, f"Scout Protocol Complete: {len(new_matrix)} trending topics locked in memory.")
+            print(f"✅ [RESEARCHER] Matrix updated with {len(new_matrix)} topics.")
+            notify_summary(True, f"Scout Protocol Successful. Matrix updated via {'Gemini' if 'Search' in raw_text else 'Groq Fallback'}.")
         else:
-            raise ValueError("AI failed to provide a parsable JSON array.")
+            raise ValueError("AI returned non-JSON content.")
 
     except Exception as e:
-        print(f"❌ [RESEARCHER] Critical failure in Scouting phase: {e}")
-        quota_manager.diagnose_fatal_error("dynamic_researcher.py", e)
+        print(f"❌ [RESEARCHER] Failure: {e}")
+        notify_warning("Researcher", "Research cycle failed. Check Quota or Logs.")
+        # Ensure at least an empty list exists to satisfy Git
+        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        matrix_path = os.path.join(root_dir, "memory", "content_matrix.json")
+        if not os.path.exists(matrix_path):
+            os.makedirs(os.path.dirname(matrix_path), exist_ok=True)
+            with open(matrix_path, "w") as f: json.dump([], f)
 
 if __name__ == "__main__":
     run_dynamic_research()
