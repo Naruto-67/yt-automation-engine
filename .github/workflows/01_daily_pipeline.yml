@@ -25,12 +25,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg espeak-ng
 
-      - name: Cache Kokoro Models (Surgical)
+      - name: Cache Kokoro Models
         id: cache-models
         uses: actions/cache@v4
         with:
           path: ~/.cache/kokoro
-          # We lock this key so GitHub doesn't create multiple versions
           key: ${{ runner.os }}-kokoro-v1-stable
 
       - name: Install Python Requirements
@@ -53,14 +52,22 @@ jobs:
         run: |
           git config --global user.name "Ghost-Engine-Bot"
           git config --global user.email "bot@ghostengine.ai"
+          
+          # Add and check for actual changes
           git add memory/*.json assets/lessons_learned.json
-          git pull --rebase origin main
-          git commit -m "Update API State & Memory [skip ci]" || echo "No changes to commit"
-          git push origin main
+          
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+          else
+            # Master Sync Protocol: Commit Locally -> Pull Rebase -> Push
+            git commit -m "Update API State & Memory [skip ci]"
+            git pull --rebase origin main
+            git push origin main
+            echo "✅ Memory state synchronized."
+          fi
 
       - name: Cleanup Binary Artifacts
         if: always()
         run: |
           rm -rf *.mp4 *.wav *.mp3 *.srt *.ass temp_*
-          # Clear internal pip cache to free up runner space
           pip cache purge
