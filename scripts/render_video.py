@@ -1,3 +1,6 @@
+# ================================================
+# FILE: scripts/render_video.py
+# ================================================
 import os
 import subprocess
 import json
@@ -10,14 +13,14 @@ def get_style_config(style_name="default"):
     
     default_style = {
         "FontName": "Montserrat-Bold",
-        "FontSize": "24",
-        "PrimaryColour": "&H0000FFFF",
-        "OutlineColour": "&H00000000",
+        "FontSize": "22",
+        "PrimaryColour": "&H0000FFFF", # Vibrant Yellow
+        "OutlineColour": "&H00000000", # Black Outline
         "BackColour": "&H40000000",
         "Outline": "2",
         "BorderStyle": "1",
-        "Alignment": "5",
-        "MarginV": "50"
+        "Alignment": "5", # Center alignment
+        "MarginV": "60"   # Perfect height for Shorts
     }
 
     if os.path.exists(config_path):
@@ -28,7 +31,8 @@ def get_style_config(style_name="default"):
     return default_style
 
 def srt_to_ass(srt_path, ass_path, style):
-    print("🎨 [RENDERER] Generating High-Impact ASS style...")
+    """Converts standard SRT to high-retention Advanced SubStation Alpha (ASS) format."""
+    print("🎨 [RENDERER] Generating High-Impact Subtitle Styling...")
     header = (
         "[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n\n"
         "[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
@@ -53,63 +57,126 @@ def srt_to_ass(srt_path, ass_path, style):
                 times = re.findall(r'(\d+:\d+:\d+,\d+)', lines[1])
                 if len(times) == 2:
                     text = " ".join(lines[2:])
+                    # Remove any formatting tags that might break ASS
+                    text = re.sub(r'<[^>]+>', '', text)
                     events.append(f"Dialogue: 0,{convert_time(times[0])},{convert_time(times[1])},Default,,0,0,0,,{text}")
 
         with open(ass_path, 'w', encoding='utf-8') as f:
             f.write(header + "\n".join(events))
         return True
-    except: return False
+    except Exception as e:
+        print(f"❌ [RENDERER] Subtitle conversion failed: {e}")
+        return False
 
-def render_video(video_path, audio_path, output_path, style_name="default"):
-    print("⚙️ [RENDERER] Executing 2-Step Master Render...")
+def create_ken_burns_clip(image_path, duration, output_path, fps=60):
+    """Takes a static image and creates a buttery smooth zooming video clip."""
+    print(f"   -> Animating scene: {image_path} ({duration:.2f}s)")
+    frames = int(duration * fps)
+    
+    # Zoompan math: Zooms in slowly over the duration of the clip.
+    # z='1.0+it/2000' creates a gentle, continuous zoom.
+    cmd = [
+        "ffmpeg", "-y",
+        "-loop", "1", "-i", image_path,
+        "-vf", f"zoompan=z='1.0+it/2000':d={frames}:s=1080x1920:fps={fps}",
+        "-c:v", "libx264", "-t", str(duration),
+        "-pix_fmt", "yuv420p", "-preset", "ultrafast", "-crf", "23",
+        output_path
+    ]
+    
+    try:
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True)
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"❌ [RENDERER] Ken Burns effect failed on {image_path}: {e.stderr.decode()}")
+        return False
+
+def render_video(image_paths, audio_path, output_path, style_name="default"):
+    """
+    The Master Orchestrator for final video assembly.
+    Accepts a list of image paths instead of a single background video.
+    """
+    print(f"⚙️ [RENDERER] Executing Master Render Engine (1080p, 60FPS)...")
+    
     srt_path = audio_path.replace(".wav", ".srt").replace(".mp3", ".srt")
     ass_path = audio_path.replace(".wav", ".ass").replace(".mp3", ".ass")
-    temp_no_subs = "temp_no_subs.mp4"
+    temp_concat_file = "concat_list.txt"
+    temp_merged_video = "temp_merged_no_subs.mp4"
     
-    srt_to_ass(srt_path, ass_path, get_style_config(style_name))
+    # 1. Convert Subtitles
+    if not srt_to_ass(srt_path, ass_path, get_style_config(style_name)):
+        return False
 
-    # Calculate exact duration to clip the video
+    # 2. Calculate Timings
     try:
-        duration_seconds = len(AudioSegment.from_file(audio_path)) / 1000.0
-    except: duration_seconds = 60 
+        audio = AudioSegment.from_file(audio_path)
+        total_duration = len(audio) / 1000.0  # Convert to seconds
+    except Exception as e:
+        print(f"❌ [RENDERER] Failed to read audio duration: {e}")
+        return False
 
-    safe_ass = ass_path.replace('\\', '/').replace(':', r'\:')
+    num_images = len(image_paths)
+    if num_images == 0:
+        print("❌ [RENDERER] No images provided for rendering.")
+        return False
 
-    # STEP 1: Loop background and merge audio (Fixes the 2-frame freeze bug completely)
-    cmd_step_1 = [
-        "ffmpeg", "-y",
-        "-stream_loop", "-1", "-fflags", "+genpts", # Recalculates timestamps for perfect looping
-        "-i", video_path, 
+    clip_duration = total_duration / num_images
+    print(f"⏱️ [RENDERER] Total Audio: {total_duration:.2f}s | Clips: {num_images} | Duration per clip: {clip_duration:.2f}s")
+
+    # 3. Animate Individual Clips
+    print("🎬 [RENDERER] Phase 1: Forging Ken Burns Sequences...")
+    clip_files = []
+    for i, img in enumerate(image_paths):
+        clip_out = f"temp_anim_clip_{i}.mp4"
+        if create_ken_burns_clip(img, clip_duration, clip_out):
+            clip_files.append(clip_out)
+        else:
+            return False
+
+    # 4. Concatenate Clips
+    print("🧵 [RENDERER] Phase 2: Stitching Scenes...")
+    with open(temp_concat_file, "w") as f:
+        for clip in clip_files:
+            f.write(f"file '{clip}'\n")
+
+    cmd_concat = [
+        "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+        "-i", temp_concat_file,
         "-i", audio_path,
-        "-map", "0:v:0", "-map", "1:a:0",
-        "-t", str(duration_seconds),
-        "-vf", "scale=-2:1920,crop=1080:1920,fps=30",
-        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
-        "-c:a", "aac", "-b:a", "192k", "-pix_fmt", "yuv420p",
-        "-shortest", temp_no_subs
+        "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+        "-shortest", temp_merged_video
     ]
 
-    # STEP 2: Burn subtitles onto the perfectly flat, un-looped video
-    cmd_step_2 = [
+    try:
+        subprocess.run(cmd_concat, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"❌ [RENDERER] Stitching failed: {e.stderr.decode()}")
+        return False
+
+    # 5. Burn Subtitles
+    print("🔥 [RENDERER] Phase 3: Burning High-Retention Subtitles...")
+    safe_ass = ass_path.replace('\\', '/').replace(':', r'\:')
+    
+    cmd_burn = [
         "ffmpeg", "-y",
-        "-i", temp_no_subs,
+        "-i", temp_merged_video,
         "-vf", f"ass='{safe_ass}'",
         "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
-        "-c:a", "copy", # Copy audio untouched
+        "-c:a", "copy",
         output_path
     ]
 
     try:
-        print("🎬 [RENDERER] Phase 1: Merging Audio and Video...")
-        subprocess.run(cmd_step_1, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-        
-        print("🔥 [RENDERER] Phase 2: Burning Subtitles...")
-        subprocess.run(cmd_step_2, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-        
-        # Cleanup
-        if os.path.exists(temp_no_subs): os.remove(temp_no_subs)
-        if os.path.exists(ass_path): os.remove(ass_path)
-        return True
+        subprocess.run(cmd_burn, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True)
+        print("✅ [RENDERER] Final Masterpiece Secured.")
+        success = True
     except subprocess.CalledProcessError as e:
-        print(f"❌ [RENDERER] FFmpeg Error: {e}")
-        return False
+        print(f"❌ [RENDERER] Subtitle burn failed: {e.stderr.decode()}")
+        success = False
+
+    # 6. Cleanup Render Engine Memory
+    print("🧹 [RENDERER] Sweeping temporary render artifacts...")
+    for f in clip_files + [temp_concat_file, temp_merged_video, ass_path]:
+        if os.path.exists(f): os.remove(f)
+
+    return success
