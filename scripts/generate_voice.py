@@ -5,10 +5,12 @@ import soundfile as sf
 import subprocess
 from pydub import AudioSegment
 from pydub.silence import detect_leading_silence
-from kokoro import KPipeline
-from faster_whisper import WhisperModel
 from scripts.groq_client import groq_client
 from scripts.quota_manager import quota_manager
+
+# 🧠 MASTER DEVELOPER NOTE: 
+# NO global imports of 'kokoro', 'torch', or 'faster_whisper' here.
+# They are strictly quarantined inside the fallback functions below.
 
 def load_voice_settings():
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -50,7 +52,7 @@ def generate_audio(text, output_base="temp_audio"):
     
     success = False
     
-    # 1. Primary: Groq Orpheus API
+    # 1. Primary: Groq Orpheus API (Ultra-Fast, bypasses HuggingFace)
     print("🎙️ [VOICE] Attempting Primary: Groq Orpheus TTS...")
     if groq_client.generate_audio(text, temp_mp3):
         try:
@@ -59,11 +61,14 @@ def generate_audio(text, output_base="temp_audio"):
             success = True
         except: success = False
 
-    # 2. Failsafe: Kokoro Local Engine
+    # 2. Failsafe: Kokoro Local Engine (LAZY LOADED)
     if not success:
-        print("🎙️ [VOICE] Orpheus failed. Attempting Backup: Kokoro V1 Local...")
-        settings = load_voice_settings()
+        print("🎙️ [VOICE] Orpheus failed. Booting Kokoro Local Fallback...")
         try:
+            # 🔥 Isolated Import: Only triggers if Groq fails
+            from kokoro import KPipeline
+            
+            settings = load_voice_settings()
             pipeline = KPipeline(lang_code='a') 
             gen = pipeline(text, voice=settings['voice'], speed=settings['speed'], split_pattern=r'\n+')
             audio_chunks = [audio for _, _, audio in gen if audio is not None]
@@ -79,11 +84,16 @@ def generate_audio(text, output_base="temp_audio"):
     
     trim_audio_precision(final_wav)
 
-    # 3. Generate Word-Level Captions
+    # 3. Generate Word-Level Captions (LAZY LOADED)
     try:
         print("📝 [VOICE] Transcribing with Faster-Whisper...")
+        # 🔥 Isolated Import: Prevents HF Hub freeze on boot
+        from faster_whisper import WhisperModel
+        
+        # CPU optimized compute type to prevent errors
         model = WhisperModel("base", device="cpu", compute_type="int8")
         segments, _ = model.transcribe(final_wav, word_timestamps=True)
+        
         srt_lines = []
         idx = 1
         for segment in segments:
@@ -91,6 +101,7 @@ def generate_audio(text, output_base="temp_audio"):
                 start, end = format_time(word.start), format_time(word.end)
                 srt_lines.append(f"{idx}\n{start} --> {end}\n{word.word.strip().upper()}\n")
                 idx += 1
+                
         with open(srt_path, "w", encoding="utf-8") as f: 
             f.write("\n".join(srt_lines))
         return True
