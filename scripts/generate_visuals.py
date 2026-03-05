@@ -2,35 +2,6 @@ import os
 import requests
 import urllib.parse
 import time
-from google import genai
-
-def generate_gemini_image(prompt, output_path):
-    print("      [Gemini] Attempting Imagen 3 generation...")
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        print("      [Gemini] ⚠️ No GEMINI_API_KEY found.")
-        return False
-        
-    try:
-        client = genai.Client(api_key=api_key)
-        enhanced_prompt = f"{prompt}, cinematic lighting, 8k, highly detailed"
-        
-        result = client.models.generate_images(
-            model='imagen-3.0-generate-002',
-            prompt=enhanced_prompt,
-            config=dict(
-                number_of_images=1,
-                aspect_ratio="9:16",
-                output_mime_type="image/jpeg"
-            )
-        )
-        
-        with open(output_path, 'wb') as f:
-            f.write(result.generated_images[0].image.image_bytes)
-        return True
-    except Exception as e:
-        print(f"      [Gemini] ⚠️ Error: {e}")
-        return False
 
 def generate_huggingface_image(prompt, output_path):
     print("      [HuggingFace] Attempting FLUX AI generation...")
@@ -39,7 +10,8 @@ def generate_huggingface_image(prompt, output_path):
         print("      [HuggingFace] ⚠️ No HF_TOKEN found in environment secrets.")
         return False
         
-    url = "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell"
+    # BUG FIX: The new, supported Hugging Face Router URL
+    url = "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell"
     headers = {"Authorization": f"Bearer {hf_token}"}
     
     enhanced_prompt = f"{prompt}, vertical 9:16 format, highly detailed, cinematic lighting, 8k resolution"
@@ -89,21 +61,17 @@ def fallback_pexels_image(prompt, output_path):
         return False
 
 def fetch_scene_images(prompts_list, base_filename="temp_scene"):
-    print(f"🖼️ [VISUALS] Sourcing {len(prompts_list)} scene images...")
+    print(f"🖼️ [VISUALS] Sourcing {len(prompts_list)} scene images (FORCING TIER 2: HUGGINGFACE)...")
     successful_images = []
     
     for i, prompt in enumerate(prompts_list):
         output_path = f"{base_filename}_{i}.jpg"
         print(f"\n   -> Scene {i+1} Prompt: {prompt[:40]}...")
         
-        # 1. Primary AI (Gemini Imagen 3)
-        success = generate_gemini_image(prompt, output_path)
-        
-        # 2. Secondary AI (Hugging Face FLUX)
-        if not success:
-            success = generate_huggingface_image(prompt, output_path)
+        # We are intentionally skipping Gemini here to test HuggingFace
+        success = generate_huggingface_image(prompt, output_path)
             
-        # 3. Ultimate Free Failsafe (Pexels Stock Image)
+        # Ultimate Free Failsafe (Pexels Stock Image)
         if not success:
             success = fallback_pexels_image(prompt, output_path)
             
