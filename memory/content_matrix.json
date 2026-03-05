@@ -1,0 +1,107 @@
+[
+    {
+        "niche": "fact",
+        "topic": "Historical Mystery",
+        "bg_query": "cinematic dark history"
+    },
+    {
+        "niche": "fact",
+        "topic": "Space Exploration",
+        "bg_query": "galaxy universe stars"
+    },
+    {
+        "niche": "fact",
+        "topic": "Unexplained Phenomena",
+        "bg_query": "paranormal activity creepy"
+    },
+    {
+        "niche": "brainrot",
+        "topic": "Weird Internet Trends",
+        "bg_query": "meme culture viral challenges"
+    },
+    {
+        "niche": "brainrot",
+        "topic": "Bizarre Food Challenges",
+        "bg_query": "extreme eating spicy"
+    },
+    {
+        "niche": "brainrot",
+        "topic": "Strange Addictions",
+        "bg_query": "odd habits weird obsessions"
+    },
+    {
+        "niche": "short story",
+        "topic": "Creepy Campfire Tales",
+        "bg_query": "scary stories dark forest"
+    },
+    {
+        "niche": "short story",
+        "topic": "Futuristic Dystopia",
+        "bg_query": "cyberpunk neon cityscape"
+    },
+    {
+        "niche": "short story",
+        "topic": "Haunted House Stories",
+        "bg_query": "spooky mansion creepy atmosphere"
+    },
+    {
+        "niche": "fact",
+        "topic": "Ancient Civilizations",
+        "bg_query": "lost cities historical ruins"
+    },
+    {
+        "niche": "fact",
+        "topic": "Cryptid Sightings",
+        "bg_query": "mythical creatures legendary beasts"
+    },
+    {
+        "niche": "brainrot",
+        "topic": "Ridiculous World Records",
+        "bg_query": "weird achievements funny Guinness"
+    },
+    {
+        "niche": "brainrot",
+        "topic": "Oddly Satisfying Videos",
+        "bg_query": "asmr relaxing sounds"
+    },
+    {
+        "niche": "short story",
+        "topic": "Time Travel Adventures",
+        "bg_query": "science fiction clock time"
+    },
+    {
+        "niche": "short story",
+        "topic": "Ghost Ship Stories",
+        "bg_query": "abandoned vessel creepy ocean"
+    },
+    {
+        "niche": "fact",
+        "topic": "Mysterious Disappearances",
+        "bg_query": "unexplained vanishings cold cases"
+    },
+    {
+        "niche": "fact",
+        "topic": "Bizarre Medical Conditions",
+        "bg_query": "rare diseases weird illnesses"
+    },
+    {
+        "niche": "brainrot",
+        "topic": "Funny Animal Videos",
+        "bg_query": "cute pets hilarious moments"
+    },
+    {
+        "niche": "brainrot",
+        "topic": "Weird Life Hacks",
+        "bg_query": "odd tips strange tricks"
+    },
+    {
+        "niche": "short story",
+        "topic": "Post-Apocalyptic Survival",
+        "bg_query": "zombie outbreak survival skills"
+    },
+    {
+        "niche": "short story",
+        "topic": "Superhero Origin Stories",
+        "bg_query": "comic book heroes powers abilities"
+    }
+]
