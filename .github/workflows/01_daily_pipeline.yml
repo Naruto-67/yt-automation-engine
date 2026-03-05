@@ -43,16 +43,16 @@ jobs:
           pip install -r requirements.txt
           pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
           
-          # Pre-fetch the models so faster-whisper doesn't freeze the Python execution
+          # Pre-fetch the models using Python routing to bypass the PATH error
           pip install huggingface_hub
           echo "Downloading Whisper Base Model..."
-          huggingface-cli download Systran/faster-whisper-base
+          python -m huggingface_hub.cli download Systran/faster-whisper-base
           echo "Downloading Kokoro V1 Model..."
-          huggingface-cli download hexgrad/Kokoro-82M || true
+          python -m huggingface_hub.cli download hexgrad/Kokoro-82M || true
 
       - name: Run Production Heart
         env:
-          PYTHONUNBUFFERED: "1"  # 🚨 MAGIC KEY: Forces logs to stream in real-time
+          PYTHONUNBUFFERED: "1"
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
