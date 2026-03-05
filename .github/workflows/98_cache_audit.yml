@@ -1,1 +1,39 @@
+name: 98_Cache_Storage_Audit
 
+on:
+  workflow_dispatch: # Allows you to run this manually whenever you want
+
+jobs:
+  audit_cache:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read # Required to list caches
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Generate Cache Usage Report
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "=========================================================="
+          echo "🔍 GHOST ENGINE CACHE DIAGNOSTIC REPORT"
+          echo "=========================================================="
+          
+          # List all caches across all branches with their sizes
+          echo "Listing all active caches..."
+          gh cache list --limit 100 --order desc --sort size_in_bytes
+          
+          echo ""
+          echo "----------------------------------------------------------"
+          echo "📊 SUMMARY BY BRANCH"
+          echo "----------------------------------------------------------"
+          
+          # This command calculates the total size of all caches found
+          gh cache list --limit 100 | awk '{ sum += $2 } END { if (NR > 0) print "TOTAL CACHE SIZE: " sum " MB"; else print "TOTAL CACHE SIZE: 0 MB" }'
+          
+          echo ""
+          echo "💡 TIP: If the list above is empty but your UI shows 8GB,"
+          echo "it means the caches are locked to a different branch context."
+          echo "You should use Method 1 (UI) to delete them manually."
+          echo "=========================================================="
