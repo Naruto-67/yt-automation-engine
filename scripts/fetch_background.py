@@ -2,32 +2,30 @@ import os
 import requests
 import random
 import json
+import subprocess
+import traceback
+import urllib.parse
 
 def load_visual_preferences():
-    """
-    Reads historical data to append proven visual modifiers to the search query.
-    If the USA audience prefers 'cinematic' or 'dark' styles, the machine adapts.
-    """
+    """Reads historical data to append proven visual modifiers to the search query."""
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     tracker_path = os.path.join(root_dir, "assets", "lessons_learned.json")
     
-    modifiers = ""
+    modifiers = "3D animation style, Unreal Engine 5 render, cinematic lighting, 8k resolution, highly detailed"
     if os.path.exists(tracker_path):
         try:
             with open(tracker_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 if "preferred_visuals" in data:
-                    modifiers = " " + " ".join(data["preferred_visuals"])
+                    modifiers = ", ".join(data["preferred_visuals"])
         except Exception as e:
-            print(f"Warning: Could not read lessons_learned.json: {e}")
+            print(f"⚠️ Warning: Could not read lessons_learned.json: {e}")
             
     return modifiers
 
 def get_fallback_video(output_filename):
-    """
-    The ultimate failsafe. If APIs go down, pull from the local vault.
-    """
-    print("⚠️  Initiating Fallback Protocol...")
+    """The ultimate failsafe. If APIs go down, pull from the local vault."""
+    print("⚠️  Initiating Local Fallback Protocol...")
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     fallback_dir = os.path.join(root_dir, "assets", "fallbacks")
     
@@ -36,7 +34,6 @@ def get_fallback_video(output_filename):
         return False
         
     available_videos = [f for f in os.listdir(fallback_dir) if f.endswith(".mp4")]
-    
     if not available_videos:
         print("❌ Critical Error: No .mp4 files found in the fallback directory.")
         return False
@@ -53,68 +50,124 @@ def get_fallback_video(output_filename):
         print(f"❌ Failed to copy fallback video: {e}")
         return False
 
-def fetch_background(base_query, output_filename="master_background.mp4"):
-    """
-    Searches Pexels for a high-retention vertical video matching the dynamic query.
-    If it fails, it instantly triggers the fallback protocol.
-    """
+def fetch_pexels_video(query, output_filename):
+    """The secondary failsafe. Uses Pexels if AI Image Generation fails."""
     api_key = os.environ.get("PEXELS_API_KEY")
     if not api_key:
-        print("Warning: PEXELS_API_KEY is missing. Defaulting to local fallbacks.")
+        print("⚠️ PEXELS_API_KEY missing. Skipping to local fallback.")
         return get_fallback_video(output_filename)
 
-    visual_modifiers = load_visual_preferences()
-    optimized_query = f"{base_query}{visual_modifiers}".strip()
-    
-    print(f"🔍 Searching Pexels for optimized query: '{optimized_query}'...")
-    
+    print(f"🔍 [PEXELS] Searching stock video for: '{query}'...")
     headers = {"Authorization": api_key}
-    url = f"https://api.pexels.com/videos/search?query={optimized_query}&orientation=portrait&size=large&per_page=15"
+    url = f"https://api.pexels.com/videos/search?query={query}&orientation=portrait&size=large&per_page=15"
 
     try:
         response = requests.get(url, headers=headers, timeout=15)
-        response.raise_for_status()
-        data = response.json()
+        if response.status_code != 200:
+            return get_fallback_video(output_filename)
 
+        data = response.json()
         if not data.get("videos"):
-            print(f"⚠️ No Pexels results for '{optimized_query}'.")
             return get_fallback_video(output_filename)
 
         video = random.choice(data["videos"])
         video_files = video.get("video_files", [])
         
-        if not video_files:
-            print("⚠️ Selected Pexels video has no downloadable files.")
-            return get_fallback_video(output_filename)
-            
-        # THE 2K SWEET SPOT FILTER
-        # Keep all files strictly below 4K width (2160 pixels)
-        below_4k_files = [f for f in video_files if f.get("width", 0) < 2160]
+        valid_files = [f for f in video_files if f.get("width", 0) < 2160]
+        if not valid_files: valid_files = video_files
+        if not valid_files: return get_fallback_video(output_filename)
         
-        # Fallback to any file if no non-4k files exist
-        valid_files = below_4k_files if below_4k_files else video_files
-        
-        # Sort the remaining files by highest resolution first. 
-        # If a 1440p file exists, it wins. If not, 1080p wins.
         valid_files.sort(key=lambda x: x.get("width", 0) * x.get("height", 0), reverse=True)
-        target_file = valid_files[0]
-        download_link = target_file.get("link")
+        download_link = valid_files[0].get("link")
         
-        print(f"⬇️ Downloading optimized asset ({target_file.get('width')}x{target_file.get('height')})...")
         vid_response = requests.get(download_link, stream=True, timeout=30)
-        vid_response.raise_for_status()
-        
         with open(output_filename, 'wb') as f:
             for chunk in vid_response.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
+                if chunk: f.write(chunk)
                 
-        print(f"✅ Background video successfully saved to {output_filename}")
+        print(f"✅ [PEXELS] Stock video securely saved to {output_filename}")
         return True
-
     except Exception as e:
-        print(f"⚠️ API or Network failure during fetch: {e}")
+        print(f"⚠️ [PEXELS] Fetch failed: {e}")
         return get_fallback_video(output_filename)
 
+def animate_image_to_video(image_path, output_filename):
+    """
+    Takes a static AI image and uses FFmpeg to apply a 60-second slow, 
+    cinematic 'Ken Burns' zoom. Returns a looping video.
+    """
+    print("🎬 [FFMPEG] Animating static AI image into cinematic video...")
+    try:
+        # 1800 frames = 60 seconds at 30fps. The zoompan filter slowly zooms in by 15%.
+        cmd = [
+            "ffmpeg", "-y",
+            "-loop", "1",
+            "-i", image_path,
+            "-vf", "scale=-2:10*1920,zoompan=z='min(zoom+0.0003,1.15)':d=1800:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1080x1920",
+            "-c:v", "libx264",
+            "-t", "60",
+            "-pix_fmt", "yuv420p",
+            "-preset", "ultrafast",
+            output_filename
+        ]
+        
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        print(f"✅ [FFMPEG] Image animated and saved to {output_filename}")
+        return True
+    except Exception as e:
+        print(f"❌ [FFMPEG] Animation failed: {e}")
+        return False
+
+def generate_pollinations_image(prompt, output_image_path):
+    """Generates a free, unlimited, high-quality AI image."""
+    print(f"🎨 [POLLINATIONS] Generating AI 3D Image: '{prompt[:50]}...'")
+    
+    # URL encode the prompt and specify vertical dimensions (1080x1920)
+    safe_prompt = urllib.parse.quote(prompt)
+    seed = random.randint(1, 100000)
+    url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1080&height=1920&seed={seed}&nologo=true"
+    
+    try:
+        response = requests.get(url, timeout=45)
+        if response.status_code == 200:
+            with open(output_image_path, 'wb') as f:
+                f.write(response.content)
+            print("✅ [POLLINATIONS] AI Image generated successfully.")
+            return True
+        else:
+            print(f"⚠️ [POLLINATIONS] Server returned {response.status_code}")
+            return False
+    except Exception as e:
+        print(f"❌ [POLLINATIONS] Generation failed: {e}")
+        return False
+
+def fetch_background(base_query, output_filename="master_background.mp4"):
+    """
+    The Master Visual Router.
+    Attempts AI Image Gen -> Ken Burns Video -> Pexels Stock -> Local Vault.
+    """
+    visual_modifiers = load_visual_preferences()
+    full_prompt = f"{base_query}, {visual_modifiers}"
+    temp_image_path = "temp_ai_background.jpg"
+    
+    # Step 1: Generate AI Image
+    if generate_pollinations_image(full_prompt, temp_image_path):
+        
+        # Step 2: Animate it into a video
+        if animate_image_to_video(temp_image_path, output_filename):
+            # Clean up the temp image
+            if os.path.exists(temp_image_path):
+                os.remove(temp_image_path)
+            return True
+            
+        # If animation fails, clean up and fall through to Pexels
+        if os.path.exists(temp_image_path):
+            os.remove(temp_image_path)
+            
+    # Step 3: Fallback to Pexels Stock Video
+    print("🔄 [VISUAL ROUTER] AI Generation failed. Falling back to Stock Video...")
+    return fetch_pexels_video(base_query, output_filename)
+
 if __name__ == "__main__":
-    fetch_background("creepy abandoned hospital", "test_background.mp4")
+    # Local Testing
+    fetch_background("abandoned hospital with glowing ghosts", "test_background.mp4")
