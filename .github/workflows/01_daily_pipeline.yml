@@ -1,0 +1,60 @@
+name: 01_Ghost_Daily_Production
+
+on:
+  schedule:
+    - cron: '0 8 * * *' # 08:00 UTC = 1:30 PM IST
+  workflow_dispatch:
+
+jobs:
+  build_and_vault:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install FFmpeg & System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg espeak-ng
+
+      - name: Cache Kokoro Models
+        id: cache-models
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/kokoro
+          key: ${{ runner.os }}-kokoro-v1
+
+      - name: Install Python Requirements
+        run: pip install -r requirements.txt
+
+      - name: Run Production Heart (main.py)
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+        run: python main.py
+
+      - name: Sync and Commit Memory State
+        run: |
+          git config --global user.name "Ghost-Engine-Bot"
+          git config --global user.email "bot@ghostengine.ai"
+          git add memory/*.json assets/lessons_learned.json
+          git pull --rebase origin main
+          git commit -m "Update API State & Memory [skip ci]" || echo "No changes to commit"
+          git push origin main
+
+      - name: Cleanup Binary Artifacts
+        if: always()
+        run: rm -rf *.mp4 *.wav *.mp3 *.srt *.ass temp_*
