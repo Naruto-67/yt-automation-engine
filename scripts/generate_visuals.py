@@ -2,53 +2,63 @@ import os
 import requests
 import urllib.parse
 import time
-import random
+from google import genai
 
-def generate_pollinations_image(prompt, output_path):
-    print("      [Pollinations] Attempting AI generation...")
-    enhanced_prompt = f"{prompt}, ultra realistic, 8k, cinematic lighting, vertical 9:16"
-    safe_prompt = urllib.parse.quote(enhanced_prompt)
-    seed = random.randint(1, 100000)
-    url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1080&height=1920&nologo=true&seed={seed}"
+def generate_gemini_image(prompt, output_path):
+    print("      [Gemini] Attempting Imagen 3 generation...")
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        print("      [Gemini] ⚠️ No GEMINI_API_KEY found.")
+        return False
+        
+    try:
+        client = genai.Client(api_key=api_key)
+        enhanced_prompt = f"{prompt}, cinematic lighting, 8k, highly detailed"
+        
+        result = client.models.generate_images(
+            model='imagen-3.0-generate-002',
+            prompt=enhanced_prompt,
+            config=dict(
+                number_of_images=1,
+                aspect_ratio="9:16",
+                output_mime_type="image/jpeg"
+            )
+        )
+        
+        with open(output_path, 'wb') as f:
+            f.write(result.generated_images[0].image.image_bytes)
+        return True
+    except Exception as e:
+        print(f"      [Gemini] ⚠️ Error: {e}")
+        return False
+
+def generate_huggingface_image(prompt, output_path):
+    print("      [HuggingFace] Attempting FLUX AI generation...")
+    hf_token = os.environ.get("HF_TOKEN")
+    if not hf_token:
+        print("      [HuggingFace] ⚠️ No HF_TOKEN found in environment secrets.")
+        return False
+        
+    url = "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell"
+    headers = {"Authorization": f"Bearer {hf_token}"}
     
-    # Disguise the GitHub Action as a standard Windows Chrome Browser
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-        "Connection": "keep-alive"
-    }
+    enhanced_prompt = f"{prompt}, vertical 9:16 format, highly detailed, cinematic lighting, 8k resolution"
+    payload = {"inputs": enhanced_prompt}
     
-    for attempt in range(3): # 3 Retries
+    for attempt in range(2):
         try:
-            response = requests.get(url, headers=headers, timeout=30)
+            response = requests.post(url, headers=headers, json=payload, timeout=45)
             if response.status_code == 200:
                 with open(output_path, 'wb') as f:
                     f.write(response.content)
                 return True
+            elif response.status_code == 503:
+                print(f"      [HuggingFace] ⏳ Model is booting up. Waiting 15 seconds...")
+                time.sleep(15)
             else:
-                print(f"      [Pollinations] ⚠️ HTTP {response.status_code} on attempt {attempt+1}")
+                print(f"      [HuggingFace] ⚠️ HTTP {response.status_code} - {response.text[:100]}")
         except Exception as e:
-            print(f"      [Pollinations] ⚠️ Error on attempt {attempt+1}: {e}")
-        time.sleep(2)
-    return False
-
-def generate_hercai_image(prompt, output_path):
-    print("      [Hercai] Attempting AI generation...")
-    enhanced_prompt = f"{prompt}, cinematic vertical 9:16"
-    safe_prompt = urllib.parse.quote(enhanced_prompt)
-    url = f"https://hercai.onrender.com/v3/text2image?prompt={safe_prompt}"
-    
-    for attempt in range(2):
-        try:
-            res = requests.get(url, timeout=30).json()
-            if "url" in res:
-                img_data = requests.get(res["url"], timeout=30).content
-                with open(output_path, 'wb') as f:
-                    f.write(img_data)
-                return True
-        except Exception as e:
-            print(f"      [Hercai] ⚠️ Error on attempt {attempt+1}: {e}")
+            print(f"      [HuggingFace] ⚠️ Error: {e}")
         time.sleep(2)
     return False
 
@@ -60,16 +70,13 @@ def fallback_pexels_image(prompt, output_path):
         return False
         
     try:
-        # Simplify prompt for Pexels search (grab the main subject)
-        search_query = prompt.split(',')[0].split(' ')[-2:] 
-        search_query = " ".join(search_query)
-        
+        search_query = " ".join(prompt.split(',')[0].split(' ')[-2:]) 
         url = f"https://api.pexels.com/v1/search?query={search_query}&orientation=portrait&per_page=1"
         headers = {"Authorization": api_key}
         res = requests.get(url, headers=headers, timeout=15).json()
         
         if res.get('photos'):
-            img_url = res['photos'][0]['src']['large2x'] # Get high-res vertical
+            img_url = res['photos'][0]['src']['large2x']
             img_data = requests.get(img_url, timeout=15).content
             with open(output_path, 'wb') as f:
                 f.write(img_data)
@@ -82,19 +89,19 @@ def fallback_pexels_image(prompt, output_path):
         return False
 
 def fetch_scene_images(prompts_list, base_filename="temp_scene"):
-    print(f"🖼️ [VISUALS] Sourcing {len(prompts_list)} scene images (TESTING FALLBACKS ONLY)...")
+    print(f"🖼️ [VISUALS] Sourcing {len(prompts_list)} scene images...")
     successful_images = []
     
     for i, prompt in enumerate(prompts_list):
         output_path = f"{base_filename}_{i}.jpg"
         print(f"\n   -> Scene {i+1} Prompt: {prompt[:40]}...")
         
-        # 1. Primary Free AI (Pollinations)
-        success = generate_pollinations_image(prompt, output_path)
+        # 1. Primary AI (Gemini Imagen 3)
+        success = generate_gemini_image(prompt, output_path)
         
-        # 2. Secondary Free AI (Hercai)
+        # 2. Secondary AI (Hugging Face FLUX)
         if not success:
-            success = generate_hercai_image(prompt, output_path)
+            success = generate_huggingface_image(prompt, output_path)
             
         # 3. Ultimate Free Failsafe (Pexels Stock Image)
         if not success:
@@ -104,8 +111,8 @@ def fetch_scene_images(prompts_list, base_filename="temp_scene"):
             successful_images.append(output_path)
             print(f"   ✅ Scene {i+1} saved successfully.")
         else:
-            print(f"   ❌ Scene {i+1} completely failed across all free engines.")
+            print(f"   ❌ Scene {i+1} completely failed across all engines.")
             
-        time.sleep(2) # Pacing to avoid rate limits
+        time.sleep(2) 
         
     return successful_images
