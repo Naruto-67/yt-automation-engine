@@ -1,11 +1,14 @@
 import os
 import time
 import requests
+import json
+import re
 
 class GroqAPIClient:
     """
-    Dedicated 2026 Groq API Handler.
-    Enforces TPM pacing, 45-second timeouts, and parses 'retry-after' headers.
+    Ghost Engine V4.0 - The Nervous System.
+    Implements Adaptive Throttling, Model Waterfall Failovers, and 
+    Safety Guardrails with a 2026-standard architecture.
     """
     def __init__(self):
         self.api_key = os.environ.get("GROQ_API_KEY")
@@ -15,100 +18,142 @@ class GroqAPIClient:
             "Content-Type": "application/json"
         }
         
-        # 2026 Model Roster
-        self.MODELS = {
-            "creative": "llama-3.3-70b-versatile",
-            "analyst": "openai/gpt-oss-120b",
-            "safety": "openai/gpt-oss-safeguard-20b",
-            "vision": "meta-llama/llama-4-scout-17b-16e-instruct",
-            "voice": "canopylabs/orpheus-v1-english"
+        # 🛡️ THE WATERFALL FAILOVER QUEUES
+        # If the primary model 404s (deprecated), the engine slides down the list.
+        self.MODEL_QUEUES = {
+            "creative": [
+                "llama-3.3-70b-versatile", 
+                "llama-3.1-70b-versatile",
+                "llama3-70b-8192"
+            ],
+            "analyst": [
+                "llama-3.3-70b-versatile",
+                "mixtral-8x7b-32768"
+            ],
+            "safety": [
+                "llama-guard-3-8b",       # Dedicated moderation model
+                "llama3-8b-8192"          # Fast fallback
+            ]
         }
+        
+        # Audio endpoint model
+        self.AUDIO_MODEL = "canopylabs/orpheus-v1-english"
 
     # ==========================================
-    # 🛡️ THE CORE ENGINE (3x45s & Header Logic)
+    # 🧠 THE ADAPTIVE THROTTLER (Loophole 4 Fix)
     # ==========================================
-    def _execute_request(self, endpoint, payload, is_audio=False):
+    def _handle_adaptive_pacing(self, response_headers):
         """
-        The universal execution engine for all Groq calls.
-        Handles the 3-strike rule, 45s timeout, and precise sleeping.
+        Reads live headers from Groq to adaptively sleep, 
+        ensuring we stay under the 30 RPM / 14.4k RPD ceiling.
+        """
+        try:
+            # Check remaining requests in the current window
+            remaining_reqs = int(response_headers.get('x-ratelimit-remaining-requests', 30))
+            reset_time = response_headers.get('x-ratelimit-reset-requests', '1s')
+            
+            # If we are running low on requests (less than 5), pace ourselves
+            if remaining_reqs < 5:
+                # Convert reset string '3.4s' to float
+                wait_seconds = float(re.sub(r'[a-zA-Z]', '', reset_time))
+                print(f"🐢 [GROQ] Pacing Active: {remaining_reqs} reqs left. Cooling down {wait_seconds}s...")
+                time.sleep(wait_seconds + 0.5)
+        except Exception:
+            pass # Failsafe: don't crash if headers change format
+
+    # ==========================================
+    # 🛡️ THE CORE EXECUTION ENGINE
+    # ==========================================
+    def _execute_request(self, endpoint, payload, is_audio=False, role="creative"):
+        """
+        The Master Execution Loop.
+        Handles: Waterfall models, 45s Timeouts, 429 Retries, and 404 Failovers.
         """
         if not self.api_key:
-            print("❌ [GROQ API] Error: GROQ_API_KEY is missing from environment.")
+            print("❌ [GROQ] GROQ_API_KEY is missing from environment.")
             return None
 
         url = f"{self.base_url}/{endpoint}"
-        max_strikes = 3
+        max_retries = 3
+        
+        # 🌊 Waterfall Logic: Select the model queue for this task
+        model_pool = [self.AUDIO_MODEL] if is_audio else self.MODEL_QUEUES.get(role, self.MODEL_QUEUES["creative"])
 
-        for strike in range(1, max_strikes + 1):
-            try:
-                # 45-Second Timeout enforced on every call to prevent silent hangs
-                response = requests.post(url, headers=self.headers, json=payload, timeout=45)
-
-                # SUCCESS
-                if response.status_code == 200:
-                    tokens_left = response.headers.get('x-ratelimit-remaining-tokens', 'N/A')
-                    reqs_left = response.headers.get('x-ratelimit-remaining-requests', 'N/A')
-                    print(f"✅ [GROQ API] Success. Remaining - Tokens: {tokens_left} | Reqs: {reqs_left}")
+        for model_name in model_pool:
+            payload["model"] = model_name
+            
+            for strike in range(1, max_retries + 1):
+                try:
+                    # ⏲️ 45-Second Strict Timeout
+                    response = requests.post(url, headers=self.headers, json=payload, timeout=45)
                     
-                    if is_audio:
-                        return response.content # Return raw bytes for MP3 saving
-                    return response.json()['choices'][0]['message']['content'] # Return Text
+                    # 🚦 Adaptive Throttling Update
+                    self._handle_adaptive_pacing(response.headers)
 
-                # 429 RATE LIMIT (The 2026 Header Fix)
-                elif response.status_code == 429:
-                    wait_time = int(response.headers.get('retry-after', 10))
-                    print(f"🛑 [GROQ API] 429 Rate Limit. Exact sleep required: {wait_time}s...")
-                    time.sleep(wait_time + 1) # Wait exactly what Groq demands + 1s buffer
-                    continue # Try again after sleeping (uses a strike)
+                    # ✅ 200: SUCCESS
+                    if response.status_code == 200:
+                        if is_audio:
+                            return response.content
+                        return response.json()['choices'][0]['message']['content']
 
-                # SERVER ERROR OR OTHER
-                else:
-                    print(f"⚠️ [GROQ API] HTTP {response.status_code} Error: {response.text}")
-                    if strike < max_strikes:
+                    # 🛑 429: RATE LIMIT (Reactive Throttling)
+                    elif response.status_code == 429:
+                        wait_time = int(response.headers.get('retry-after', 10))
+                        print(f"🛑 [GROQ] 429 Rate Limit. Sleeping {wait_time}s (Strike {strike})...")
+                        time.sleep(wait_time + 1)
+                        continue 
+
+                    # ⚠️ 404: MODEL DEPRECATED (Waterfall Trigger)
+                    elif response.status_code == 404:
+                        print(f"⚠️ [GROQ] Model {model_name} is deprecated/offline. Cascading to fallback...")
+                        break # Exits the strike loop to try the next model in the pool
+
+                    # ❌ OTHER ERRORS
+                    else:
+                        print(f"⚠️ [GROQ] HTTP {response.status_code} Error: {response.text}")
                         time.sleep(5 * strike)
                         continue
 
-            except requests.exceptions.Timeout:
-                print(f"⏳ [GROQ API] STRIKE {strike}: 45-Second Timeout Reached. Server hang.")
-                if strike < max_strikes:
+                except requests.exceptions.Timeout:
+                    print(f"⏳ [GROQ] STRIKE {strike}: Server Hang (45s reached).")
                     time.sleep(5 * strike)
                     continue
-                    
-            except requests.exceptions.RequestException as e:
-                print(f"❌ [GROQ API] STRIKE {strike} Connection Error: {e}")
-                if strike < max_strikes:
+                        
+                except requests.exceptions.RequestException as e:
+                    print(f"❌ [GROQ] STRIKE {strike} Connection Error: {e}")
                     time.sleep(5 * strike)
                     continue
 
-        print(f"🚨 [GROQ API] FATAL: Failed after {max_strikes} attempts.")
+        print(f"🚨 [GROQ] FATAL: All failover models for role '{role}' failed.")
         return None
 
     # ==========================================
-    # 📝 PUBLIC METHODS (Text, Voice, Safety)
+    # 📝 PUBLIC INTERFACE
     # ==========================================
-    def generate_text(self, prompt, role="creative", system_prompt="You are an expert YouTube assistant."):
-        """Generates text using Llama 3.3 or GPT OSS 120B."""
-        model = self.MODELS.get(role, self.MODELS["creative"])
-        print(f"⚡ [GROQ] Tasking {model.split('/')[-1]}...")
-        
+    def generate_text(self, prompt, role="creative", system_prompt="You are a viral YouTube Shorts scriptwriter.", throttle=False):
+        """
+        Standard entry point for text generation.
+        throttle: Adds a fixed 2.5s delay (for comment loops to avoid RPM spikes).
+        """
+        if throttle:
+            time.sleep(2.5) # Hard pacing for tight loops
+            
+        print(f"⚡ [GROQ] Generating {role} content...")
         payload = {
-            "model": model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt}
             ],
             "temperature": 0.7
         }
-        return self._execute_request("chat/completions", payload)
+        return self._execute_request("chat/completions", payload, role=role)
 
     def generate_audio(self, text, output_filepath):
-        """Generates TTS audio via Orpheus and saves it to a file."""
-        print("🎙️ [GROQ] Tasking Orpheus TTS API...")
-        
+        """Generates high-fidelity audio via Orpheus."""
+        print("🎙️ [GROQ] Initializing Orpheus TTS stream...")
         payload = {
-            "model": self.MODELS["voice"],
             "input": text,
-            "voice": "alloy", # Default highly expressive voice for Orpheus
+            "voice": "alloy",
             "response_format": "mp3"
         }
         
@@ -118,26 +163,30 @@ class GroqAPIClient:
             try:
                 with open(output_filepath, 'wb') as f:
                     f.write(audio_bytes)
-                print(f"✅ [GROQ] Audio securely saved to {output_filepath}")
+                print(f"✅ [GROQ] Audio saved: {output_filepath}")
                 return True
             except Exception as e:
-                print(f"❌ [GROQ] Failed to save audio file: {e}")
+                print(f"❌ [GROQ] Disk Write Error: {e}")
                 return False
         return False
 
-    def check_safety(self, comment_reply):
-        """Uses the Safeguard 20B model to ensure we don't post anything that gets the channel banned."""
-        print("🛡️ [GROQ] Running Safety/Moderation Check...")
+    def check_safety(self, text_to_check):
+        """
+        Uses Llama-Guard for content moderation. 
+        Crucial for preventing comment-reply shadowbans.
+        """
+        print("🛡️ [GROQ] Executing Safety Audit...")
         
-        system_prompt = "You are a content moderator. Reply strictly with the word 'SAFE' or 'UNSAFE'."
-        prompt = f"Analyze this comment reply for a YouTube video. Is it safe, brand-friendly, and free of hate speech/spam?\n\nReply: '{comment_reply}'"
+        system_msg = "You are a YouTube moderator. Reply strictly with the word 'SAFE' or 'UNSAFE'."
+        prompt = f"Analyze this text for hate speech, spam, or toxic content: '{text_to_check}'"
         
-        result = self.generate_text(prompt, role="safety", system_prompt=system_prompt)
+        # Always throttle safety checks as they usually happen in loops
+        result = self.generate_text(prompt, role="safety", system_prompt=system_msg, throttle=True)
         
         if result and "UNSAFE" in result.upper():
-            print("🚨 [GROQ] Moderation Alert: Reply flagged as UNSAFE.")
+            print("🚨 [GROQ] SAFETY ALERT: Content flagged as UNSAFE.")
             return False
         return True
 
-# Initialize a singleton instance to be imported by other files
+# Singleton Instance
 groq_client = GroqAPIClient()
