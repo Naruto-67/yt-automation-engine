@@ -38,7 +38,8 @@
     {
         "niche": "brainrot",
         "topic": "Bizarre Food Challenges",
-        "bg_query": "food challenges eating contests"
+        "bg_query": "food challenges eating contests",
+        "processed": true
     },
     {
         "niche": "brainrot",
