@@ -26,28 +26,33 @@ jobs:
           sudo apt-get install -y ffmpeg espeak-ng
 
       - name: Initialize Cache Directories
-        run: mkdir -p ~/.cache/kokoro ~/.cache/huggingface
+        run: mkdir -p ~/.cache/huggingface ~/.cache/kokoro
 
       - name: Cache AI Models
         id: cache-models
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.cache/kokoro
-            ~/.cache/huggingface
-          key: ${{ runner.os }}-ai-models-v2
+          path: ~/.cache/huggingface
+          key: ${{ runner.os }}-hf-models-v3
 
       - name: Install PyTorch CPU (Turbo Boost)
-        run: |
-          pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+        run: pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
 
       - name: Install Python Requirements & Preload Models
         run: |
           pip install -r requirements.txt
           pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
+          
+          # Pre-fetch the models so faster-whisper doesn't freeze the Python execution
+          pip install huggingface_hub
+          echo "Downloading Whisper Base Model..."
+          huggingface-cli download Systran/faster-whisper-base
+          echo "Downloading Kokoro V1 Model..."
+          huggingface-cli download hexgrad/Kokoro-82M || true
 
       - name: Run Production Heart
         env:
+          PYTHONUNBUFFERED: "1"  # 🚨 MAGIC KEY: Forces logs to stream in real-time
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
@@ -57,16 +62,13 @@ jobs:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
           GCP_CREDENTIALS_JSON: ${{ secrets.GCP_CREDENTIALS_JSON }}
-          # These kill switches prevent Hugging Face from freezing your runner
-          HF_HUB_DISABLE_TELEMETRY: 1
-          HF_HUB_DISABLE_SYMLINKS_WARNING: 1
+          HF_HUB_DISABLE_SYMLINKS_WARNING: "1"
         run: python main.py
 
       - name: Sync and Commit Memory State
         run: |
           git config --global user.name "Ghost-Engine-Bot"
           git config --global user.email "bot@ghostengine.ai"
-          
           git add memory/*.json assets/lessons_learned.json
           
           if git diff --staged --quiet; then
