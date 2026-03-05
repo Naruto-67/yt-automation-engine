@@ -12,6 +12,7 @@ class MasterQuotaManager:
         self.state_file = os.path.join(self.memory_dir, "api_state.json")
         self.gemini_key = os.environ.get("GEMINI_API_KEY")
         self.gemini_text_limit = 250 # The 50/50 Rule (50% of 500 RPD limit)
+        self.gemini_blocked_for_run = False # 🚨 The Tripwire
         self._ensure_state_exists()
 
     def _ensure_state_exists(self):
@@ -60,10 +61,15 @@ class MasterQuotaManager:
         state = self._get_active_state()
         usage = state.get("gemini_used", 0)
         
+        # 1. Check the tripwire first
+        if self.gemini_blocked_for_run:
+            print(f"⚠️ [ROUTER] Gemini is resting. Auto-routing '{task_type.upper()}' to Groq Fallback.")
+            return groq_client.generate_text(prompt, role=task_type), "Groq Llama 3.3"
+
         print(f"🛡️ [ROUTER] Routing '{task_type.upper()}' to Primary (Gemini 3.1 Flash Lite)...")
         
         if usage < self.gemini_text_limit:
-            # RETRY LOGIC FOR RPM LIMITS
+            # 2. Retry Logic (Just in case)
             for attempt in range(3):
                 try:
                     from google import genai
@@ -73,18 +79,28 @@ class MasterQuotaManager:
                         contents=prompt
                     )
                     self.consume_points("gemini", 1)
+                    
+                    # 🚨 THE PACING PROTOCOL: Sleep 5s to guarantee we never hit 15 RPM
+                    print("⏳ [ROUTER] Pacing API to avoid RPM bans (Sleeping 5s)...")
+                    time.sleep(5)
+                    
                     return response.text, "Gemini 3.1 Flash Lite"
                 except Exception as e:
                     error_msg = str(e).lower()
                     if "429" in error_msg or "quota" in error_msg or "exhausted" in error_msg:
-                        print(f"⚠️ [ROUTER] Gemini 429 RPM Limit Hit! (Attempt {attempt+1}/3)")
-                        print("⏳ [ROUTER] 50/50 Rule Active: Quota remaining. Waiting 60 seconds for RPM to reset...")
-                        time.sleep(60)
+                        print(f"⚠️ [ROUTER] Gemini 429 Limit Hit! (Attempt {attempt+1}/3)")
+                        if attempt < 2:
+                            print("⏳ [ROUTER] Waiting 60 seconds for RPM to clear...")
+                            time.sleep(60)
+                        else:
+                            print("🚨 [ROUTER] RPM still blocked. Tripping wire for rest of run.")
+                            self.gemini_blocked_for_run = True
                     else:
                         print(f"❌ [GEMINI] Non-rate-limit error: {e}")
-                        break # Break loop, go to Fallback
+                        break
         else:
             print(f"⚠️ [ROUTER] 50/50 Rule Limit Reached ({usage}/{self.gemini_text_limit}). Saving remaining quota.")
+            self.gemini_blocked_for_run = True # Trip wire so it doesn't keep trying
             
         print("⚡ [ROUTER] Executing Fallback Protocol (Groq)...")
         fallback_text = groq_client.generate_text(prompt, role=task_type)
