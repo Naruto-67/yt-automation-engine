@@ -1,3 +1,6 @@
+# ================================================
+# FILE: main.py
+# ================================================
 import os
 import json
 import traceback
@@ -20,6 +23,11 @@ except ImportError as e:
     notify_error("System Boot", "Import Failure", f"Missing Module: {e}")
     sys.exit(1)
 
+# ==========================================
+# 🛑 TEST MODE TOGGLE
+# ==========================================
+TEST_MODE = True  # Set to False to enable YouTube Uploads and File Cleanup
+
 def load_matrix():
     """Loads the 21 trending topics from the memory vault."""
     root_dir = os.path.dirname(os.path.abspath(__file__))
@@ -39,9 +47,11 @@ def save_matrix(matrix):
 def run_production_cycle():
     """
     The Orchestrator Loop.
-    Processes exactly 4 topics from the matrix.
     """
     print("🚀 [ENGINE] Ignition. Starting Batch Production...")
+    if TEST_MODE:
+        print("🛑 [TEST MODE] Uploads Disabled. Cleanup Disabled. Artifacts will be preserved.")
+        
     matrix = load_matrix()
     
     if not matrix:
@@ -49,7 +59,10 @@ def run_production_cycle():
         return
 
     unprocessed = [t for t in matrix if not t.get("processed", False)]
-    batch = unprocessed[:4]
+    
+    # In Test Mode, we only process 1 video to save time. Otherwise, process 4.
+    batch_size = 1 if TEST_MODE else 4
+    batch = unprocessed[:batch_size]
 
     if not batch:
         print("✅ [ENGINE] All topics in current matrix are complete.")
@@ -65,8 +78,8 @@ def run_production_cycle():
         
         print(f"\n🎬 [PROCESSING] {niche.upper()}: {topic}")
         
-        audio_base = "temp_audio"
-        bg_video = "temp_background.mp4"
+        audio_base = f"temp_audio_{success_count}"
+        bg_video = f"temp_background_{success_count}.mp4"
         final_video = f"final_output_{success_count}.mp4"
 
         try:
@@ -79,31 +92,40 @@ def run_production_cycle():
             metadata = generate_seo_metadata(niche, script_text)
 
             # 3. Voice & SRT Generation
-            voice_success = generate_audio(script_text, output_base=audio_base)
+            voice_success, provider = generate_audio(script_text, output_base=audio_base)
             if not voice_success:
                 raise Exception("Voice/SRT generation failed.")
+            print(f"✅ [VOICE] Audio secured via {provider}")
 
-            # 4. Visual Sourcing
+            # 4. Visual Sourcing (Will be updated in Phase 3)
             visual_success = fetch_background(bg_query, output_filename=bg_video)
             if not visual_success:
-                raise Exception("Visual sourcing failed (AI & Pexels both failed).")
+                raise Exception("Visual sourcing failed.")
 
             # 5. Master Render
             render_success = render_video(bg_video, f"{audio_base}.wav", final_video)
             if not render_success:
                 raise Exception("FFmpeg Master Render failed.")
 
-            # 6. Vault Security
-            upload_success = upload_to_youtube_vault(final_video, niche, topic, metadata)
-            
-            if upload_success:
+            # 6. Vault Security (Skipped in Test Mode)
+            if not TEST_MODE:
+                upload_success = upload_to_youtube_vault(final_video, niche, topic, metadata)
+                if upload_success:
+                    item['processed'] = True
+                    success_count += 1
+                    print(f"✅ [SUCCESS] {topic} vaulted.")
+            else:
+                print(f"🛑 [TEST MODE] Skipping YouTube Upload for '{topic}'. Marking as successful for test.")
                 item['processed'] = True
                 success_count += 1
-                print(f"✅ [SUCCESS] {topic} vaulted.")
             
-            # Cleanup
-            for f in [f"{audio_base}.wav", f"{audio_base}.srt", f"{audio_base}.mp3", bg_video, final_video]:
-                if os.path.exists(f): os.remove(f)
+            # 7. Cleanup (Skipped in Test Mode to preserve artifacts)
+            if not TEST_MODE:
+                print("🧹 [CLEANUP] Removing temporary files...")
+                for f in [f"{audio_base}.wav", f"{audio_base}.srt", f"{audio_base}.mp3", bg_video, final_video]:
+                    if os.path.exists(f): os.remove(f)
+            else:
+                print("🛑 [TEST MODE] Cleanup skipped. Artifacts preserved for inspection.")
 
         except Exception as e:
             print(f"🚨 [CRASH] Topic '{topic}' failed: {e}")
@@ -113,8 +135,8 @@ def run_production_cycle():
     save_matrix(matrix)
     
     if success_count > 0:
-        msg = f"Production Complete. {success_count} videos secured."
-        notify_summary(True, msg)
+        msg = f"Production Complete. {success_count} videos processed."
+        if not TEST_MODE: notify_summary(True, msg)
         print(f"🏁 [FINISH] {msg}")
     else:
         print("⚠️ [FINISH] Production batch yielded 0 results.")
