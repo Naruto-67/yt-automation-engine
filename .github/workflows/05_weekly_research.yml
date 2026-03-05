@@ -2,8 +2,8 @@ name: 05_Ghost_Weekly_Research
 
 on:
   schedule:
-    - cron: '0 0 * * 0' # Sunday Morning
-  workflow_dispatch:
+    - cron: '0 0 * * 0' # Sunday 5:30 AM IST
+  workflow_dispatch: # This allows your manual trigger
 
 jobs:
   scrape_trends:
@@ -11,6 +11,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -20,7 +22,7 @@ jobs:
       - name: Install Dependencies
         run: |
           pip install google-genai requests
-          # Ensure the scripts folder is in the path
+          # Injecting root into path to prevent ModuleNotFoundError
           echo "PYTHONPATH=$PYTHONPATH:$(pwd)" >> $GITHUB_ENV
 
       - name: Run Trend Researcher
@@ -28,7 +30,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        # We use -m and ensure the working directory is root
+        # Corrected module-based execution
         run: python -m scripts.dynamic_researcher
 
       - name: Sync and Commit Matrix
