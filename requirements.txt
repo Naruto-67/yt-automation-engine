@@ -12,7 +12,6 @@ soundfile
 numpy
 pydub
 faster-whisper
-edge-tts
 
 # Video & Visuals
 ffmpeg-python
