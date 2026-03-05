@@ -23,9 +23,13 @@ def generate_script(niche, topic):
     
     CRITICAL RULES:
     1. FACTUAL & DIRECT: This is a standalone micro-documentary. It must be 100% true, logical, and factual. No random creations.
-    2. NO META-COMMENTARY: NEVER break the fourth wall. NEVER say "In this video", "Our 3D animation shows", "Welcome back", or "Imagine a world". Start immediately with the core hook.
-    3. LENGTH: The script MUST be exactly 130 to 150 words (45 seconds of speech).
-    4. VISUALS: Pick the best aesthetic for this specific topic (e.g., 'Pixar 3D animation', 'Dark Cinematic', 'Vibrant Cyberpunk'). Provide 4 image prompts. Every prompt MUST start with that aesthetic.
+    2. NO META-COMMENTARY: NEVER break the fourth wall. NEVER say "In this video", "Our 3D animation shows", or "Imagine a world". Just tell the facts.
+    3. LENGTH: The script MUST be exactly 130 to 150 words.
+    4. VISUALS TO AUDIO SYNC: You must provide exactly 4 image prompts. 
+       - Prompt 1 must perfectly illustrate exactly what happens in the first 25% of the script.
+       - Prompt 2 must perfectly illustrate the next 25%, etc.
+       - Pick a visual style (e.g. 'Pixar 3D animation', 'Dark Cinematic') and begin EVERY prompt with that style.
+       - Make the prompts literal and highly specific to the action being described.
     
     FORMAT: Return ONLY valid JSON.
     {{
