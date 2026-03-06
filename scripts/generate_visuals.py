@@ -9,7 +9,6 @@ def generate_pollinations_image(prompt, output_path):
         safe_prompt = urllib.parse.quote(f"{prompt}, vertical 9:16 format, cinematic, highly detailed, masterpiece")
         url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1080&height=1920&model=flux&nologo=true"
         
-        # 🚨 THE FIX: Disguise the request as a real browser to bypass Cloudflare 530 blocks
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
         response = requests.get(url, headers=headers, timeout=60)
         
@@ -18,10 +17,8 @@ def generate_pollinations_image(prompt, output_path):
                 f.write(response.content)
             return True, ""
         else:
-            print(f"      [Pollinations] ⚠️ HTTP {response.status_code}")
             return False, f"HTTP {response.status_code}"
     except Exception as e:
-        print(f"      [Pollinations] ⚠️ Error: {e}")
         return False, "Timeout/Connection Error"
 
 def generate_huggingface_image(prompt, output_path):
@@ -67,26 +64,45 @@ def fallback_pexels_image(prompt, output_path):
 def fetch_scene_images(prompts_list, base_filename="temp_scene"):
     print(f"🖼️ [VISUALS] Sourcing {len(prompts_list)} scene images via Decoupled 3-Tier System...")
     successful_images = []
-    primary_provider = "Unknown"
+    
+    # 🚨 THE VISUAL TRIPWIRES
+    tier1_active = True
+    tier2_active = True
+    final_provider = "Unknown"
     
     for i, prompt in enumerate(prompts_list):
         output_path = f"{base_filename}_{i}.jpg"
         print(f"\n   -> Scene {i+1} Prompt: {prompt[:40]}...")
         
+        success = False
+        
         # 1. Primary Engine
-        success, err1 = generate_pollinations_image(prompt, output_path)
-        if success: 
-            primary_provider = "Pollinations FLUX"
-        else:
-            # 2. Hugging Face Fallback
-            success, err2 = generate_huggingface_image(prompt, output_path)
+        if tier1_active:
+            success, err = generate_pollinations_image(prompt, output_path)
             if success: 
-                primary_provider = f"HuggingFace FLUX (Fallback due to Pollinations: {err1})"
+                final_provider = "Pollinations FLUX"
             else:
-                # 3. Stock Fallback
-                success, err3 = fallback_pexels_image(prompt, output_path)
-                if success: 
-                    primary_provider = f"Pexels Stock (Fallback due to Pol: {err1} | HF: {err2})"
+                print(f"      🚨 [VISUALS] Tier 1 Failed ({err}). Disabling for remainder of run.")
+                tier1_active = False # Trip the wire
+        else:
+            print("      [Tier 1: Pollinations] Skipped (Previously Blocked)")
+
+        # 2. Hugging Face Fallback
+        if not success and tier2_active:
+            success, err = generate_huggingface_image(prompt, output_path)
+            if success: 
+                final_provider = "HuggingFace FLUX (Fallback)"
+            else:
+                print(f"      🚨 [VISUALS] Tier 2 Failed ({err}). Disabling for remainder of run.")
+                tier2_active = False # Trip the wire
+        elif not success and not tier2_active:
+            print("      [Tier 2: HuggingFace] Skipped (Previously Blocked)")
+                
+        # 3. Stock Fallback
+        if not success:
+            success, err = fallback_pexels_image(prompt, output_path)
+            if success: 
+                final_provider = "Pexels Stock (Double Fallback)"
             
         if success:
             successful_images.append(output_path)
@@ -97,4 +113,4 @@ def fetch_scene_images(prompts_list, base_filename="temp_scene"):
         print("   ⏳ Pacing generation engines (Sleeping 3s)...")
         time.sleep(3) 
         
-    return successful_images, primary_provider
+    return successful_images, final_provider
