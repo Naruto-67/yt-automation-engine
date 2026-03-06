@@ -2,6 +2,7 @@ import os
 import json
 import time
 import shutil
+import httplib2
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -10,19 +11,28 @@ from scripts.quota_manager import quota_manager
 from scripts.discord_notifier import notify_vault_secure, notify_error
 
 def get_youtube_client():
-    client_id, client_secret, refresh_token = os.environ.get("YOUTUBE_CLIENT_ID"), os.environ.get("YOUTUBE_CLIENT_SECRET"), os.environ.get("YOUTUBE_REFRESH_TOKEN")
-    if not all([client_id, client_secret, refresh_token]): return None
+    client_id = os.environ.get("YOUTUBE_CLIENT_ID")
+    client_secret = os.environ.get("YOUTUBE_CLIENT_SECRET")
+    refresh_token = os.environ.get("YOUTUBE_REFRESH_TOKEN")
+    
+    # 🚨 FIX: Loudly declare missing credentials to the Discord admin.
+    if not all([client_id, client_secret, refresh_token]): 
+        notify_error("YouTube Auth", "Missing Credentials", "One or more YouTube OAuth ENV vars are missing. System is frozen.")
+        return None
+        
     try:
         creds = Credentials(None, refresh_token=refresh_token, token_uri="https://oauth2.googleapis.com/token", client_id=client_id, client_secret=client_secret)
         return build('youtube', 'v3', credentials=creds)
-    except: return None
+    except Exception as e: 
+        # 🚨 FIX: Prevent the "Silent Coma". Warn the admin instantly if the Token expires.
+        notify_error("YouTube Auth", "Token Verification Failed", f"Your YouTube Refresh Token was rejected by Google: {e}")
+        return None
 
 def get_channel_name(youtube):
     try: return youtube.channels().list(part="snippet", mine=True).execute()["items"][0]["snippet"]["title"]
     except: return "GhostEngine"
 
 def get_or_create_playlist(youtube, title, privacy_status="private"):
-    # 🚨 FIX: Exhaustive Pagination to prevent duplicate spam playlists
     try:
         playlists = []
         request = youtube.playlists().list(part="snippet", mine=True, maxResults=50)
@@ -69,10 +79,23 @@ def upload_to_youtube_vault(video_path, topic, metadata):
             },
             media_body=media
         )
-        response = None
-        while response is None: status, response = request.next_chunk()
-        video_id = response["id"]
         
+        response = None
+        error_count = 0
+        
+        # 🚨 FIX: The Fragile Chunk Network Trap. Resumes uploads natively if packets drop.
+        while response is None: 
+            try:
+                status, response = request.next_chunk()
+                error_count = 0
+            except (HttpError, httplib2.HttpLib2Error, ConnectionError) as net_err:
+                error_count += 1
+                print(f"⚠️ [VAULT] Network drop during chunk upload (Attempt {error_count}/5): {net_err}")
+                if error_count >= 5:
+                    raise net_err
+                time.sleep(5)
+                
+        video_id = response["id"]
         quota_manager.consume_points("youtube", 1600)
         
         try:
