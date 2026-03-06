@@ -6,10 +6,12 @@ from scripts.youtube_manager import get_youtube_client
 from scripts.discord_notifier import notify_summary
 
 def generate_ai_reply(video_title, comment_text, attempt_num):
-    # 🚨 SECURITY PROTOCOL: Severe Prompt Injection & Content Moderation Guardrails
+    # 🚨 FIX: Strict string truncation prevents malicious "Bee Movie Script" spam from blowing up the LLM Context Window
+    safe_comment = str(comment_text)[:500].replace('"', "'")
+
     prompt = f"""
     You are a popular YouTube Shorts creator. 
-    A fan commented: "{comment_text}" on your video "{video_title}".
+    A fan commented: "{safe_comment}" on your video "{video_title}".
     
     CRITICAL RULES:
     1. Write a witty, Gen-Z style reply with emojis. Keep it under 2 sentences.
@@ -25,7 +27,7 @@ def generate_ai_reply(video_title, comment_text, attempt_num):
     if raw_reply:
         clean_reply = raw_reply.strip().replace('"', '')
         if "FLAGGED_COMMENT" in clean_reply:
-            return None # The kill-switch was hit
+            return None 
         return clean_reply
     return None
 
@@ -50,14 +52,12 @@ def run_engagement_protocol():
                     top = thread["snippet"]["topLevelComment"]["snippet"]
                     if top.get("authorChannelId", {}).get("value") != channel_id and thread["snippet"]["totalReplyCount"] == 0:
                         
-                        # 🚨 QUOTA GATEKEEPER: Stop replying immediately if we can't afford the 50 points
                         if not quota_manager.can_afford_youtube(50):
                             print("🛑 [QUOTA GUARDIAN] YouTube Quota limit reached. Halting comments.")
                             break
 
                         reply_text = generate_ai_reply(vid["snippet"]["title"], top["textDisplay"], replies_count + 1)
                         
-                        # 🚨 If the Troll Shield flagged it, skip the comment entirely.
                         if not reply_text:
                             print(f"🛡️ [SECURITY] Ignored inappropriate/troll comment from {top.get('authorDisplayName')}")
                             continue
