@@ -6,12 +6,69 @@ from scripts.youtube_manager import get_youtube_client, get_or_create_playlist
 from scripts.quota_manager import quota_manager
 from scripts.discord_notifier import notify_summary
 
+def get_historical_time_data(youtube):
+    """Fetches the publish times and view counts of recent videos for AI correlation."""
+    try:
+        uploads_id = youtube.channels().list(part="contentDetails", mine=True).execute()["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
+        quota_manager.consume_points("youtube", 1)
+        
+        vids = youtube.playlistItems().list(part="snippet", playlistId=uploads_id, maxResults=15).execute()
+        quota_manager.consume_points("youtube", 1)
+        
+        vid_ids = [v["snippet"]["resourceId"]["videoId"] for v in vids.get("items", [])]
+        if not vid_ids: return "No historical data yet."
+        
+        stats_response = youtube.videos().list(part="statistics,snippet", id=",".join(vid_ids)).execute()
+        quota_manager.consume_points("youtube", 1)
+        
+        history = "📊 HISTORICAL PUBLISH TIMES VS. VIEWS:\n"
+        for item in stats_response.get("items", []):
+            pub_time = item["snippet"]["publishedAt"] # e.g., 2026-03-01T15:30:00Z
+            views = item["statistics"].get("viewCount", "0")
+            history += f"- Posted at: {pub_time} (UTC) | Views: {views}\n"
+        return history
+    except Exception as e:
+        print(f"⚠️ Could not fetch historical timing data: {e}")
+        return "No historical data available."
+
+def get_optimal_publish_times(youtube):
+    print("🧠 [PUBLISHER] Asking Gemini Data Scientist for optimal retention times...")
+    
+    historical_data = get_historical_time_data(youtube)
+    
+    # 🚨 DYNAMIC TIME PROMPT: Prioritizes US audience but relies strictly on actual data correlations.
+    prompt = f"""
+    You are an Elite YouTube Data Scientist. Your goal is to determine the two absolute best times to publish YouTube Shorts today to maximize the initial algorithmic feed spike.
+    
+    TARGET AUDIENCE: Primarily United States (US), but rely on the actual data below if a clear trend exists.
+    
+    {historical_data}
+    
+    INSTRUCTIONS:
+    1. Cross-reference the historical upload times with their view counts.
+    2. Identify which time windows generate the highest viewership.
+    3. If there is no clear trend or data is missing, default to optimal US peak algorithmic times for Shorts.
+    4. Output EXACTLY TWO times in UTC format (HH:MM).
+    
+    Return ONLY a valid JSON array of two time strings. Do not use markdown or explain your reasoning.
+    Example: ["14:30", "22:00"]
+    """
+    
+    response, _ = quota_manager.generate_text(prompt, task_type="analysis")
+    try:
+        import re
+        match = re.search(r'\[.*\]', response.replace("```json", "").replace("```", "").strip(), re.DOTALL)
+        if match: return json.loads(match.group(0))
+    except: pass
+    
+    # Fallback to general US peak times (UTC) if Gemini hallucinates
+    return ["15:00", "23:00"] 
+
 def publish_vault_videos():
     youtube = get_youtube_client()
     if not youtube: return
     
     try:
-        # Load matrix to map video IDs to their exact dynamic Niche
         matrix_path = os.path.join(os.path.dirname(__file__), "..", "memory", "content_matrix.json")
         matrix = []
         if os.path.exists(matrix_path):
@@ -19,35 +76,54 @@ def publish_vault_videos():
 
         vault_id = get_or_create_playlist(youtube, "Vault Backup")
         items = youtube.playlistItems().list(part="snippet", playlistId=vault_id, maxResults=2).execute().get("items", [])
+        quota_manager.consume_points("youtube", 1) 
         
         if len(items) < 2:
             print("⚠️ [PUBLISHER] Not enough videos in the vault to execute dual-release.")
             return
 
+        # Fetch AI calculated times based on channel data
+        ai_times = get_optimal_publish_times(youtube)
+        now = datetime.utcnow()
+
         for idx, item in enumerate(items):
             vid_id = item["snippet"]["resourceId"]["videoId"]
             
-            # 🚨 DYNAMIC NICHE MATCHING: No hardcoding. Looks up exact niche from memory.
             niche_tag = "Viral Shorts"
             for m_item in matrix:
                 if m_item.get("youtube_id") == vid_id:
                     niche_tag = f"{m_item['niche'].title()} Shorts"
                     break
             
-            offset = 4 if idx == 0 else 10
-            pub_time = (datetime.utcnow() + timedelta(hours=offset)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+            # Parse AI time string "HH:MM" safely
+            target_time_str = ai_times[idx] if idx < len(ai_times) else "15:00"
+            try:
+                hr, mn = map(int, target_time_str.split(':'))
+            except:
+                hr, mn = 15 + (idx * 8), 0 # Fallback safety math
+                
+            target_dt = now.replace(hour=hr, minute=mn, second=0, microsecond=0)
+            if target_dt <= now:
+                target_dt += timedelta(days=1) # If time has passed today, schedule for tomorrow!
+            pub_time = target_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
             
+            # 1. Schedule Video
             youtube.videos().update(part="status", body={"id": vid_id, "status": {"privacyStatus": "private", "publishAt": pub_time}}).execute()
+            quota_manager.consume_points("youtube", 50) # 🚨 Ghost Quota Leak Fixed
             time.sleep(5)
             
+            # 2. Move to Dynamic Niche Playlist
             niche_playlist = get_or_create_playlist(youtube, niche_tag, "public")
             youtube.playlistItems().insert(part="snippet", body={"snippet": {"playlistId": niche_playlist, "resourceId": {"kind": "youtube#video", "videoId": vid_id}}}).execute()
+            quota_manager.consume_points("youtube", 50) 
             time.sleep(5)
             
+            # 3. Delete from Vault
             youtube.playlistItems().delete(id=item["id"]).execute()
+            quota_manager.consume_points("youtube", 50) 
             time.sleep(5)
             
-        notify_summary(True, f"Publisher released 2 videos. Moved to dynamic Niche Playlists.")
+        notify_summary(True, f"Publisher scheduled 2 videos for {ai_times[0]} and {ai_times[1]} UTC based on AI Data Correlation.")
     except Exception as e:
         quota_manager.diagnose_fatal_error("schedule_video.py", e)
 
