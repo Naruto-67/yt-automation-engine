@@ -24,7 +24,7 @@ def format_time(seconds):
 def trim_audio_precision(file_path):
     try:
         audio = AudioSegment.from_file(file_path)
-        # 🚨 FIX: Slice off the first 200 milliseconds (the comma buffer) instead of using invalid methods.
+        # 🚨 FIX: Slice off the first 200 milliseconds (the comma buffer) mathematically.
         if len(audio) > 200:
             audio = audio[200:]
             
