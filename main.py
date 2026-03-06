@@ -1,7 +1,6 @@
 import os
 import json
 import sys
-import random
 import time
 from datetime import datetime
 
@@ -14,12 +13,11 @@ try:
     from scripts.generate_voice import generate_audio
     from scripts.generate_visuals import fetch_scene_images
     from scripts.render_video import render_video
-    from scripts.youtube_manager import upload_to_youtube_vault, get_youtube_client, get_channel_name
+    from scripts.youtube_manager import upload_to_youtube_vault, get_youtube_client, get_channel_name, get_actual_vault_count
 except ImportError as e:
     print(f"🚨 [SYSTEM] CRITICAL DEPENDENCY MISSING: {e}")
     sys.exit(1)
 
-# 🚨 Set to False to go live on YouTube
 TEST_MODE = False 
 
 def load_matrix():
@@ -37,57 +35,41 @@ def save_matrix(matrix):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(matrix, f, indent=4)
 
-def enforce_weekly_targets(matrix):
-    unprocessed_stories = sum(1 for item in matrix if not item.get('processed', False) and 'stor' in item.get('niche', '').lower())
-    unprocessed_facts = sum(1 for item in matrix if not item.get('processed', False) and 'fact' in item.get('niche', '').lower())
-    
-    fact_subs = ["Horror", "Historical", "Space", "Psychological", "Deep Ocean", "Bizarre"]
-    
-    added_new = False
-    while unprocessed_stories < 2:
-        matrix.append({"niche": "Short Stories", "topic": "A mysterious and eerie urban legend", "processed": False})
-        unprocessed_stories += 1
-        added_new = True
-        
-    while unprocessed_facts < 4:
-        sub = random.choice(fact_subs)
-        matrix.append({"niche": f"{sub} Facts", "topic": f"Mind-blowing and unknown {sub} facts", "processed": False})
-        unprocessed_facts += 1
-        added_new = True
-        
-    if added_new: save_matrix(matrix)
-    return matrix
-
-def get_vault_status(matrix):
-    return len([t for t in matrix if t.get("processed", False) and not t.get("published", False)])
-
 def run_production_cycle():
-    print("🚀 [ENGINE] Ignition. Analyzing Vault Status...")
+    print("🚀 [ENGINE] Ignition. Analyzing Live YouTube Vault Status...")
     try:
-        matrix = load_matrix()
-        matrix = enforce_weekly_targets(matrix)
+        youtube_client = get_youtube_client()
+        if not youtube_client:
+            raise Exception("YouTube Client failed to initialize. Check OAuth tokens.")
 
-        vault_count = get_vault_status(matrix)
-        print(f"🏦 [VAULT] Current Backlog: {vault_count}/14 videos.")
+        # 🚨 THE TRUE GATEKEEPER: Asks YouTube exactly how many videos are in the Vault
+        vault_count = get_actual_vault_count(youtube_client)
+        print(f"🏦 [VAULT] Verified YouTube Playlist Backlog: {vault_count}/14 videos.")
         
-        # 🚨 THE VAULT GATEKEEPER: Halts production to save limits if vault is full
         if vault_count >= 14:
-            print("🛑 [ENGINE] Vault is fully stocked (>= 14). Shutting down to conserve API Quota.")
+            print("🛑 [ENGINE] Vault is fully stocked. Shutting down to conserve APIs.")
             return
 
-        target_batch = 4 if vault_count < 10 else 2
+        matrix = load_matrix()
         unprocessed = [t for t in matrix if not t.get("processed", False)]
-        batch_size = target_batch if not TEST_MODE else 1 
+        
+        # 🚨 DYNAMIC AUTONOMY: If the brain is empty, trigger the researcher automatically
+        if not unprocessed:
+            print("⚠️ [ENGINE] Content Matrix is empty! Triggering Emergency Research Cycle...")
+            from scripts.dynamic_researcher import run_dynamic_research
+            run_dynamic_research()
+            matrix = load_matrix()
+            unprocessed = [t for t in matrix if not t.get("processed", False)]
+            if not unprocessed:
+                raise Exception("Emergency Research failed to populate matrix.")
+
+        # We only need to generate exactly enough videos to hit 14, but we cap at 2 per run to avoid timeouts
+        videos_needed = 14 - vault_count
+        batch_size = min(videos_needed, 2)
         batch = unprocessed[:batch_size]
 
-        if not batch:
-            print("✅ [ENGINE] All topics complete.")
-            return
-
-        youtube_client = get_youtube_client()
-        # Ensure watermark doesn't have "@"
-        channel_name = get_channel_name(youtube_client).replace("@", "") if youtube_client else "GhostEngine"
-        print(f"🏷️ [BRANDING] Secured Channel Name for Watermark: {channel_name}")
+        channel_name = get_channel_name(youtube_client).replace("@", "")
+        print(f"🏷️ [BRANDING] Secured Watermark: {channel_name}")
 
         success_count = 0
         for item in batch:
@@ -117,27 +99,22 @@ def run_production_cycle():
                 time.sleep(10)
 
                 render_success, video_duration, video_size = render_video(
-                    image_paths, 
-                    f"{audio_base}.wav", 
-                    final_video, 
-                    scene_weights=scene_weights, 
-                    watermark_text=channel_name 
+                    image_paths, f"{audio_base}.wav", final_video, 
+                    scene_weights=scene_weights, watermark_text=channel_name 
                 )
-                if not render_success:
-                    raise Exception("Render failed.")
+                if not render_success: raise Exception("Render failed.")
 
                 if not TEST_MODE:
-                    upload_success = upload_to_youtube_vault(final_video, niche, topic, metadata)
+                    # 🚨 PASS THE NICHE TO YOUTUBE SO THE PUBLISHER CAN FIND IT LATER
+                    upload_success, video_id = upload_to_youtube_vault(final_video, topic, metadata)
                     if upload_success:
                         item['processed'] = True
                         item['vaulted_date'] = datetime.utcnow().isoformat()
                         item['published'] = False
+                        item['youtube_id'] = video_id # Save the ID so the publisher can move it
                         success_count += 1
                 else:
-                    print(f"🛑 [TEST MODE] Skipped YT Upload. Vaulting '{topic}' virtually.")
                     item['processed'] = True
-                    item['vaulted_date'] = datetime.utcnow().isoformat()
-                    item['published'] = False
                     success_count += 1
                 
                 notify_production_success(
