@@ -2,6 +2,7 @@ import os
 import json
 import traceback
 import time
+import hashlib
 from datetime import datetime
 from scripts.groq_client import groq_client
 
@@ -15,6 +16,9 @@ class MasterQuotaManager:
         self.gemini_text_limit = 250 
         self.cloudflare_image_limit = 95 
         self.hf_image_limit = 50 
+        
+        # 🚨 YOUTUBE QUOTA GUARDIAN (Limit is 10k, we cap at 9500 to be safe)
+        self.yt_quota_limit = 9500 
         self.gemini_blocked_for_run = False 
         
         self.TEXT_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-pro']
@@ -26,12 +30,16 @@ class MasterQuotaManager:
             self._reset_daily_state()
 
     def _reset_daily_state(self):
+        # 🚨 Preserves the Token Hash across daily resets!
+        old_state = self._read_state_file()
         new_state = {
             "last_reset_date": datetime.utcnow().strftime("%Y-%m-%d"),
             "gemini_used": 0,
             "youtube_points_used": 0,
             "cf_images_used": 0,
-            "hf_images_used": 0
+            "hf_images_used": 0,
+            "yt_token_hash": old_state.get("yt_token_hash", ""),
+            "yt_token_date": old_state.get("yt_token_date", datetime.utcnow().strftime("%Y-%m-%d"))
         }
         self._write_state_file(new_state)
 
@@ -62,6 +70,33 @@ class MasterQuotaManager:
         elif provider == "huggingface": state["hf_images_used"] = state.get("hf_images_used", 0) + amount
         self._write_state_file(state)
 
+    def can_afford_youtube(self, cost):
+        """Checks if a YT action will push us over the 10,000 limit."""
+        return self._get_active_state().get("youtube_points_used", 0) + cost <= self.yt_quota_limit
+
+    def check_and_update_refresh_token(self):
+        """🚨 Security Tracker: Hashes token, checks age, sends Discord warning if > 120 days."""
+        current_token = os.environ.get("YOUTUBE_REFRESH_TOKEN", "")
+        if not current_token: return
+        
+        token_hash = hashlib.sha256(current_token.encode()).hexdigest()
+        state = self._get_active_state()
+        
+        # If the hash changed, you updated the token! Reset the clock.
+        if state.get("yt_token_hash", "") != token_hash:
+            state["yt_token_hash"] = token_hash
+            state["yt_token_date"] = datetime.utcnow().strftime("%Y-%m-%d")
+            self._write_state_file(state)
+            
+        date_str = state.get("yt_token_date", datetime.utcnow().strftime("%Y-%m-%d"))
+        token_date = datetime.strptime(date_str, "%Y-%m-%d")
+        days_active = (datetime.utcnow() - token_date).days
+        
+        # Ping Discord every day if the token is over 4 months old
+        if days_active >= 120:
+            from scripts.discord_notifier import notify_token_expiry
+            notify_token_expiry(days_active)
+
     def is_provider_exhausted(self, provider):
         state = self._get_active_state()
         if provider == "cloudflare": return state.get("cf_images_used", 0) >= self.cloudflare_image_limit
@@ -73,14 +108,12 @@ class MasterQuotaManager:
         error_msg = f"\n🚨 [AI DOCTOR] Crash in {module_name}:\n{tb}\n"
         print(error_msg)
         
-        # 1. Log Locally
         log_path = os.path.join(self.memory_dir, "error_log.txt")
         try:
             with open(log_path, "a", encoding="utf-8") as f:
                 f.write(f"[{datetime.utcnow().isoformat()}] {error_msg}\n{'-'*50}\n")
         except: pass
         
-        # 2. Ping Discord
         from scripts.discord_notifier import notify_error
         notify_error(module_name, type(exception_obj).__name__, str(exception_obj))
 
@@ -88,7 +121,6 @@ class MasterQuotaManager:
         state = self._get_active_state()
         usage = state.get("gemini_used", 0)
         
-        # Override for strict Groq routing
         if force_provider == "groq" or task_type == "comment_reply_groq":
             return groq_client.generate_text(prompt, role="commenter"), "Groq Llama 3.3"
 
