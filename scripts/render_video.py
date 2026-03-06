@@ -2,11 +2,9 @@ import os
 import subprocess
 import json
 import re
-import random
 from pydub import AudioSegment
 
 def get_style_config(style_name="default"):
-    # 🚨 THE 2026 BRUTALIST RETENTION META
     default_style = {
         "FontName": "Arial",           
         "FontSize": "75",              
@@ -98,16 +96,16 @@ def srt_to_ass(srt_path, ass_path, style):
 def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=60):
     frames = int(duration * fps)
     
-    # 🚨 RESOLUTION FIX: Force exact 1080x1920 crop BEFORE zoompan to prevent squishing
+    # 🚨 RESOLUTION FIX: Force exact 1080x1920 crop BEFORE zoompan to completely eliminate distortion/stretching
     prep_filter = "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920"
     
-    # 🚨 ANIMATION FIX: Using 'n' (frame number) for mathematically perfect, jitter-free pans
+    # 🚨 ANIMATION FIX: Switched 'n' to 'on' (output frame) to satisfy FFmpeg syntax, ensuring perfect fluid pans.
     effects = [
-        f"zoompan=z='1.0+0.0005*n':x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}", # Smooth Zoom In
-        f"zoompan=z='1.15':x='iw/2-(iw/zoom)/2':y='(ih-ih/zoom)*(n/{frames})':d={frames}:s=1080x1920:fps={fps}", # Smooth Pan Down
-        f"zoompan=z='1.15':x='(iw-iw/zoom)*(n/{frames})':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}", # Smooth Pan Right
-        f"zoompan=z='1.15':x='iw/2-(iw/zoom)/2':y='(ih-ih/zoom)*(1-n/{frames})':d={frames}:s=1080x1920:fps={fps}", # Smooth Pan Up
-        f"zoompan=z='1.15':x='(iw-iw/zoom)*(1-n/{frames})':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}"  # Smooth Pan Left
+        f"zoompan=z='1.0+(0.0003*on)':x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}", # Smooth Zoom In
+        f"zoompan=z='1.15':x='iw/2-(iw/zoom)/2':y='(ih-ih/zoom)*(on/{frames})':d={frames}:s=1080x1920:fps={fps}", # Smooth Pan Down
+        f"zoompan=z='1.15':x='(iw-iw/zoom)*(on/{frames})':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}", # Smooth Pan Right
+        f"zoompan=z='1.15':x='iw/2-(iw/zoom)/2':y='(ih-ih/zoom)*(1-(on/{frames}))':d={frames}:s=1080x1920:fps={fps}", # Smooth Pan Up
+        f"zoompan=z='1.15':x='(iw-iw/zoom)*(1-(on/{frames}))':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}"  # Smooth Pan Left
     ]
     
     selected_effect = effects[index % len(effects)]
@@ -172,9 +170,9 @@ def render_video(image_paths, audio_path, output_path, scene_weights=None, water
 
     safe_ass = ass_path.replace('\\', '/').replace(':', r'\:')
     
-    # 🚨 WATERMARK FIX: Centered horizontally (x=(w-text_w)/2), vertically placed down below captions (y=h*0.82)
+    # 🚨 WATERMARK FIX: (w-text_w)/2 guarantees perfect horizontal center. y=1550 sets it right below captions.
     font_path = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
-    watermark_filter = f",drawtext=fontfile='{font_path}':text='{watermark_text}':fontcolor=white@0.12:fontsize=45:x=(w-text_w)/2:y=h*0.82" if watermark_text else ""
+    watermark_filter = f",drawtext=fontfile='{font_path}':text='{watermark_text}':fontcolor=white@0.12:fontsize=45:x=(w-text_w)/2:y=1550" if watermark_text else ""
     
     cmd_burn = [
         "ffmpeg", "-y", "-i", temp_merged_video, 
