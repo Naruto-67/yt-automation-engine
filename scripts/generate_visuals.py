@@ -26,7 +26,6 @@ def generate_cloudflare_image(prompt, output_path):
     payload = {"prompt": f"{prompt}, vertical 9:16 format, masterpiece"}
     
     try:
-        # 🚨 FIX: Explicit connection & read timeouts to prevent infinite hanging sockets
         response = requests.post(url, headers=headers, json=payload, timeout=(15, 60))
         if response.status_code == 200:
             content_type = response.headers.get("Content-Type", "")
@@ -73,7 +72,6 @@ def generate_huggingface_cascade(prompt, output_path):
         url = f"https://api-inference.huggingface.co/models/{model}"
         
         try:
-            # 🚨 FIX: Explicit connection & read timeouts to prevent infinite hanging sockets
             response = requests.post(url, headers=headers, json=payload, timeout=(15, 60))
             if response.status_code == 200:
                 with open(output_path, 'wb') as f: 
@@ -95,7 +93,7 @@ def generate_huggingface_cascade(prompt, output_path):
             
     return False, "HF Models Exhausted/Blocked"
 
-def fallback_pexels_image(search_query, output_path):
+def fallback_pexels_image(search_query, output_path, is_retry=False):
     print(f"      [Tier 3: Pexels] AI Blocked. Searching strictly for: '{search_query}'...")
     api_key = os.environ.get("PEXELS_API_KEY")
     if not api_key: return False, "No Key"
@@ -106,14 +104,21 @@ def fallback_pexels_image(search_query, output_path):
         headers = {"Authorization": api_key}
         res = requests.get(url, headers=headers, timeout=(10, 30)).json()
         
-        if res.get('photos'):
+        if res.get('photos') and len(res['photos']) > 0:
             photo = random.choice(res['photos'])
             img_url = photo['src']['large2x']
             img_data = requests.get(img_url, timeout=(10, 30)).content
             with open(output_path, 'wb') as f: f.write(img_data)
             return True, ""
+            
+        # 🚨 FIX: Universal Double-Fallback prevents entire video failure due to weird API queries.
+        elif not is_retry:
+            print(f"      ⚠️ [Tier 3: Pexels] 0 results for '{search_query}'. Deploying Universal Fallback...")
+            return fallback_pexels_image("cinematic aesthetic background", output_path, is_retry=True)
+            
     except Exception as e: 
         return False, "API Error"
+        
     return False, "No images found"
 
 def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene"):
