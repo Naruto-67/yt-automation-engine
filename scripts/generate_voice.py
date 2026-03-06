@@ -13,7 +13,6 @@ if os.environ.get("HF_TOKEN"):
 import numpy as np
 import soundfile as sf
 from pydub import AudioSegment
-from pydub.silence import detect_leading_silence
 from scripts.groq_client import groq_client
 from scripts.quota_manager import quota_manager
 
@@ -24,12 +23,10 @@ def format_time(seconds):
     return f"{hours:02}:{minutes:02}:{secs:02},{millis:03}"
 
 def trim_audio_precision(file_path):
+    # 🚨 AUDIO FIX: Removed destructive trimming. Added a 400ms cinematic buffer to the start.
     try:
         audio = AudioSegment.from_file(file_path)
-        start_trim = detect_leading_silence(audio)
-        end_trim = detect_leading_silence(audio.reverse())
-        trimmed = audio[start_trim:len(audio)-end_trim]
-        final = AudioSegment.silent(duration=200) + trimmed + AudioSegment.silent(duration=200)
+        final = AudioSegment.silent(duration=400) + audio + AudioSegment.silent(duration=500)
         final.export(file_path, format="wav")
         return True
     except: return False
@@ -73,7 +70,6 @@ def generate_audio(text, output_base="temp_audio"):
     try:
         print("📝 [VOICE] Transcribing and Chunking Captions (Max 3 words)...")
         from faster_whisper import WhisperModel
-        # This will no longer throw the unauthenticated warning
         model = WhisperModel("tiny.en", device="cpu", compute_type="int8")
         segments, _ = model.transcribe(final_wav, word_timestamps=True)
         
