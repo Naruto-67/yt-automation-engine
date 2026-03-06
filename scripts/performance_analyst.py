@@ -21,7 +21,6 @@ def run_daily_analysis():
     if not youtube: return
 
     try:
-        # 🚨 FIX: Force safe integer casting and fallback to 1 to prevent ZeroDivision errors in LLM prompt
         channel_req = youtube.channels().list(part="statistics", mine=True).execute()
         if not channel_req.get("items"):
             raise ValueError("No channel data found.")
@@ -50,8 +49,13 @@ def run_daily_analysis():
             match = re.search(r'\{.*\}', analysis_raw.replace("```json", "").replace("```", ""), re.DOTALL)
             if match:
                 new_rules = json.loads(match.group(0))
-                lessons["emphasize"] = new_rules.get("emphasize", lessons["emphasize"])
-                lessons["avoid"] = new_rules.get("avoid", lessons["avoid"])
+                
+                # 🚨 FIX: Safe Array Length verification prevents IndexError crash if LLM hallucinates empty list
+                emp_list = new_rules.get("emphasize", lessons["emphasize"])
+                avo_list = new_rules.get("avoid", lessons["avoid"])
+                
+                lessons["emphasize"] = emp_list if isinstance(emp_list, list) and len(emp_list) > 0 else ["High retention pacing"]
+                lessons["avoid"] = avo_list if isinstance(avo_list, list) and len(avo_list) > 0 else ["Boring intros"]
                 
                 with open(tracker_path, "w", encoding="utf-8") as f:
                     json.dump(lessons, f, indent=4)
