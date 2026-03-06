@@ -1,6 +1,7 @@
 import requests
 import os
 import time
+import random
 from datetime import datetime
 import pytz
 
@@ -15,8 +16,8 @@ class DiscordNotifier:
     def send_rich_embed(self, title, color, fields):
         if not self.webhook_url: return False
         
-        # 🚨 GLOBAL BREATHER: Prevents Discord Webhook Rate Limit Bans (Shadowbans)
-        time.sleep(2)
+        # 🚨 FIX: Chaotic Biological Pacing mathematically evades automated shadowban algorithms
+        time.sleep(random.uniform(2.5, 4.5))
             
         payload = {
             "username": "Ghost Engine AI",
@@ -49,14 +50,12 @@ def notify_production_success(niche, topic, script, script_ai, seo_ai, voice_ai,
         {"name": "🧠 Rendered By", "value": f"└ **Script:** {script_ai}\n└ **SEO:** {seo_ai}\n└ **Voice:** {voice_ai}\n└ **Visual:** {visual_ai}", "inline": False},
         {"name": "🏦 Upload Status", "value": f"└ {status}", "inline": False}
     ]
-    # Restored to Purple (0x9b59b6)
     notifier.send_rich_embed("🪬 Production Success", 0x9b59b6, fields)
 
 def notify_summary(success, message):
     webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
     notifier = DiscordNotifier(webhook_url)
     
-    # Purple for success/info, Red for failure
     color = 0x9b59b6 if success else 0xe74c3c 
     
     fields = [
@@ -72,7 +71,6 @@ def notify_daily_pulse(views, subs, new_rules):
         {"name": "📈 Channel Stats", "value": f"└ **Views:** {views}\n└ **Subs:** {subs}", "inline": False},
         {"name": "🧠 AI Strategy Update", "value": f"└ **Focus:** {new_rules['emphasize'][0]}\n└ **Avoid:** {new_rules['avoid'][0]}", "inline": False}
     ]
-    # Restored to Purple (0x9b59b6)
     notifier.send_rich_embed("🔮 Daily Channel Pulse & Analysis", 0x9b59b6, fields)
 
 def notify_error(module, error_type, message):
@@ -84,7 +82,6 @@ def notify_error(module, error_type, message):
         {"name": "⚠️ Error Type", "value": f"└ {error_type}", "inline": False},
         {"name": "📜 Details", "value": f"└ {message[:500]}", "inline": False}
     ]
-    # Kept Red for critical visibility
     notifier.send_rich_embed("🚨 AI Doctor: Critical Crash", 0xe74c3c, fields)
 
 def notify_vault_secure(topic, *args, **kwargs):
@@ -95,7 +92,6 @@ def notify_vault_secure(topic, *args, **kwargs):
         {"name": "📝 Video", "value": f"└ {topic}", "inline": False},
         {"name": "🏦 Status", "value": "└ Securely uploaded to Private Vault", "inline": False}
     ]
-    # Restored to Purple (0x9b59b6)
     notifier.send_rich_embed("🪬 Vault Secured", 0x9b59b6, fields)
 
 def notify_token_expiry(days_unused):
@@ -121,5 +117,4 @@ def notify_token_expiry(days_unused):
         {"name": "🔑 Required Scopes", "value": scopes, "inline": False},
         {"name": "🛠️ Steps to Renew", "value": steps, "inline": False}
     ]
-    # Gold/Yellow for warnings
     notifier.send_rich_embed("⚠️ YouTube API Token Dormant (Expiring Soon)", 0xe1ad01, fields)
