@@ -2,9 +2,11 @@ import os
 import subprocess
 import json
 import re
+import random
 from pydub import AudioSegment
 
 def get_style_config(style_name="default"):
+    # 🚨 THE 2026 BRUTALIST RETENTION META
     default_style = {
         "FontName": "Arial",           
         "FontSize": "85",              
@@ -96,16 +98,19 @@ def srt_to_ass(srt_path, ass_path, style):
 def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=60):
     frames = int(duration * fps)
     
+    # 🚨 THE ANIMATION FIX: Using 'zoom+0.001' smoothly increases the scale by 0.1% every frame.
     effects = [
-        f"zoompan=z='1.0+it/3000':x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}",
-        f"zoompan=z='1.0+it/3000':x='0':y='0':d={frames}:s=1080x1920:fps={fps}",
-        f"zoompan=z='1.0+it/3000':x='iw-(iw/zoom)':y='ih-(ih/zoom)':d={frames}:s=1080x1920:fps={fps}",
-        f"zoompan=z='1.0+it/3000':x='iw-(iw/zoom)':y='0':d={frames}:s=1080x1920:fps={fps}",
-        f"zoompan=z='1.0+it/3000':x='0':y='ih-(ih/zoom)':d={frames}:s=1080x1920:fps={fps}"
+        f"zoompan=z='min(zoom+0.001,1.5)':x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}", # Zoom Center
+        f"zoompan=z='min(zoom+0.001,1.5)':x='0':y='0':d={frames}:s=1080x1920:fps={fps}", # Zoom Top Left
+        f"zoompan=z='min(zoom+0.001,1.5)':x='iw-(iw/zoom)':y='ih-(ih/zoom)':d={frames}:s=1080x1920:fps={fps}", # Zoom Bottom Right
+        f"zoompan=z='min(zoom+0.001,1.5)':x='iw-(iw/zoom)':y='0':d={frames}:s=1080x1920:fps={fps}", # Zoom Top Right
+        f"zoompan=z='min(zoom+0.001,1.5)':x='0':y='ih-(ih/zoom)':d={frames}:s=1080x1920:fps={fps}"  # Zoom Bottom Left
     ]
     
     selected_effect = effects[index % len(effects)]
-    full_filter = f"{selected_effect},eq=contrast=1.05:saturation=1.15"
+    
+    # We pre-scale the image to 1080x1920 to ensure zoompan doesn't glitch, then apply color grading
+    full_filter = f"scale=1080:1920,{selected_effect},eq=contrast=1.05:saturation=1.15"
 
     cmd = [
         "ffmpeg", "-y",
