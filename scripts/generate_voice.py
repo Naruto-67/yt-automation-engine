@@ -22,10 +22,10 @@ def format_time(seconds):
     return f"{hours:02}:{minutes:02}:{secs:02},{millis:03}"
 
 def trim_audio_precision(file_path):
-    # 🚨 AUDIO FIX: Removed destructive trimming. Added a 400ms cinematic buffer to the start.
     try:
         audio = AudioSegment.from_file(file_path)
-        final = AudioSegment.silent(duration=400) + audio + AudioSegment.silent(duration=500)
+        # 🚨 VOLUME FIX: "+ 8" digitally boosts the waveform by 8 decibels for YouTube Shorts optimization
+        final = AudioSegment.silent(duration=400) + (audio + 8) + AudioSegment.silent(duration=500)
         final.export(file_path, format="wav")
         return True
     except: return False
