@@ -101,14 +101,13 @@ def render_video(image_paths, audio_path, output_path, scene_weights=None, water
     safe_font = font_path.replace('\\', '/').replace(':', r'\:')
     safe_ass = ass_path.replace('\\', '/').replace(':', r'\:')
     
-    watermark_filter = f",drawtext=fontfile='{safe_font}':text='{watermark_text}':fontcolor=0xD3D3D3@0.25:shadowcolor=0x000000@0.25:shadowx=3:shadowy=3:fontsize=60:x=(w-text_w)/2:y=h-250"
+    # 🚨 FIX: Replace spaces with strict FFmpeg unicode delimiter to prevent fatal graph crash
+    safe_watermark = watermark_text.replace(" ", "\u2002").replace("'", "").replace('"', '')
+    
+    watermark_filter = f",drawtext=fontfile='{safe_font}':text='{safe_watermark}':fontcolor=0xD3D3D3@0.25:shadowcolor=0x000000@0.25:shadowx=3:shadowy=3:fontsize=60:x=(w-text_w)/2:y=h-250"
     
     subprocess.run(["ffmpeg", "-y", "-i", temp_merged, "-vf", f"ass='{safe_ass}'{watermark_filter}", "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-c:a", "copy", output_path], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True)
 
-    for f in clip_files + [temp_concat, temp_merged, ass_path]:
-        if os.path.exists(f): os.remove(f)
-        
-    # 🚨 FIX: The "Zero-Byte Ghost Upload" Shield. Detect FFmpeg soft-failures mathematically.
     if not os.path.exists(output_path): 
         return False, total_dur, 0
         
