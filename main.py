@@ -19,7 +19,7 @@ except ImportError as e:
     sys.exit(1)
 
 # 🚨 LEFT ON "TRUE" FOR TESTING: Will not consume the 1600 upload quota.
-TEST_MODE = True 
+TEST_MODE = False 
 
 def load_matrix():
     path = os.path.join(os.path.dirname(__file__), "memory", "content_matrix.json")
