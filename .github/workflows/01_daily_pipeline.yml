@@ -67,8 +67,6 @@ jobs:
           if-no-files-found: warn
           compression-level: 6
 
-      - name: Cleanup Binary Artifacts
-        if: always()
+      - name: Cleanup
         run: |
           rm -rf *.mp4 *.wav *.mp3 *.srt *.ass temp_*
-          pip cache purge
