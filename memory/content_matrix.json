@@ -128,7 +128,10 @@
     {
         "niche": "brainrot",
         "topic": "Weird Life Hacks",
-        "bg_query": "life hacks weird tips"
+        "bg_query": "life hacks weird tips",
+        "processed": true,
+        "vaulted_date": "2026-03-06T10:46:40.222761",
+        "published": false
     },
     {
         "niche": "short story",
