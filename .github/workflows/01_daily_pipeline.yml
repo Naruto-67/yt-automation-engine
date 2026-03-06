@@ -13,7 +13,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-liberation espeak-ng
+      
+      # 🚨 FIX: Inject DEBIAN_FRONTEND=noninteractive to bypass all OS-level terminal freezes
+      - name: Install System Dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: sudo apt-get update && sudo apt-get install -yq ffmpeg fonts-liberation espeak-ng
+        
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -36,7 +42,7 @@ jobs:
       - run: |
           git config --global user.name "Ghost-Engine-Bot"
           git config --global user.email "bot@ghostengine.ai"
-          git add memory/*.json assets/lessons_learned.json
+          git add memory/ assets/lessons_learned.json
           if ! git diff --staged --quiet; then
             git commit -m "Update API State & Memory [skip ci]"
             git pull --rebase origin main
