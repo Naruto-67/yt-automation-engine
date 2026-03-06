@@ -2,11 +2,9 @@ import os
 import subprocess
 import json
 import re
-import random
 from pydub import AudioSegment
 
 def get_style_config(style_name="default"):
-    # 🚨 THE 2026 BRUTALIST RETENTION META
     default_style = {
         "FontName": "Arial",           
         "FontSize": "85",              
@@ -109,7 +107,6 @@ def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=60):
     selected_effect = effects[index % len(effects)]
     full_filter = f"{selected_effect},eq=contrast=1.05:saturation=1.15"
 
-    # 🚨 HIGH QUALITY FLAG: Using -crf 18 and -preset fast for crisp 1080p
     cmd = [
         "ffmpeg", "-y",
         "-loop", "1", "-i", image_path,
@@ -134,15 +131,11 @@ def render_video(image_paths, audio_path, output_path, style_name="default"):
         audio = AudioSegment.from_file(audio_path)
         total_duration = len(audio) / 1000.0 
         
-        # 🚨 THE 60-SECOND YOUTUBE SHORTS FAILSAFE
         if total_duration > 59.0:
-            print(f"⚠️ [RENDERER] Audio is {total_duration}s. Fading out at 59s to guarantee Shorts eligibility.")
-            audio = audio[:59000].fade_out(1500)  # Graceful 1.5s cinematic fade out
-            audio.export(audio_path, format="wav")
-            total_duration = 59.0
+            print(f"⚠️ [RENDERER ALERT] Audio is {total_duration}s. Dangerously close to 60s YouTube Shorts limit, but leaving uncut for natural ending.")
             
     except Exception as e:
-        print(f"⚠️ [RENDERER] Failed to process audio: {e}")
+        print(f"⚠️ [RENDERER] Failed to process audio duration: {e}")
         return False
 
     clip_durations = calculate_dynamic_durations(srt_path, len(image_paths), total_duration)
@@ -165,7 +158,6 @@ def render_video(image_paths, audio_path, output_path, style_name="default"):
 
     safe_ass = ass_path.replace('\\', '/').replace(':', r'\:')
     
-    # 🚨 HIGH QUALITY BURN FLAG: CRF 18
     cmd_burn = [
         "ffmpeg", "-y", "-i", temp_merged_video, "-vf", f"ass='{safe_ass}'",
         "-c:v", "libx264", "-preset", "fast", "-crf", "18",
