@@ -24,12 +24,16 @@ def format_time(seconds):
 def trim_audio_precision(file_path):
     try:
         audio = AudioSegment.from_file(file_path)
-        # 🚨 STRIP SILENCE & VOLUME FIX: We strip the buffer we added at the start, then boost.
-        audio = audio.strip_silence(silence_len=200, silence_thresh=-40) 
+        # 🚨 FIX: Slice off the first 200 milliseconds (the comma buffer) instead of using invalid methods.
+        if len(audio) > 200:
+            audio = audio[200:]
+            
         final = AudioSegment.silent(duration=200) + (audio + 8) + AudioSegment.silent(duration=500)
         final.export(file_path, format="wav")
         return True
-    except: return False
+    except Exception as e: 
+        print(f"⚠️ Audio trim failed: {e}")
+        return False
 
 def generate_audio(text, output_base="temp_audio"):
     final_wav = f"{output_base}.wav"
