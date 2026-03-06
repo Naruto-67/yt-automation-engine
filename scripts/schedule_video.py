@@ -20,7 +20,6 @@ def get_historical_time_data(youtube):
         stats_response = youtube.videos().list(part="statistics,snippet", id=",".join(vid_ids)).execute()
         quota_manager.consume_points("youtube", 1)
         
-        # 🚨 FIX: Strict Filter. Completely ignores Private/Vault videos (views == 0) to prevent AI analytic poisoning.
         valid_history = []
         for item in stats_response.get("items", []):
             views = int(item["statistics"].get("viewCount", "0"))
@@ -149,11 +148,11 @@ def publish_vault_videos():
                     matrix = [m for m in matrix if m.get("youtube_id") != vid_id]
                 continue
 
-        # Atomic Save
-        tmp_path = matrix_path + ".tmp"
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(matrix, f, indent=4)
-        os.replace(tmp_path, matrix_path)
+            # 🚨 FIX: Atomic Save injected deep inside the loop to guarantee State Persistence per-video
+            tmp_path = matrix_path + ".tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(matrix, f, indent=4)
+            os.replace(tmp_path, matrix_path)
             
         notify_summary(True, f"Publisher scheduled 2 videos for {ai_times[0]} and {ai_times[1]} UTC based on AI Data Correlation.")
     except Exception as e:
