@@ -32,10 +32,13 @@ def load_matrix():
     return []
 
 def save_matrix(matrix):
+    # 🚨 FIX: Atomic Writes guarantee the OS will never corrupt memory during process kills
     path = os.path.join(os.path.dirname(__file__), "memory", "content_matrix.json")
+    tmp_path = path + ".tmp"
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
+    with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(matrix, f, indent=4)
+    os.replace(tmp_path, path)
 
 def global_garbage_collector():
     print("🧹 [GC] Initializing Global Garbage Collection...")
@@ -86,7 +89,6 @@ def run_production_cycle():
             topic = item['topic']
             niche = item['niche']
             
-            # 🚨 FIX: Internal Retry Loop. Instantly resolves failures without wasting tomorrow's queue.
             max_item_attempts = 3
             item_success = False
             
@@ -95,7 +97,7 @@ def run_production_cycle():
                 
                 if not quota_manager.can_afford_youtube(1700):
                     print("🛑 [QUOTA GUARDIAN] YouTube Quota limit reached (10k). Halting production to prevent API ban.")
-                    return # Exit entire workflow immediately
+                    return 
 
                 global_garbage_collector()
 
@@ -154,7 +156,6 @@ def run_production_cycle():
                         status="Successful (Test Mode)" if TEST_MODE else "Vaulted & Commented"
                     )
                     
-                    # If we reached here, the item was successfully completed. Break the retry loop!
                     if not TEST_MODE:
                         global_garbage_collector()
                     break
@@ -174,7 +175,6 @@ def run_production_cycle():
                         item['processed'] = True
                         item['failed_flag'] = True
             
-            # Save the matrix after an item completely finishes (whether success or quarantine)
             save_matrix(matrix)
 
         print(f"🏁 [FINISH] {success_count} videos sent to Vault.")
