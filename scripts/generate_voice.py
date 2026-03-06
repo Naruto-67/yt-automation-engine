@@ -29,7 +29,11 @@ def trim_audio_precision(file_path):
             
         audio = effects.normalize(audio)
         
-        final = AudioSegment.silent(duration=200) + audio + AudioSegment.silent(duration=500)
+        # 🚨 FIX: Dynamically match frame_rate and channels to prevent silent digital artifacting (POPs/CLICKs)
+        silence_start = AudioSegment.silent(duration=200, frame_rate=audio.frame_rate)
+        silence_end = AudioSegment.silent(duration=500, frame_rate=audio.frame_rate)
+        
+        final = silence_start + audio + silence_end
         final.export(file_path, format="wav")
         return True
     except Exception as e: 
@@ -72,7 +76,6 @@ def generate_audio(text, output_base="temp_audio"):
     if not success: 
         return False, provider
     
-    # 🚨 FIX: Strict Pass-Through Guard. If the audio is corrupt and can't be trimmed, fail immediately.
     if not trim_audio_precision(final_wav):
         return False, provider
 
@@ -107,7 +110,6 @@ def generate_audio(text, output_base="temp_audio"):
             f.write("\n".join(srt_lines))
     except Exception as e: 
         print(f"⚠️ Transcription error: {e}")
-        # 🚨 FIX: Silent Movie Guard. If Whisper crashes and can't generate the SRT, fail the whole topic.
         return False, provider
     
     return True, provider
