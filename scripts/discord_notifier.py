@@ -29,23 +29,22 @@ class DiscordNotifier:
             return True
         except: return False
 
-def notify_production_success(niche, topic, script, script_ai, seo_ai, voice_ai, visual_ai, metadata, status="Vaulted (Test Mode)"):
+def notify_production_success(niche, topic, script, script_ai, seo_ai, voice_ai, visual_ai, metadata, duration, size, status="Vaulted (Test Mode)"):
     webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
     notifier = DiscordNotifier(webhook_url)
     
-    # Safely extract metadata
     title = metadata.get('title', 'Generated Title')
-    desc = metadata.get('description', 'Generated Description')[:150]
-    tags = ', '.join(metadata.get('tags', []))[:100]
     
+    # 🚨 THE PERFECT UI MATCH: Matches your screenshot exactly
     fields = [
-        {"name": "🎯 Niche & Video", "value": f"**Niche:** {niche.title()}\n**Topic:** {topic}", "inline": False},
-        {"name": "🔥 SEO Metadata", "value": f"**Title:** {title}\n**Tags:** {tags}...\n**Desc:** {desc}...", "inline": False},
-        {"name": "🧠 AI Architecture & Fallbacks", "value": f"└ **Script:** {script_ai}\n└ **SEO:** {seo_ai}\n└ **Voice:** {voice_ai}\n└ **Visual:** {visual_ai}", "inline": False},
+        {"name": "🎯 Niche", "value": f"└ {niche.title()}", "inline": False},
+        {"name": "📝 Video", "value": f"└ {title}", "inline": False},
+        {"name": "📊 Stats", "value": f"└ Size: {size:.1f} MB\n└ Duration: {duration:.1f}s", "inline": False},
         {"name": "📜 Script Preview", "value": f"└ {script[:150]}...", "inline": False},
-        {"name": "🏦 Upload Status", "value": f"└ {status}", "inline": False}
+        {"name": "🧠 Rendered By", "value": f"└ **Script:** {script_ai}\n└ **SEO:** {seo_ai}\n└ **Voice:** {voice_ai}\n└ **Visual:** {visual_ai}", "inline": False},
+        {"name": "🏦 Uploaded in vault", "value": f"└ {status}", "inline": False}
     ]
-    notifier.send_rich_embed("🎬 Video Production Success", 0x9b59b6, fields)
+    notifier.send_rich_embed("✅ Production Success", 0x2ecc71, fields)
 
 def notify_summary(success, message):
     webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
