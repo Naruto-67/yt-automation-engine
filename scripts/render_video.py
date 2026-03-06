@@ -5,17 +5,18 @@ import re
 from pydub import AudioSegment
 
 def get_style_config(style_name="default"):
+    # Adjusted font size slightly so it doesn't overwhelm the screen
     default_style = {
         "FontName": "Arial",           
-        "FontSize": "85",              
+        "FontSize": "75",              
         "PrimaryColour": "&H00FFFFFF", 
         "OutlineColour": "&H00000000", 
         "BackColour": "&H00000000",    
-        "Outline": "11",               
+        "Outline": "10",               
         "Shadow": "0",                 
         "BorderStyle": "1",            
         "Alignment": "2",              
-        "MarginV": "600"               
+        "MarginV": "500"               
     }
 
     if os.path.exists(config_path := os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")), "style_configs", f"{style_name}.json")):
@@ -96,17 +97,20 @@ def srt_to_ass(srt_path, ass_path, style):
 def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=60):
     frames = int(duration * fps)
     
-    # 🚨 THE ANIMATION FIX: Properly formatting the zoompan filter string for FFmpeg
+    # 🚨 RESOLUTION FIX: Force exact 1080x1920 crop BEFORE zoompan to prevent squishing
+    prep_filter = "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920"
+    
+    # 🚨 ANIMATION FIX: Using 'n' (frame number) for mathematically perfect, jitter-free pans
     effects = [
-        f"zoompan=z='min(zoom+0.0015,1.5)':x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}", 
-        f"zoompan=z='min(zoom+0.0015,1.5)':x='0':y='0':d={frames}:s=1080x1920:fps={fps}", 
-        f"zoompan=z='min(zoom+0.0015,1.5)':x='iw-(iw/zoom)':y='ih-(ih/zoom)':d={frames}:s=1080x1920:fps={fps}", 
-        f"zoompan=z='min(zoom+0.0015,1.5)':x='iw-(iw/zoom)':y='0':d={frames}:s=1080x1920:fps={fps}", 
-        f"zoompan=z='min(zoom+0.0015,1.5)':x='0':y='ih-(ih/zoom)':d={frames}:s=1080x1920:fps={fps}"  
+        f"zoompan=z='1.0+0.0005*n':x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}", # Smooth Zoom In
+        f"zoompan=z='1.15':x='iw/2-(iw/zoom)/2':y='(ih-ih/zoom)*(n/{frames})':d={frames}:s=1080x1920:fps={fps}", # Smooth Pan Down
+        f"zoompan=z='1.15':x='(iw-iw/zoom)*(n/{frames})':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}", # Smooth Pan Right
+        f"zoompan=z='1.15':x='iw/2-(iw/zoom)/2':y='(ih-ih/zoom)*(1-n/{frames})':d={frames}:s=1080x1920:fps={fps}", # Smooth Pan Up
+        f"zoompan=z='1.15':x='(iw-iw/zoom)*(1-n/{frames})':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}"  # Smooth Pan Left
     ]
     
     selected_effect = effects[index % len(effects)]
-    full_filter = f"scale=1080:1920,{selected_effect},eq=contrast=1.05:saturation=1.15"
+    full_filter = f"{prep_filter},{selected_effect},eq=contrast=1.05:saturation=1.15"
 
     cmd = [
         "ffmpeg", "-y",
@@ -129,12 +133,10 @@ def render_video(image_paths, audio_path, output_path, scene_weights=None, water
     if not srt_to_ass(srt_path, ass_path, get_style_config(style_name)): return False
     
     try:
-        # 🚨 THE AUDIO CHOP FIX: We read the exact length of the audio file in milliseconds and divide by 1000.
         audio = AudioSegment.from_file(audio_path)
         total_duration = len(audio) / 1000.0 
         print(f"   🔊 Audio Duration: {total_duration}s")
         
-        # Only trim if it ACTUALLY exceeds 59 seconds.
         if total_duration > 59.0:
             print("⚠️ [RENDERER ALERT] Audio exceeds 59s. Trimming to prevent YouTube Shorts violation.")
             audio = audio[:59000].fade_out(1500)
@@ -169,9 +171,9 @@ def render_video(image_paths, audio_path, output_path, scene_weights=None, water
 
     safe_ass = ass_path.replace('\\', '/').replace(':', r'\:')
     
-    # 🚨 THE WATERMARK TWEAK: Lowered opacity to 12% (0.12)
+    # 🚨 WATERMARK FIX: Exact mathematical center: x=(w-text_w)/2:y=(h-text_h)/2
     font_path = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
-    watermark_filter = f",drawtext=fontfile='{font_path}':text='{watermark_text}':fontcolor=white@0.12:fontsize=45:x=(w-text_w)/2:y=h*0.55" if watermark_text else ""
+    watermark_filter = f",drawtext=fontfile='{font_path}':text='{watermark_text}':fontcolor=white@0.12:fontsize=45:x=(w-text_w)/2:y=(h-text_h)/2" if watermark_text else ""
     
     cmd_burn = [
         "ffmpeg", "-y", "-i", temp_merged_video, 
@@ -184,6 +186,5 @@ def render_video(image_paths, audio_path, output_path, scene_weights=None, water
     for f in clip_files + [temp_concat_file, temp_merged_video, ass_path]:
         if os.path.exists(f): os.remove(f)
     
-    # 🚨 RETURN STATS: We pass the exact duration and file size back to main.py
     file_size_mb = os.path.getsize(output_path) / (1024 * 1024)
     return True, total_duration, file_size_mb
