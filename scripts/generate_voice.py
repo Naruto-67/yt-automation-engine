@@ -24,8 +24,9 @@ def format_time(seconds):
 def trim_audio_precision(file_path):
     try:
         audio = AudioSegment.from_file(file_path)
-        # 🚨 VOLUME FIX: "+ 8" digitally boosts the waveform by 8 decibels for YouTube Shorts optimization
-        final = AudioSegment.silent(duration=400) + (audio + 8) + AudioSegment.silent(duration=500)
+        # 🚨 STRIP SILENCE & VOLUME FIX: We strip the buffer we added at the start, then boost.
+        audio = audio.strip_silence(silence_len=200, silence_thresh=-40) 
+        final = AudioSegment.silent(duration=200) + (audio + 8) + AudioSegment.silent(duration=500)
         final.export(file_path, format="wav")
         return True
     except: return False
@@ -37,6 +38,9 @@ def generate_audio(text, output_base="temp_audio"):
     success = False
     provider = "Unknown"
     
+    # 🚨 DICTION FIX: Add a comma buffer so Kokoro takes a 'breath' before speaking, preventing rushed first words.
+    buffered_text = f", {text}" 
+    
     print("🎙️ [VOICE] Attempting Primary: Kokoro (Ultra-Realistic Human)...")
     try:
         from kokoro import KPipeline
@@ -45,7 +49,8 @@ def generate_audio(text, output_base="temp_audio"):
         print(f"🎙️ [VOICE] Selected actor: {chosen_voice.upper()}")
         
         pipeline = KPipeline(lang_code='a') 
-        gen = pipeline(text, voice=chosen_voice, speed=1.1, split_pattern=r'\n+')
+        # Using buffered_text instead of the raw text
+        gen = pipeline(buffered_text, voice=chosen_voice, speed=1.1, split_pattern=r'\n+')
         audio_chunks = [audio for _, _, audio in gen if audio is not None]
         if audio_chunks:
             sf.write(final_wav, np.concatenate(audio_chunks), 24000)
@@ -57,7 +62,7 @@ def generate_audio(text, output_base="temp_audio"):
 
     if not success:
         print("🎙️ [VOICE] Kokoro failed. Booting Groq Fallback...")
-        if groq_client.generate_audio(text, final_wav):
+        if groq_client.generate_audio(buffered_text, final_wav):
             success = True
             provider = "Groq Orpheus API"
 
