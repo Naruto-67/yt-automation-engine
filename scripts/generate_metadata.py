@@ -14,6 +14,7 @@ def generate_seo_metadata(niche, script):
     1. Title must be under 60 characters and highly clickable.
     2. Description must be exactly 2 sentences and include #shorts.
     3. Provide exactly 5 highly relevant tags.
+    4. Do not use angle brackets (< or >) anywhere in the text.
     
     FORMAT: Return ONLY valid JSON.
     {{
@@ -28,7 +29,11 @@ def generate_seo_metadata(niche, script):
         if raw_text:
             match = re.search(r'\{.*\}', raw_text.replace("```json", "").replace("```", ""), re.DOTALL)
             if match:
-                return json.loads(match.group(0)), provider
+                data = json.loads(match.group(0))
+                # 🚨 FIX: Mathematically strip illegal characters to prevent YouTube API 400 Crash
+                data["title"] = data.get("title", "").replace("<", "").replace(">", "")
+                data["description"] = data.get("description", "").replace("<", "").replace(">", "")
+                return data, provider
     except Exception as e:
         print(f"⚠️ [SEO] Generation failed: {e}")
         
