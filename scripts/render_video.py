@@ -5,28 +5,34 @@ import re
 from pydub import AudioSegment
 
 def get_style_config(style_name="default"):
-    # MAGIC CAPTION SETTINGS (MrBeast / Hormozi Style)
+    # 🚨 THE VIRAL META CAPTION STYLE
     default_style = {
-        "FontName": "Liberation Sans", 
-        "FontSize": "60",              
+        "FontName": "Arial",           # Guaranteed to be thick and bold on Linux
+        "FontSize": "70",              # Massive font for maximum mobile retention
         "PrimaryColour": "&H00FFFFFF", # Pure White Text
-        "OutlineColour": "&H00FF00FF", # Vibrant Magenta/Purple Outline (BGR format)
+        "OutlineColour": "&H00000000", # Pure Black Outline
         "BackColour": "&H80000000",    # Black Shadow
-        "Outline": "8",                # MASSIVE thick outline so it never blends
-        "Shadow": "4",                 # Deep drop shadow
+        "Outline": "9",                # Extremely thick black outline (Hormozi style)
+        "Shadow": "5",                 # Deep drop shadow for 3D effect
         "BorderStyle": "1",            
         "Alignment": "2",              # Bottom Center
-        "MarginV": "350"               # Pushed perfectly above the YouTube UI
+        "MarginV": "380"               # Sits perfectly above the YT Shorts UI
     }
+
+    if os.path.exists(config_path := os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")), "style_configs", f"{style_name}.json")):
+        try:
+            with open(config_path, "r") as f: default_style.update(json.load(f))
+        except: pass
     return default_style
 
 def srt_to_ass(srt_path, ass_path, style):
-    print("🎨 [RENDERER] Generating Magic Captions...")
+    print("🎨 [RENDERER] Generating High-Retention Subtitles...")
     header = (
         "[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n\n"
         "[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
         "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
         "Alignment, MarginL, MarginR, MarginV, Encoding\n"
+        # Notice the '1' added for the 'Bold' parameter
         f"Style: Default,{style['FontName']},{style['FontSize']},{style['PrimaryColour']},&H000000FF,"
         f"{style['OutlineColour']},{style['BackColour']},1,0,0,0,100,100,0,0,{style['BorderStyle']},"
         f"{style['Outline']},{style['Shadow']},{style['Alignment']},10,10,{style['MarginV']},1\n\n"
