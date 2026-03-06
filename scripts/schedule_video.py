@@ -94,13 +94,15 @@ def publish_vault_videos():
                 
                 target_time_str = ai_times[idx] if idx < len(ai_times) else "15:00"
                 try:
-                    hr, mn = map(int, target_time_str.split(':'))
+                    hr_str, mn_str = target_time_str.split(':')
+                    # 🚨 FIX: Modulo Math prevents '24:00' ValueError crash
+                    hr = int(hr_str) % 24
+                    mn = int(mn_str) % 60
                 except:
-                    hr, mn = 15 + (idx * 8), 0 
+                    hr, mn = (15 + (idx * 8)) % 24, 0 
                     
                 target_dt = now.replace(hour=hr, minute=mn, second=0, microsecond=0)
                 
-                # 🚨 FIX: YouTube API 15-Minute Rule Check
                 if target_dt <= now + timedelta(minutes=15):
                     target_dt += timedelta(days=1) 
                 pub_time = target_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
