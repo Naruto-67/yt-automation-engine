@@ -95,7 +95,6 @@ def publish_vault_videos():
                 target_time_str = ai_times[idx] if idx < len(ai_times) else "15:00"
                 try:
                     hr_str, mn_str = target_time_str.split(':')
-                    # 🚨 FIX: Modulo Math prevents '24:00' ValueError crash
                     hr = int(hr_str) % 24
                     mn = int(mn_str) % 60
                 except:
@@ -126,9 +125,14 @@ def publish_vault_videos():
                         m_item['published_date'] = datetime.utcnow().isoformat()
                         
             except Exception as vid_e:
-                print(f"⚠️ [PUBLISHER] Failed to publish video {vid_id}: {vid_e}. Removing from memory to self-heal.")
-                notify_error("Publisher", "Phantom Video Desync", f"Video {vid_id} failed: {vid_e}")
-                matrix = [m for m in matrix if m.get("youtube_id") != vid_id]
+                print(f"⚠️ [PUBLISHER] Failed to publish video {vid_id}: {vid_e}.")
+                notify_error("Publisher", "Publishing Error", f"Video {vid_id} failed: {vid_e}")
+                
+                # 🚨 FIX: We only delete from matrix memory if YouTube explicitly says "404 Not Found" (User manually deleted it). 
+                # If it is a 503 or 429 API rate limit error, we keep it in memory and let it retry tomorrow naturally!
+                if "404" in str(vid_e) or "not found" in str(vid_e).lower():
+                    print(f"🗑️ [PUBLISHER] 404 Detected. Removing ghost video {vid_id} from memory.")
+                    matrix = [m for m in matrix if m.get("youtube_id") != vid_id]
                 continue
 
         with open(matrix_path, "w", encoding="utf-8") as f:
