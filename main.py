@@ -77,7 +77,6 @@ def run_production_cycle():
             niche = item['niche']
             print(f"\n🎬 [PROCESSING] {niche.upper()}: {topic}")
             
-            # 🚨 FIX: Strict Quota Check requires 1700 (1600 upload + 50 playlist + 50 comment)
             if not quota_manager.can_afford_youtube(1700):
                 print("🛑 [QUOTA GUARDIAN] YouTube Quota limit reached (10k). Halting production to prevent API ban.")
                 break
@@ -101,7 +100,6 @@ def run_production_cycle():
 
                 image_paths, visual_prov = fetch_scene_images(image_prompts, pexels_queries, base_filename=f"temp_scene_{success_count}")
                 
-                # 🚨 FIX: Prevent Audio/Video Desync by ensuring ALL images generated successfully
                 if len(image_paths) < len(image_prompts): 
                     raise Exception(f"Visual Desync: Only generated {len(image_paths)}/{len(image_prompts)} images. Aborting to prevent audio cutoff.")
                 time.sleep(10)
@@ -110,7 +108,7 @@ def run_production_cycle():
                     image_paths, f"{audio_base}.wav", final_video, 
                     scene_weights=scene_weights, watermark_text=channel_name 
                 )
-                if not render_success: raise Exception("Render failed.")
+                if not render_success: raise Exception("Render failed or output file is corrupted/zero-bytes.")
 
                 if not TEST_MODE:
                     upload_success, video_id = upload_to_youtube_vault(final_video, topic, metadata)
@@ -123,7 +121,7 @@ def run_production_cycle():
                     else:
                         raise Exception("YouTube Upload API Rejected the Payload.")
                 else:
-                    print(f"🛑 [TEST MODE] Skipped YT Upload. Vaulting '{topic}' virtually.")
+                    print(f"🛑 [TEST MODE] Skipped YT Upload (Saved 1600 Quota). Vaulting '{topic}' virtually.")
                     item['processed'] = True
                     item['vaulted_date'] = datetime.utcnow().isoformat()
                     item['published'] = False
@@ -143,7 +141,13 @@ def run_production_cycle():
             except Exception as e:
                 print(f"🚨 [CRASH] Topic '{topic}' failed: {e}")
                 quota_manager.diagnose_fatal_error("main.py", e)
-                print("⏳ [SAFETY PROTOCOL] Enforcing 60-second cooldown before attempting next video...")
+                
+                # 🚨 FIX: The "Poisoned Topic" Death Loop Shield
+                # Force updates the matrix so the engine never tries this specific, broken topic again.
+                item['processed'] = True
+                item['failed_flag'] = True
+                
+                print("⏳ [SAFETY PROTOCOL] Quarantined poisoned topic. Enforcing 60-second cooldown...")
                 time.sleep(60)
                 continue
 
