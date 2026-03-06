@@ -18,18 +18,24 @@ def generate_script(niche, topic):
     improvements = load_improvement_data()
     target_scenes = random.randint(4, 7)
     
-    # 🚨 ONE-SHOT PROMPT LOCK: We added a strict "Validation Step" instruction to the AI.
+    # 🚨 INFINITE SCALABILITY FIX: The AI dynamically assigns its own persona and visual style based on the niche.
     prompt = f"""
-    You are an Elite YouTube Shorts Documentary Writer. Create a script for niche: '{niche}', Topic: '{topic}'.
+    You are an Elite Master Content Creator. Your task is to write a highly viral YouTube Short.
+    NICHE: '{niche}'
+    TOPIC: '{topic}'
     
     CRITICAL RULES:
-    1. FACTUAL & DIRECT: No random creations. Must be true and logical.
+    1. DYNAMIC ADAPTATION: You MUST adapt your writing and visual style to perfectly match the NICHE.
+       - If it is Fiction/Storytelling: Write a magical, emotional narrative with a protagonist. Use vibrant, Pixar-style 3D animation image prompts.
+       - If it is Factual/Documentary: Write a gripping, gritty script. Use dark, cinematic, photorealistic image prompts.
+       - If it is Brainrot/Internet Culture: Write highly engaging, fast-paced, Gen-Z commentary. Use chaotic, hyper-detailed, saturated image prompts.
+       - For ANY OTHER niche: Deduce the most viral narrative tone and the best visual style for that specific audience.
     2. NO META-COMMENTARY: NEVER say "In this video" or "Welcome back".
     3. STRICT LENGTH LIMIT: The total script MUST be exactly 85 to 95 words. This is critical for the 60-second limit.
     4. DYNAMIC SCENES: To sync the video perfectly, break the script into EXACTLY {target_scenes} scenes.
-       - For EACH scene, write the 'text' (the words spoken in that scene).
-       - Write an 'image_prompt' (begin with a style like 'Dark Cinematic').
-       - Write a 'pexels_query' (a simple 1-2 word search term like 'abandoned house').
+       - For EACH scene, write the 'text' (the actual words spoken).
+       - Write an 'image_prompt' that utilizes the visual style you deduced for this niche.
+       - Write a 'pexels_query' (a simple 1-2 word search term like 'abandoned house', 'galaxy', or 'running dog' for a stock video fallback).
     
     VALIDATION STEP: Before you output, verify that your JSON contains exactly the keys "text", "image_prompt", and "pexels_query" for every single scene. Do not rename them.
     
@@ -38,7 +44,7 @@ def generate_script(niche, topic):
         "scenes": [
             {{
                 "text": "sentence 1...",
-                "image_prompt": "Dark Cinematic shot of...",
+                "image_prompt": "Specific visual style shot of...",
                 "pexels_query": "simple keyword"
             }}
         ]
@@ -49,7 +55,7 @@ def generate_script(niche, topic):
         print(f"🤖 [WRITER] Tasking AI Director for '{topic}' (Targeting {target_scenes} scenes)...")
         raw_response, provider = quota_manager.generate_text(prompt, task_type="creative")
         
-        # 🚨 RAW LOGGING: This will print the exact response to your GitHub Actions console
+        # 🚨 RAW LOGGING: Prints the exact response to your GitHub Actions console for debugging
         print("\n📜 --- RAW AI RESPONSE LOG --- 📜")
         print(raw_response if raw_response else "NONE")
         print("---------------------------------\n")
@@ -61,7 +67,7 @@ def generate_script(niche, topic):
                 data = json.loads(match.group(0))
                 scenes = data.get("scenes", [])
                 
-                # Check for the key 'text' (or fallback to 'narration' if it hallucinates the old prompt)
+                # Resilient One-Shot Extraction: Looks for 'text', falls back to 'narration' just in case.
                 full_script_list = [s.get("text", s.get("narration", "")) for s in scenes]
                 full_script = " ".join(full_script_list).strip()
                 
