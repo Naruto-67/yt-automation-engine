@@ -29,7 +29,6 @@ def get_or_create_playlist(youtube, title, privacy_status="private"):
     except: return None
 
 def get_actual_vault_count(youtube):
-    """🚨 NEW: Asks YouTube exactly how many videos are currently sitting in the Vault."""
     try:
         playlist_id = get_or_create_playlist(youtube, "Vault Backup")
         if not playlist_id: return 0
@@ -63,11 +62,17 @@ def upload_to_youtube_vault(video_path, topic, metadata):
         while response is None: status, response = request.next_chunk()
         video_id = response["id"]
         
-        vault_playlist_id = get_or_create_playlist(youtube, "Vault Backup")
-        if vault_playlist_id:
-            youtube.playlistItems().insert(part="snippet", body={"snippet": {"playlistId": vault_playlist_id, "resourceId": {"kind": "youtube#video", "videoId": video_id}}}).execute()
-        
         quota_manager.consume_points("youtube", 1600)
+        
+        # 🚨 FIX: Isolate Playlist error so it doesn't nuke a successful upload
+        try:
+            vault_playlist_id = get_or_create_playlist(youtube, "Vault Backup")
+            if vault_playlist_id:
+                youtube.playlistItems().insert(part="snippet", body={"snippet": {"playlistId": vault_playlist_id, "resourceId": {"kind": "youtube#video", "videoId": video_id}}}).execute()
+                quota_manager.consume_points("youtube", 50)
+        except Exception as playlist_err:
+            print(f"⚠️ [VAULT] Video uploaded, but playlist assignment failed: {playlist_err}")
+            vault_playlist_id = "Failed to Assign"
         
         if post_creator_comment(youtube, video_id, "What myth or story should we cover next? Let us know below and don't forget to subscribe! 🌟"):
             quota_manager.consume_points("youtube", 50)
