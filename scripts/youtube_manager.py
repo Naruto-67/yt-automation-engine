@@ -15,7 +15,6 @@ def get_youtube_client():
     client_secret = os.environ.get("YOUTUBE_CLIENT_SECRET")
     refresh_token = os.environ.get("YOUTUBE_REFRESH_TOKEN")
     
-    # 🚨 FIX: Loudly declare missing credentials to the Discord admin.
     if not all([client_id, client_secret, refresh_token]): 
         notify_error("YouTube Auth", "Missing Credentials", "One or more YouTube OAuth ENV vars are missing. System is frozen.")
         return None
@@ -24,7 +23,6 @@ def get_youtube_client():
         creds = Credentials(None, refresh_token=refresh_token, token_uri="https://oauth2.googleapis.com/token", client_id=client_id, client_secret=client_secret)
         return build('youtube', 'v3', credentials=creds)
     except Exception as e: 
-        # 🚨 FIX: Prevent the "Silent Coma". Warn the admin instantly if the Token expires.
         notify_error("YouTube Auth", "Token Verification Failed", f"Your YouTube Refresh Token was rejected by Google: {e}")
         return None
 
@@ -38,6 +36,9 @@ def get_or_create_playlist(youtube, title, privacy_status="private"):
         request = youtube.playlists().list(part="snippet", mine=True, maxResults=50)
         while request is not None:
             response = request.execute()
+            # 🚨 FIX: Plugs the silent API point bleeding during infinite page loops
+            quota_manager.consume_points("youtube", 1) 
+            
             playlists.extend(response.get("items", []))
             request = youtube.playlists().list_next(request, response)
             
@@ -83,7 +84,6 @@ def upload_to_youtube_vault(video_path, topic, metadata):
         response = None
         error_count = 0
         
-        # 🚨 FIX: The Fragile Chunk Network Trap. Resumes uploads natively if packets drop.
         while response is None: 
             try:
                 status, response = request.next_chunk()
