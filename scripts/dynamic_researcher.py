@@ -89,17 +89,26 @@ def run_dynamic_research():
         
         if match:
             new_matrix = json.loads(match.group(0))
+            for item in new_matrix: item["processed"] = False 
             
             root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
             matrix_path = os.path.join(root_dir, "memory", "content_matrix.json")
+            archive_path = os.path.join(root_dir, "memory", "topic_archive.txt")
             
             existing_matrix = []
             if os.path.exists(matrix_path):
                 with open(matrix_path, "r", encoding="utf-8") as f:
                     try: existing_matrix = json.load(f)
                     except: pass
-            
-            historical_topics = {item.get("topic", "").lower().strip() for item in existing_matrix}
+                    
+            # 🚨 FIX: The "Amnesia Shield". Build an absolute history log to prevent 365-day duplication.
+            historical_topics = set()
+            if os.path.exists(archive_path):
+                with open(archive_path, "r", encoding="utf-8") as f:
+                    historical_topics = {line.strip().lower() for line in f.readlines() if line.strip()}
+                    
+            for item in existing_matrix:
+                historical_topics.add(item.get("topic", "").lower().strip())
             
             preserved_items = []
             for i in existing_matrix:
@@ -107,14 +116,10 @@ def run_dynamic_research():
                 is_failed = i.get("failed_flag", False)
                 is_published = i.get("published", False)
                 
-                # 🚨 FIX: The Zombie Resurrection Shield. Hard reject any poisoned/failed topics.
-                if is_failed:
-                    continue
+                if is_failed: continue
                 
-                # Keep active Vault items
                 if is_processed and not is_published:
                     preserved_items.append(i)
-                # Keep valid, unprocessed queue items
                 elif not is_processed:
                     preserved_items.append(i)
             
@@ -129,11 +134,17 @@ def run_dynamic_research():
             random.shuffle(unique_new_topics)
             final_matrix = preserved_items + unique_new_topics
             
+            # Save the updated matrix
             with open(matrix_path, "w", encoding="utf-8") as f:
                 json.dump(final_matrix, f, indent=4)
                 
+            # 🚨 FIX: Append the new topics to the permanent text vault.
+            with open(archive_path, "a", encoding="utf-8") as f:
+                for item in unique_new_topics:
+                    f.write(f"{item.get('topic', '').strip()}\n")
+                
             print(f"✅ [RESEARCHER] Matrix updated. Kept {len(preserved_items)} queue items + {len(unique_new_topics)} UNIQUE new topics.")
-            notify_summary(True, f"Deep Research Complete. Zombies purged. {len(unique_new_topics)} unique niches generated.")
+            notify_summary(True, f"Deep Research Complete. Historical Archive checked. {len(unique_new_topics)} unique niches generated.")
         else: raise ValueError("AI returned non-JSON parsable content.")
 
     except Exception as e:
