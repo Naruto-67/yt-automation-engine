@@ -34,12 +34,19 @@ def get_or_create_playlist(youtube, title, privacy_status="private"):
     try:
         playlists = []
         request = youtube.playlists().list(part="snippet", mine=True, maxResults=50)
+        seen_tokens = set() # 🚨 FIX: Mathematical shield against infinite API pagination loops
+        
         while request is not None:
             response = request.execute()
-            # 🚨 FIX: Plugs the silent API point bleeding during infinite page loops
             quota_manager.consume_points("youtube", 1) 
             
             playlists.extend(response.get("items", []))
+            
+            next_token = response.get("nextPageToken")
+            if not next_token or next_token in seen_tokens:
+                break
+                
+            seen_tokens.add(next_token)
             request = youtube.playlists().list_next(request, response)
             
         for item in playlists:
