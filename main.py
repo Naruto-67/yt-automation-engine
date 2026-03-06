@@ -4,7 +4,6 @@ import sys
 from datetime import datetime
 
 from scripts.quota_manager import quota_manager
-# 🚨 UPDATE: Import the new notify_production_success function
 from scripts.discord_notifier import notify_production_success, notify_summary, notify_error, notify_warning
 from scripts.generate_script import generate_script
 from scripts.generate_metadata import generate_seo_metadata
@@ -97,7 +96,6 @@ def run_production_cycle():
                 item['published'] = False
                 success_count += 1
             
-            # 🚨 TRIGGER NEW RICH DISCORD UI
             notify_production_success(
                 niche=niche,
                 topic=topic,
