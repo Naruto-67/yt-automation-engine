@@ -18,7 +18,7 @@ except ImportError as e:
     print(f"🚨 [SYSTEM] CRITICAL DEPENDENCY MISSING: {e}")
     sys.exit(1)
 
-# 🚨 LEFT ON "TRUE" FOR TESTING: Will not consume the 1600 upload quota.
+# 🚨 ENGINE IS LIVE. 
 TEST_MODE = False 
 
 def load_matrix():
