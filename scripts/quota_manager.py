@@ -13,6 +13,14 @@ class MasterQuotaManager:
         self.gemini_key = os.environ.get("GEMINI_API_KEY")
         self.gemini_text_limit = 250 
         self.gemini_blocked_for_run = False 
+        
+        # 🚨 THE IMMORTAL RESOLVER: Ranked list of text models to try
+        self.TEXT_MODELS = [
+            'gemini-2.5-flash',
+            'gemini-2.0-flash',
+            'gemini-1.5-flash',
+            'gemini-pro'
+        ]
         self._ensure_state_exists()
 
     def _ensure_state_exists(self):
@@ -65,36 +73,37 @@ class MasterQuotaManager:
             print(f"⚠️ [ROUTER] Gemini is resting. Auto-routing '{task_type.upper()}' to Groq Fallback.")
             return groq_client.generate_text(prompt, role=task_type), "Groq Llama 3.3"
 
-        print(f"🛡️ [ROUTER] Routing '{task_type.upper()}' to Primary (Gemini 2.5 Flash)...")
-        
         if usage < self.gemini_text_limit:
-            for attempt in range(3):
+            from google import genai
+            client = genai.Client(api_key=self.gemini_key)
+            
+            # Dynamic Model Resolution Loop
+            for model_name in self.TEXT_MODELS:
+                print(f"🛡️ [ROUTER] Attempting '{task_type.upper()}' via {model_name}...")
                 try:
-                    from google import genai
-                    client = genai.Client(api_key=self.gemini_key)
-                    # 🚨 FIX: Using the highly stable API string
                     response = client.models.generate_content(
-                        model='gemini-2.5-flash', 
+                        model=model_name, 
                         contents=prompt
                     )
                     self.consume_points("gemini", 1)
-                    
                     print("⏳ [ROUTER] Pacing API to avoid RPM bans (Sleeping 5s)...")
                     time.sleep(5)
+                    return response.text, model_name
                     
-                    return response.text, "Gemini 2.5 Flash"
                 except Exception as e:
                     error_msg = str(e).lower()
-                    if "429" in error_msg or "quota" in error_msg or "exhausted" in error_msg:
-                        print(f"⚠️ [ROUTER] Gemini 429 Limit Hit! (Attempt {attempt+1}/3)")
-                        if attempt < 2:
-                            print("⏳ [ROUTER] Waiting 60 seconds for RPM to clear...")
-                            time.sleep(60)
-                        else:
-                            print("🚨 [ROUTER] RPM still blocked. Tripping wire for rest of run.")
-                            self.gemini_blocked_for_run = True
+                    
+                    if "404" in error_msg or "not found" in error_msg:
+                        print(f"      ⚠️ {model_name} deprecated/unavailable. Cascading to next model...")
+                        continue # Try the next model in the list
+                        
+                    elif "429" in error_msg or "quota" in error_msg or "exhausted" in error_msg:
+                        print(f"⚠️ [ROUTER] Gemini 429 RPM Limit Hit on {model_name}!")
+                        print("🚨 [ROUTER] Tripping wire for rest of run to protect quota.")
+                        self.gemini_blocked_for_run = True
+                        break # Break loop, go to Groq
                     else:
-                        print(f"❌ [GEMINI] Non-rate-limit error: {e}")
+                        print(f"❌ [GEMINI] Non-rate-limit error on {model_name}: {e}")
                         break
         else:
             print(f"⚠️ [ROUTER] 50/50 Rule Limit Reached ({usage}/{self.gemini_text_limit}).")
