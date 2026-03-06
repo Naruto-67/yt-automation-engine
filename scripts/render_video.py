@@ -2,10 +2,11 @@ import os
 import subprocess
 import json
 import re
+import random
 from pydub import AudioSegment
 
 def get_style_config(style_name="default"):
-    # Adjusted font size slightly so it doesn't overwhelm the screen
+    # 🚨 THE 2026 BRUTALIST RETENTION META
     default_style = {
         "FontName": "Arial",           
         "FontSize": "75",              
@@ -171,9 +172,9 @@ def render_video(image_paths, audio_path, output_path, scene_weights=None, water
 
     safe_ass = ass_path.replace('\\', '/').replace(':', r'\:')
     
-    # 🚨 WATERMARK FIX: Exact mathematical center: x=(w-text_w)/2:y=(h-text_h)/2
+    # 🚨 WATERMARK FIX: Centered horizontally (x=(w-text_w)/2), vertically placed down below captions (y=h*0.82)
     font_path = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
-    watermark_filter = f",drawtext=fontfile='{font_path}':text='{watermark_text}':fontcolor=white@0.12:fontsize=45:x=(w-text_w)/2:y=(h-text_h)/2" if watermark_text else ""
+    watermark_filter = f",drawtext=fontfile='{font_path}':text='{watermark_text}':fontcolor=white@0.12:fontsize=45:x=(w-text_w)/2:y=h*0.82" if watermark_text else ""
     
     cmd_burn = [
         "ffmpeg", "-y", "-i", temp_merged_video, 
