@@ -10,6 +10,7 @@ def run_daily_analysis():
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     tracker_path = os.path.join(root_dir, "assets", "lessons_learned.json")
     lessons = {"emphasize": ["Fast pacing"], "avoid": ["Boring intros"], "recent_tags": []}
+    
     if os.path.exists(tracker_path):
         try:
             with open(tracker_path, "r", encoding="utf-8") as f:
@@ -20,10 +21,14 @@ def run_daily_analysis():
     if not youtube: return
 
     try:
-        data = youtube.channels().list(part="statistics", mine=True).execute()["items"][0]
-        stats = data["statistics"]
-        views = int(stats.get("viewCount", 0))
-        subs = int(stats.get("subscriberCount", 0))
+        # 🚨 FIX: Force safe integer casting and fallback to 1 to prevent ZeroDivision errors in LLM prompt
+        channel_req = youtube.channels().list(part="statistics", mine=True).execute()
+        if not channel_req.get("items"):
+            raise ValueError("No channel data found.")
+            
+        stats = channel_req["items"][0]["statistics"]
+        views = max(int(stats.get("viewCount", 0)), 1)
+        subs = max(int(stats.get("subscriberCount", 0)), 0)
 
         prompt = f"""
         You are the AI CEO of a YouTube Automation channel. 
@@ -51,7 +56,6 @@ def run_daily_analysis():
                 with open(tracker_path, "w", encoding="utf-8") as f:
                     json.dump(lessons, f, indent=4)
                     
-                # 🚨 ALERTS DISCORD WITH DAILY PULSE
                 notify_daily_pulse(views, subs, lessons)
                 
     except Exception as e:
