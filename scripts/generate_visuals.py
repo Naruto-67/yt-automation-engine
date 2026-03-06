@@ -12,17 +12,26 @@ def generate_huggingface_image(prompt, output_path):
     headers = {"Authorization": f"Bearer {hf_token}", "Content-Type": "application/json"}
     payload = {"inputs": f"{prompt}, vertical 9:16 format, masterpiece"}
     
-    for attempt in range(2):
+    # 🚨 SMART RETRY LOOP: Try 3 times, wait 30 seconds if the model is "asleep" (503)
+    max_retries = 3
+    for attempt in range(max_retries):
         try:
-            response = requests.post(url, headers=headers, json=payload, timeout=45)
+            response = requests.post(url, headers=headers, json=payload, timeout=60)
             if response.status_code == 200:
-                with open(output_path, 'wb') as f: f.write(response.content)
+                with open(output_path, 'wb') as f: 
+                    f.write(response.content)
                 return True, ""
             elif response.status_code == 503:
-                time.sleep(15)
-        except: pass
-        time.sleep(2)
-    return False, "HF 503/Timeout"
+                print(f"      [HuggingFace] 💤 Model is loading (503). Waiting 30s... (Attempt {attempt+1}/{max_retries})")
+                time.sleep(30)
+            else:
+                print(f"      [HuggingFace] ⚠️ HTTP {response.status_code}. Retrying in 5s... (Attempt {attempt+1}/{max_retries})")
+                time.sleep(5)
+        except Exception as e:
+            print(f"      [HuggingFace] ⚠️ Timeout/Error: {e}. Retrying in 5s...")
+            time.sleep(5)
+            
+    return False, "HF Failed after 3 retries (503/Timeout)"
 
 def generate_pollinations_image(prompt, output_path):
     print("      [Tier 2: Pollinations] Attempting Free FLUX AI fallback...")
@@ -30,7 +39,6 @@ def generate_pollinations_image(prompt, output_path):
         safe_prompt = urllib.parse.quote(f"{prompt}, vertical 9:16 format, cinematic, highly detailed, masterpiece")
         url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1080&height=1920&model=flux&nologo=true"
         
-        # 🚨 THE FIX: Cloudflare blocks "python-requests". Pretending to be curl bypasses the 530 error.
         headers = {"User-Agent": "curl/7.68.0"}
         response = requests.get(url, headers=headers, timeout=60)
         
