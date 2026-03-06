@@ -8,6 +8,7 @@ from scripts.quota_manager import quota_manager
 from scripts.discord_notifier import notify_production_success, notify_error
 from scripts.generate_script import generate_script
 from scripts.generate_metadata import generate_seo_metadata
+from scripts.logger import log_completed_video # 🚨 FIX: Wired Google Sheets Telemetry
 
 try:
     from scripts.generate_voice import generate_audio
@@ -53,7 +54,6 @@ def run_production_cycle():
             return
 
         matrix = load_matrix()
-        # Only process items that aren't done AND haven't failed the 3-strike rule
         unprocessed = [t for t in matrix if not t.get("processed", False) and not t.get("failed_flag", False)]
         
         if not unprocessed:
@@ -82,8 +82,10 @@ def run_production_cycle():
                 print("🛑 [QUOTA GUARDIAN] YouTube Quota limit reached (10k). Halting production to prevent API ban.")
                 break
 
+            # 🚨 FIX: Initialize variables BEFORE the try block to guarantee finally cleanups
             audio_base = f"temp_audio_{success_count}"
             final_video = f"final_output_{success_count}.mp4"
+            image_paths = []
 
             try:
                 script_text, image_prompts, pexels_queries, scene_weights, script_prov = generate_script(niche, topic)
@@ -96,7 +98,7 @@ def run_production_cycle():
                 time.sleep(10)
 
                 voice_success, voice_prov = generate_audio(script_text, output_base=audio_base)
-                if not voice_success: raise Exception("Voice generation failed.")
+                if not voice_success: raise Exception("Voice generation failed or returned silent/corrupt output.")
                 time.sleep(10)
 
                 image_paths, visual_prov = fetch_scene_images(image_prompts, pexels_queries, base_filename=f"temp_scene_{success_count}")
@@ -119,6 +121,8 @@ def run_production_cycle():
                         item['published'] = False
                         item['youtube_id'] = video_id 
                         success_count += 1
+                        # 🚨 FIX: External Telemetry logging
+                        log_completed_video(niche, topic, final_video)
                     else:
                         raise Exception("YouTube Upload API Rejected the Payload.")
                 else:
@@ -134,27 +138,31 @@ def run_production_cycle():
                     metadata=metadata, duration=video_duration, size=video_size,
                     status="Successful (Test Mode)" if TEST_MODE else "Vaulted & Commented"
                 )
-                
-                if not TEST_MODE:
-                    for f in [f"{audio_base}.wav", f"{audio_base}.srt", final_video] + image_paths:
-                        if os.path.exists(f): os.remove(f)
 
             except Exception as e:
                 print(f"🚨 [CRASH] Topic '{topic}' failed: {e}")
+                quota_manager.diagnose_fatal_error("main.py", e)
                 
-                # 🚨 FIX: 3-Strike System. Prevents temporary 503 errors from permanently killing a topic.
                 item['attempts'] = item.get('attempts', 0) + 1
                 if item['attempts'] >= 3:
                     item['processed'] = True
                     item['failed_flag'] = True
                     print(f"💀 [SAFETY PROTOCOL] Topic failed 3 times. Permanently quarantined.")
-                    quota_manager.diagnose_fatal_error("main.py (3-Strike Quarantined)", e)
                 else:
                     print(f"🔄 [SAFETY PROTOCOL] Temporary glitch (Attempt {item['attempts']}/3). Will retry later.")
                 
                 save_matrix(matrix)
                 time.sleep(60)
                 continue
+
+            finally:
+                # 🚨 FIX: The "Orphaned File" Disk Bloat Shield.
+                # Runs absolutely every time, even if a fatal error occurs in line 1 of generation.
+                if not TEST_MODE:
+                    for f in [f"{audio_base}.wav", f"{audio_base}.srt", final_video] + image_paths:
+                        if os.path.exists(f): 
+                            try: os.remove(f)
+                            except: pass
 
             save_matrix(matrix)
 
