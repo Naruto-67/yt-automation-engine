@@ -151,5 +151,10 @@
         "niche": "Historical Facts",
         "topic": "Mind-blowing and unknown Historical facts",
         "processed": false
+    },
+    {
+        "niche": "Bizarre Facts",
+        "topic": "Mind-blowing and unknown Bizarre facts",
+        "processed": false
     }
 ]
