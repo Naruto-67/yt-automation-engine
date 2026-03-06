@@ -99,29 +99,32 @@ def run_dynamic_research():
                     try: existing_matrix = json.load(f)
                     except: pass
             
-            # 🚨 FIX: The "Amnesia Shield". Extract all historical topics to prevent duplicate content.
             historical_topics = {item.get("topic", "").lower().strip() for item in existing_matrix}
             
-            # Keep only items that are completely valid queue items or vaulted
             preserved_items = []
             for i in existing_matrix:
                 is_processed = i.get("processed", False)
                 is_failed = i.get("failed_flag", False)
                 is_published = i.get("published", False)
                 
+                # 🚨 FIX: The Zombie Resurrection Shield. Hard reject any poisoned/failed topics.
+                if is_failed:
+                    continue
+                
+                # Keep active Vault items
                 if is_processed and not is_published:
                     preserved_items.append(i)
-                elif not is_processed and not is_failed:
+                # Keep valid, unprocessed queue items
+                elif not is_processed:
                     preserved_items.append(i)
             
-            # Filter the AI's new suggestions to guarantee 100% uniqueness
             unique_new_topics = []
             for item in new_matrix:
                 topic_clean = item.get("topic", "").lower().strip()
                 if topic_clean not in historical_topics:
                     item["processed"] = False
                     unique_new_topics.append(item)
-                    historical_topics.add(topic_clean) # Add to set to prevent duplicates within the new batch itself!
+                    historical_topics.add(topic_clean) 
             
             random.shuffle(unique_new_topics)
             final_matrix = preserved_items + unique_new_topics
@@ -130,7 +133,7 @@ def run_dynamic_research():
                 json.dump(final_matrix, f, indent=4)
                 
             print(f"✅ [RESEARCHER] Matrix updated. Kept {len(preserved_items)} queue items + {len(unique_new_topics)} UNIQUE new topics.")
-            notify_summary(True, f"Deep Research Complete. Zombie topics purged. {len(unique_new_topics)} unique dynamic niches generated via {provider}.")
+            notify_summary(True, f"Deep Research Complete. Zombies purged. {len(unique_new_topics)} unique niches generated.")
         else: raise ValueError("AI returned non-JSON parsable content.")
 
     except Exception as e:
