@@ -30,11 +30,17 @@ def generate_seo_metadata(niche, script):
             match = re.search(r'\{.*\}', raw_text.replace("```json", "").replace("```", ""), re.DOTALL)
             if match:
                 data = json.loads(match.group(0))
-                # 🚨 FIX: Mathematically strip illegal characters to prevent YouTube API 400 Crash
-                data["title"] = data.get("title", "").replace("<", "").replace(">", "")
-                data["description"] = data.get("description", "").replace("<", "").replace(">", "")
+                
+                # 🚨 FIX: Mathematically slice strings to guarantee 100% YouTube API compliance. 
+                raw_title = data.get("title", f"Amazing {niche} Facts #shorts").replace("<", "").replace(">", "")
+                raw_desc = data.get("description", "Mind blowing facts! #shorts").replace("<", "").replace(">", "")
+                
+                # Enforce YouTube Limits (100 char max title, 5000 max desc)
+                data["title"] = raw_title[:95] # Safe buffer
+                data["description"] = raw_desc[:4900]
+                
                 return data, provider
     except Exception as e:
         print(f"⚠️ [SEO] Generation failed: {e}")
         
-    return {"title": f"Amazing {niche} Facts #shorts", "description": "Mind blowing facts! #shorts", "tags": ["shorts", niche]}, "Fallback Defaults"
+    return {"title": f"Amazing {niche} Facts #shorts"[:95], "description": "Mind blowing facts! #shorts", "tags": ["shorts", niche]}, "Fallback Defaults"
