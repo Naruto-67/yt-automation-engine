@@ -1,73 +1,74 @@
 import os
 import json
-import traceback
 import re
-
 from scripts.quota_manager import quota_manager
-from scripts.discord_notifier import notify_summary, notify_warning
+from scripts.discord_notifier import notify_summary
+from scripts.youtube_manager import get_youtube_client
+
+def get_channel_context(youtube):
+    """Fetches real performance data from your channel to give the AI context."""
+    if not youtube: return "No channel data available. Generate broadly appealing viral niches."
+    try:
+        # Get recent uploads
+        uploads_id = youtube.channels().list(part="contentDetails", mine=True).execute()["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
+        recent_vids = youtube.playlistItems().list(part="snippet", playlistId=uploads_id, maxResults=5).execute()
+        
+        context = "Recent Channel Performance Context:\n"
+        for vid in recent_vids.get("items", []):
+            vid_id = vid["snippet"]["resourceId"]["videoId"]
+            stats = youtube.videos().list(part="statistics", id=vid_id).execute()["items"][0]["statistics"]
+            views = stats.get("viewCount", "0")
+            context += f"- Title: '{vid['snippet']['title']}' | Views: {views}\n"
+        return context
+    except:
+        return "Failed to fetch recent stats. Generate broadly appealing viral niches."
 
 def run_dynamic_research():
-    """
-    Elite Scout Module: Scours the web for viral trends.
-    Uses Gemini with Search Grounding as primary, Groq as fallback.
-    """
-    print("🔎 [RESEARCHER] Scouring the live web for trending viral topics...")
-    niches = ["fact", "brainrot", "short story"]
+    print("🔎 [RESEARCHER] Fetching live channel data & generating new matrix...")
+    youtube = get_youtube_client()
+    channel_context = get_channel_context(youtube)
     
     prompt = f"""
-    You are an Elite YouTube Strategist. Identify 21 highly trending YouTube topics for a USA audience.
-    NICHES: {', '.join(niches)}
-    Return ONLY a raw JSON array of objects. No intro text.
+    You are an Elite YouTube Shorts Strategist. 
+    Review our recent channel data below. Identify what works, and invent 21 NEW, highly viral YouTube Shorts topics and niches. 
+    Be incredibly creative with the 'niche' names (e.g., 'Deep Ocean Horror', 'Cyberpunk Lore', 'Bizarre History').
+    
+    {channel_context}
+    
+    Return ONLY a raw JSON array of exactly 21 objects. No intro text. Do not use markdown blocks.
     Format:
     [
-        {{"niche": "fact", "topic": "Historical Mystery", "bg_query": "cinematic dark history"}},
+        {{"niche": "Cyberpunk Lore", "topic": "The 2077 Neon Incident"}},
         ...
     ]
     """
 
     try:
-        # Step 1: Attempt Primary Brain (Gemini + Google Search)
-        used_fallback = False
-        raw_text = quota_manager.generate_text(prompt, task_type="research")
-        
-        # Step 2: Engage Fallback Brain if Gemini is exhausted
+        raw_text, provider = quota_manager.generate_text(prompt, task_type="research")
         if not raw_text:
-            print("⚠️ [RESEARCHER] Gemini Quota Hit. Engaging Fallback Brain (Groq)...")
-            used_fallback = True
-            raw_text = quota_manager.generate_text(prompt, task_type="creative")
-            if not raw_text:
-                raise Exception("Critical: All AI providers failed to respond.")
+            raise Exception("All AI providers failed to respond.")
 
-        # Robust JSON extraction
         clean_json_str = raw_text.replace("```json", "").replace("```", "").strip()
         match = re.search(r'\[.*\]', clean_json_str, re.DOTALL)
         
         if match:
             new_matrix = json.loads(match.group(0))
+            for item in new_matrix: item["processed"] = False # Ensure proper keys
             
-            # Resolve absolute paths
             root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-            matrix_dir = os.path.join(root_dir, "memory")
-            matrix_path = os.path.join(matrix_dir, "content_matrix.json")
+            matrix_path = os.path.join(root_dir, "memory", "content_matrix.json")
+            os.makedirs(os.path.dirname(matrix_path), exist_ok=True)
             
-            os.makedirs(matrix_dir, exist_ok=True)
             with open(matrix_path, "w", encoding="utf-8") as f:
                 json.dump(new_matrix, f, indent=4)
                 
-            print(f"✅ [RESEARCHER] Matrix updated with {len(new_matrix)} topics.")
-            
-            # Final Success Notification
-            brain_name = "Groq (Fallback)" if used_fallback else "Gemini (Search)"
-            notify_summary(True, f"Scout Cycle Successful. Matrix generated via {brain_name}.")
+            print(f"✅ [RESEARCHER] Matrix updated with {len(new_matrix)} completely dynamic topics.")
+            notify_summary(True, f"Weekly Research Complete. Matrix generated 21 new dynamic niches via {provider}.")
         else:
             raise ValueError("AI returned non-JSON parsable content.")
 
     except Exception as e:
-        print(f"❌ [RESEARCHER] Scouting Failure: {e}")
-        notify_warning("Researcher", f"Research cycle failed: {str(e)[:100]}")
-        # Ensure directory exists for Git safety
-        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-        os.makedirs(os.path.join(root_dir, "memory"), exist_ok=True)
+        quota_manager.diagnose_fatal_error("dynamic_researcher.py", e)
 
 if __name__ == "__main__":
     run_dynamic_research()
