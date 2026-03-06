@@ -101,8 +101,8 @@ def render_video(image_paths, audio_path, output_path, scene_weights=None, water
     safe_font = font_path.replace('\\', '/').replace(':', r'\:')
     safe_ass = ass_path.replace('\\', '/').replace(':', r'\:')
     
-    # 🚨 FIX: Replace spaces with strict FFmpeg unicode delimiter to prevent fatal graph crash
-    safe_watermark = watermark_text.replace(" ", "\u2002").replace("'", "").replace('"', '')
+    # 🚨 FIX: Mathematical Regex Escaping to prevent FFmpeg colon/quote parameter crashes
+    safe_watermark = watermark_text.replace("\\", "\\\\").replace(":", r"\:").replace("'", "").replace('"', '').replace(" ", "\u2002")
     
     watermark_filter = f",drawtext=fontfile='{safe_font}':text='{safe_watermark}':fontcolor=0xD3D3D3@0.25:shadowcolor=0x000000@0.25:shadowx=3:shadowy=3:fontsize=60:x=(w-text_w)/2:y=h-250"
     
