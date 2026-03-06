@@ -22,6 +22,9 @@ def run_daily_analysis():
 
     try:
         channel_req = youtube.channels().list(part="statistics", mine=True).execute()
+        # 🚨 FIX: Log channel request API points
+        quota_manager.consume_points("youtube", 1)
+        
         if not channel_req.get("items"):
             raise ValueError("No channel data found.")
             
@@ -50,7 +53,6 @@ def run_daily_analysis():
             if match:
                 new_rules = json.loads(match.group(0))
                 
-                # 🚨 FIX: Safe Array Length verification prevents IndexError crash if LLM hallucinates empty list
                 emp_list = new_rules.get("emphasize", lessons["emphasize"])
                 avo_list = new_rules.get("avoid", lessons["avoid"])
                 
