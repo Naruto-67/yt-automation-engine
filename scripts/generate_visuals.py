@@ -7,9 +7,8 @@ import subprocess
 import base64
 from scripts.quota_manager import quota_manager
 
-# 🚨 FALLBACK TEST FLAG: Set to True to deliberately fail CF and HF FLUX. 
-# This guarantees it falls back to HF SDXL and proves the cascade works!
-SIMULATE_CASCADE_TEST = True 
+# 🚨 FALLBACK TEST FLAG: Turned OFF for production. It will now actually use Cloudflare/HF.
+SIMULATE_CASCADE_TEST = False 
 
 def generate_cloudflare_image(prompt, output_path):
     print("      [Tier 1: Cloudflare AI] Attempting Official FLUX generation...")
@@ -146,7 +145,7 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
         if not success and tier2_active:
             success, err = generate_huggingface_cascade(prompt, output_path)
             if success: 
-                final_provider = err # Pass back the exact model used
+                final_provider = err 
             else:
                 print(f"      🚨 [VISUALS] Tier 2 Failed ({err}). Disabling for remainder of run.")
                 tier2_active = False 
