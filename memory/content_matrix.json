@@ -64,7 +64,10 @@
     {
         "niche": "short story",
         "topic": "Creepy Abandoned Places",
-        "bg_query": "abandoned places haunted"
+        "bg_query": "abandoned places haunted",
+        "processed": true,
+        "vaulted_date": "2026-03-06T06:07:39.699907",
+        "published": false
     },
     {
         "niche": "short story",
