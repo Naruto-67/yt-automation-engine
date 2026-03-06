@@ -1,6 +1,7 @@
 import os
 import json
 import sys
+import random
 from datetime import datetime
 
 from scripts.quota_manager import quota_manager
@@ -17,19 +18,46 @@ except ImportError as e:
     print(f"🚨 [SYSTEM] CRITICAL DEPENDENCY MISSING: {e}")
     sys.exit(1)
 
-TEST_MODE = True  # Skips YouTube Upload safely
+TEST_MODE = True 
 
 def load_matrix():
     path = os.path.join(os.path.dirname(__file__), "memory", "content_matrix.json")
     if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except: return []
     return []
 
 def save_matrix(matrix):
     path = os.path.join(os.path.dirname(__file__), "memory", "content_matrix.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(matrix, f, indent=4)
+
+def enforce_weekly_targets(matrix):
+    """🚨 NICHE QUOTA ENFORCER: Guarantees 2 stories and 4 facts per block."""
+    unprocessed_stories = sum(1 for item in matrix if not item.get('processed', False) and 'stor' in item.get('niche', '').lower())
+    unprocessed_facts = sum(1 for item in matrix if not item.get('processed', False) and 'fact' in item.get('niche', '').lower())
+    
+    fact_subs = ["Horror", "Historical", "Space", "Psychological", "Deep Ocean", "Bizarre"]
+    
+    added_new = False
+    while unprocessed_stories < 2:
+        print("⚖️ [BALANCER] Story quota low. Injecting new Short Story target.")
+        matrix.append({"niche": "Short Stories", "topic": "A mysterious and eerie urban legend", "processed": False})
+        unprocessed_stories += 1
+        added_new = True
+        
+    while unprocessed_facts < 4:
+        sub = random.choice(fact_subs)
+        print(f"⚖️ [BALANCER] Fact quota low. Injecting new {sub} Fact target.")
+        matrix.append({"niche": f"{sub} Facts", "topic": f"Mind-blowing and unknown {sub} facts", "processed": False})
+        unprocessed_facts += 1
+        added_new = True
+        
+    if added_new: save_matrix(matrix)
+    return matrix
 
 def get_vault_status(matrix):
     vaulted = [t for t in matrix if t.get("processed", False) and not t.get("published", False)]
@@ -39,7 +67,8 @@ def run_production_cycle():
     print("🚀 [ENGINE] Ignition. Analyzing Vault Status...")
     try:
         matrix = load_matrix()
-        if not matrix: return
+        # Enforce niche diversification before doing anything
+        matrix = enforce_weekly_targets(matrix)
 
         vault_count = get_vault_status(matrix)
         print(f"🏦 [VAULT] Current Backlog: {vault_count}/14 videos.")
@@ -63,26 +92,20 @@ def run_production_cycle():
             final_video = f"final_output_{success_count}.mp4"
 
             try:
-                # SCRIPT
                 script_text, hook, image_prompts, script_prov = generate_script(niche, topic)
                 if not script_text: raise Exception("Script generation failed.")
 
-                # SEO
                 metadata, seo_prov = generate_seo_metadata(niche, script_text)
 
-                # VOICE
                 voice_success, voice_prov = generate_audio(script_text, output_base=audio_base)
                 if not voice_success: raise Exception("Voice generation failed.")
 
-                # VISUALS
                 image_paths, visual_prov = fetch_scene_images(image_prompts, base_filename=f"temp_scene_{success_count}")
                 if len(image_paths) == 0: raise Exception("Visual generation failed.")
 
-                # RENDER
                 if not render_video(image_paths, f"{audio_base}.wav", final_video):
                     raise Exception("Render failed.")
 
-                # VAULT
                 if not TEST_MODE:
                     upload_success = upload_to_youtube_vault(final_video, niche, topic, metadata)
                     if upload_success:
@@ -97,7 +120,6 @@ def run_production_cycle():
                     item['published'] = False
                     success_count += 1
                 
-                # 🚨 THE NEW DISCORD PING
                 notify_production_success(
                     niche=niche,
                     topic=topic,
@@ -110,15 +132,14 @@ def run_production_cycle():
                     status="Successful (Test Mode)"
                 )
                 
-                # CLEANUP
                 if not TEST_MODE:
                     for f in [f"{audio_base}.wav", f"{audio_base}.srt", final_video] + image_paths:
                         if os.path.exists(f): os.remove(f)
 
             except Exception as e:
                 print(f"🚨 [CRASH] Topic '{topic}' failed: {e}")
+                from scripts.quota_manager import quota_manager
                 quota_manager.diagnose_fatal_error("main.py", e)
-                # Global Error Ping to Discord
                 notify_error("Production Pipeline", type(e).__name__, str(e))
                 continue
 
