@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import random
 from scripts.quota_manager import quota_manager
 from scripts.discord_notifier import notify_summary
 from scripts.youtube_manager import get_youtube_client
@@ -60,10 +61,16 @@ def run_dynamic_research():
     youtube = get_youtube_client()
     channel_context = get_deep_channel_context(youtube)
     
+    # 🚨 QUOTA MANDATE: Enforces your 2-Video Minimum baseline dynamically via prompt engineering.
     prompt = f"""
     You are an Elite YouTube Shorts Strategist. 
     Review our exact channel data and fan suggestions below. Identify our winning formats, and invent 21 NEW, highly viral YouTube Shorts topics. 
-    Be incredibly creative with the 'niche' names (e.g., 'Deep Ocean Horror', 'Cyberpunk Lore', 'Bizarre History').
+    
+    MANDATORY BUSINESS QUOTA (CRITICAL):
+    Out of the 21 topics generated, you MUST include:
+    1. At least 2 topics in the "Short Story" niche (e.g., 'Horror Story', 'Sci-Fi Tale').
+    2. At least 2 topics in the "Facts" niche. You should dynamically pick the best sub-category based on our performance (e.g., 'Bizarre Facts', 'Space Facts', 'Psychology Facts').
+    3. The remaining 17 topics should be based entirely on what is performing best or trending. (If stories/facts are doing well, you can generate more than the minimum 2).
     
     {channel_context}
     
@@ -86,14 +93,17 @@ def run_dynamic_research():
             new_matrix = json.loads(match.group(0))
             for item in new_matrix: item["processed"] = False 
             
+            # 🚨 THE SHUFFLE: Mixes up the 21 videos so we don't upload 4 facts in a row on Monday
+            random.shuffle(new_matrix)
+            
             root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
             matrix_path = os.path.join(root_dir, "memory", "content_matrix.json")
             
             with open(matrix_path, "w", encoding="utf-8") as f:
                 json.dump(new_matrix, f, indent=4)
                 
-            print(f"✅ [RESEARCHER] Matrix updated with {len(new_matrix)} completely dynamic topics.")
-            notify_summary(True, f"Deep Research Complete. Matrix generated via {provider} based on real channel data.")
+            print(f"✅ [RESEARCHER] Matrix updated, quotas enforced, and array shuffled for variety.")
+            notify_summary(True, f"Deep Research Complete. Weekly quota enforced. 21 new videos mapped via {provider}.")
         else:
             raise ValueError("AI returned non-JSON parsable content.")
 
