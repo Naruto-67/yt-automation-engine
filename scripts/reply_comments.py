@@ -50,6 +50,11 @@ def run_engagement_protocol():
                     top = thread["snippet"]["topLevelComment"]["snippet"]
                     if top.get("authorChannelId", {}).get("value") != channel_id and thread["snippet"]["totalReplyCount"] == 0:
                         
+                        # 🚨 QUOTA GATEKEEPER: Stop replying immediately if we can't afford the 50 points
+                        if not quota_manager.can_afford_youtube(50):
+                            print("🛑 [QUOTA GUARDIAN] YouTube Quota limit reached. Halting comments.")
+                            break
+
                         reply_text = generate_ai_reply(vid["snippet"]["title"], top["textDisplay"], replies_count + 1)
                         
                         # 🚨 If the Troll Shield flagged it, skip the comment entirely.
@@ -67,7 +72,9 @@ def run_engagement_protocol():
                         time.sleep(4) 
                         if replies_count >= target_replies: break
             except: continue
-            if replies_count >= target_replies: break
+            
+            if replies_count >= target_replies or not quota_manager.can_afford_youtube(50): 
+                break
         
         gemini_count = min(replies_count, 3)
         groq_count = max(0, replies_count - 3)
