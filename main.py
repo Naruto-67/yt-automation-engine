@@ -41,7 +41,6 @@ def save_matrix(matrix):
 
 def global_garbage_collector():
     print("🧹 [GC] Initializing Global Garbage Collection...")
-    # 🚨 FIX: Surgically exclude "final_*.mp4" to protect Artifact backups
     extensions = ["*.wav", "*.srt", "*.ass", "*.jpg", "temp_*"]
     for ext in extensions:
         for file in glob.glob(ext):
@@ -176,8 +175,10 @@ def run_production_cycle():
                         global_garbage_collector()
                         
                     if attempt < max_item_attempts:
-                        print("⏳ [SAFETY PROTOCOL] Enforcing 60-second cooldown before internal retry...")
-                        time.sleep(60)
+                        # 🚨 FIX: Progressive Global Backoff mathematically accounts for sustained API outages
+                        cooldown = 60 * attempt
+                        print(f"⏳ [SAFETY PROTOCOL] Enforcing {cooldown}-second progressive cooldown before internal retry...")
+                        time.sleep(cooldown)
                     else:
                         print(f"💀 [SAFETY PROTOCOL] Topic failed 3 times. Permanently quarantined.")
                         item['processed'] = True
