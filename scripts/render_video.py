@@ -5,18 +5,18 @@ import re
 from pydub import AudioSegment
 
 def get_style_config(style_name="default"):
-    # 🚨 THE VIRAL META CAPTION STYLE
+    # 🚨 THE 2026 BRUTALIST RETENTION META
     default_style = {
-        "FontName": "Arial",           # Guaranteed to be thick and bold on Linux
-        "FontSize": "70",              # Massive font for maximum mobile retention
+        "FontName": "Liberation Sans", 
+        "FontSize": "85",              # Extremely large font
         "PrimaryColour": "&H00FFFFFF", # Pure White Text
         "OutlineColour": "&H00000000", # Pure Black Outline
-        "BackColour": "&H80000000",    # Black Shadow
-        "Outline": "9",                # Extremely thick black outline (Hormozi style)
-        "Shadow": "5",                 # Deep drop shadow for 3D effect
+        "BackColour": "&H00000000",    # No shadow needed, we are using a brutalist outline
+        "Outline": "11",               # Massive flat outline for max contrast
+        "Shadow": "0",                 # Removed for a cleaner, modern look
         "BorderStyle": "1",            
         "Alignment": "2",              # Bottom Center
-        "MarginV": "380"               # Sits perfectly above the YT Shorts UI
+        "MarginV": "600"               # Pushed roughly 1/3 up the screen (optimal eye-line)
     }
 
     if os.path.exists(config_path := os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")), "style_configs", f"{style_name}.json")):
@@ -32,7 +32,7 @@ def srt_to_ass(srt_path, ass_path, style):
         "[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
         "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
         "Alignment, MarginL, MarginR, MarginV, Encoding\n"
-        # Notice the '1' added for the 'Bold' parameter
+        # The '1' before the '0,0,0' sets the font to BOLD
         f"Style: Default,{style['FontName']},{style['FontSize']},{style['PrimaryColour']},&H000000FF,"
         f"{style['OutlineColour']},{style['BackColour']},1,0,0,0,100,100,0,0,{style['BorderStyle']},"
         f"{style['Outline']},{style['Shadow']},{style['Alignment']},10,10,{style['MarginV']},1\n\n"
