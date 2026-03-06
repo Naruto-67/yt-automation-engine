@@ -2,6 +2,7 @@ import os
 import subprocess
 import json
 import re
+import random
 from pydub import AudioSegment
 
 def get_style_config(style_name="default"):
@@ -18,6 +19,11 @@ def get_style_config(style_name="default"):
         "Alignment": "2",              
         "MarginV": "600"               
     }
+
+    if os.path.exists(config_path := os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")), "style_configs", f"{style_name}.json")):
+        try:
+            with open(config_path, "r") as f: default_style.update(json.load(f))
+        except: pass
     return default_style
 
 def time_to_seconds(time_str):
@@ -33,11 +39,9 @@ def calculate_dynamic_durations(srt_path, num_images, total_audio_duration):
         with open(srt_path, 'r', encoding='utf-8') as f:
             content = f.read()
             
-        # Find all start and end timestamps in the SRT
         timestamps = re.findall(r'(\d+:\d+:\d+,\d+) --> (\d+:\d+:\d+,\d+)', content)
         
         if not timestamps or len(timestamps) < num_images:
-            # Fallback to equal splits if subtitles fail or are too short
             return [total_audio_duration / num_images] * num_images
             
         blocks_per_image = len(timestamps) // num_images
@@ -45,13 +49,11 @@ def calculate_dynamic_durations(srt_path, num_images, total_audio_duration):
         
         for i in range(num_images):
             start_idx = i * blocks_per_image
-            # The last image takes all the remaining subtitle blocks
             end_idx = (i + 1) * blocks_per_image - 1 if i < num_images - 1 else len(timestamps) - 1
             
             start_time = time_to_seconds(timestamps[start_idx][0])
             end_time = time_to_seconds(timestamps[end_idx][1])
             
-            # Force first image to start at 0.0, Force last image to end at max audio length
             if i == 0: start_time = 0.0
             if i == num_images - 1: end_time = total_audio_duration
                 
@@ -95,13 +97,27 @@ def srt_to_ass(srt_path, ass_path, style):
         return True
     except: return False
 
-def create_ken_burns_clip(image_path, duration, output_path, fps=60):
+def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=60):
     frames = int(duration * fps)
-    # Slowed down the zoom to match dynamic pacing better (from 2000 to 3000)
+    
+    # 🚨 DYNAMIC ENGAGING ANIMATIONS: Alternates camera movement per scene
+    effects = [
+        f"zoompan=z='1.0+it/3000':x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}", # Zoom Center
+        f"zoompan=z='1.0+it/3000':x='0':y='0':d={frames}:s=1080x1920:fps={fps}", # Zoom Top Left
+        f"zoompan=z='1.0+it/3000':x='iw-(iw/zoom)':y='ih-(ih/zoom)':d={frames}:s=1080x1920:fps={fps}", # Zoom Bottom Right
+        f"zoompan=z='1.0+it/3000':x='iw-(iw/zoom)':y='0':d={frames}:s=1080x1920:fps={fps}", # Zoom Top Right
+        f"zoompan=z='1.0+it/3000':x='0':y='ih-(ih/zoom)':d={frames}:s=1080x1920:fps={fps}"  # Zoom Bottom Left
+    ]
+    
+    selected_effect = effects[index % len(effects)]
+    
+    # 🚨 Adds cinematic color grading to make the AI images "pop" vibrantly
+    full_filter = f"{selected_effect},eq=contrast=1.05:saturation=1.15"
+
     cmd = [
         "ffmpeg", "-y",
         "-loop", "1", "-i", image_path,
-        "-vf", f"zoompan=z='1.0+it/3000':d={frames}:s=1080x1920:fps={fps}",
+        "-vf", full_filter,
         "-c:v", "libx264", "-t", str(duration),
         "-pix_fmt", "yuv420p", "-preset", "ultrafast", "-crf", "23",
         output_path
@@ -110,7 +126,7 @@ def create_ken_burns_clip(image_path, duration, output_path, fps=60):
     return True
 
 def render_video(image_paths, audio_path, output_path, style_name="default"):
-    print(f"⚙️ [RENDERER] Executing Master Render Engine (1080p, 60FPS)...")
+    print(f"⚙️ [RENDERER] Executing Cinematic Render Engine (1080p, 60FPS)...")
     srt_path = audio_path.replace(".wav", ".srt")
     ass_path = audio_path.replace(".wav", ".ass")
     temp_concat_file = "concat_list.txt"
@@ -122,14 +138,14 @@ def render_video(image_paths, audio_path, output_path, style_name="default"):
         total_duration = len(audio) / 1000.0 
     except: return False
 
-    # 🚨 DYNAMIC SYNC: Calculate exact clip durations based on the SRT voiceover
+    # Get perfectly synced durations based on subtitle pacing
     clip_durations = calculate_dynamic_durations(srt_path, len(image_paths), total_duration)
 
     clip_files = []
     for i, img in enumerate(image_paths):
         clip_out = f"temp_anim_clip_{i}.mp4"
-        # Feed the exact dynamic duration to the clip creator
-        if create_ken_burns_clip(img, clip_durations[i], clip_out):
+        # Pass the index 'i' so the camera angle changes every scene
+        if create_ken_burns_clip(img, clip_durations[i], clip_out, index=i):
             clip_files.append(clip_out)
 
     with open(temp_concat_file, "w") as f:
