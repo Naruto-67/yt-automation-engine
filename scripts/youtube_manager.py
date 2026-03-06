@@ -8,18 +8,15 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from googleapiclient.errors import HttpError
 
-# Ghost Engine Infrastructure Imports
 from scripts.quota_manager import quota_manager
 from scripts.discord_notifier import notify_vault_secure, notify_error
 
 def get_youtube_client():
-    """Authenticates and returns the YouTube API client."""
     client_id = os.environ.get("YOUTUBE_CLIENT_ID")
     client_secret = os.environ.get("YOUTUBE_CLIENT_SECRET")
     refresh_token = os.environ.get("YOUTUBE_REFRESH_TOKEN")
 
     if not all([client_id, client_secret, refresh_token]):
-        print("⚠️ [VAULT] YouTube OAuth Credentials missing.")
         return None
 
     try:
@@ -35,8 +32,17 @@ def get_youtube_client():
         print(f"❌ [VAULT] Authentication Failed: {e}")
         return None
 
+def get_channel_name(youtube):
+    """🚨 DYNAMIC WATERMARK: Fetches your exact YouTube channel name."""
+    try:
+        request = youtube.channels().list(part="snippet", mine=True)
+        response = request.execute()
+        return response["items"][0]["snippet"]["title"]
+    except Exception as e:
+        print(f"⚠️ [VAULT] Could not fetch channel name: {e}")
+        return "GhostEngine" # Fallback
+
 def get_or_create_playlist(youtube, title, privacy_status="private"):
-    """Finds the Vault playlist or creates it if it doesn't exist."""
     try:
         request = youtube.playlists().list(part="snippet", mine=True, maxResults=50)
         response = request.execute()
@@ -60,12 +66,8 @@ def get_or_create_playlist(youtube, title, privacy_status="private"):
         return None
 
 def verify_upload_integrity(youtube, video_id):
-    """
-    The Verification Handshake (Loophole 4 Fix).
-    Interrogates YouTube to ensure the file isn't a corrupted 'Zombie'.
-    """
     print("🔍 [VAULT] Executing Post-Upload Verification Handshake...")
-    time.sleep(10) # Wait for YouTube backend indexing
+    time.sleep(10) 
     
     try:
         response = youtube.videos().list(part="status", id=video_id).execute()
@@ -87,16 +89,32 @@ def verify_upload_integrity(youtube, video_id):
         print(f"✅ [VAULT] Integrity Verified. Status: {upload_status.upper()}")
         return True
     except:
-        return True # Failsafe: assume okay if check crashes
+        return True 
+
+def post_creator_comment(youtube, video_id, text):
+    """🚨 AUTO-COMMENTER: Posts a top-level creator comment on the new video."""
+    try:
+        youtube.commentThreads().insert(
+            part="snippet",
+            body={
+                "snippet": {
+                    "videoId": video_id,
+                    "topLevelComment": {
+                        "snippet": {
+                            "textOriginal": text
+                        }
+                    }
+                }
+            }
+        ).execute()
+        return True
+    except Exception as e:
+        print(f"⚠️ [VAULT] Failed to post auto-comment: {e}")
+        return False
 
 def upload_to_youtube_vault(video_path, niche, topic, metadata):
-    """
-    The Master Upload Engine.
-    Includes Disk-Space Guard, Chunked Transfer, and Quota Point Deduction.
-    """
-    # 🛡️ PRE-FLIGHT SAFETY CHECKS (Loophole Fix)
     usage = shutil.disk_usage("/")
-    if usage.free < (500 * 1024 * 1024): # Ensure 500MB free
+    if usage.free < (500 * 1024 * 1024): 
         print("🚨 [VAULT] Disk Space Critical. Aborting upload.")
         return False
 
@@ -150,6 +168,14 @@ def upload_to_youtube_vault(video_path, niche, topic, metadata):
         
         print(f"✅ [VAULT] Successfully Secured. Deducting 1,600 Quota Points.")
         quota_manager.consume_points("youtube", 1600)
+        
+        # 🚨 TRIGGERING THE AUTO-COMMENT
+        print("💬 [VAULT] Injecting Auto-Comment...")
+        comment_text = "What myth or story should we cover next? Let us know below and don't forget to subscribe! 🌟"
+        if post_creator_comment(youtube, video_id, comment_text):
+            quota_manager.consume_points("youtube", 50)
+            print("✅ [VAULT] Comment successfully posted!")
+            
         notify_vault_secure(metadata.get("title", topic), video_id, vault_playlist_id)
         
         return True
