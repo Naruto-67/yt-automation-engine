@@ -14,7 +14,6 @@ class MasterQuotaManager:
         self.gemini_text_limit = 250 
         self.gemini_blocked_for_run = False 
         
-        # Ranked list of text models to try
         self.TEXT_MODELS = [
             'gemini-2.5-flash',
             'gemini-2.0-flash',
@@ -68,15 +67,15 @@ class MasterQuotaManager:
     def generate_text(self, prompt, task_type="creative"):
         state = self._get_active_state()
         usage = state.get("gemini_used", 0)
+        last_error_msg = ""
         
-        # Community management goes strictly to Groq
         if task_type == "comment_reply":
             print("⚡ [ROUTER] Routing 'COMMENT_REPLY' strictly to Groq Llama 3.3...")
             return groq_client.generate_text(prompt, role="commenter"), "Groq Llama 3.3"
 
         if self.gemini_blocked_for_run:
             print(f"⚠️ [ROUTER] Gemini is resting. Auto-routing '{task_type.upper()}' to Groq Fallback.")
-            return groq_client.generate_text(prompt, role=task_type), "Groq Llama 3.3"
+            return groq_client.generate_text(prompt, role=task_type), "Groq Llama 3.3 (Fallback: Blocked globally for this run)"
 
         print(f"🛡️ [ROUTER] Attempting '{task_type.upper()}' via {self.TEXT_MODELS[0]}...")
         
@@ -86,7 +85,7 @@ class MasterQuotaManager:
                 client = genai.Client(api_key=self.gemini_key)
             except ImportError:
                 print("❌ [GEMINI] GenAI SDK missing. Falling back to Groq.")
-                return groq_client.generate_text(prompt, role=task_type), "Groq Llama 3.3"
+                return groq_client.generate_text(prompt, role=task_type), "Groq Llama 3.3 (Fallback: Missing SDK)"
             
             for model_name in self.TEXT_MODELS:
                 try:
@@ -101,6 +100,7 @@ class MasterQuotaManager:
                     
                 except Exception as e:
                     error_msg = str(e).lower()
+                    last_error_msg = error_msg[:50] # Keep it short for Discord
                     if "404" in error_msg or "not found" in error_msg:
                         continue 
                     elif "429" in error_msg or "quota" in error_msg or "exhausted" in error_msg:
@@ -113,10 +113,10 @@ class MasterQuotaManager:
         else:
             print(f"⚠️ [ROUTER] 50/50 Rule Limit Reached ({usage}/{self.gemini_text_limit}).")
             self.gemini_blocked_for_run = True 
+            last_error_msg = "50/50 Safety Limit Reached"
             
         print("⚡ [ROUTER] Executing Fallback Protocol (Groq)...")
         fallback_text = groq_client.generate_text(prompt, role=task_type)
-        return fallback_text, "Groq Llama 3.3"
+        return fallback_text, f"Groq Llama 3.3 (Fallback: {last_error_msg})"
 
-# 🚨 THIS MUST BE AT THE VERY BOTTOM, COMPLETELY UNINDENTED
 quota_manager = MasterQuotaManager()
