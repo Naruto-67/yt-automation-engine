@@ -22,7 +22,7 @@ def generate_script(niche, topic):
     CRITICAL RULES:
     1. FACTUAL & DIRECT: This is a standalone micro-documentary. It must be 100% true, logical, and factual. No random creations.
     2. NO META-COMMENTARY: NEVER break the fourth wall. NEVER say "In this video", "Our 3D animation shows", or "Imagine a world". Just tell the facts.
-    3. LENGTH: The script MUST be exactly 130 to 150 words.
+    3. LENGTH: The script MUST be exactly 100 to 115 words. This is critical. If it is longer than 115 words, the video will exceed the 60-second YouTube Shorts limit and fail. Keep it extremely punchy.
     4. DYNAMIC VISUAL PACING: Break the script down into distinct visual scenes based on the narrative flow.
        - Determine the exact number of images needed to tell this story perfectly (between 4 and 7 scenes).
        - Provide a highly specific image prompt for EACH scene.
@@ -50,7 +50,6 @@ def generate_script(niche, topic):
                 
                 prompts = data.get('image_prompts', [])
                 
-                # Safety fallback in case the AI forgets to provide enough scenes
                 if len(prompts) < 3:
                     prompts += [f"cinematic highly detailed scene of {topic}"] * (3 - len(prompts))
                 
