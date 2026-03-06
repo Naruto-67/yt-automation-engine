@@ -5,7 +5,6 @@ import re
 from pydub import AudioSegment
 
 def get_style_config(style_name="default"):
-    # THE 2026 BRUTALIST RETENTION META
     default_style = {
         "FontName": "Arial",           
         "FontSize": "85",              
@@ -24,6 +23,42 @@ def get_style_config(style_name="default"):
             with open(config_path, "r") as f: default_style.update(json.load(f))
         except: pass
     return default_style
+
+def time_to_seconds(time_str):
+    h, m, s_ms = time_str.split(':')
+    s, ms = s_ms.split(',')
+    return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000.0
+
+def calculate_dynamic_durations(srt_path, num_images, total_audio_duration):
+    print("⏱️ [RENDERER] Syncing visual cuts to voiceover pacing...")
+    try:
+        with open(srt_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+            
+        timestamps = re.findall(r'(\d+:\d+:\d+,\d+) --> (\d+:\d+:\d+,\d+)', content)
+        
+        if not timestamps or len(timestamps) < num_images:
+            return [total_audio_duration / num_images] * num_images
+            
+        blocks_per_image = len(timestamps) // num_images
+        durations = []
+        
+        for i in range(num_images):
+            start_idx = i * blocks_per_image
+            end_idx = (i + 1) * blocks_per_image - 1 if i < num_images - 1 else len(timestamps) - 1
+            
+            start_time = time_to_seconds(timestamps[start_idx][0])
+            end_time = time_to_seconds(timestamps[end_idx][1])
+            
+            if i == 0: start_time = 0.0
+            if i == num_images - 1: end_time = total_audio_duration
+                
+            durations.append(end_time - start_time)
+            
+        return durations
+    except Exception as e:
+        print(f"⚠️ [RENDERER] Dynamic sync failed ({e}), using equal splits.")
+        return [total_audio_duration / num_images] * num_images
 
 def srt_to_ass(srt_path, ass_path, style):
     print("🎨 [RENDERER] Generating High-Retention Subtitles...")
@@ -61,12 +96,13 @@ def srt_to_ass(srt_path, ass_path, style):
 def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=60):
     frames = int(duration * fps)
     
+    # 🚨 THE ANIMATION FIX: Properly formatting the zoompan filter string for FFmpeg
     effects = [
-        f"zoompan=z='min(zoom+0.001,1.5)':x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}", 
-        f"zoompan=z='min(zoom+0.001,1.5)':x='0':y='0':d={frames}:s=1080x1920:fps={fps}", 
-        f"zoompan=z='min(zoom+0.001,1.5)':x='iw-(iw/zoom)':y='ih-(ih/zoom)':d={frames}:s=1080x1920:fps={fps}", 
-        f"zoompan=z='min(zoom+0.001,1.5)':x='iw-(iw/zoom)':y='0':d={frames}:s=1080x1920:fps={fps}", 
-        f"zoompan=z='min(zoom+0.001,1.5)':x='0':y='ih-(ih/zoom)':d={frames}:s=1080x1920:fps={fps}"  
+        f"zoompan=z='min(zoom+0.0015,1.5)':x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}", 
+        f"zoompan=z='min(zoom+0.0015,1.5)':x='0':y='0':d={frames}:s=1080x1920:fps={fps}", 
+        f"zoompan=z='min(zoom+0.0015,1.5)':x='iw-(iw/zoom)':y='ih-(ih/zoom)':d={frames}:s=1080x1920:fps={fps}", 
+        f"zoompan=z='min(zoom+0.0015,1.5)':x='iw-(iw/zoom)':y='0':d={frames}:s=1080x1920:fps={fps}", 
+        f"zoompan=z='min(zoom+0.0015,1.5)':x='0':y='ih-(ih/zoom)':d={frames}:s=1080x1920:fps={fps}"  
     ]
     
     selected_effect = effects[index % len(effects)]
@@ -93,13 +129,22 @@ def render_video(image_paths, audio_path, output_path, scene_weights=None, water
     if not srt_to_ass(srt_path, ass_path, get_style_config(style_name)): return False
     
     try:
+        # 🚨 THE AUDIO CHOP FIX: We read the exact length of the audio file in milliseconds and divide by 1000.
         audio = AudioSegment.from_file(audio_path)
         total_duration = len(audio) / 1000.0 
+        print(f"   🔊 Audio Duration: {total_duration}s")
+        
+        # Only trim if it ACTUALLY exceeds 59 seconds.
+        if total_duration > 59.0:
+            print("⚠️ [RENDERER ALERT] Audio exceeds 59s. Trimming to prevent YouTube Shorts violation.")
+            audio = audio[:59000].fade_out(1500)
+            audio.export(audio_path, format="wav")
+            total_duration = 59.0
+            
     except Exception as e:
         print(f"⚠️ [RENDERER] Failed to process audio duration: {e}")
         return False
 
-    # 🚨 SEMANTIC SYNC: Calculate exactly how long each image should be on screen based on narration length
     if not scene_weights or len(scene_weights) != len(image_paths):
         print("⚠️ [RENDERER] Weight mismatch. Distributing time evenly.")
         clip_durations = [total_duration / len(image_paths)] * len(image_paths)
@@ -124,9 +169,9 @@ def render_video(image_paths, audio_path, output_path, scene_weights=None, water
 
     safe_ass = ass_path.replace('\\', '/').replace(':', r'\:')
     
-    # 🚨 THE GHOST WATERMARK: 15% opacity, slightly below center (h*0.55), white text
+    # 🚨 THE WATERMARK TWEAK: Lowered opacity to 12% (0.12)
     font_path = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
-    watermark_filter = f",drawtext=fontfile='{font_path}':text='{watermark_text}':fontcolor=white@0.15:fontsize=45:x=(w-text_w)/2:y=h*0.55" if watermark_text else ""
+    watermark_filter = f",drawtext=fontfile='{font_path}':text='{watermark_text}':fontcolor=white@0.12:fontsize=45:x=(w-text_w)/2:y=h*0.55" if watermark_text else ""
     
     cmd_burn = [
         "ffmpeg", "-y", "-i", temp_merged_video, 
@@ -138,4 +183,7 @@ def render_video(image_paths, audio_path, output_path, scene_weights=None, water
 
     for f in clip_files + [temp_concat_file, temp_merged_video, ass_path]:
         if os.path.exists(f): os.remove(f)
-    return True
+    
+    # 🚨 RETURN STATS: We pass the exact duration and file size back to main.py
+    file_size_mb = os.path.getsize(output_path) / (1024 * 1024)
+    return True, total_duration, file_size_mb
