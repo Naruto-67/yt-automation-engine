@@ -5,7 +5,7 @@ import time
 from google import genai
 
 def generate_gemini_image(prompt, output_path):
-    print("      [Tier 1: Gemini] Attempting Imagen 4 generation...")
+    print("      [Tier 1: Gemini] Attempting Nano Banana (2.5 Flash) generation...")
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key: return False
         
@@ -13,9 +13,9 @@ def generate_gemini_image(prompt, output_path):
         client = genai.Client(api_key=api_key)
         enhanced_prompt = f"{prompt}, cinematic lighting, 8k, highly detailed"
         
-        # 🚨 THE FIX: Upgraded to Google's active Imagen 4 endpoint
+        # 🚨 THE FIX: Using the correct, free Nano Banana endpoint
         result = client.models.generate_images(
-            model='imagen-4.0-generate-001',
+            model='gemini-2.5-flash-image',
             prompt=enhanced_prompt,
             config=dict(number_of_images=1, aspect_ratio="9:16", output_mime_type="image/jpeg")
         )
@@ -73,9 +73,9 @@ def fetch_scene_images(prompts_list, base_filename="temp_scene"):
         output_path = f"{base_filename}_{i}.jpg"
         print(f"\n   -> Scene {i+1} Prompt: {prompt[:40]}...")
         
-        # 1. Try Gemini Imagen 4
+        # 1. Try Gemini
         success = generate_gemini_image(prompt, output_path)
-        if success: primary_provider = "Gemini Imagen 4"
+        if success: primary_provider = "Gemini 2.5 Flash Image"
         
         # 2. Try Hugging Face Fallback
         if not success:
