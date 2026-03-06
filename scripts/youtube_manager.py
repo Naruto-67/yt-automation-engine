@@ -21,20 +21,24 @@ def get_youtube_client():
         
     try:
         creds = Credentials(None, refresh_token=refresh_token, token_uri="https://oauth2.googleapis.com/token", client_id=client_id, client_secret=client_secret)
-        return build('youtube', 'v3', credentials=creds)
+        # 🚨 FIX: static_discovery=False prevents fatal `.cache` file lock errors on GitHub Action runners
+        return build('youtube', 'v3', credentials=creds, static_discovery=False)
     except Exception as e: 
         notify_error("YouTube Auth", "Token Verification Failed", f"Your YouTube Refresh Token was rejected by Google: {e}")
         return None
 
 def get_channel_name(youtube):
-    try: return youtube.channels().list(part="snippet", mine=True).execute()["items"][0]["snippet"]["title"]
+    try: 
+        name = youtube.channels().list(part="snippet", mine=True).execute()["items"][0]["snippet"]["title"]
+        quota_manager.consume_points("youtube", 1) # 🚨 FIX: Log Read
+        return name
     except: return "GhostEngine"
 
 def get_or_create_playlist(youtube, title, privacy_status="private"):
     try:
         playlists = []
         request = youtube.playlists().list(part="snippet", mine=True, maxResults=50)
-        seen_tokens = set() # 🚨 FIX: Mathematical shield against infinite API pagination loops
+        seen_tokens = set() 
         
         while request is not None:
             response = request.execute()
@@ -52,7 +56,10 @@ def get_or_create_playlist(youtube, title, privacy_status="private"):
         for item in playlists:
             if item["snippet"]["title"].lower() == title.lower(): return item["id"]
             
-        return youtube.playlists().insert(part="snippet,status", body={"snippet": {"title": title}, "status": {"privacyStatus": privacy_status}}).execute()["id"]
+        new_playlist = youtube.playlists().insert(part="snippet,status", body={"snippet": {"title": title}, "status": {"privacyStatus": privacy_status}}).execute()
+        # 🚨 FIX: Log Playlist Creation (50 points!)
+        quota_manager.consume_points("youtube", 50)
+        return new_playlist["id"]
     except Exception as e: 
         print(f"⚠️ Playlist fetch error: {e}")
         return None
