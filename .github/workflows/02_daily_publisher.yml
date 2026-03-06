@@ -2,7 +2,7 @@ name: 02_Ghost_Daily_Publisher
 
 on:
   schedule:
-    - cron: '0 12 * * *' # 5:30 PM IST
+    - cron: '0 8 * * *'
   workflow_dispatch:
 
 jobs:
@@ -12,28 +12,33 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
-          cache: 'pip'
+          python-version: '3.11'
 
       - name: Install Dependencies
-        run: pip install google-api-python-client google-auth-oauthlib google-auth-httplib2 pytz requests
+        run: pip install -r requirements.txt
 
       - name: Execute Dual-Release Publisher
         env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: python -m scripts.schedule_video
 
-      - name: Sync and Commit
+      - name: Sync and Commit State
         run: |
           git config --global user.name "Ghost-Engine-Bot"
           git config --global user.email "bot@ghostengine.ai"
-          git add memory/api_state.json
-          git pull --rebase origin main
-          git commit -m "Update Publisher Quota [skip ci]" || echo "No changes to commit"
-          git push origin main
+          git add memory/*.json
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Update Publisher Quota & Vault [skip ci]"
+            git pull --rebase origin main
+            git push origin main
+          fi
