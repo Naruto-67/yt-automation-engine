@@ -75,10 +75,15 @@ def generate_script(niche, topic):
     try:
         raw_response, provider = quota_manager.generate_text(prompt, task_type="creative")
         if raw_response:
-            clean_json = raw_response.replace("```json", "").replace("```", "").strip()
-            match = re.search(r'\{.*\}', clean_json, re.DOTALL)
-            if match:
-                data = json.loads(match.group(0))
+            clean_str = raw_response.replace("```json", "").replace("```", "").strip()
+            
+            # 🚨 FIX: Mathematical String Slicer. Bypasses regex errors entirely by grabbing absolute bounds.
+            start_idx = clean_str.find('{')
+            end_idx = clean_str.rfind('}')
+            
+            if start_idx != -1 and end_idx != -1:
+                json_str = clean_str[start_idx:end_idx+1]
+                data = json.loads(json_str)
                 scenes = data.get("scenes", [])
                 parsed_scenes = [extract_scene_data_dynamically(s, topic) for s in scenes]
                 
