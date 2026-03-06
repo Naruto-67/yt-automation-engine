@@ -96,7 +96,10 @@
     {
         "niche": "short story",
         "topic": "Supernatural Encounters",
-        "bg_query": "supernatural paranormal experiences"
+        "bg_query": "supernatural paranormal experiences",
+        "processed": true,
+        "vaulted_date": "2026-03-06T08:31:40.396218",
+        "published": false
     },
     {
         "niche": "fact",
