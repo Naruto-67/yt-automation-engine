@@ -2,6 +2,7 @@ import os
 import json
 import sys
 import random
+import time
 from datetime import datetime
 
 from scripts.quota_manager import quota_manager
@@ -13,13 +14,12 @@ try:
     from scripts.generate_voice import generate_audio
     from scripts.generate_visuals import fetch_scene_images
     from scripts.render_video import render_video
-    from scripts.youtube_manager import upload_to_youtube_vault
+    from scripts.youtube_manager import upload_to_youtube_vault, get_youtube_client, get_channel_name
 except ImportError as e:
     print(f"🚨 [SYSTEM] CRITICAL DEPENDENCY MISSING: {e}")
     sys.exit(1)
 
 TEST_MODE = True 
-WATERMARK_TEXT = "@GhostEngine" 
 
 def load_matrix():
     path = os.path.join(os.path.dirname(__file__), "memory", "content_matrix.json")
@@ -44,14 +44,12 @@ def enforce_weekly_targets(matrix):
     
     added_new = False
     while unprocessed_stories < 2:
-        print("⚖️ [BALANCER] Story quota low. Injecting new Short Story target.")
         matrix.append({"niche": "Short Stories", "topic": "A mysterious and eerie urban legend", "processed": False})
         unprocessed_stories += 1
         added_new = True
         
     while unprocessed_facts < 4:
         sub = random.choice(fact_subs)
-        print(f"⚖️ [BALANCER] Fact quota low. Injecting new {sub} Fact target.")
         matrix.append({"niche": f"{sub} Facts", "topic": f"Mind-blowing and unknown {sub} facts", "processed": False})
         unprocessed_facts += 1
         added_new = True
@@ -81,6 +79,11 @@ def run_production_cycle():
             print("✅ [ENGINE] All topics complete.")
             return
 
+        # 🚨 DYNAMIC WATERMARK: Fetching Channel Name (No "@" symbol)
+        youtube_client = get_youtube_client()
+        channel_name = get_channel_name(youtube_client) if youtube_client else "GhostEngine"
+        print(f"🏷️ [BRANDING] Secured Channel Name for Watermark: {channel_name}")
+
         success_count = 0
         for item in batch:
             topic = item['topic']
@@ -91,25 +94,30 @@ def run_production_cycle():
             final_video = f"final_output_{success_count}.mp4"
 
             try:
-                # 🚨 UNPACKING THE PEXELS QUERIES
                 script_text, image_prompts, pexels_queries, scene_weights, script_prov = generate_script(niche, topic)
                 if not script_text: raise Exception("Script generation failed.")
+                
+                # 🚨 RATE LIMIT GUARD
+                print("⏳ [ENGINE] Pacing pipeline (10s) to prevent API rate limits...")
+                time.sleep(10)
 
                 metadata, seo_prov = generate_seo_metadata(niche, script_text)
+                time.sleep(10)
 
                 voice_success, voice_prov = generate_audio(script_text, output_base=audio_base)
                 if not voice_success: raise Exception("Voice generation failed.")
+                time.sleep(10)
 
-                # 🚨 PASSING PEXELS QUERIES TO THE VISUAL ENGINE
                 image_paths, visual_prov = fetch_scene_images(image_prompts, pexels_queries, base_filename=f"temp_scene_{success_count}")
                 if len(image_paths) == 0: raise Exception("Visual generation failed.")
+                time.sleep(10)
 
                 render_success, video_duration, video_size = render_video(
                     image_paths, 
                     f"{audio_base}.wav", 
                     final_video, 
                     scene_weights=scene_weights, 
-                    watermark_text=WATERMARK_TEXT
+                    watermark_text=channel_name # Passed dynamically here
                 )
                 if not render_success:
                     raise Exception("Render failed.")
@@ -122,7 +130,7 @@ def run_production_cycle():
                         item['published'] = False
                         success_count += 1
                 else:
-                    print(f"🛑 [TEST MODE] Skipped YT Upload. Vaulting '{topic}' virtually.")
+                    print(f"🛑 [TEST MODE] Skipped YT Upload & Auto-Comment. Vaulting '{topic}' virtually.")
                     item['processed'] = True
                     item['vaulted_date'] = datetime.utcnow().isoformat()
                     item['published'] = False
@@ -139,7 +147,7 @@ def run_production_cycle():
                     metadata=metadata,
                     duration=video_duration,
                     size=video_size,
-                    status="Successful (Test Mode)"
+                    status="Successful (Test Mode)" if TEST_MODE else "Vaulted & Commented"
                 )
                 
                 if not TEST_MODE:
