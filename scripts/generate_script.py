@@ -28,9 +28,9 @@ def generate_script(niche, topic):
     4. DYNAMIC SCENES: You MUST provide EXACTLY {target_scenes} scenes.
        - For EACH scene, write the 'narration' (the words spoken).
        - Write a highly specific 'image_prompt' for an AI Image Generator (begin with a style like 'Dark Cinematic').
-       - 🚨 NEW: Write a 'pexels_query'. This must be a simple 1-2 word search term (e.g. 'golden retriever', 'dark forest', 'galaxy') representing the core subject of the scene for a stock footage search.
+       - Write a 'pexels_query'. This must be a simple 1-2 word search term (e.g. 'golden retriever', 'dark forest') representing the core subject of the scene for a stock footage search.
     
-    FORMAT: Return ONLY valid JSON.
+    FORMAT: Return ONLY valid JSON. You MUST use EXACTLY these keys for each scene. Do not rename them.
     {{
         "scenes": [
             {{
@@ -42,29 +42,67 @@ def generate_script(niche, topic):
     }}
     """
 
-    try:
-        print(f"🤖 [WRITER] Tasking AI Director for '{topic}' (Targeting {target_scenes} scenes)...")
-        raw_response, provider = quota_manager.generate_text(prompt, task_type="creative")
-        
-        if raw_response:
+    # 🚨 THE FIX: A 3-Attempt Self-Correction Loop with Heavy Logging
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            print(f"🤖 [WRITER] Tasking AI Director for '{topic}' (Attempt {attempt+1}/{max_retries})...")
+            raw_response, provider = quota_manager.generate_text(prompt, task_type="creative")
+            
+            # 🚨 LOGGING: Print exactly what the AI returned to the console so we can debug it
+            print("\n📜 --- RAW AI RESPONSE LOG --- 📜")
+            print(raw_response)
+            print("---------------------------------\n")
+            
+            if not raw_response:
+                raise ValueError("AI returned an empty response.")
+
             clean_json = raw_response.replace("```json", "").replace("```", "").strip()
             match = re.search(r'\{.*\}', clean_json, re.DOTALL)
-            if match:
-                data = json.loads(match.group(0))
-                scenes = data.get("scenes", [])
+            
+            if not match:
+                raise ValueError("No JSON object could be found in the AI response.")
                 
-                full_script = " ".join([s["narration"] for s in scenes])
-                prompts = [s["image_prompt"] for s in scenes]
-                pexels_queries = [s.get("pexels_query", topic) for s in scenes]
+            data = json.loads(match.group(0))
+            scenes = data.get("scenes", [])
+            
+            if not scenes:
+                raise ValueError("The 'scenes' array is missing or empty.")
+            
+            full_script_list = []
+            prompts = []
+            pexels_queries = []
+            
+            # STRICT VALIDATION: Check every scene to ensure the AI followed instructions
+            for i, s in enumerate(scenes):
+                if "narration" not in s or "image_prompt" not in s or "pexels_query" not in s:
+                    raise KeyError(f"Scene {i+1} is missing required keys. Keys found by parser: {list(s.keys())}")
                 
-                # Math weights for exact video syncing
-                total_chars = sum(len(s["narration"]) for s in scenes)
-                scene_weights = [len(s["narration"]) / total_chars for s in scenes] if total_chars > 0 else []
-                
-                print(f"✅ [WRITER] Script secured via {provider}. Synced {len(scenes)} scenes.")
-                return full_script, prompts, pexels_queries, scene_weights, provider
-                
-        return None, [], [], [], "Failed"
-    except Exception as e:
-        quota_manager.diagnose_fatal_error("generate_script.py", e)
-        return None, [], [], [], "Failed"
+                full_script_list.append(s["narration"])
+                prompts.append(s["image_prompt"])
+                pexels_queries.append(s["pexels_query"])
+            
+            full_script_str = " ".join(full_script_list)
+            
+            if not full_script_str.strip():
+                raise ValueError("The extracted narration was completely blank.")
+            
+            # Math weights for exact video syncing
+            total_chars = sum(len(n) for n in full_script_list)
+            scene_weights = [len(n) / total_chars for n in full_script_list] if total_chars > 0 else []
+            
+            print(f"✅ [WRITER] Script successfully parsed and locked via {provider}!")
+            return full_script_str, prompts, pexels_queries, scene_weights, provider
+            
+        except Exception as e:
+            print(f"⚠️ [WRITER] Output Validation Failed: {e}")
+            if attempt < max_retries - 1:
+                print("🔄 [WRITER] Feeding error back to AI for self-correction...")
+                # 🚨 SELF-HEALING: Append the error to the prompt and tell the AI to fix it
+                prompt += f"\n\n🚨 CRITICAL ERROR PREVENTING PARSING:\nYour previous response failed with this error: {e}\nYou MUST fix this formatting issue. Return strictly valid JSON using ONLY the keys: 'narration', 'image_prompt', 'pexels_query'."
+            else:
+                print("❌ [WRITER] Max retries reached. AI failed to correct its formatting.")
+                quota_manager.diagnose_fatal_error("generate_script.py", e)
+                return None, [], [], [], "Failed"
+
+    return None, [], [], [], "Failed"
