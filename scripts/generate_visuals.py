@@ -5,20 +5,26 @@ import time
 import random
 import subprocess
 import base64
+from scripts.quota_manager import quota_manager
+
+# 🚨 FALLBACK TEST FLAG: Set to True to deliberately fail CF and HF FLUX. 
+# This guarantees it falls back to HF SDXL and proves the cascade works!
+SIMULATE_CASCADE_TEST = True 
 
 def generate_cloudflare_image(prompt, output_path):
     print("      [Tier 1: Cloudflare AI] Attempting Official FLUX generation...")
+    
+    if SIMULATE_CASCADE_TEST or quota_manager.is_provider_exhausted("cloudflare"):
+        return False, "Simulated Test Failure / Quota Reached"
+        
     account_id = os.environ.get("CF_ACCOUNT_ID")
     api_token = os.environ.get("CF_API_TOKEN")
     
     if not account_id or not api_token:
-        return False, "Missing CF_ACCOUNT_ID or CF_API_TOKEN Secrets"
+        return False, "Missing CF Credentials"
         
     url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/@cf/black-forest-labs/flux-1-schnell"
-    headers = {
-        "Authorization": f"Bearer {api_token}",
-        "Content-Type": "application/json"
-    }
+    headers = {"Authorization": f"Bearer {api_token}", "Content-Type": "application/json"}
     payload = {"prompt": f"{prompt}, vertical 9:16 format, masterpiece"}
     
     try:
@@ -30,35 +36,65 @@ def generate_cloudflare_image(prompt, output_path):
                 if "result" in data and "image" in data["result"]:
                     img_data = base64.b64decode(data["result"]["image"])
                     with open(output_path, 'wb') as f: f.write(img_data)
+                    quota_manager.consume_points("cloudflare", 1)
                     return True, ""
-            # Fallback if CF returns binary directly
             with open(output_path, 'wb') as f: f.write(response.content)
+            quota_manager.consume_points("cloudflare", 1)
             return True, ""
         else:
             return False, f"HTTP {response.status_code}"
     except Exception as e:
         return False, "Timeout/Connection Error"
 
-def generate_pollinations_curl(prompt, output_path):
-    print("      [Tier 2: Pollinations cURL] Attempting Cloudflare bypass...")
-    seed = random.randint(1, 1000000)
-    safe_prompt = urllib.parse.quote(f"{prompt}, vertical 9:16 format, cinematic, highly detailed")
-    url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1080&height=1920&model=flux&nologo=true&seed={seed}"
+def generate_huggingface_cascade(prompt, output_path):
+    print("      [Tier 2: HuggingFace] Attempting AI generation...")
     
-    try:
-        cmd = [
-            "curl", "-s", "-L", 
-            "-A", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0", 
-            "-o", output_path, 
-            url
-        ]
-        subprocess.run(cmd, check=True, timeout=60)
+    if quota_manager.is_provider_exhausted("huggingface"):
+        return False, "HF Quota Reached"
         
-        if os.path.exists(output_path) and os.path.getsize(output_path) > 15000:
-            return True, ""
-        return False, "Cloudflare Blocked (Invalid File Size)"
-    except Exception as e:
-        return False, "cURL Failed"
+    hf_token = os.environ.get("HF_TOKEN")
+    if not hf_token: return False, "No Token"
+        
+    # 🚨 THE CASCADE: FLUX -> SDXL
+    models = [
+        "black-forest-labs/FLUX.1-schnell",
+        "stabilityai/stable-diffusion-xl-base-1.0"
+    ]
+    
+    headers = {"Authorization": f"Bearer {hf_token}", "Content-Type": "application/json"}
+    payload = {"inputs": f"{prompt}, vertical 9:16 format, masterpiece"}
+    
+    for model in models:
+        short_name = model.split('/')[-1]
+        print(f"      -> Routing to {short_name}...")
+        
+        if SIMULATE_CASCADE_TEST and "FLUX" in model:
+            print(f"      ⚠️ {short_name} out of free quota (Simulated). Switching models...")
+            continue
+            
+        url = f"https://api-inference.huggingface.co/models/{model}"
+        
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=60)
+            if response.status_code == 200:
+                with open(output_path, 'wb') as f: 
+                    f.write(response.content)
+                quota_manager.consume_points("huggingface", 1)
+                return True, f"HF ({short_name})"
+            elif response.status_code == 402:
+                print(f"      ⚠️ {short_name} out of free quota. Switching models...")
+                continue 
+            elif response.status_code == 503:
+                print(f"      💤 {short_name} asleep. Waiting 20s...")
+                time.sleep(20)
+                response = requests.post(url, headers=headers, json=payload, timeout=60)
+                if response.status_code == 200:
+                    with open(output_path, 'wb') as f: f.write(response.content)
+                    quota_manager.consume_points("huggingface", 1)
+                    return True, f"HF ({short_name})"
+        except: pass
+            
+    return False, "HF Models Exhausted/Blocked"
 
 def fallback_pexels_image(search_query, output_path):
     print(f"      [Tier 3: Pexels] AI Blocked. Searching strictly for: '{search_query}'...")
@@ -104,18 +140,18 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
                 print(f"      🚨 [VISUALS] Tier 1 Failed ({err}). Disabling for remainder of run.")
                 tier1_active = False 
         else:
-            print("      [Tier 1: Cloudflare] Skipped (Previously Blocked/No Keys)")
+            print("      [Tier 1: Cloudflare] Skipped (Previously Blocked)")
 
-        # 2. Tier 2: Pollinations cURL Bypass
+        # 2. Tier 2: Hugging Face Cascade (FLUX -> SDXL)
         if not success and tier2_active:
-            success, err = generate_pollinations_curl(prompt, output_path)
+            success, err = generate_huggingface_cascade(prompt, output_path)
             if success: 
-                final_provider = "Pollinations cURL Bypass"
+                final_provider = err # Pass back the exact model used
             else:
                 print(f"      🚨 [VISUALS] Tier 2 Failed ({err}). Disabling for remainder of run.")
                 tier2_active = False 
         elif not success and not tier2_active:
-            print("      [Tier 2: Pollinations cURL] Skipped (Previously Blocked)")
+            print("      [Tier 2: Hugging Face] Skipped (Previously Blocked)")
                 
         # 3. Tier 3: Pexels Dedicated Query Fallback
         if not success:
