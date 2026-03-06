@@ -27,7 +27,6 @@ def trim_audio_precision(file_path):
         if len(audio) > 200:
             audio = audio[200:]
             
-        # 🚨 FIX: Audio Normalization perfectly maximizes volume without EVER causing digital distortion/clipping
         audio = effects.normalize(audio)
         
         final = AudioSegment.silent(duration=200) + audio + AudioSegment.silent(duration=500)
@@ -73,7 +72,9 @@ def generate_audio(text, output_base="temp_audio"):
     if not success: 
         return False, provider
     
-    trim_audio_precision(final_wav)
+    # 🚨 FIX: Strict Pass-Through Guard. If the audio is corrupt and can't be trimmed, fail immediately.
+    if not trim_audio_precision(final_wav):
+        return False, provider
 
     try:
         print("📝 [VOICE] Transcribing and Chunking Captions (Max 3 words)...")
@@ -106,5 +107,7 @@ def generate_audio(text, output_base="temp_audio"):
             f.write("\n".join(srt_lines))
     except Exception as e: 
         print(f"⚠️ Transcription error: {e}")
+        # 🚨 FIX: Silent Movie Guard. If Whisper crashes and can't generate the SRT, fail the whole topic.
+        return False, provider
     
     return True, provider
