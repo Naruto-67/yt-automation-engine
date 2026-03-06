@@ -1,56 +1,29 @@
 import os
 import requests
+import urllib.parse
 import time
-from google import genai
-from google.genai import types
 
-def generate_gemini_image(prompt, output_path):
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key: return False, "No Key"
+def generate_pollinations_image(prompt, output_path):
+    print("      [Tier 1: Pollinations] Attempting Free FLUX AI generation...")
+    try:
+        # Pollinations is a free, unlimited API that dynamically routes to FLUX models
+        safe_prompt = urllib.parse.quote(f"{prompt}, vertical 9:16 format, cinematic, highly detailed, masterpiece")
+        url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1080&height=1920&model=flux&nologo=true"
         
-    client = genai.Client(api_key=api_key)
-    enhanced_prompt = f"{prompt}, cinematic lighting, highly detailed"
-    
-    # 🚨 THE IMMORTAL RESOLVER: Ranked list of image models to try
-    IMAGE_MODELS = [
-        'gemini-2.0-flash',       # The docs confirmed this is free for images
-        'gemini-2.5-flash-image', # The new Nano Banana
-        'gemini-1.5-flash'        # Legacy fallback
-    ]
-    
-    for model_name in IMAGE_MODELS:
-        print(f"      [Tier 1: Gemini] Attempting via {model_name}...")
-        try:
-            response = client.models.generate_content(
-                model=model_name,
-                contents=enhanced_prompt,
-                config=types.GenerateContentConfig(
-                    response_modalities=["IMAGE"],
-                    image_config=types.ImageConfig(aspect_ratio="9:16")
-                )
-            )
-            for part in response.parts:
-                if part.inline_data is not None:
-                    image = part.as_image()
-                    image.convert('RGB').save(output_path, format="JPEG")
-                    return True, model_name
-                    
-        except Exception as e:
-            error_msg = str(e).lower()
-            if "404" in error_msg or "not found" in error_msg:
-                print(f"      ⚠️ {model_name} unavailable. Cascading...")
-                continue
-            elif "400" in error_msg or "paid" in error_msg or "invalid" in error_msg:
-                print(f"      ⚠️ {model_name} is Paywalled. Cascading...")
-                continue
-            else:
-                print(f"      [Gemini] ⚠️ Failed on {model_name}: {e}")
-                return False, "Error"
-                
-    return False, "All Gemini Models Failed/Paywalled"
+        response = requests.get(url, timeout=60)
+        if response.status_code == 200:
+            with open(output_path, 'wb') as f:
+                f.write(response.content)
+            return True
+        else:
+            print(f"      [Pollinations] ⚠️ HTTP {response.status_code}")
+            return False
+    except Exception as e:
+        print(f"      [Pollinations] ⚠️ Error: {e}")
+        return False
 
 def generate_huggingface_image(prompt, output_path):
-    print("      [Tier 2: HuggingFace] Attempting FLUX AI generation...")
+    print("      [Tier 2: HuggingFace] Attempting FLUX AI fallback...")
     hf_token = os.environ.get("HF_TOKEN")
     if not hf_token: return False
         
@@ -71,7 +44,7 @@ def generate_huggingface_image(prompt, output_path):
     return False
 
 def fallback_pexels_image(prompt, output_path):
-    print("      [Tier 3: Pexels] AI blocked. Attempting guaranteed stock fallback...")
+    print("      [Tier 3: Pexels] AI blocked. Attempting stock image fallback...")
     api_key = os.environ.get("PEXELS_API_KEY")
     if not api_key: return False
         
@@ -89,7 +62,7 @@ def fallback_pexels_image(prompt, output_path):
     return False
 
 def fetch_scene_images(prompts_list, base_filename="temp_scene"):
-    print(f"🖼️ [VISUALS] Sourcing {len(prompts_list)} scene images via Dynamic 3-Tier System...")
+    print(f"🖼️ [VISUALS] Sourcing {len(prompts_list)} scene images via Decoupled 3-Tier System...")
     successful_images = []
     primary_provider = "Unknown"
     
@@ -97,17 +70,16 @@ def fetch_scene_images(prompts_list, base_filename="temp_scene"):
         output_path = f"{base_filename}_{i}.jpg"
         print(f"\n   -> Scene {i+1} Prompt: {prompt[:40]}...")
         
-        # 1. Try the Immortal Gemini Cascade
-        success, prov_name = generate_gemini_image(prompt, output_path)
-        if success: 
-            primary_provider = prov_name
+        # 1. Primary Engine: Free Pollinations (FLUX)
+        success = generate_pollinations_image(prompt, output_path)
+        if success: primary_provider = "Pollinations FLUX"
         
-        # 2. Try Hugging Face Fallback
+        # 2. Hugging Face Fallback
         if not success:
             success = generate_huggingface_image(prompt, output_path)
             if success: primary_provider = "HuggingFace FLUX"
             
-        # 3. Try Stock Fallback
+        # 3. Stock Fallback
         if not success:
             success = fallback_pexels_image(prompt, output_path)
             if success: primary_provider = "Pexels Stock"
@@ -118,7 +90,7 @@ def fetch_scene_images(prompts_list, base_filename="temp_scene"):
         else:
             print(f"   ❌ Scene {i+1} failed completely.")
             
-        print("   ⏳ Pacing generation engines to prevent IP bans (Sleeping 6s)...")
-        time.sleep(6) 
+        print("   ⏳ Pacing generation engines (Sleeping 3s)...")
+        time.sleep(3) 
         
     return successful_images, primary_provider
