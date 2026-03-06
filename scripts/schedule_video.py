@@ -106,7 +106,18 @@ def publish_vault_videos():
                     target_dt += timedelta(days=1) 
                 pub_time = target_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
                 
-                youtube.videos().update(part="status", body={"id": vid_id, "status": {"privacyStatus": "private", "publishAt": pub_time}}).execute()
+                # 🚨 FIX: Payload Preservation. Must include selfDeclaredMadeForKids to prevent Google API rejection.
+                youtube.videos().update(
+                    part="status", 
+                    body={
+                        "id": vid_id, 
+                        "status": {
+                            "privacyStatus": "private", 
+                            "publishAt": pub_time,
+                            "selfDeclaredMadeForKids": False
+                        }
+                    }
+                ).execute()
                 quota_manager.consume_points("youtube", 50) 
                 time.sleep(5)
                 
@@ -128,8 +139,6 @@ def publish_vault_videos():
                 print(f"⚠️ [PUBLISHER] Failed to publish video {vid_id}: {vid_e}.")
                 notify_error("Publisher", "Publishing Error", f"Video {vid_id} failed: {vid_e}")
                 
-                # 🚨 FIX: We only delete from matrix memory if YouTube explicitly says "404 Not Found" (User manually deleted it). 
-                # If it is a 503 or 429 API rate limit error, we keep it in memory and let it retry tomorrow naturally!
                 if "404" in str(vid_e) or "not found" in str(vid_e).lower():
                     print(f"🗑️ [PUBLISHER] 404 Detected. Removing ghost video {vid_id} from memory.")
                     matrix = [m for m in matrix if m.get("youtube_id") != vid_id]
