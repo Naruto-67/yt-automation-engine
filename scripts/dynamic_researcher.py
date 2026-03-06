@@ -89,7 +89,6 @@ def run_dynamic_research():
         
         if match:
             new_matrix = json.loads(match.group(0))
-            for item in new_matrix: item["processed"] = False 
             
             root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
             matrix_path = os.path.join(root_dir, "memory", "content_matrix.json")
@@ -100,29 +99,38 @@ def run_dynamic_research():
                     try: existing_matrix = json.load(f)
                     except: pass
             
-            # 🚨 FIX: Strict Zombie Purge. 
-            # We ONLY keep items that are (1) Unprocessed AND NOT Failed, or (2) Safely Vaulted.
+            # 🚨 FIX: The "Amnesia Shield". Extract all historical topics to prevent duplicate content.
+            historical_topics = {item.get("topic", "").lower().strip() for item in existing_matrix}
+            
+            # Keep only items that are completely valid queue items or vaulted
             preserved_items = []
             for i in existing_matrix:
                 is_processed = i.get("processed", False)
                 is_failed = i.get("failed_flag", False)
                 is_published = i.get("published", False)
                 
-                # Keep active Vault items
                 if is_processed and not is_published:
                     preserved_items.append(i)
-                # Keep unprocessed, valid queue items
                 elif not is_processed and not is_failed:
                     preserved_items.append(i)
             
-            random.shuffle(new_matrix)
-            final_matrix = preserved_items + new_matrix
+            # Filter the AI's new suggestions to guarantee 100% uniqueness
+            unique_new_topics = []
+            for item in new_matrix:
+                topic_clean = item.get("topic", "").lower().strip()
+                if topic_clean not in historical_topics:
+                    item["processed"] = False
+                    unique_new_topics.append(item)
+                    historical_topics.add(topic_clean) # Add to set to prevent duplicates within the new batch itself!
+            
+            random.shuffle(unique_new_topics)
+            final_matrix = preserved_items + unique_new_topics
             
             with open(matrix_path, "w", encoding="utf-8") as f:
                 json.dump(final_matrix, f, indent=4)
                 
-            print(f"✅ [RESEARCHER] Matrix updated. Kept {len(preserved_items)} valid queue items + 21 new topics.")
-            notify_summary(True, f"Deep Research Complete. Zombie topics purged. 21 new dynamic niches generated via {provider}.")
+            print(f"✅ [RESEARCHER] Matrix updated. Kept {len(preserved_items)} queue items + {len(unique_new_topics)} UNIQUE new topics.")
+            notify_summary(True, f"Deep Research Complete. Zombie topics purged. {len(unique_new_topics)} unique dynamic niches generated via {provider}.")
         else: raise ValueError("AI returned non-JSON parsable content.")
 
     except Exception as e:
