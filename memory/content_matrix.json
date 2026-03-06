@@ -88,7 +88,10 @@
     {
         "niche": "short story",
         "topic": "Mysterious Disappearances",
-        "bg_query": "missing persons unsolved mysteries"
+        "bg_query": "missing persons unsolved mysteries",
+        "processed": true,
+        "vaulted_date": "2026-03-06T08:03:38.843857",
+        "published": false
     },
     {
         "niche": "short story",
