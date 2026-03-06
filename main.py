@@ -77,8 +77,8 @@ def run_production_cycle():
             niche = item['niche']
             print(f"\n🎬 [PROCESSING] {niche.upper()}: {topic}")
             
-            # 🚨 FIX: Strict Quota Check requires 1650 (1600 for upload + 50 for comment)
-            if not quota_manager.can_afford_youtube(1650):
+            # 🚨 FIX: Strict Quota Check requires 1700 (1600 upload + 50 playlist + 50 comment)
+            if not quota_manager.can_afford_youtube(1700):
                 print("🛑 [QUOTA GUARDIAN] YouTube Quota limit reached (10k). Halting production to prevent API ban.")
                 break
 
@@ -100,7 +100,10 @@ def run_production_cycle():
                 time.sleep(10)
 
                 image_paths, visual_prov = fetch_scene_images(image_prompts, pexels_queries, base_filename=f"temp_scene_{success_count}")
-                if len(image_paths) == 0: raise Exception("Visual generation failed.")
+                
+                # 🚨 FIX: Prevent Audio/Video Desync by ensuring ALL images generated successfully
+                if len(image_paths) < len(image_prompts): 
+                    raise Exception(f"Visual Desync: Only generated {len(image_paths)}/{len(image_prompts)} images. Aborting to prevent audio cutoff.")
                 time.sleep(10)
 
                 render_success, video_duration, video_size = render_video(
@@ -120,7 +123,7 @@ def run_production_cycle():
                     else:
                         raise Exception("YouTube Upload API Rejected the Payload.")
                 else:
-                    print(f"🛑 [TEST MODE] Skipped YT Upload (Saved 1600 Quota). Vaulting '{topic}' virtually.")
+                    print(f"🛑 [TEST MODE] Skipped YT Upload. Vaulting '{topic}' virtually.")
                     item['processed'] = True
                     item['vaulted_date'] = datetime.utcnow().isoformat()
                     item['published'] = False
@@ -138,7 +141,7 @@ def run_production_cycle():
                         if os.path.exists(f): os.remove(f)
 
             except Exception as e:
-                print(f"🚨 [CRASH] Topic '{topic}' failed.")
+                print(f"🚨 [CRASH] Topic '{topic}' failed: {e}")
                 quota_manager.diagnose_fatal_error("main.py", e)
                 print("⏳ [SAFETY PROTOCOL] Enforcing 60-second cooldown before attempting next video...")
                 time.sleep(60)
