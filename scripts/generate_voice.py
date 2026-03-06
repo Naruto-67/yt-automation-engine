@@ -11,7 +11,7 @@ if os.environ.get("HF_TOKEN"):
 
 import numpy as np
 import soundfile as sf
-from pydub import AudioSegment
+from pydub import AudioSegment, effects
 from scripts.groq_client import groq_client
 from scripts.quota_manager import quota_manager
 
@@ -24,8 +24,13 @@ def format_time(seconds):
 def trim_audio_precision(file_path):
     try:
         audio = AudioSegment.from_file(file_path)
-        # 🚨 FIX: Removed blind mathematical slicing. Just normalize volume and apply safe silence buffers.
-        final = AudioSegment.silent(duration=50) + (audio + 8) + AudioSegment.silent(duration=300)
+        if len(audio) > 200:
+            audio = audio[200:]
+            
+        # 🚨 FIX: Audio Normalization perfectly maximizes volume without EVER causing digital distortion/clipping
+        audio = effects.normalize(audio)
+        
+        final = AudioSegment.silent(duration=200) + audio + AudioSegment.silent(duration=500)
         final.export(file_path, format="wav")
         return True
     except Exception as e: 
@@ -39,6 +44,8 @@ def generate_audio(text, output_base="temp_audio"):
     success = False
     provider = "Unknown"
     
+    buffered_text = f", {text}" 
+    
     print("🎙️ [VOICE] Attempting Primary: Kokoro (Ultra-Realistic Human)...")
     try:
         from kokoro import KPipeline
@@ -47,7 +54,7 @@ def generate_audio(text, output_base="temp_audio"):
         print(f"🎙️ [VOICE] Selected actor: {chosen_voice.upper()}")
         
         pipeline = KPipeline(lang_code='a') 
-        gen = pipeline(text, voice=chosen_voice, speed=1.1, split_pattern=r'\n+')
+        gen = pipeline(buffered_text, voice=chosen_voice, speed=1.1, split_pattern=r'\n+')
         audio_chunks = [audio for _, _, audio in gen if audio is not None]
         if audio_chunks:
             sf.write(final_wav, np.concatenate(audio_chunks), 24000)
@@ -59,7 +66,7 @@ def generate_audio(text, output_base="temp_audio"):
 
     if not success:
         print("🎙️ [VOICE] Kokoro failed. Booting Groq Fallback...")
-        if groq_client.generate_audio(text, final_wav):
+        if groq_client.generate_audio(buffered_text, final_wav):
             success = True
             provider = "Groq Orpheus API"
 
