@@ -142,16 +142,19 @@ def run_production_cycle():
                 print(f"🚨 [CRASH] Topic '{topic}' failed: {e}")
                 quota_manager.diagnose_fatal_error("main.py", e)
                 
-                # 🚨 FIX: The "Poisoned Topic" Death Loop Shield
-                # Force updates the matrix so the engine never tries this specific, broken topic again.
                 item['processed'] = True
                 item['failed_flag'] = True
                 
                 print("⏳ [SAFETY PROTOCOL] Quarantined poisoned topic. Enforcing 60-second cooldown...")
+                
+                # 🚨 FIX: Save the matrix IMMEDIATELY inside the exception so we don't lose the quarantine flag on crash
+                save_matrix(matrix)
                 time.sleep(60)
                 continue
 
-        save_matrix(matrix)
+            # 🚨 FIX: Save the matrix IMMEDIATELY after success so we don't lose the YouTube IDs on system crash
+            save_matrix(matrix)
+
         print(f"🏁 [FINISH] {success_count} videos sent to Vault.")
         
     except Exception as fatal_e:
