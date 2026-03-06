@@ -53,14 +53,15 @@ def run_production_cycle():
             return
 
         matrix = load_matrix()
-        unprocessed = [t for t in matrix if not t.get("processed", False)]
+        # Only process items that aren't done AND haven't failed the 3-strike rule
+        unprocessed = [t for t in matrix if not t.get("processed", False) and not t.get("failed_flag", False)]
         
         if not unprocessed:
             print("⚠️ [ENGINE] Content Matrix is empty! Triggering Emergency Research Cycle...")
             from scripts.dynamic_researcher import run_dynamic_research
             run_dynamic_research()
             matrix = load_matrix()
-            unprocessed = [t for t in matrix if not t.get("processed", False)]
+            unprocessed = [t for t in matrix if not t.get("processed", False) and not t.get("failed_flag", False)]
             if not unprocessed:
                 raise Exception("Emergency Research failed to populate matrix.")
 
@@ -140,19 +141,21 @@ def run_production_cycle():
 
             except Exception as e:
                 print(f"🚨 [CRASH] Topic '{topic}' failed: {e}")
-                quota_manager.diagnose_fatal_error("main.py", e)
                 
-                item['processed'] = True
-                item['failed_flag'] = True
+                # 🚨 FIX: 3-Strike System. Prevents temporary 503 errors from permanently killing a topic.
+                item['attempts'] = item.get('attempts', 0) + 1
+                if item['attempts'] >= 3:
+                    item['processed'] = True
+                    item['failed_flag'] = True
+                    print(f"💀 [SAFETY PROTOCOL] Topic failed 3 times. Permanently quarantined.")
+                    quota_manager.diagnose_fatal_error("main.py (3-Strike Quarantined)", e)
+                else:
+                    print(f"🔄 [SAFETY PROTOCOL] Temporary glitch (Attempt {item['attempts']}/3). Will retry later.")
                 
-                print("⏳ [SAFETY PROTOCOL] Quarantined poisoned topic. Enforcing 60-second cooldown...")
-                
-                # 🚨 FIX: Save the matrix IMMEDIATELY inside the exception so we don't lose the quarantine flag on crash
                 save_matrix(matrix)
                 time.sleep(60)
                 continue
 
-            # 🚨 FIX: Save the matrix IMMEDIATELY after success so we don't lose the YouTube IDs on system crash
             save_matrix(matrix)
 
         print(f"🏁 [FINISH] {success_count} videos sent to Vault.")
