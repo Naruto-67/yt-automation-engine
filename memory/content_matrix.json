@@ -136,7 +136,10 @@
     {
         "niche": "short story",
         "topic": "Dystopian Futures",
-        "bg_query": "dystopian science fiction futuristic"
+        "bg_query": "dystopian science fiction futuristic",
+        "processed": true,
+        "vaulted_date": "2026-03-06T12:15:44.910427",
+        "published": false
     },
     {
         "niche": "short story",
