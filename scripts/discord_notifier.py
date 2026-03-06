@@ -1,5 +1,6 @@
 import requests
 import os
+import time
 from datetime import datetime
 import pytz
 
@@ -13,6 +14,10 @@ class DiscordNotifier:
 
     def send_rich_embed(self, title, color, fields):
         if not self.webhook_url: return False
+        
+        # 🚨 DISCORD RATE LIMIT GUARD: Mandatory 2-second breather before ANY message 
+        # prevents webhook shadowbans during error cascades or multi-part logs.
+        time.sleep(2)
             
         payload = {
             "username": "YouTube Automation Engine",
@@ -37,18 +42,15 @@ def notify_production_success(niche, topic, script, script_ai, seo_ai, voice_ai,
     desc = metadata.get('description', 'Generated Description')[:150]
     tags = ', '.join(metadata.get('tags', []))[:100]
     
-    # 🚨 DISCORD UI FIX: Purple color, SEO restored, Stats retained.
     fields = [
         {"name": "🎯 Niche", "value": f"└ {niche.title()}", "inline": False},
-        {"name": "📝 Video", "value": f"└ {title}", "inline": False},
-        {"name": "🔥 SEO Metadata", "value": f"**Tags:** {tags}...\n**Desc:** {desc}...", "inline": False},
+        {"name": "🔥 SEO Metadata", "value": f"**Title:** {title}\n**Tags:** {tags}...\n**Desc:** {desc}...", "inline": False},
         {"name": "📊 Stats", "value": f"└ Size: {size:.1f} MB\n└ Duration: {duration:.1f}s", "inline": False},
         {"name": "📜 Script Preview", "value": f"└ {script[:150]}...", "inline": False},
         {"name": "🧠 Rendered By", "value": f"└ **Script:** {script_ai}\n└ **SEO:** {seo_ai}\n└ **Voice:** {voice_ai}\n└ **Visual:** {visual_ai}", "inline": False},
-        {"name": "🏦 Uploaded in vault", "value": f"└ {status}", "inline": False}
+        {"name": "🏦 Upload Status", "value": f"└ {status}", "inline": False}
     ]
-    # 0x9b59b6 is the classic Discord Purple you requested
-    notifier.send_rich_embed("✅ Production Success", 0x9b59b6, fields)
+    notifier.send_rich_embed("✅ Production Success", 0x2ecc71, fields)
 
 def notify_summary(success, message):
     webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
