@@ -8,7 +8,7 @@ from scripts.youtube_manager import get_youtube_client
 
 def get_deep_channel_context(youtube):
     """🚨 DEEP DATA: Fetches batched stats & comments from the past week while protecting quota."""
-    if not youtube: return "No channel data available. Generate broadly appealing viral niches."
+    if not youtube: return "No channel data available. You must rely purely on current internet trends."
     try:
         uploads_id = youtube.channels().list(part="contentDetails", mine=True).execute()["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
         quota_manager.consume_points("youtube", 1)
@@ -17,7 +17,7 @@ def get_deep_channel_context(youtube):
         quota_manager.consume_points("youtube", 1)
         
         vid_ids = [v["snippet"]["resourceId"]["videoId"] for v in vids.get("items", [])]
-        if not vid_ids: return "Channel is new. Generate trending topics."
+        if not vid_ids: return "Channel is brand new. Rely purely on current broad internet trends."
         
         # Batch API request (1 point for up to 50 videos)
         stats_response = youtube.videos().list(part="statistics,snippet", id=",".join(vid_ids)).execute()
@@ -43,7 +43,7 @@ def get_deep_channel_context(youtube):
         except: pass
         
         context = "📊 CHANNEL PERFORMANCE REPORT (PAST 7 DAYS):\n"
-        context += "TOP PERFORMING NICHES:\n"
+        context += "TOP PERFORMING VIDEOS:\n"
         for v in top_vids:
             context += f"- Title: '{v['title']}' | Views: {v['views']} | Likes: {v['likes']}\n"
         
@@ -61,23 +61,23 @@ def run_dynamic_research():
     youtube = get_youtube_client()
     channel_context = get_deep_channel_context(youtube)
     
-    # 🚨 QUOTA MANDATE: Enforces your 2-Video Minimum baseline dynamically via prompt engineering.
+    # 🚨 EXPLORE VS EXPLOIT MANDATE: Forces the AI to invent new viral trends.
     prompt = f"""
-    You are an Elite YouTube Shorts Strategist. 
-    Review our exact channel data and fan suggestions below. Identify our winning formats, and invent 21 NEW, highly viral YouTube Shorts topics. 
+    You are an Elite YouTube Shorts Strategist. Your job is to analyze live internet trends and build a 21-video content matrix for an AI automation channel.
     
-    MANDATORY BUSINESS QUOTA (CRITICAL):
-    Out of the 21 topics generated, you MUST include:
-    1. At least 2 topics in the "Short Story" niche (e.g., 'Horror Story', 'Sci-Fi Tale').
-    2. At least 2 topics in the "Facts" niche. You should dynamically pick the best sub-category based on our performance (e.g., 'Bizarre Facts', 'Space Facts', 'Psychology Facts').
-    3. The remaining 17 topics should be based entirely on what is performing best or trending. (If stories/facts are doing well, you can generate more than the minimum 2).
+    Review our channel data below. You must use the "Explore and Exploit" framework to build the 21 topics:
+    
+    MANDATORY BUSINESS QUOTA:
+    1. THE BASELINE: At least 2 "Short Story" topics and 2 "Facts" topics (pick the best sub-category based on data or trends).
+    2. THE EXPLOIT: 12 topics MUST double-down on whatever is currently working best in the channel data below. If a format or topic went viral, milk it.
+    3. THE EXPLORE (WILDCARDS): 5 topics MUST be completely NEW, highly viral internet niches that are perfect for AI image generation. Look for untapped internet trends (e.g., 'Analog Horror', 'Liminal Spaces', 'Hypothetical Scenarios', 'AI Brainrot', 'Unwritten Rules'). Invent compelling niche names for these.
     
     {channel_context}
     
     Return ONLY a raw JSON array of exactly 21 objects. No intro text. Do not use markdown blocks.
     Format:
     [
-        {{"niche": "Cyberpunk Lore", "topic": "The 2077 Neon Incident"}},
+        {{"niche": "Liminal Spaces", "topic": "The infinite pool room experiment"}},
         ...
     ]
     """
@@ -93,7 +93,7 @@ def run_dynamic_research():
             new_matrix = json.loads(match.group(0))
             for item in new_matrix: item["processed"] = False 
             
-            # 🚨 THE SHUFFLE: Mixes up the 21 videos so we don't upload 4 facts in a row on Monday
+            # 🚨 THE SHUFFLE: Mixes up the 21 videos so the Wildcards drop randomly throughout the week
             random.shuffle(new_matrix)
             
             root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -102,8 +102,8 @@ def run_dynamic_research():
             with open(matrix_path, "w", encoding="utf-8") as f:
                 json.dump(new_matrix, f, indent=4)
                 
-            print(f"✅ [RESEARCHER] Matrix updated, quotas enforced, and array shuffled for variety.")
-            notify_summary(True, f"Deep Research Complete. Weekly quota enforced. 21 new videos mapped via {provider}.")
+            print(f"✅ [RESEARCHER] Matrix updated with 21 videos (Exploit & Explore wildcards applied).")
+            notify_summary(True, f"Deep Research Complete. 5 Wildcard niches generated and shuffled via {provider}.")
         else:
             raise ValueError("AI returned non-JSON parsable content.")
 
