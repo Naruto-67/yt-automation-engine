@@ -44,7 +44,6 @@ def extract_scene_data_dynamically(scene_dict, fallback_topic):
 def generate_script(niche, topic):
     target_scenes = random.randint(4, 7)
     
-    # 🚨 PURE DYNAMIC PROMPT: The AI decides the tone entirely based on the niche string.
     prompt = f"""
     You are an Elite Master Content Creator. Write a highly viral YouTube Short.
     NICHE: '{niche}'
@@ -53,7 +52,7 @@ def generate_script(niche, topic):
     CRITICAL RULES:
     1. DYNAMIC ADAPTATION: Analyze the NICHE. Dynamically deduce the absolute best narrative structure, tone, and visual style that guarantees virality for this specific niche (e.g. 3D Pixar style for stories, Dark Cinematic for facts, Hyper-chaotic for brainrot).
     2. NO META-COMMENTARY: NEVER say "In this video".
-    3. STRICT LENGTH: The total script MUST be exactly 85 to 95 words.
+    3. STRICT LENGTH: The total script MUST be exactly 65 to 75 words. This guarantees the video is under 55 seconds.
     4. DYNAMIC SCENES: Break the script into EXACTLY {target_scenes} scenes.
        - Write the 'text' (the words spoken).
        - Write an 'image_prompt' (the specific visual style you deduced).
