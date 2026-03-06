@@ -37,4 +37,14 @@ jobs:
             git pull --rebase origin main
             git push origin main
           fi
+          
+      - name: Upload Final Video Artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: finished-youtube-shorts
+          path: final_*.mp4
+          if-no-files-found: warn
+          compression-level: 6
+          
       - run: rm -rf *.mp4 *.wav *.mp3 *.srt *.ass temp_* && pip cache purge
