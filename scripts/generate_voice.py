@@ -3,7 +3,6 @@ import json
 import random
 import warnings
 
-# Silence PyTorch and HuggingFace Hub warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
 os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
