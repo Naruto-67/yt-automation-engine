@@ -77,7 +77,8 @@ def run_production_cycle():
             niche = item['niche']
             print(f"\n🎬 [PROCESSING] {niche.upper()}: {topic}")
             
-            if not quota_manager.can_afford_youtube(1600):
+            # 🚨 FIX: Strict Quota Check requires 1650 (1600 for upload + 50 for comment)
+            if not quota_manager.can_afford_youtube(1650):
                 print("🛑 [QUOTA GUARDIAN] YouTube Quota limit reached (10k). Halting production to prevent API ban.")
                 break
 
@@ -139,7 +140,6 @@ def run_production_cycle():
             except Exception as e:
                 print(f"🚨 [CRASH] Topic '{topic}' failed.")
                 quota_manager.diagnose_fatal_error("main.py", e)
-                # 🚨 FIX: 60-second cooldown on crash to prevent Google API DDoS bans from rapid looping
                 print("⏳ [SAFETY PROTOCOL] Enforcing 60-second cooldown before attempting next video...")
                 time.sleep(60)
                 continue
