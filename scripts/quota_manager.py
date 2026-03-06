@@ -24,7 +24,6 @@ class MasterQuotaManager:
         self._ensure_state_exists()
 
     def get_pacific_date(self):
-        """🚨 TIMEZONE FIX: Google APIs reset at midnight Pacific Time, NOT UTC."""
         pt_timezone = pytz.timezone('US/Pacific')
         return datetime.now(pt_timezone).strftime("%Y-%m-%d")
 
@@ -54,8 +53,11 @@ class MasterQuotaManager:
         return {}
 
     def _write_state_file(self, data):
-        with open(self.state_file, 'w', encoding="utf-8") as f:
+        # 🚨 FIX: Atomic Writes applied to the Core Quota system
+        tmp_path = self.state_file + ".tmp"
+        with open(tmp_path, 'w', encoding="utf-8") as f:
             json.dump(data, f, indent=4)
+        os.replace(tmp_path, self.state_file)
 
     def _get_active_state(self):
         state = self._read_state_file()
@@ -83,7 +85,6 @@ class MasterQuotaManager:
         
         try:
             last_used_date = datetime.strptime(date_str, "%Y-%m-%d")
-            # We compare Pacific Time to Pacific Time to ensure perfect math
             current_pt_date = datetime.strptime(self.get_pacific_date(), "%Y-%m-%d")
             days_unused = (current_pt_date - last_used_date).days
             
