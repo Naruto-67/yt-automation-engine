@@ -36,7 +36,6 @@ def get_optimal_publish_times(youtube):
     
     historical_data = get_historical_time_data(youtube)
     
-    # 🚨 DYNAMIC TIME PROMPT: Prioritizes US audience but relies strictly on actual data correlations.
     prompt = f"""
     You are an Elite YouTube Data Scientist. Your goal is to determine the two absolute best times to publish YouTube Shorts today to maximize the initial algorithmic feed spike.
     
@@ -61,7 +60,6 @@ def get_optimal_publish_times(youtube):
         if match: return json.loads(match.group(0))
     except: pass
     
-    # Fallback to general US peak times (UTC) if Gemini hallucinates
     return ["15:00", "23:00"] 
 
 def publish_vault_videos():
@@ -100,6 +98,7 @@ def publish_vault_videos():
                     niche_tag = f"{m_item['niche'].title()} Shorts"
                     break
             
+            # Parse AI time string "HH:MM" safely
             target_time_str = ai_times[idx] if idx < len(ai_times) else "15:00"
             try:
                 hr, mn = map(int, target_time_str.split(':'))
@@ -111,15 +110,18 @@ def publish_vault_videos():
                 target_dt += timedelta(days=1) 
             pub_time = target_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
             
+            # 1. Schedule Video
             youtube.videos().update(part="status", body={"id": vid_id, "status": {"privacyStatus": "private", "publishAt": pub_time}}).execute()
             quota_manager.consume_points("youtube", 50) 
             time.sleep(5)
             
+            # 2. Move to Dynamic Niche Playlist
             niche_playlist = get_or_create_playlist(youtube, niche_tag, "public")
             youtube.playlistItems().insert(part="snippet", body={"snippet": {"playlistId": niche_playlist, "resourceId": {"kind": "youtube#video", "videoId": vid_id}}}).execute()
             quota_manager.consume_points("youtube", 50) 
             time.sleep(5)
             
+            # 3. Delete from Vault
             youtube.playlistItems().delete(id=item["id"]).execute()
             quota_manager.consume_points("youtube", 50) 
             time.sleep(5)
