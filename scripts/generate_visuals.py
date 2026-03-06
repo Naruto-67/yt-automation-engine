@@ -3,26 +3,8 @@ import requests
 import urllib.parse
 import time
 
-def generate_pollinations_image(prompt, output_path):
-    print("      [Tier 1: Pollinations] Attempting Free FLUX AI generation...")
-    try:
-        safe_prompt = urllib.parse.quote(f"{prompt}, vertical 9:16 format, cinematic, highly detailed, masterpiece")
-        url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1080&height=1920&model=flux&nologo=true"
-        
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        response = requests.get(url, headers=headers, timeout=60)
-        
-        if response.status_code == 200:
-            with open(output_path, 'wb') as f:
-                f.write(response.content)
-            return True, ""
-        else:
-            return False, f"HTTP {response.status_code}"
-    except Exception as e:
-        return False, "Timeout/Connection Error"
-
 def generate_huggingface_image(prompt, output_path):
-    print("      [Tier 2: HuggingFace] Attempting FLUX AI fallback...")
+    print("      [Tier 1: HuggingFace] Attempting FLUX AI generation...")
     hf_token = os.environ.get("HF_TOKEN")
     if not hf_token: return False, "No Token"
         
@@ -41,6 +23,25 @@ def generate_huggingface_image(prompt, output_path):
         except: pass
         time.sleep(2)
     return False, "HF 503/Timeout"
+
+def generate_pollinations_image(prompt, output_path):
+    print("      [Tier 2: Pollinations] Attempting Free FLUX AI fallback...")
+    try:
+        safe_prompt = urllib.parse.quote(f"{prompt}, vertical 9:16 format, cinematic, highly detailed, masterpiece")
+        url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1080&height=1920&model=flux&nologo=true"
+        
+        # 🚨 THE FIX: Cloudflare blocks "python-requests". Pretending to be curl bypasses the 530 error.
+        headers = {"User-Agent": "curl/7.68.0"}
+        response = requests.get(url, headers=headers, timeout=60)
+        
+        if response.status_code == 200:
+            with open(output_path, 'wb') as f:
+                f.write(response.content)
+            return True, ""
+        else:
+            return False, f"HTTP {response.status_code}"
+    except Exception as e:
+        return False, "Timeout/Connection Error"
 
 def fallback_pexels_image(prompt, output_path):
     print("      [Tier 3: Pexels] AI blocked. Attempting stock image fallback...")
@@ -65,7 +66,6 @@ def fetch_scene_images(prompts_list, base_filename="temp_scene"):
     print(f"🖼️ [VISUALS] Sourcing {len(prompts_list)} scene images via Decoupled 3-Tier System...")
     successful_images = []
     
-    # 🚨 THE VISUAL TRIPWIRES
     tier1_active = True
     tier2_active = True
     final_provider = "Unknown"
@@ -76,27 +76,27 @@ def fetch_scene_images(prompts_list, base_filename="temp_scene"):
         
         success = False
         
-        # 1. Primary Engine
+        # 1. Primary Engine: Hugging Face
         if tier1_active:
-            success, err = generate_pollinations_image(prompt, output_path)
-            if success: 
-                final_provider = "Pollinations FLUX"
-            else:
-                print(f"      🚨 [VISUALS] Tier 1 Failed ({err}). Disabling for remainder of run.")
-                tier1_active = False # Trip the wire
-        else:
-            print("      [Tier 1: Pollinations] Skipped (Previously Blocked)")
-
-        # 2. Hugging Face Fallback
-        if not success and tier2_active:
             success, err = generate_huggingface_image(prompt, output_path)
             if success: 
-                final_provider = "HuggingFace FLUX (Fallback)"
+                final_provider = "HuggingFace FLUX"
+            else:
+                print(f"      🚨 [VISUALS] Tier 1 Failed ({err}). Disabling for remainder of run.")
+                tier1_active = False 
+        else:
+            print("      [Tier 1: HuggingFace] Skipped (Previously Blocked)")
+
+        # 2. Pollinations Fallback
+        if not success and tier2_active:
+            success, err = generate_pollinations_image(prompt, output_path)
+            if success: 
+                final_provider = "Pollinations FLUX (Fallback)"
             else:
                 print(f"      🚨 [VISUALS] Tier 2 Failed ({err}). Disabling for remainder of run.")
-                tier2_active = False # Trip the wire
+                tier2_active = False 
         elif not success and not tier2_active:
-            print("      [Tier 2: HuggingFace] Skipped (Previously Blocked)")
+            print("      [Tier 2: Pollinations] Skipped (Previously Blocked)")
                 
         # 3. Stock Fallback
         if not success:
