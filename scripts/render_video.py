@@ -7,23 +7,60 @@ from pydub import AudioSegment
 def get_style_config(style_name="default"):
     # 🚨 THE 2026 BRUTALIST RETENTION META
     default_style = {
-        "FontName": "Liberation Sans", 
-        "FontSize": "85",              # Extremely large font
-        "PrimaryColour": "&H00FFFFFF", # Pure White Text
-        "OutlineColour": "&H00000000", # Pure Black Outline
-        "BackColour": "&H00000000",    # No shadow needed, we are using a brutalist outline
-        "Outline": "11",               # Massive flat outline for max contrast
-        "Shadow": "0",                 # Removed for a cleaner, modern look
+        "FontName": "Arial",           
+        "FontSize": "85",              
+        "PrimaryColour": "&H00FFFFFF", 
+        "OutlineColour": "&H00000000", 
+        "BackColour": "&H00000000",    
+        "Outline": "11",               
+        "Shadow": "0",                 
         "BorderStyle": "1",            
-        "Alignment": "2",              # Bottom Center
-        "MarginV": "600"               # Pushed roughly 1/3 up the screen (optimal eye-line)
+        "Alignment": "2",              
+        "MarginV": "600"               
     }
-
-    if os.path.exists(config_path := os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")), "style_configs", f"{style_name}.json")):
-        try:
-            with open(config_path, "r") as f: default_style.update(json.load(f))
-        except: pass
     return default_style
+
+def time_to_seconds(time_str):
+    """Converts SRT timestamp 00:00:00,000 to seconds"""
+    h, m, s_ms = time_str.split(':')
+    s, ms = s_ms.split(',')
+    return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000.0
+
+def calculate_dynamic_durations(srt_path, num_images, total_audio_duration):
+    """Parses SRT to cut images exactly when the voiceover changes thoughts."""
+    print("⏱️ [RENDERER] Syncing visual cuts to voiceover pacing...")
+    try:
+        with open(srt_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+            
+        # Find all start and end timestamps in the SRT
+        timestamps = re.findall(r'(\d+:\d+:\d+,\d+) --> (\d+:\d+:\d+,\d+)', content)
+        
+        if not timestamps or len(timestamps) < num_images:
+            # Fallback to equal splits if subtitles fail or are too short
+            return [total_audio_duration / num_images] * num_images
+            
+        blocks_per_image = len(timestamps) // num_images
+        durations = []
+        
+        for i in range(num_images):
+            start_idx = i * blocks_per_image
+            # The last image takes all the remaining subtitle blocks
+            end_idx = (i + 1) * blocks_per_image - 1 if i < num_images - 1 else len(timestamps) - 1
+            
+            start_time = time_to_seconds(timestamps[start_idx][0])
+            end_time = time_to_seconds(timestamps[end_idx][1])
+            
+            # Force first image to start at 0.0, Force last image to end at max audio length
+            if i == 0: start_time = 0.0
+            if i == num_images - 1: end_time = total_audio_duration
+                
+            durations.append(end_time - start_time)
+            
+        return durations
+    except Exception as e:
+        print(f"⚠️ [RENDERER] Dynamic sync failed ({e}), using equal splits.")
+        return [total_audio_duration / num_images] * num_images
 
 def srt_to_ass(srt_path, ass_path, style):
     print("🎨 [RENDERER] Generating High-Retention Subtitles...")
@@ -32,7 +69,6 @@ def srt_to_ass(srt_path, ass_path, style):
         "[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
         "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
         "Alignment, MarginL, MarginR, MarginV, Encoding\n"
-        # The '1' before the '0,0,0' sets the font to BOLD
         f"Style: Default,{style['FontName']},{style['FontSize']},{style['PrimaryColour']},&H000000FF,"
         f"{style['OutlineColour']},{style['BackColour']},1,0,0,0,100,100,0,0,{style['BorderStyle']},"
         f"{style['Outline']},{style['Shadow']},{style['Alignment']},10,10,{style['MarginV']},1\n\n"
@@ -61,10 +97,11 @@ def srt_to_ass(srt_path, ass_path, style):
 
 def create_ken_burns_clip(image_path, duration, output_path, fps=60):
     frames = int(duration * fps)
+    # Slowed down the zoom to match dynamic pacing better (from 2000 to 3000)
     cmd = [
         "ffmpeg", "-y",
         "-loop", "1", "-i", image_path,
-        "-vf", f"zoompan=z='1.0+it/2000':d={frames}:s=1080x1920:fps={fps}",
+        "-vf", f"zoompan=z='1.0+it/3000':d={frames}:s=1080x1920:fps={fps}",
         "-c:v", "libx264", "-t", str(duration),
         "-pix_fmt", "yuv420p", "-preset", "ultrafast", "-crf", "23",
         output_path
@@ -85,12 +122,14 @@ def render_video(image_paths, audio_path, output_path, style_name="default"):
         total_duration = len(audio) / 1000.0 
     except: return False
 
-    clip_duration = total_duration / len(image_paths)
+    # 🚨 DYNAMIC SYNC: Calculate exact clip durations based on the SRT voiceover
+    clip_durations = calculate_dynamic_durations(srt_path, len(image_paths), total_duration)
 
     clip_files = []
     for i, img in enumerate(image_paths):
         clip_out = f"temp_anim_clip_{i}.mp4"
-        if create_ken_burns_clip(img, clip_duration, clip_out):
+        # Feed the exact dynamic duration to the clip creator
+        if create_ken_burns_clip(img, clip_durations[i], clip_out):
             clip_files.append(clip_out)
 
     with open(temp_concat_file, "w") as f:
