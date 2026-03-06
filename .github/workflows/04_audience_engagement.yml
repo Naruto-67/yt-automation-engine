@@ -3,6 +3,11 @@ on:
   schedule:
     - cron: '0 14 * * *' 
   workflow_dispatch:
+
+concurrency:
+  group: ghost-engine-lock
+  cancel-in-progress: false
+
 jobs:
   engage_fans:
     runs-on: ubuntu-latest
