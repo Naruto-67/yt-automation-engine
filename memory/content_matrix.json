@@ -104,7 +104,10 @@
     {
         "niche": "fact",
         "topic": "Incredible Animal Facts",
-        "bg_query": "animal facts wildlife"
+        "bg_query": "animal facts wildlife",
+        "processed": true,
+        "vaulted_date": "2026-03-06T09:09:11.793900",
+        "published": false
     },
     {
         "niche": "fact",
@@ -130,5 +133,15 @@
         "niche": "short story",
         "topic": "Haunted Houses",
         "bg_query": "haunted houses scary places"
+    },
+    {
+        "niche": "Bizarre Facts",
+        "topic": "Mind-blowing and unknown Bizarre facts",
+        "processed": false
+    },
+    {
+        "niche": "Horror Facts",
+        "topic": "Mind-blowing and unknown Horror facts",
+        "processed": false
     }
 ]
