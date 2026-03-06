@@ -27,13 +27,11 @@ def get_style_config(style_name="default"):
     return default_style
 
 def time_to_seconds(time_str):
-    """Converts SRT timestamp 00:00:00,000 to seconds"""
     h, m, s_ms = time_str.split(':')
     s, ms = s_ms.split(',')
     return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000.0
 
 def calculate_dynamic_durations(srt_path, num_images, total_audio_duration):
-    """Parses SRT to cut images exactly when the voiceover changes thoughts."""
     print("⏱️ [RENDERER] Syncing visual cuts to voiceover pacing...")
     try:
         with open(srt_path, 'r', encoding='utf-8') as f:
@@ -100,51 +98,58 @@ def srt_to_ass(srt_path, ass_path, style):
 def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=60):
     frames = int(duration * fps)
     
-    # 🚨 DYNAMIC ENGAGING ANIMATIONS: Alternates camera movement per scene
     effects = [
-        f"zoompan=z='1.0+it/3000':x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}", # Zoom Center
-        f"zoompan=z='1.0+it/3000':x='0':y='0':d={frames}:s=1080x1920:fps={fps}", # Zoom Top Left
-        f"zoompan=z='1.0+it/3000':x='iw-(iw/zoom)':y='ih-(ih/zoom)':d={frames}:s=1080x1920:fps={fps}", # Zoom Bottom Right
-        f"zoompan=z='1.0+it/3000':x='iw-(iw/zoom)':y='0':d={frames}:s=1080x1920:fps={fps}", # Zoom Top Right
-        f"zoompan=z='1.0+it/3000':x='0':y='ih-(ih/zoom)':d={frames}:s=1080x1920:fps={fps}"  # Zoom Bottom Left
+        f"zoompan=z='1.0+it/3000':x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}",
+        f"zoompan=z='1.0+it/3000':x='0':y='0':d={frames}:s=1080x1920:fps={fps}",
+        f"zoompan=z='1.0+it/3000':x='iw-(iw/zoom)':y='ih-(ih/zoom)':d={frames}:s=1080x1920:fps={fps}",
+        f"zoompan=z='1.0+it/3000':x='iw-(iw/zoom)':y='0':d={frames}:s=1080x1920:fps={fps}",
+        f"zoompan=z='1.0+it/3000':x='0':y='ih-(ih/zoom)':d={frames}:s=1080x1920:fps={fps}"
     ]
     
     selected_effect = effects[index % len(effects)]
-    
-    # 🚨 Adds cinematic color grading to make the AI images "pop" vibrantly
     full_filter = f"{selected_effect},eq=contrast=1.05:saturation=1.15"
 
+    # 🚨 HIGH QUALITY FLAG: Using -crf 18 and -preset fast for crisp 1080p
     cmd = [
         "ffmpeg", "-y",
         "-loop", "1", "-i", image_path,
         "-vf", full_filter,
         "-c:v", "libx264", "-t", str(duration),
-        "-pix_fmt", "yuv420p", "-preset", "ultrafast", "-crf", "23",
+        "-pix_fmt", "yuv420p", "-preset", "fast", "-crf", "18",
         output_path
     ]
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True)
     return True
 
 def render_video(image_paths, audio_path, output_path, style_name="default"):
-    print(f"⚙️ [RENDERER] Executing Cinematic Render Engine (1080p, 60FPS)...")
+    print(f"⚙️ [RENDERER] Executing Master Render Engine (1080p, 60FPS, High Bitrate)...")
     srt_path = audio_path.replace(".wav", ".srt")
     ass_path = audio_path.replace(".wav", ".ass")
     temp_concat_file = "concat_list.txt"
     temp_merged_video = "temp_merged_no_subs.mp4"
     
     if not srt_to_ass(srt_path, ass_path, get_style_config(style_name)): return False
+    
     try:
         audio = AudioSegment.from_file(audio_path)
         total_duration = len(audio) / 1000.0 
-    except: return False
+        
+        # 🚨 THE 60-SECOND YOUTUBE SHORTS FAILSAFE
+        if total_duration > 59.0:
+            print(f"⚠️ [RENDERER] Audio is {total_duration}s. Fading out at 59s to guarantee Shorts eligibility.")
+            audio = audio[:59000].fade_out(1500)  # Graceful 1.5s cinematic fade out
+            audio.export(audio_path, format="wav")
+            total_duration = 59.0
+            
+    except Exception as e:
+        print(f"⚠️ [RENDERER] Failed to process audio: {e}")
+        return False
 
-    # Get perfectly synced durations based on subtitle pacing
     clip_durations = calculate_dynamic_durations(srt_path, len(image_paths), total_duration)
 
     clip_files = []
     for i, img in enumerate(image_paths):
         clip_out = f"temp_anim_clip_{i}.mp4"
-        # Pass the index 'i' so the camera angle changes every scene
         if create_ken_burns_clip(img, clip_durations[i], clip_out, index=i):
             clip_files.append(clip_out)
 
@@ -159,9 +164,11 @@ def render_video(image_paths, audio_path, output_path, style_name="default"):
     subprocess.run(cmd_concat, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True)
 
     safe_ass = ass_path.replace('\\', '/').replace(':', r'\:')
+    
+    # 🚨 HIGH QUALITY BURN FLAG: CRF 18
     cmd_burn = [
         "ffmpeg", "-y", "-i", temp_merged_video, "-vf", f"ass='{safe_ass}'",
-        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "18",
         "-c:a", "copy", output_path
     ]
     subprocess.run(cmd_burn, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True)
