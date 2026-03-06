@@ -72,7 +72,10 @@
     {
         "niche": "short story",
         "topic": "Ghost Stories",
-        "bg_query": "scary ghost stories paranormal"
+        "bg_query": "scary ghost stories paranormal",
+        "processed": true,
+        "vaulted_date": "2026-03-06T06:44:35.034939",
+        "published": false
     },
     {
         "niche": "short story",
