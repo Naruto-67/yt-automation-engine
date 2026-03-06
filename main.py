@@ -19,7 +19,7 @@ except ImportError as e:
     sys.exit(1)
 
 TEST_MODE = True 
-WATERMARK_TEXT = "@GhostEngine" # Customize your watermark here!
+WATERMARK_TEXT = "@GhostEngine" 
 
 def load_matrix():
     path = os.path.join(os.path.dirname(__file__), "memory", "content_matrix.json")
@@ -91,7 +91,6 @@ def run_production_cycle():
             final_video = f"final_output_{success_count}.mp4"
 
             try:
-                # 🚨 UPDATED TUPLE UNPACKING
                 script_text, image_prompts, scene_weights, script_prov = generate_script(niche, topic)
                 if not script_text: raise Exception("Script generation failed.")
 
@@ -103,8 +102,15 @@ def run_production_cycle():
                 image_paths, visual_prov = fetch_scene_images(image_prompts, base_filename=f"temp_scene_{success_count}")
                 if len(image_paths) == 0: raise Exception("Visual generation failed.")
 
-                # 🚨 PASSED SCENE WEIGHTS AND WATERMARK TO RENDERER
-                if not render_video(image_paths, f"{audio_base}.wav", final_video, scene_weights=scene_weights, watermark_text=WATERMARK_TEXT):
+                # 🚨 GRAB THE STATS FROM THE RENDERER
+                render_success, video_duration, video_size = render_video(
+                    image_paths, 
+                    f"{audio_base}.wav", 
+                    final_video, 
+                    scene_weights=scene_weights, 
+                    watermark_text=WATERMARK_TEXT
+                )
+                if not render_success:
                     raise Exception("Render failed.")
 
                 if not TEST_MODE:
@@ -121,6 +127,7 @@ def run_production_cycle():
                     item['published'] = False
                     success_count += 1
                 
+                # 🚨 PASS STATS TO DISCORD
                 notify_production_success(
                     niche=niche,
                     topic=topic,
@@ -130,6 +137,8 @@ def run_production_cycle():
                     voice_ai=voice_prov,
                     visual_ai=visual_prov,
                     metadata=metadata,
+                    duration=video_duration,
+                    size=video_size,
                     status="Successful (Test Mode)"
                 )
                 
