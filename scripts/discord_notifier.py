@@ -15,12 +15,11 @@ class DiscordNotifier:
     def send_rich_embed(self, title, color, fields):
         if not self.webhook_url: return False
         
-        # 🚨 DISCORD RATE LIMIT GUARD: Mandatory 2-second breather before ANY message 
-        # prevents webhook shadowbans during error cascades or multi-part logs.
+        # 🚨 GLOBAL BREATHER: Prevents Discord Webhook Rate Limit Bans (Shadowbans)
         time.sleep(2)
             
         payload = {
-            "username": "YouTube Automation Engine",
+            "username": "Ghost Engine AI",
             "avatar_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/09/YouTube_full-color_icon_%282017%29.svg/1024px-YouTube_full-color_icon_%282017%29.svg.png",
             "embeds": [{
                 "title": title,
@@ -56,9 +55,17 @@ def notify_summary(success, message):
     webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
     notifier = DiscordNotifier(webhook_url)
     color = 0x2ecc71 if success else 0xe74c3c
-    title = "📊 System Update" if success else "⚠️ System Warning"
     fields = [{"name": "Details", "value": f"└ {message}", "inline": False}]
-    notifier.send_rich_embed(title, color, fields)
+    notifier.send_rich_embed("📊 System Update", color, fields)
+
+def notify_daily_pulse(views, subs, new_rules):
+    webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
+    notifier = DiscordNotifier(webhook_url)
+    fields = [
+        {"name": "📈 Channel Stats", "value": f"└ **Views:** {views}\n└ **Subs:** {subs}", "inline": False},
+        {"name": "🧠 AI Strategy Update", "value": f"└ **Focus:** {new_rules['emphasize'][0]}\n└ **Avoid:** {new_rules['avoid'][0]}", "inline": False}
+    ]
+    notifier.send_rich_embed("📊 Daily Channel Pulse & Analysis", 0x3498db, fields)
 
 def notify_error(module, error_type, message):
     webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
@@ -68,13 +75,4 @@ def notify_error(module, error_type, message):
         {"name": "⚠️ Error Type", "value": f"└ {error_type}", "inline": False},
         {"name": "📜 Details", "value": f"└ {message[:500]}", "inline": False}
     ]
-    notifier.send_rich_embed("🚨 Critical System Crash", 0xe74c3c, fields)
-
-def notify_vault_secure(topic, *args, **kwargs):
-    webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
-    notifier = DiscordNotifier(webhook_url)
-    fields = [
-        {"name": "📝 Video", "value": f"└ {topic}", "inline": False},
-        {"name": "🏦 Status", "value": "└ Securely uploaded to Private Vault", "inline": False}
-    ]
-    notifier.send_rich_embed("🏦 Vault Secured", 0x3498db, fields)
+    notifier.send_rich_embed("🚨 AI Doctor: Critical Crash", 0xe74c3c, fields)
