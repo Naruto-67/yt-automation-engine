@@ -6,7 +6,6 @@ import urllib.request
 from pydub import AudioSegment
 
 def download_cinematic_font():
-    """🚨 ASSET FIX: Downloads Montserrat-Bold dynamically. No physical assets needed in repo."""
     font_path = "/tmp/Montserrat-Bold.ttf"
     if not os.path.exists(font_path):
         print("📥 [RENDERER] Downloading Cinematic Font...")
@@ -98,7 +97,6 @@ def render_video(image_paths, audio_path, output_path, scene_weights=None, water
 
     subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", temp_concat, "-i", audio_path, "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", temp_merged], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True)
 
-    # 🚨 METALLIC WATERMARK: Bold font, 25% transparency, silver hex color, black drop shadow for metallic depth.
     font_path = download_cinematic_font()
     safe_font = font_path.replace('\\', '/').replace(':', r'\:')
     safe_ass = ass_path.replace('\\', '/').replace(':', r'\:')
@@ -109,4 +107,14 @@ def render_video(image_paths, audio_path, output_path, scene_weights=None, water
 
     for f in clip_files + [temp_concat, temp_merged, ass_path]:
         if os.path.exists(f): os.remove(f)
-    return True, total_dur, os.path.getsize(output_path) / (1024 * 1024)
+        
+    # 🚨 FIX: The "Zero-Byte Ghost Upload" Shield. Detect FFmpeg soft-failures mathematically.
+    if not os.path.exists(output_path): 
+        return False, total_dur, 0
+        
+    file_size_mb = os.path.getsize(output_path) / (1024 * 1024)
+    if file_size_mb < 0.5:
+        print(f"⚠️ [RENDERER] Critical Failure: Video rendered at {file_size_mb:.2f}MB. Suspected FFmpeg collapse.")
+        return False, total_dur, file_size_mb
+        
+    return True, total_dur, file_size_mb
