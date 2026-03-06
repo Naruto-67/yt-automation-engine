@@ -1,6 +1,3 @@
-# ================================================
-# FILE: scripts/groq_client.py
-# ================================================
 import os
 import time
 import requests
@@ -20,18 +17,29 @@ class GroqAPIClient:
         if not self.api_key:
             return None
         url = f"{self.base_url}/{endpoint}"
-        try:
-            response = requests.post(url, headers=self.headers, json=payload, timeout=45)
-            if response.status_code == 200:
-                if is_audio:
-                    return response.content
-                return response.json()['choices'][0]['message']['content']
-            else:
-                print(f"⚠️ [GROQ] HTTP {response.status_code} Error: {response.text}")
-                return None
-        except Exception as e:
-            print(f"❌ [GROQ] Request failed: {e}")
-            return None
+        
+        # 🚨 FIX: Exponential Backoff. Intelligently retries 429 API blocks 3 times before surrendering.
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = requests.post(url, headers=self.headers, json=payload, timeout=45)
+                if response.status_code == 200:
+                    if is_audio:
+                        return response.content
+                    return response.json()['choices'][0]['message']['content']
+                elif response.status_code in [429, 503]:
+                    print(f"⚠️ [GROQ] Server Busy (HTTP {response.status_code}). Attempt {attempt+1}/{max_retries}. Retrying in 15s...")
+                    time.sleep(15 * (attempt + 1))
+                    continue
+                else:
+                    print(f"⚠️ [GROQ] HTTP {response.status_code} Error: {response.text}")
+                    return None
+            except Exception as e:
+                print(f"⚠️ [GROQ] Network fail (Attempt {attempt+1}/{max_retries}): {e}")
+                time.sleep(10)
+                
+        print("❌ [GROQ] Fatal Failure: All retry attempts exhausted.")
+        return None
 
     def generate_text(self, prompt, role="creative", system_prompt="You are a viral YouTube Shorts scriptwriter.", throttle=False):
         if throttle:
@@ -48,7 +56,6 @@ class GroqAPIClient:
         return self._execute_request("chat/completions", payload)
 
     def generate_audio(self, text, output_filepath):
-        # 🚨 THE FIX: Dynamically select a random, valid Orpheus voice
         valid_voices = ["autumn", "diana", "hannah", "austin", "daniel", "troy"]
         selected_voice = random.choice(valid_voices)
         
@@ -58,7 +65,6 @@ class GroqAPIClient:
             "model": self.AUDIO_MODEL,
             "input": text,
             "voice": selected_voice,
-            # 🚨 BUG FIX: Orpheus ONLY accepts 'wav', not 'mp3'.
             "response_format": "wav" 
         }
         
