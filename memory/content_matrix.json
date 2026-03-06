@@ -80,7 +80,10 @@
     {
         "niche": "short story",
         "topic": "Time Travel Adventures",
-        "bg_query": "time travel science fiction"
+        "bg_query": "time travel science fiction",
+        "processed": true,
+        "vaulted_date": "2026-03-06T07:18:03.559536",
+        "published": false
     },
     {
         "niche": "short story",
