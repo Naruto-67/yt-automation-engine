@@ -144,7 +144,10 @@
     {
         "niche": "short story",
         "topic": "Haunted Houses",
-        "bg_query": "haunted houses scary places"
+        "bg_query": "haunted houses scary places",
+        "processed": true,
+        "vaulted_date": "2026-03-06T13:37:13.728167",
+        "published": false
     },
     {
         "niche": "Bizarre Facts",
