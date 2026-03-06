@@ -42,7 +42,6 @@ def run_production_cycle():
         if not youtube_client:
             raise Exception("YouTube Client failed to initialize. Check OAuth tokens.")
 
-        # 🚨 THE TRUE GATEKEEPER: Asks YouTube exactly how many videos are in the Vault
         vault_count = get_actual_vault_count(youtube_client)
         print(f"🏦 [VAULT] Verified YouTube Playlist Backlog: {vault_count}/14 videos.")
         
@@ -53,7 +52,6 @@ def run_production_cycle():
         matrix = load_matrix()
         unprocessed = [t for t in matrix if not t.get("processed", False)]
         
-        # 🚨 DYNAMIC AUTONOMY: If the brain is empty, trigger the researcher automatically
         if not unprocessed:
             print("⚠️ [ENGINE] Content Matrix is empty! Triggering Emergency Research Cycle...")
             from scripts.dynamic_researcher import run_dynamic_research
@@ -63,9 +61,9 @@ def run_production_cycle():
             if not unprocessed:
                 raise Exception("Emergency Research failed to populate matrix.")
 
-        # We only need to generate exactly enough videos to hit 14, but we cap at 2 per run to avoid timeouts
+        # 🚨 DAILY LIMIT CAP: Generates exactly what is needed, but NEVER more than 4 per day.
         videos_needed = 14 - vault_count
-        batch_size = min(videos_needed, 2)
+        batch_size = min(videos_needed, 4) if not TEST_MODE else 1
         batch = unprocessed[:batch_size]
 
         channel_name = get_channel_name(youtube_client).replace("@", "")
@@ -105,13 +103,12 @@ def run_production_cycle():
                 if not render_success: raise Exception("Render failed.")
 
                 if not TEST_MODE:
-                    # 🚨 PASS THE NICHE TO YOUTUBE SO THE PUBLISHER CAN FIND IT LATER
                     upload_success, video_id = upload_to_youtube_vault(final_video, topic, metadata)
                     if upload_success:
                         item['processed'] = True
                         item['vaulted_date'] = datetime.utcnow().isoformat()
                         item['published'] = False
-                        item['youtube_id'] = video_id # Save the ID so the publisher can move it
+                        item['youtube_id'] = video_id 
                         success_count += 1
                 else:
                     item['processed'] = True
