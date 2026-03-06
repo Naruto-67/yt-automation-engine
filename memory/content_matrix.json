@@ -152,7 +152,9 @@
     {
         "niche": "Bizarre Facts",
         "topic": "Mind-blowing and unknown Bizarre facts",
-        "processed": false
+        "processed": true,
+        "vaulted_date": "2026-03-06T16:46:03.652492",
+        "published": false
     },
     {
         "niche": "Horror Facts",
