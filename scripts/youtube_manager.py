@@ -21,7 +21,6 @@ def get_youtube_client():
         
     try:
         creds = Credentials(None, refresh_token=refresh_token, token_uri="https://oauth2.googleapis.com/token", client_id=client_id, client_secret=client_secret)
-        # 🚨 FIX: static_discovery=False prevents fatal `.cache` file lock errors on GitHub Action runners
         return build('youtube', 'v3', credentials=creds, static_discovery=False)
     except Exception as e: 
         notify_error("YouTube Auth", "Token Verification Failed", f"Your YouTube Refresh Token was rejected by Google: {e}")
@@ -30,7 +29,7 @@ def get_youtube_client():
 def get_channel_name(youtube):
     try: 
         name = youtube.channels().list(part="snippet", mine=True).execute()["items"][0]["snippet"]["title"]
-        quota_manager.consume_points("youtube", 1) # 🚨 FIX: Log Read
+        quota_manager.consume_points("youtube", 1) 
         return name
     except: return "GhostEngine"
 
@@ -57,7 +56,6 @@ def get_or_create_playlist(youtube, title, privacy_status="private"):
             if item["snippet"]["title"].lower() == title.lower(): return item["id"]
             
         new_playlist = youtube.playlists().insert(part="snippet,status", body={"snippet": {"title": title}, "status": {"privacyStatus": privacy_status}}).execute()
-        # 🚨 FIX: Log Playlist Creation (50 points!)
         quota_manager.consume_points("youtube", 50)
         return new_playlist["id"]
     except Exception as e: 
@@ -86,10 +84,16 @@ def upload_to_youtube_vault(video_path, topic, metadata):
     
     try:
         media = MediaFileUpload(video_path, chunksize=1024*1024*5, resumable=True, mimetype="video/mp4")
+        
+        # 🚨 FIX: The API `null` Nuke Shield. Enforces absolute datatype compliance even if the LLM hallucinates `null`.
+        safe_title = (metadata.get("title") or f"{topic} #shorts")[:100]
+        safe_desc = metadata.get("description") or ""
+        safe_tags = metadata.get("tags") or ["shorts"]
+        
         request = youtube.videos().insert(
             part="snippet,status",
             body={
-                "snippet": {"title": metadata.get("title", f"{topic} #shorts")[:100], "description": metadata.get("description", ""), "tags": metadata.get("tags", ["shorts"]), "categoryId": "22"},
+                "snippet": {"title": safe_title, "description": safe_desc, "tags": safe_tags, "categoryId": "22"},
                 "status": {"privacyStatus": "private", "selfDeclaredMadeForKids": False}
             },
             media_body=media
@@ -124,7 +128,7 @@ def upload_to_youtube_vault(video_path, topic, metadata):
         if post_creator_comment(youtube, video_id, "What myth or story should we cover next? Let us know below and don't forget to subscribe! 🌟"):
             quota_manager.consume_points("youtube", 50)
             
-        notify_vault_secure(metadata.get("title", topic), video_id, vault_playlist_id)
+        notify_vault_secure(safe_title, video_id, vault_playlist_id)
         return True, video_id
     except Exception as e:
         quota_manager.diagnose_fatal_error("youtube_manager.py", e)
