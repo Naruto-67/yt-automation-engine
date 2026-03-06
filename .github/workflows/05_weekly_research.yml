@@ -1,47 +1,35 @@
 name: 05_Ghost_Weekly_Research
-
 on:
   schedule:
-    - cron: '0 0 * * 0'
+    - cron: '0 20 * * 0' 
   workflow_dispatch:
-
 jobs:
   scrape_trends:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Install Dependencies
-        run: |
+      - run: |
           pip install -r requirements.txt
           echo "PYTHONPATH=$(pwd)" >> $GITHUB_ENV
-
-      - name: Run Trend Researcher
-        env:
+      - env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
         run: python -m scripts.dynamic_researcher
-
-      - name: Sync and Commit Matrix
-        run: |
+      - run: |
           git config --global user.name "Ghost-Engine-Bot"
           git config --global user.email "bot@ghostengine.ai"
           git add memory/content_matrix.json memory/api_state.json
-          
-          if git diff --staged --quiet; then
-            echo "No changes to commit."
-          else
+          if ! git diff --staged --quiet; then
             git commit -m "Lock New Content Matrix [skip ci]"
             git pull --rebase origin main
             git push origin main
-            echo "✅ Matrix synchronized successfully."
           fi
