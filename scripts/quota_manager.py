@@ -12,19 +12,12 @@ class MasterQuotaManager:
         self.state_file = os.path.join(self.memory_dir, "api_state.json")
         self.gemini_key = os.environ.get("GEMINI_API_KEY")
         
-        # Core Limits
         self.gemini_text_limit = 250 
-        self.cloudflare_image_limit = 95 # 10,000 neurons / ~100 neurons per image
+        self.cloudflare_image_limit = 95 
         self.hf_image_limit = 50 
-        
         self.gemini_blocked_for_run = False 
         
-        self.TEXT_MODELS = [
-            'gemini-2.5-flash',
-            'gemini-2.0-flash',
-            'gemini-1.5-flash',
-            'gemini-pro'
-        ]
+        self.TEXT_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-pro']
         self._ensure_state_exists()
 
     def _ensure_state_exists(self):
@@ -77,48 +70,48 @@ class MasterQuotaManager:
 
     def diagnose_fatal_error(self, module_name, exception_obj):
         tb = "".join(traceback.format_exception(type(exception_obj), exception_obj, exception_obj.__traceback__))
-        print(f"\n🚨 [AI DOCTOR] Crash in {module_name}:\n{tb}\n")
+        error_msg = f"\n🚨 [AI DOCTOR] Crash in {module_name}:\n{tb}\n"
+        print(error_msg)
+        
+        # 1. Log Locally
+        log_path = os.path.join(self.memory_dir, "error_log.txt")
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(f"[{datetime.utcnow().isoformat()}] {error_msg}\n{'-'*50}\n")
+        except: pass
+        
+        # 2. Ping Discord
+        from scripts.discord_notifier import notify_error
+        notify_error(module_name, type(exception_obj).__name__, str(exception_obj))
 
-    def generate_text(self, prompt, task_type="creative"):
+    def generate_text(self, prompt, task_type="creative", force_provider=None):
         state = self._get_active_state()
         usage = state.get("gemini_used", 0)
-        last_error_msg = ""
         
-        if task_type == "comment_reply":
+        # Override for strict Groq routing
+        if force_provider == "groq" or task_type == "comment_reply_groq":
             return groq_client.generate_text(prompt, role="commenter"), "Groq Llama 3.3"
 
-        if self.gemini_blocked_for_run:
-            return groq_client.generate_text(prompt, role=task_type), "Groq Llama 3.3 (Fallback: Blocked globally for this run)"
+        if self.gemini_blocked_for_run and force_provider != "gemini":
+            return groq_client.generate_text(prompt, role=task_type), "Groq Llama 3.3 (Fallback)"
 
-        print(f"🛡️ [ROUTER] Attempting '{task_type.upper()}' via {self.TEXT_MODELS[0]}...")
-        
         if usage < self.gemini_text_limit:
             try:
                 from google import genai
                 client = genai.Client(api_key=self.gemini_key)
-            except ImportError:
-                return groq_client.generate_text(prompt, role=task_type), "Groq Llama 3.3 (Fallback: Missing SDK)"
-            
-            for model_name in self.TEXT_MODELS:
-                try:
-                    response = client.models.generate_content(model=model_name, contents=prompt)
-                    self.consume_points("gemini", 1)
-                    time.sleep(4)
-                    return response.text, model_name
-                except Exception as e:
-                    error_msg = str(e).lower()
-                    last_error_msg = error_msg[:50]
-                    if "404" in error_msg or "not found" in error_msg: continue 
-                    elif "429" in error_msg or "quota" in error_msg or "exhausted" in error_msg:
-                        self.gemini_blocked_for_run = True
-                        break 
-                    else: break
-        else:
-            self.gemini_blocked_for_run = True 
-            last_error_msg = "50/50 Safety Limit Reached"
+                for model_name in self.TEXT_MODELS:
+                    try:
+                        response = client.models.generate_content(model=model_name, contents=prompt)
+                        self.consume_points("gemini", 1)
+                        time.sleep(4)
+                        return response.text, model_name
+                    except Exception as e:
+                        if "429" in str(e) or "quota" in str(e).lower():
+                            self.gemini_blocked_for_run = True
+                            break 
+            except: pass
             
         print("⚡ [ROUTER] Executing Fallback Protocol (Groq)...")
-        fallback_text = groq_client.generate_text(prompt, role=task_type)
-        return fallback_text, f"Groq Llama 3.3 (Fallback: {last_error_msg})"
+        return groq_client.generate_text(prompt, role=task_type), "Groq Llama 3.3 (Fallback)"
 
 quota_manager = MasterQuotaManager()
