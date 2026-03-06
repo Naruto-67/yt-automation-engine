@@ -37,7 +37,6 @@ def save_matrix(matrix):
         json.dump(matrix, f, indent=4)
 
 def run_production_cycle():
-    # 🚨 SECURITY CHECK: Monitor Token Age
     quota_manager.check_and_update_refresh_token()
 
     print("🚀 [ENGINE] Ignition. Analyzing Live YouTube Vault Status...")
@@ -78,7 +77,6 @@ def run_production_cycle():
             niche = item['niche']
             print(f"\n🎬 [PROCESSING] {niche.upper()}: {topic}")
             
-            # 🚨 QUOTA CHECK: Ensures we don't hit the 24-hr ban
             if not quota_manager.can_afford_youtube(1600):
                 print("🛑 [QUOTA GUARDIAN] YouTube Quota limit reached (10k). Halting production to prevent API ban.")
                 break
@@ -118,6 +116,8 @@ def run_production_cycle():
                         item['published'] = False
                         item['youtube_id'] = video_id 
                         success_count += 1
+                    else:
+                        raise Exception("YouTube Upload API Rejected the Payload.")
                 else:
                     print(f"🛑 [TEST MODE] Skipped YT Upload (Saved 1600 Quota). Vaulting '{topic}' virtually.")
                     item['processed'] = True
@@ -139,6 +139,9 @@ def run_production_cycle():
             except Exception as e:
                 print(f"🚨 [CRASH] Topic '{topic}' failed.")
                 quota_manager.diagnose_fatal_error("main.py", e)
+                # 🚨 FIX: 60-second cooldown on crash to prevent Google API DDoS bans from rapid looping
+                print("⏳ [SAFETY PROTOCOL] Enforcing 60-second cooldown before attempting next video...")
+                time.sleep(60)
                 continue
 
         save_matrix(matrix)
