@@ -1,29 +1,53 @@
 import os
 import requests
-import urllib.parse
 import time
 from google import genai
+from google.genai import types
 
 def generate_gemini_image(prompt, output_path):
-    print("      [Tier 1: Gemini] Attempting Nano Banana (2.5 Flash) generation...")
     api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key: return False
+    if not api_key: return False, "No Key"
         
-    try:
-        client = genai.Client(api_key=api_key)
-        enhanced_prompt = f"{prompt}, cinematic lighting, 8k, highly detailed"
-        
-        # 🚨 THE FIX: Using the correct, free Nano Banana endpoint
-        result = client.models.generate_images(
-            model='gemini-2.5-flash-image',
-            prompt=enhanced_prompt,
-            config=dict(number_of_images=1, aspect_ratio="9:16", output_mime_type="image/jpeg")
-        )
-        with open(output_path, 'wb') as f: f.write(result.generated_images[0].image.image_bytes)
-        return True
-    except Exception as e:
-        print(f"      [Gemini] ⚠️ Failed: {e}")
-        return False
+    client = genai.Client(api_key=api_key)
+    enhanced_prompt = f"{prompt}, cinematic lighting, highly detailed"
+    
+    # 🚨 THE IMMORTAL RESOLVER: Ranked list of image models to try
+    IMAGE_MODELS = [
+        'gemini-2.0-flash',       # The docs confirmed this is free for images
+        'gemini-2.5-flash-image', # The new Nano Banana
+        'gemini-1.5-flash'        # Legacy fallback
+    ]
+    
+    for model_name in IMAGE_MODELS:
+        print(f"      [Tier 1: Gemini] Attempting via {model_name}...")
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=enhanced_prompt,
+                config=types.GenerateContentConfig(
+                    response_modalities=["IMAGE"],
+                    image_config=types.ImageConfig(aspect_ratio="9:16")
+                )
+            )
+            for part in response.parts:
+                if part.inline_data is not None:
+                    image = part.as_image()
+                    image.convert('RGB').save(output_path, format="JPEG")
+                    return True, model_name
+                    
+        except Exception as e:
+            error_msg = str(e).lower()
+            if "404" in error_msg or "not found" in error_msg:
+                print(f"      ⚠️ {model_name} unavailable. Cascading...")
+                continue
+            elif "400" in error_msg or "paid" in error_msg or "invalid" in error_msg:
+                print(f"      ⚠️ {model_name} is Paywalled. Cascading...")
+                continue
+            else:
+                print(f"      [Gemini] ⚠️ Failed on {model_name}: {e}")
+                return False, "Error"
+                
+    return False, "All Gemini Models Failed/Paywalled"
 
 def generate_huggingface_image(prompt, output_path):
     print("      [Tier 2: HuggingFace] Attempting FLUX AI generation...")
@@ -32,7 +56,7 @@ def generate_huggingface_image(prompt, output_path):
         
     url = "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell"
     headers = {"Authorization": f"Bearer {hf_token}", "Content-Type": "application/json"}
-    payload = {"inputs": f"{prompt}, vertical 9:16 format, 8k resolution, masterpiece"}
+    payload = {"inputs": f"{prompt}, vertical 9:16 format, masterpiece"}
     
     for attempt in range(2):
         try:
@@ -47,7 +71,7 @@ def generate_huggingface_image(prompt, output_path):
     return False
 
 def fallback_pexels_image(prompt, output_path):
-    print("      [Tier 3: Pexels] AI blocked. Attempting guaranteed stock image fallback...")
+    print("      [Tier 3: Pexels] AI blocked. Attempting guaranteed stock fallback...")
     api_key = os.environ.get("PEXELS_API_KEY")
     if not api_key: return False
         
@@ -65,7 +89,7 @@ def fallback_pexels_image(prompt, output_path):
     return False
 
 def fetch_scene_images(prompts_list, base_filename="temp_scene"):
-    print(f"🖼️ [VISUALS] Sourcing {len(prompts_list)} scene images via 3-Tier System...")
+    print(f"🖼️ [VISUALS] Sourcing {len(prompts_list)} scene images via Dynamic 3-Tier System...")
     successful_images = []
     primary_provider = "Unknown"
     
@@ -73,9 +97,10 @@ def fetch_scene_images(prompts_list, base_filename="temp_scene"):
         output_path = f"{base_filename}_{i}.jpg"
         print(f"\n   -> Scene {i+1} Prompt: {prompt[:40]}...")
         
-        # 1. Try Gemini
-        success = generate_gemini_image(prompt, output_path)
-        if success: primary_provider = "Gemini 2.5 Flash Image"
+        # 1. Try the Immortal Gemini Cascade
+        success, prov_name = generate_gemini_image(prompt, output_path)
+        if success: 
+            primary_provider = prov_name
         
         # 2. Try Hugging Face Fallback
         if not success:
