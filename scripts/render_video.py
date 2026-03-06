@@ -2,7 +2,20 @@ import os
 import subprocess
 import json
 import re
+import urllib.request
 from pydub import AudioSegment
+
+def download_cinematic_font():
+    """🚨 ASSET FIX: Automatically downloads the beautiful Montserrat font to the temp folder."""
+    font_path = "/tmp/Montserrat-Bold.ttf"
+    if not os.path.exists(font_path):
+        print("📥 [RENDERER] Downloading Cinematic Font...")
+        url = "https://github.com/googlefonts/montserrat/raw/main/fonts/ttf/Montserrat-Bold.ttf"
+        try:
+            urllib.request.urlretrieve(url, font_path)
+        except:
+            return "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf" # Fallback
+    return font_path
 
 def get_style_config(style_name="default"):
     default_style = {
@@ -17,47 +30,12 @@ def get_style_config(style_name="default"):
         "Alignment": "2",              
         "MarginV": "500"               
     }
-
-    if os.path.exists(config_path := os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")), "style_configs", f"{style_name}.json")):
-        try:
-            with open(config_path, "r") as f: default_style.update(json.load(f))
-        except: pass
     return default_style
 
 def time_to_seconds(time_str):
     h, m, s_ms = time_str.split(':')
     s, ms = s_ms.split(',')
     return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000.0
-
-def calculate_dynamic_durations(srt_path, num_images, total_audio_duration):
-    print("⏱️ [RENDERER] Syncing visual cuts to voiceover pacing...")
-    try:
-        with open(srt_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-            
-        timestamps = re.findall(r'(\d+:\d+:\d+,\d+) --> (\d+:\d+:\d+,\d+)', content)
-        
-        if not timestamps or len(timestamps) < num_images:
-            return [total_audio_duration / num_images] * num_images
-            
-        blocks_per_image = len(timestamps) // num_images
-        durations = []
-        
-        for i in range(num_images):
-            start_idx = i * blocks_per_image
-            end_idx = (i + 1) * blocks_per_image - 1 if i < num_images - 1 else len(timestamps) - 1
-            
-            start_time = time_to_seconds(timestamps[start_idx][0])
-            end_time = time_to_seconds(timestamps[end_idx][1])
-            
-            if i == 0: start_time = 0.0
-            if i == num_images - 1: end_time = total_audio_duration
-                
-            durations.append(end_time - start_time)
-            
-        return durations
-    except:
-        return [total_audio_duration / num_images] * num_images
 
 def srt_to_ass(srt_path, ass_path, style):
     print("🎨 [RENDERER] Generating High-Retention Subtitles...")
@@ -95,16 +73,14 @@ def srt_to_ass(srt_path, ass_path, style):
 def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=60):
     frames = int(duration * fps)
     
-    # 🚨 ANTI-JITTER FIX: We scale the image to 2160x3840 (4K vertical) BEFORE zoompan. 
-    # This gives FFmpeg enough pixels to do fractional math without vibrating.
+    # 🚨 ANTI-JITTER FIX: 4K Upscale before zoompan mathematically destroys the wobbling bug.
     prep_filter = "scale=2160:3840:force_original_aspect_ratio=increase,crop=2160:3840"
     
-    # Smooth movements utilizing the 4K space
     effects = [
-        f"zoompan=z='min(zoom+0.0007,1.15)':x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}", # Smooth Zoom In
-        f"zoompan=z='1.15-0.0007*on':x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}",      # Smooth Zoom Out
-        f"zoompan=z='1.15':x='(iw-iw/zoom)*(on/{frames})':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}",     # Pan Right
-        f"zoompan=z='1.15':x='(iw-iw/zoom)*(1-(on/{frames}))':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}"  # Pan Left
+        f"zoompan=z='min(zoom+0.0007,1.15)':x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}", 
+        f"zoompan=z='1.15-0.0007*on':x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}",      
+        f"zoompan=z='1.15':x='(iw-iw/zoom)*(on/{frames})':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}",     
+        f"zoompan=z='1.15':x='(iw-iw/zoom)*(1-(on/{frames}))':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}"  
     ]
     
     selected_effect = effects[index % len(effects)]
@@ -121,7 +97,7 @@ def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=60):
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True)
     return True
 
-def render_video(image_paths, audio_path, output_path, scene_weights=None, watermark_text="@GhostEngine", style_name="default"):
+def render_video(image_paths, audio_path, output_path, scene_weights=None, watermark_text="GhostEngine", style_name="default"):
     print(f"⚙️ [RENDERER] Executing Master Render Engine (1080p, 60FPS, High Bitrate)...")
     srt_path = audio_path.replace(".wav", ".srt")
     ass_path = audio_path.replace(".wav", ".ass")
@@ -133,19 +109,14 @@ def render_video(image_paths, audio_path, output_path, scene_weights=None, water
     try:
         audio = AudioSegment.from_file(audio_path)
         total_duration = len(audio) / 1000.0 
-        print(f"   🔊 Audio Duration: {total_duration}s")
         
         if total_duration > 59.0:
             audio = audio[:59000].fade_out(1500)
             audio.export(audio_path, format="wav")
             total_duration = 59.0
-            
     except: return False
 
-    if not scene_weights or len(scene_weights) != len(image_paths):
-        clip_durations = [total_duration / len(image_paths)] * len(image_paths)
-    else:
-        clip_durations = [w * total_duration for w in scene_weights]
+    clip_durations = [w * total_duration for w in scene_weights] if scene_weights else [total_duration / len(image_paths)] * len(image_paths)
 
     clip_files = []
     for i, img in enumerate(image_paths):
@@ -163,9 +134,13 @@ def render_video(image_paths, audio_path, output_path, scene_weights=None, water
     ]
     subprocess.run(cmd_concat, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True)
 
+    # 🚨 WATERMARK FIX: Clean, reference-style, centered at bottom (h-250), dynamically fetched font. No "@"
+    font_path = download_cinematic_font()
+    safe_font = font_path.replace('\\', '/').replace(':', r'\:')
     safe_ass = ass_path.replace('\\', '/').replace(':', r'\:')
-    font_path = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
-    watermark_filter = f",drawtext=fontfile='{font_path}':text='{watermark_text}':fontcolor=white@0.12:fontsize=45:x=(w-text_w)/2:y=1550" if watermark_text else ""
+    
+    # 0.2 opacity, clean sans-serif, centered at bottom.
+    watermark_filter = f",drawtext=fontfile='{safe_font}':text='{watermark_text}':fontcolor=white@0.20:fontsize=55:x=(w-text_w)/2:y=h-250"
     
     cmd_burn = [
         "ffmpeg", "-y", "-i", temp_merged_video, 
