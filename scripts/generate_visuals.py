@@ -6,7 +6,6 @@ import time
 def generate_pollinations_image(prompt, output_path):
     print("      [Tier 1: Pollinations] Attempting Free FLUX AI generation...")
     try:
-        # Pollinations is a free, unlimited API that dynamically routes to FLUX models
         safe_prompt = urllib.parse.quote(f"{prompt}, vertical 9:16 format, cinematic, highly detailed, masterpiece")
         url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1080&height=1920&model=flux&nologo=true"
         
@@ -72,7 +71,8 @@ def fetch_scene_images(prompts_list, base_filename="temp_scene"):
         
         # 1. Primary Engine: Free Pollinations (FLUX)
         success = generate_pollinations_image(prompt, output_path)
-        if success: primary_provider = "Pollinations FLUX"
+        if success: 
+            primary_provider = "Pollinations FLUX"
         
         # 2. Hugging Face Fallback
         if not success:
