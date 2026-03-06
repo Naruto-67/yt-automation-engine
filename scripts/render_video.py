@@ -56,8 +56,7 @@ def calculate_dynamic_durations(srt_path, num_images, total_audio_duration):
             durations.append(end_time - start_time)
             
         return durations
-    except Exception as e:
-        print(f"⚠️ [RENDERER] Dynamic sync failed ({e}), using equal splits.")
+    except:
         return [total_audio_duration / num_images] * num_images
 
 def srt_to_ass(srt_path, ass_path, style):
@@ -96,16 +95,16 @@ def srt_to_ass(srt_path, ass_path, style):
 def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=60):
     frames = int(duration * fps)
     
-    # 🚨 RESOLUTION FIX: Force exact 1080x1920 crop BEFORE zoompan to completely eliminate distortion/stretching
-    prep_filter = "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920"
+    # 🚨 ANTI-JITTER FIX: We scale the image to 2160x3840 (4K vertical) BEFORE zoompan. 
+    # This gives FFmpeg enough pixels to do fractional math without vibrating.
+    prep_filter = "scale=2160:3840:force_original_aspect_ratio=increase,crop=2160:3840"
     
-    # 🚨 ANIMATION FIX: Switched 'n' to 'on' (output frame) to satisfy FFmpeg syntax, ensuring perfect fluid pans.
+    # Smooth movements utilizing the 4K space
     effects = [
-        f"zoompan=z='1.0+(0.0003*on)':x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}", # Smooth Zoom In
-        f"zoompan=z='1.15':x='iw/2-(iw/zoom)/2':y='(ih-ih/zoom)*(on/{frames})':d={frames}:s=1080x1920:fps={fps}", # Smooth Pan Down
-        f"zoompan=z='1.15':x='(iw-iw/zoom)*(on/{frames})':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}", # Smooth Pan Right
-        f"zoompan=z='1.15':x='iw/2-(iw/zoom)/2':y='(ih-ih/zoom)*(1-(on/{frames}))':d={frames}:s=1080x1920:fps={fps}", # Smooth Pan Up
-        f"zoompan=z='1.15':x='(iw-iw/zoom)*(1-(on/{frames}))':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}"  # Smooth Pan Left
+        f"zoompan=z='min(zoom+0.0007,1.15)':x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}", # Smooth Zoom In
+        f"zoompan=z='1.15-0.0007*on':x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}",      # Smooth Zoom Out
+        f"zoompan=z='1.15':x='(iw-iw/zoom)*(on/{frames})':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}",     # Pan Right
+        f"zoompan=z='1.15':x='(iw-iw/zoom)*(1-(on/{frames}))':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}"  # Pan Left
     ]
     
     selected_effect = effects[index % len(effects)]
@@ -137,17 +136,13 @@ def render_video(image_paths, audio_path, output_path, scene_weights=None, water
         print(f"   🔊 Audio Duration: {total_duration}s")
         
         if total_duration > 59.0:
-            print("⚠️ [RENDERER ALERT] Audio exceeds 59s. Trimming to prevent YouTube Shorts violation.")
             audio = audio[:59000].fade_out(1500)
             audio.export(audio_path, format="wav")
             total_duration = 59.0
             
-    except Exception as e:
-        print(f"⚠️ [RENDERER] Failed to process audio duration: {e}")
-        return False
+    except: return False
 
     if not scene_weights or len(scene_weights) != len(image_paths):
-        print("⚠️ [RENDERER] Weight mismatch. Distributing time evenly.")
         clip_durations = [total_duration / len(image_paths)] * len(image_paths)
     else:
         clip_durations = [w * total_duration for w in scene_weights]
@@ -169,8 +164,6 @@ def render_video(image_paths, audio_path, output_path, scene_weights=None, water
     subprocess.run(cmd_concat, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True)
 
     safe_ass = ass_path.replace('\\', '/').replace(':', r'\:')
-    
-    # 🚨 WATERMARK FIX: (w-text_w)/2 guarantees perfect horizontal center. y=1550 sets it right below captions.
     font_path = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
     watermark_filter = f",drawtext=fontfile='{font_path}':text='{watermark_text}':fontcolor=white@0.12:fontsize=45:x=(w-text_w)/2:y=1550" if watermark_text else ""
     
