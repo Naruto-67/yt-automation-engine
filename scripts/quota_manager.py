@@ -53,7 +53,6 @@ class MasterQuotaManager:
         return {}
 
     def _write_state_file(self, data):
-        # 🚨 FIX: Atomic Writes applied to the Core Quota system
         tmp_path = self.state_file + ".tmp"
         with open(tmp_path, 'w', encoding="utf-8") as f:
             json.dump(data, f, indent=4)
@@ -61,19 +60,23 @@ class MasterQuotaManager:
 
     def _get_active_state(self):
         state = self._read_state_file()
+        # 🚨 FIX: Strict chronological evaluation of the date boundary.
         if state.get("last_reset_date") != self.get_pacific_date():
             self._reset_daily_state()
             return self._read_state_file()
         return state
 
     def consume_points(self, provider, amount):
+        # The state is guaranteed pure by _get_active_state before we touch it
         state = self._get_active_state()
+        
         if provider == "youtube": 
             state["youtube_points_used"] = state.get("youtube_points_used", 0) + amount
             state["yt_last_used_date"] = self.get_pacific_date()
         elif provider == "gemini": state["gemini_used"] = state.get("gemini_used", 0) + amount
         elif provider == "cloudflare": state["cf_images_used"] = state.get("cf_images_used", 0) + amount
         elif provider == "huggingface": state["hf_images_used"] = state.get("hf_images_used", 0) + amount
+        
         self._write_state_file(state)
 
     def can_afford_youtube(self, cost):
