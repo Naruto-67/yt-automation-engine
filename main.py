@@ -18,7 +18,8 @@ except ImportError as e:
     print(f"🚨 [SYSTEM] CRITICAL DEPENDENCY MISSING: {e}")
     sys.exit(1)
 
-TEST_MODE = False 
+# 🚨 LEFT ON "TRUE" FOR TESTING: Will not consume the 1600 upload quota.
+TEST_MODE = True 
 
 def load_matrix():
     path = os.path.join(os.path.dirname(__file__), "memory", "content_matrix.json")
@@ -36,6 +37,9 @@ def save_matrix(matrix):
         json.dump(matrix, f, indent=4)
 
 def run_production_cycle():
+    # 🚨 SECURITY CHECK: Monitor Token Age
+    quota_manager.check_and_update_refresh_token()
+
     print("🚀 [ENGINE] Ignition. Analyzing Live YouTube Vault Status...")
     try:
         youtube_client = get_youtube_client()
@@ -61,7 +65,6 @@ def run_production_cycle():
             if not unprocessed:
                 raise Exception("Emergency Research failed to populate matrix.")
 
-        # 🚨 DAILY LIMIT CAP: Generates exactly what is needed, but NEVER more than 4 per day.
         videos_needed = 14 - vault_count
         batch_size = min(videos_needed, 4) if not TEST_MODE else 1
         batch = unprocessed[:batch_size]
@@ -75,6 +78,11 @@ def run_production_cycle():
             niche = item['niche']
             print(f"\n🎬 [PROCESSING] {niche.upper()}: {topic}")
             
+            # 🚨 QUOTA CHECK: Ensures we don't hit the 24-hr ban
+            if not quota_manager.can_afford_youtube(1600):
+                print("🛑 [QUOTA GUARDIAN] YouTube Quota limit reached (10k). Halting production to prevent API ban.")
+                break
+
             audio_base = f"temp_audio_{success_count}"
             final_video = f"final_output_{success_count}.mp4"
 
@@ -111,7 +119,10 @@ def run_production_cycle():
                         item['youtube_id'] = video_id 
                         success_count += 1
                 else:
+                    print(f"🛑 [TEST MODE] Skipped YT Upload (Saved 1600 Quota). Vaulting '{topic}' virtually.")
                     item['processed'] = True
+                    item['vaulted_date'] = datetime.utcnow().isoformat()
+                    item['published'] = False
                     success_count += 1
                 
                 notify_production_success(
