@@ -20,12 +20,18 @@ def get_historical_time_data(youtube):
         stats_response = youtube.videos().list(part="statistics,snippet", id=",".join(vid_ids)).execute()
         quota_manager.consume_points("youtube", 1)
         
-        history = "📊 HISTORICAL PUBLISH TIMES VS. VIEWS:\n"
+        # 🚨 FIX: Strict Filter. Completely ignores Private/Vault videos (views == 0) to prevent AI analytic poisoning.
+        valid_history = []
         for item in stats_response.get("items", []):
-            pub_time = item["snippet"]["publishedAt"] 
-            views = item["statistics"].get("viewCount", "0")
-            history += f"- Posted at: {pub_time} (UTC) | Views: {views}\n"
-        return history
+            views = int(item["statistics"].get("viewCount", "0"))
+            if views > 0:
+                pub_time = item["snippet"]["publishedAt"] 
+                valid_history.append(f"- Posted at: {pub_time} (UTC) | Views: {views}")
+        
+        if not valid_history:
+            return "No public historical data available yet."
+            
+        return "📊 HISTORICAL PUBLISH TIMES VS. VIEWS:\n" + "\n".join(valid_history)
     except Exception as e:
         return "No historical data available."
 
@@ -106,7 +112,6 @@ def publish_vault_videos():
                     target_dt += timedelta(days=1) 
                 pub_time = target_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
                 
-                # 🚨 FIX: Payload Preservation. Must include selfDeclaredMadeForKids to prevent Google API rejection.
                 youtube.videos().update(
                     part="status", 
                     body={
@@ -144,8 +149,11 @@ def publish_vault_videos():
                     matrix = [m for m in matrix if m.get("youtube_id") != vid_id]
                 continue
 
-        with open(matrix_path, "w", encoding="utf-8") as f:
+        # Atomic Save
+        tmp_path = matrix_path + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(matrix, f, indent=4)
+        os.replace(tmp_path, matrix_path)
             
         notify_summary(True, f"Publisher scheduled 2 videos for {ai_times[0]} and {ai_times[1]} UTC based on AI Data Correlation.")
     except Exception as e:
