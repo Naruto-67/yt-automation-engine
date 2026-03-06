@@ -6,7 +6,6 @@ from scripts.youtube_manager import get_youtube_client
 from scripts.discord_notifier import notify_summary
 
 def generate_ai_reply(video_title, comment_text, attempt_num):
-    # 🚨 FIX: Strict string truncation prevents malicious "Bee Movie Script" spam from blowing up the LLM Context Window
     safe_comment = str(comment_text)[:500].replace('"', "'")
 
     prompt = f"""
@@ -38,8 +37,14 @@ def run_engagement_protocol():
     print("💬 [ENGAGEMENT] Scanning for top unanswered fan interactions...")
     try:
         channel_id = youtube.channels().list(part="id", mine=True).execute()["items"][0]["id"]
+        # 🚨 FIX: Log channel request points
+        quota_manager.consume_points("youtube", 1)
+        
         uploads = youtube.channels().list(part="contentDetails", mine=True).execute()["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
+        quota_manager.consume_points("youtube", 1)
+        
         vids = youtube.playlistItems().list(part="snippet", playlistId=uploads, maxResults=5).execute()
+        quota_manager.consume_points("youtube", 1)
 
         replies_count = 0
         target_replies = random.randint(10, 15) 
@@ -48,6 +53,9 @@ def run_engagement_protocol():
             vid_id = vid["snippet"]["resourceId"]["videoId"]
             try:
                 comments = youtube.commentThreads().list(part="snippet", videoId=vid_id, maxResults=15, order="relevance").execute()
+                # 🚨 FIX: Log comment thread request points
+                quota_manager.consume_points("youtube", 1)
+                
                 for thread in comments.get("items", []):
                     top = thread["snippet"]["topLevelComment"]["snippet"]
                     if top.get("authorChannelId", {}).get("value") != channel_id and thread["snippet"]["totalReplyCount"] == 0:
