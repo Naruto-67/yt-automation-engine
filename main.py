@@ -19,7 +19,8 @@ except ImportError as e:
     print(f"🚨 [SYSTEM] CRITICAL DEPENDENCY MISSING: {e}")
     sys.exit(1)
 
-TEST_MODE = True 
+# 🚨 Set to False to go live on YouTube
+TEST_MODE = False 
 
 def load_matrix():
     path = os.path.join(os.path.dirname(__file__), "memory", "content_matrix.json")
@@ -58,8 +59,7 @@ def enforce_weekly_targets(matrix):
     return matrix
 
 def get_vault_status(matrix):
-    vaulted = [t for t in matrix if t.get("processed", False) and not t.get("published", False)]
-    return len(vaulted)
+    return len([t for t in matrix if t.get("processed", False) and not t.get("published", False)])
 
 def run_production_cycle():
     print("🚀 [ENGINE] Ignition. Analyzing Vault Status...")
@@ -69,8 +69,13 @@ def run_production_cycle():
 
         vault_count = get_vault_status(matrix)
         print(f"🏦 [VAULT] Current Backlog: {vault_count}/14 videos.")
-        target_batch = 4 if vault_count < 14 else 2
+        
+        # 🚨 THE VAULT GATEKEEPER: Halts production to save limits if vault is full
+        if vault_count >= 14:
+            print("🛑 [ENGINE] Vault is fully stocked (>= 14). Shutting down to conserve API Quota.")
+            return
 
+        target_batch = 4 if vault_count < 10 else 2
         unprocessed = [t for t in matrix if not t.get("processed", False)]
         batch_size = target_batch if not TEST_MODE else 1 
         batch = unprocessed[:batch_size]
@@ -79,9 +84,9 @@ def run_production_cycle():
             print("✅ [ENGINE] All topics complete.")
             return
 
-        # 🚨 DYNAMIC WATERMARK: Fetching Channel Name (No "@" symbol)
         youtube_client = get_youtube_client()
-        channel_name = get_channel_name(youtube_client) if youtube_client else "GhostEngine"
+        # Ensure watermark doesn't have "@"
+        channel_name = get_channel_name(youtube_client).replace("@", "") if youtube_client else "GhostEngine"
         print(f"🏷️ [BRANDING] Secured Channel Name for Watermark: {channel_name}")
 
         success_count = 0
@@ -97,7 +102,6 @@ def run_production_cycle():
                 script_text, image_prompts, pexels_queries, scene_weights, script_prov = generate_script(niche, topic)
                 if not script_text: raise Exception("Script generation failed.")
                 
-                # 🚨 RATE LIMIT GUARD
                 print("⏳ [ENGINE] Pacing pipeline (10s) to prevent API rate limits...")
                 time.sleep(10)
 
@@ -117,7 +121,7 @@ def run_production_cycle():
                     f"{audio_base}.wav", 
                     final_video, 
                     scene_weights=scene_weights, 
-                    watermark_text=channel_name # Passed dynamically here
+                    watermark_text=channel_name 
                 )
                 if not render_success:
                     raise Exception("Render failed.")
@@ -130,23 +134,16 @@ def run_production_cycle():
                         item['published'] = False
                         success_count += 1
                 else:
-                    print(f"🛑 [TEST MODE] Skipped YT Upload & Auto-Comment. Vaulting '{topic}' virtually.")
+                    print(f"🛑 [TEST MODE] Skipped YT Upload. Vaulting '{topic}' virtually.")
                     item['processed'] = True
                     item['vaulted_date'] = datetime.utcnow().isoformat()
                     item['published'] = False
                     success_count += 1
                 
                 notify_production_success(
-                    niche=niche,
-                    topic=topic,
-                    script=script_text,
-                    script_ai=script_prov,
-                    seo_ai=seo_prov,
-                    voice_ai=voice_prov,
-                    visual_ai=visual_prov,
-                    metadata=metadata,
-                    duration=video_duration,
-                    size=video_size,
+                    niche=niche, topic=topic, script=script_text, script_ai=script_prov,
+                    seo_ai=seo_prov, voice_ai=voice_prov, visual_ai=visual_prov,
+                    metadata=metadata, duration=video_duration, size=video_size,
                     status="Successful (Test Mode)" if TEST_MODE else "Vaulted & Commented"
                 )
                 
@@ -155,18 +152,15 @@ def run_production_cycle():
                         if os.path.exists(f): os.remove(f)
 
             except Exception as e:
-                print(f"🚨 [CRASH] Topic '{topic}' failed: {e}")
-                from scripts.quota_manager import quota_manager
+                print(f"🚨 [CRASH] Topic '{topic}' failed.")
                 quota_manager.diagnose_fatal_error("main.py", e)
-                notify_error("Production Pipeline", type(e).__name__, str(e))
                 continue
 
         save_matrix(matrix)
         print(f"🏁 [FINISH] {success_count} videos sent to Vault.")
         
     except Exception as fatal_e:
-        print(f"🚨 [FATAL SYSTEM CRASH]: {fatal_e}")
-        notify_error("System Core (main.py)", "Fatal Exception", str(fatal_e))
+        quota_manager.diagnose_fatal_error("System Core (main.py)", fatal_e)
 
 if __name__ == "__main__":
     run_production_cycle()
