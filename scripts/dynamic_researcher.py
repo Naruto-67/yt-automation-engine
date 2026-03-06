@@ -100,8 +100,20 @@ def run_dynamic_research():
                     try: existing_matrix = json.load(f)
                     except: pass
             
-            # 🚨 FIX: Preserve Vaulted Items AND Unprocessed (Manually Added) Items
-            preserved_items = [i for i in existing_matrix if (not i.get("processed", False)) or (i.get("processed", False) and not i.get("published", False))]
+            # 🚨 FIX: Strict Zombie Purge. 
+            # We ONLY keep items that are (1) Unprocessed AND NOT Failed, or (2) Safely Vaulted.
+            preserved_items = []
+            for i in existing_matrix:
+                is_processed = i.get("processed", False)
+                is_failed = i.get("failed_flag", False)
+                is_published = i.get("published", False)
+                
+                # Keep active Vault items
+                if is_processed and not is_published:
+                    preserved_items.append(i)
+                # Keep unprocessed, valid queue items
+                elif not is_processed and not is_failed:
+                    preserved_items.append(i)
             
             random.shuffle(new_matrix)
             final_matrix = preserved_items + new_matrix
@@ -109,8 +121,8 @@ def run_dynamic_research():
             with open(matrix_path, "w", encoding="utf-8") as f:
                 json.dump(final_matrix, f, indent=4)
                 
-            print(f"✅ [RESEARCHER] Matrix updated. Vault/Queue preserved ({len(preserved_items)} items) + 21 new topics.")
-            notify_summary(True, f"Deep Research Complete. Vault Preserved. 21 new dynamic niches generated via {provider}.")
+            print(f"✅ [RESEARCHER] Matrix updated. Kept {len(preserved_items)} valid queue items + 21 new topics.")
+            notify_summary(True, f"Deep Research Complete. Zombie topics purged. 21 new dynamic niches generated via {provider}.")
         else: raise ValueError("AI returned non-JSON parsable content.")
 
     except Exception as e:
