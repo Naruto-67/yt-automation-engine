@@ -15,8 +15,6 @@ def load_improvement_data():
 
 def generate_script(niche, topic):
     improvements = load_improvement_data()
-    avoid_list = ", ".join(improvements.get("avoid", ["Boring intros"]))
-    emphasize_list = ", ".join(improvements.get("emphasize", ["High energy"]))
     
     prompt = f"""
     You are an Elite YouTube Shorts Documentary Writer. Create a script for niche: '{niche}', Topic: '{topic}'.
@@ -25,17 +23,17 @@ def generate_script(niche, topic):
     1. FACTUAL & DIRECT: This is a standalone micro-documentary. It must be 100% true, logical, and factual. No random creations.
     2. NO META-COMMENTARY: NEVER break the fourth wall. NEVER say "In this video", "Our 3D animation shows", or "Imagine a world". Just tell the facts.
     3. LENGTH: The script MUST be exactly 130 to 150 words.
-    4. VISUALS TO AUDIO SYNC: You must provide exactly 4 image prompts. 
-       - Prompt 1 must perfectly illustrate exactly what happens in the first 25% of the script.
-       - Prompt 2 must perfectly illustrate the next 25%, etc.
-       - Pick a visual style (e.g. 'Pixar 3D animation', 'Dark Cinematic') and begin EVERY prompt with that style.
-       - Make the prompts literal and highly specific to the action being described in that exact moment.
+    4. DYNAMIC VISUAL PACING: Break the script down into distinct visual scenes based on the narrative flow.
+       - Determine the exact number of images needed to tell this story perfectly (between 4 and 7 scenes).
+       - Provide a highly specific image prompt for EACH scene.
+       - Pick a visual style (e.g. 'Pixar 3D animation', 'Dark Cinematic', 'Photorealistic') and begin EVERY prompt with that style.
+       - The prompts must perfectly illustrate the action happening in that exact moment of the script.
     
     FORMAT: Return ONLY valid JSON.
     {{
         "hook": "...",
         "body": "...",
-        "image_prompts": ["...", "...", "...", "..."]
+        "image_prompts": ["...", "...", "...", "..."] // Array length should match your chosen number of scenes
     }}
     """
 
@@ -51,11 +49,12 @@ def generate_script(niche, topic):
                 full_script = f"{data['hook']} {data['body']}"
                 
                 prompts = data.get('image_prompts', [])
-                while len(prompts) < 4:
-                    prompts.append(f"cinematic highly detailed scene of {topic}")
-                prompts = prompts[:4]
                 
-                print(f"✅ [WRITER] Script secured via {provider}.")
+                # Safety fallback in case the AI forgets to provide enough scenes
+                if len(prompts) < 3:
+                    prompts += [f"cinematic highly detailed scene of {topic}"] * (3 - len(prompts))
+                
+                print(f"✅ [WRITER] Script secured via {provider}. Model chose {len(prompts)} dynamic scenes.")
                 return full_script, data['hook'], prompts, provider
         return None, None, [], "Failed"
     except Exception as e:
