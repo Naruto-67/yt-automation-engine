@@ -56,7 +56,10 @@
     {
         "niche": "brainrot",
         "topic": "Strange Addictions",
-        "bg_query": "addiction weird habits"
+        "bg_query": "addiction weird habits",
+        "processed": true,
+        "vaulted_date": "2026-03-06T05:12:07.120665",
+        "published": false
     },
     {
         "niche": "short story",
