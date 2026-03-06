@@ -32,9 +32,10 @@ jobs:
       - run: |
           git config --global user.name "Ghost-Engine-Bot"
           git config --global user.email "bot@ghostengine.ai"
-          git add memory/content_matrix.json memory/api_state.json
+          # 🚨 FIX: Add ALL memory files, securing the topic_archive.txt Amnesia Shield
+          git add memory/ 
           if ! git diff --staged --quiet; then
-            git commit -m "Lock New Content Matrix [skip ci]"
+            git commit -m "Lock New Content Matrix & Archive [skip ci]"
             git pull --rebase origin main
             git push origin main
           fi
