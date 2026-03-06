@@ -2,13 +2,14 @@ import os
 import json
 import sys
 import time
+import glob
 from datetime import datetime
 
 from scripts.quota_manager import quota_manager
 from scripts.discord_notifier import notify_production_success, notify_error
 from scripts.generate_script import generate_script
 from scripts.generate_metadata import generate_seo_metadata
-from scripts.logger import log_completed_video # 🚨 FIX: Wired Google Sheets Telemetry
+from scripts.logger import log_completed_video
 
 try:
     from scripts.generate_voice import generate_audio
@@ -19,7 +20,6 @@ except ImportError as e:
     print(f"🚨 [SYSTEM] CRITICAL DEPENDENCY MISSING: {e}")
     sys.exit(1)
 
-# 🚨 ENGINE IS LIVE. 
 TEST_MODE = False 
 
 def load_matrix():
@@ -36,6 +36,15 @@ def save_matrix(matrix):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(matrix, f, indent=4)
+
+def global_garbage_collector():
+    """🚨 FIX: Absolute disk wipe. Destroys any lingering orphaned files from previous crashed runs."""
+    print("🧹 [GC] Initializing Global Garbage Collection...")
+    extensions = ["*.mp4", "*.wav", "*.srt", "*.ass", "*.jpg", "temp_*"]
+    for ext in extensions:
+        for file in glob.glob(ext):
+            try: os.remove(file)
+            except: pass
 
 def run_production_cycle():
     quota_manager.check_and_update_refresh_token()
@@ -74,6 +83,9 @@ def run_production_cycle():
 
         success_count = 0
         for item in batch:
+            # Enforce pristine disk state before processing begins
+            global_garbage_collector()
+
             topic = item['topic']
             niche = item['niche']
             print(f"\n🎬 [PROCESSING] {niche.upper()}: {topic}")
@@ -82,7 +94,6 @@ def run_production_cycle():
                 print("🛑 [QUOTA GUARDIAN] YouTube Quota limit reached (10k). Halting production to prevent API ban.")
                 break
 
-            # 🚨 FIX: Initialize variables BEFORE the try block to guarantee finally cleanups
             audio_base = f"temp_audio_{success_count}"
             final_video = f"final_output_{success_count}.mp4"
             image_paths = []
@@ -121,7 +132,6 @@ def run_production_cycle():
                         item['published'] = False
                         item['youtube_id'] = video_id 
                         success_count += 1
-                        # 🚨 FIX: External Telemetry logging
                         log_completed_video(niche, topic, final_video)
                     else:
                         raise Exception("YouTube Upload API Rejected the Payload.")
@@ -154,15 +164,9 @@ def run_production_cycle():
                 save_matrix(matrix)
                 time.sleep(60)
                 continue
-
             finally:
-                # 🚨 FIX: The "Orphaned File" Disk Bloat Shield.
-                # Runs absolutely every time, even if a fatal error occurs in line 1 of generation.
                 if not TEST_MODE:
-                    for f in [f"{audio_base}.wav", f"{audio_base}.srt", final_video] + image_paths:
-                        if os.path.exists(f): 
-                            try: os.remove(f)
-                            except: pass
+                    global_garbage_collector()
 
             save_matrix(matrix)
 
