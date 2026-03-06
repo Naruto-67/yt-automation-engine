@@ -1,4 +1,4 @@
-def notify_token_expiry(days_active):
+def notify_token_expiry(days_unused):
     webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
     notifier = DiscordNotifier(webhook_url)
     
@@ -17,8 +17,8 @@ def notify_token_expiry(days_active):
     )
     
     fields = [
-        {"name": "⚠️ Token Age", "value": f"└ Active for {days_active} days", "inline": False},
+        {"name": "⚠️ Token Inactivity", "value": f"└ Unused for {days_unused} days", "inline": False},
         {"name": "🔑 Required Scopes", "value": scopes, "inline": False},
         {"name": "🛠️ Steps to Renew", "value": steps, "inline": False}
     ]
-    notifier.send_rich_embed("⚠️ YouTube API Token Expiring Soon", 0xe1ad01, fields)
+    notifier.send_rich_embed("⚠️ YouTube API Token Dormant (Expiring Soon)", 0xe1ad01, fields)
