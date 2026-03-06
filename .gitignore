@@ -1,0 +1,12 @@
+# Ghost Engine - Ignored Files
+*.mp4
+*.wav
+*.mp3
+*.jpg
+*.png
+*.srt
+*.ass
+temp_*
+concat_list.txt
+__pycache__/
+.env
