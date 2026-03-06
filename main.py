@@ -19,6 +19,7 @@ except ImportError as e:
     sys.exit(1)
 
 TEST_MODE = True 
+WATERMARK_TEXT = "@GhostEngine" # Customize your watermark here!
 
 def load_matrix():
     path = os.path.join(os.path.dirname(__file__), "memory", "content_matrix.json")
@@ -36,7 +37,6 @@ def save_matrix(matrix):
         json.dump(matrix, f, indent=4)
 
 def enforce_weekly_targets(matrix):
-    """🚨 NICHE QUOTA ENFORCER: Guarantees 2 stories and 4 facts per block."""
     unprocessed_stories = sum(1 for item in matrix if not item.get('processed', False) and 'stor' in item.get('niche', '').lower())
     unprocessed_facts = sum(1 for item in matrix if not item.get('processed', False) and 'fact' in item.get('niche', '').lower())
     
@@ -67,7 +67,6 @@ def run_production_cycle():
     print("🚀 [ENGINE] Ignition. Analyzing Vault Status...")
     try:
         matrix = load_matrix()
-        # Enforce niche diversification before doing anything
         matrix = enforce_weekly_targets(matrix)
 
         vault_count = get_vault_status(matrix)
@@ -92,7 +91,8 @@ def run_production_cycle():
             final_video = f"final_output_{success_count}.mp4"
 
             try:
-                script_text, hook, image_prompts, script_prov = generate_script(niche, topic)
+                # 🚨 UPDATED TUPLE UNPACKING
+                script_text, image_prompts, scene_weights, script_prov = generate_script(niche, topic)
                 if not script_text: raise Exception("Script generation failed.")
 
                 metadata, seo_prov = generate_seo_metadata(niche, script_text)
@@ -103,7 +103,8 @@ def run_production_cycle():
                 image_paths, visual_prov = fetch_scene_images(image_prompts, base_filename=f"temp_scene_{success_count}")
                 if len(image_paths) == 0: raise Exception("Visual generation failed.")
 
-                if not render_video(image_paths, f"{audio_base}.wav", final_video):
+                # 🚨 PASSED SCENE WEIGHTS AND WATERMARK TO RENDERER
+                if not render_video(image_paths, f"{audio_base}.wav", final_video, scene_weights=scene_weights, watermark_text=WATERMARK_TEXT):
                     raise Exception("Render failed.")
 
                 if not TEST_MODE:
