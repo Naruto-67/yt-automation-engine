@@ -32,7 +32,6 @@ def load_matrix():
     return []
 
 def save_matrix(matrix):
-    # 🚨 FIX: Atomic Writes guarantee the OS will never corrupt memory during process kills
     path = os.path.join(os.path.dirname(__file__), "memory", "content_matrix.json")
     tmp_path = path + ".tmp"
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -42,11 +41,20 @@ def save_matrix(matrix):
 
 def global_garbage_collector():
     print("🧹 [GC] Initializing Global Garbage Collection...")
-    extensions = ["*.mp4", "*.wav", "*.srt", "*.ass", "*.jpg", "temp_*"]
+    # 🚨 FIX: Surgically exclude "final_*.mp4" to protect Artifact backups
+    extensions = ["*.wav", "*.srt", "*.ass", "*.jpg", "temp_*"]
     for ext in extensions:
         for file in glob.glob(ext):
             try: os.remove(file)
             except: pass
+            
+    for file in glob.glob("temp_anim_*.mp4"):
+        try: os.remove(file)
+        except: pass
+        
+    for file in glob.glob("temp_merged*.mp4"):
+        try: os.remove(file)
+        except: pass
 
 def run_production_cycle():
     quota_manager.check_and_update_refresh_token()
