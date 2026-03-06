@@ -65,6 +65,11 @@ def get_optimal_publish_times(youtube):
     return ["15:00", "23:00"] 
 
 def publish_vault_videos():
+    # 🚨 QUOTA GATEKEEPER: Publisher costs ~310 points total. We buffer at 400.
+    if not quota_manager.can_afford_youtube(400):
+        print("🛑 [QUOTA GUARDIAN] YouTube Quota too low to safely publish. Aborting to prevent API ban.")
+        return
+
     youtube = get_youtube_client()
     if not youtube: return
     
@@ -95,30 +100,26 @@ def publish_vault_videos():
                     niche_tag = f"{m_item['niche'].title()} Shorts"
                     break
             
-            # Parse AI time string "HH:MM" safely
             target_time_str = ai_times[idx] if idx < len(ai_times) else "15:00"
             try:
                 hr, mn = map(int, target_time_str.split(':'))
             except:
-                hr, mn = 15 + (idx * 8), 0 # Fallback safety math
+                hr, mn = 15 + (idx * 8), 0 
                 
             target_dt = now.replace(hour=hr, minute=mn, second=0, microsecond=0)
             if target_dt <= now:
-                target_dt += timedelta(days=1) # If time has passed today, schedule for tomorrow!
+                target_dt += timedelta(days=1) 
             pub_time = target_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
             
-            # 1. Schedule Video
             youtube.videos().update(part="status", body={"id": vid_id, "status": {"privacyStatus": "private", "publishAt": pub_time}}).execute()
-            quota_manager.consume_points("youtube", 50) # 🚨 Ghost Quota Leak Fixed
+            quota_manager.consume_points("youtube", 50) 
             time.sleep(5)
             
-            # 2. Move to Dynamic Niche Playlist
             niche_playlist = get_or_create_playlist(youtube, niche_tag, "public")
             youtube.playlistItems().insert(part="snippet", body={"snippet": {"playlistId": niche_playlist, "resourceId": {"kind": "youtube#video", "videoId": vid_id}}}).execute()
             quota_manager.consume_points("youtube", 50) 
             time.sleep(5)
             
-            # 3. Delete from Vault
             youtube.playlistItems().delete(id=item["id"]).execute()
             quota_manager.consume_points("youtube", 50) 
             time.sleep(5)
