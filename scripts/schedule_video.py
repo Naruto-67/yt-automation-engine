@@ -85,7 +85,6 @@ def publish_vault_videos():
         for idx, item in enumerate(items):
             vid_id = item["snippet"]["resourceId"]["videoId"]
             
-            # 🚨 FIX: Wrap per-video logic in try/except to prevent Ghost Video Crashes
             try:
                 niche_tag = "Viral Shorts"
                 for m_item in matrix:
@@ -100,7 +99,9 @@ def publish_vault_videos():
                     hr, mn = 15 + (idx * 8), 0 
                     
                 target_dt = now.replace(hour=hr, minute=mn, second=0, microsecond=0)
-                if target_dt <= now:
+                
+                # 🚨 FIX: YouTube API 15-Minute Rule Check
+                if target_dt <= now + timedelta(minutes=15):
                     target_dt += timedelta(days=1) 
                 pub_time = target_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
                 
@@ -117,7 +118,6 @@ def publish_vault_videos():
                 quota_manager.consume_points("youtube", 50) 
                 time.sleep(5)
                 
-                # Mark as published in memory
                 for m_item in matrix:
                     if m_item.get("youtube_id") == vid_id:
                         m_item['published'] = True
@@ -126,7 +126,6 @@ def publish_vault_videos():
             except Exception as vid_e:
                 print(f"⚠️ [PUBLISHER] Failed to publish video {vid_id}: {vid_e}. Removing from memory to self-heal.")
                 notify_error("Publisher", "Phantom Video Desync", f"Video {vid_id} failed: {vid_e}")
-                # Force delete ghost from memory
                 matrix = [m for m in matrix if m.get("youtube_id") != vid_id]
                 continue
 
