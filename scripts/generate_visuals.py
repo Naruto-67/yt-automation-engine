@@ -7,7 +7,6 @@ import subprocess
 import base64
 from scripts.quota_manager import quota_manager
 
-# 🚨 FALLBACK TEST FLAG: Turned OFF for production. It will now actually use Cloudflare/HF.
 SIMULATE_CASCADE_TEST = False 
 
 def generate_cloudflare_image(prompt, output_path):
@@ -27,7 +26,8 @@ def generate_cloudflare_image(prompt, output_path):
     payload = {"prompt": f"{prompt}, vertical 9:16 format, masterpiece"}
     
     try:
-        response = requests.post(url, headers=headers, json=payload, timeout=60)
+        # 🚨 FIX: Explicit connection & read timeouts to prevent infinite hanging sockets
+        response = requests.post(url, headers=headers, json=payload, timeout=(15, 60))
         if response.status_code == 200:
             content_type = response.headers.get("Content-Type", "")
             if "application/json" in content_type:
@@ -54,7 +54,6 @@ def generate_huggingface_cascade(prompt, output_path):
     hf_token = os.environ.get("HF_TOKEN")
     if not hf_token: return False, "No Token"
         
-    # 🚨 THE CASCADE: FLUX -> SDXL
     models = [
         "black-forest-labs/FLUX.1-schnell",
         "stabilityai/stable-diffusion-xl-base-1.0"
@@ -74,7 +73,8 @@ def generate_huggingface_cascade(prompt, output_path):
         url = f"https://api-inference.huggingface.co/models/{model}"
         
         try:
-            response = requests.post(url, headers=headers, json=payload, timeout=60)
+            # 🚨 FIX: Explicit connection & read timeouts to prevent infinite hanging sockets
+            response = requests.post(url, headers=headers, json=payload, timeout=(15, 60))
             if response.status_code == 200:
                 with open(output_path, 'wb') as f: 
                     f.write(response.content)
@@ -86,7 +86,7 @@ def generate_huggingface_cascade(prompt, output_path):
             elif response.status_code == 503:
                 print(f"      💤 {short_name} asleep. Waiting 20s...")
                 time.sleep(20)
-                response = requests.post(url, headers=headers, json=payload, timeout=60)
+                response = requests.post(url, headers=headers, json=payload, timeout=(15, 60))
                 if response.status_code == 200:
                     with open(output_path, 'wb') as f: f.write(response.content)
                     quota_manager.consume_points("huggingface", 1)
@@ -104,12 +104,12 @@ def fallback_pexels_image(search_query, output_path):
         query = urllib.parse.quote(search_query) 
         url = f"https://api.pexels.com/v1/search?query={query}&orientation=portrait&per_page=15"
         headers = {"Authorization": api_key}
-        res = requests.get(url, headers=headers, timeout=15).json()
+        res = requests.get(url, headers=headers, timeout=(10, 30)).json()
         
         if res.get('photos'):
             photo = random.choice(res['photos'])
             img_url = photo['src']['large2x']
-            img_data = requests.get(img_url, timeout=15).content
+            img_data = requests.get(img_url, timeout=(10, 30)).content
             with open(output_path, 'wb') as f: f.write(img_data)
             return True, ""
     except Exception as e: 
@@ -130,7 +130,6 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
         
         success = False
         
-        # 1. Tier 1: Cloudflare AI (Official API)
         if tier1_active:
             success, err = generate_cloudflare_image(prompt, output_path)
             if success: 
@@ -141,7 +140,6 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
         else:
             print("      [Tier 1: Cloudflare] Skipped (Previously Blocked)")
 
-        # 2. Tier 2: Hugging Face Cascade (FLUX -> SDXL)
         if not success and tier2_active:
             success, err = generate_huggingface_cascade(prompt, output_path)
             if success: 
@@ -152,7 +150,6 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
         elif not success and not tier2_active:
             print("      [Tier 2: Hugging Face] Skipped (Previously Blocked)")
                 
-        # 3. Tier 3: Pexels Dedicated Query Fallback
         if not success:
             success, err = fallback_pexels_image(pexels_queries[i], output_path)
             if success: 
