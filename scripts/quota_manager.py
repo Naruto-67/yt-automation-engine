@@ -2,7 +2,6 @@ import os
 import json
 import traceback
 import time
-import hashlib
 from datetime import datetime
 from scripts.groq_client import groq_client
 
@@ -17,7 +16,6 @@ class MasterQuotaManager:
         self.cloudflare_image_limit = 95 
         self.hf_image_limit = 50 
         
-        # 🚨 YOUTUBE QUOTA GUARDIAN (Limit is 10k, we cap at 9500 to be safe)
         self.yt_quota_limit = 9500 
         self.gemini_blocked_for_run = False 
         
@@ -30,7 +28,6 @@ class MasterQuotaManager:
             self._reset_daily_state()
 
     def _reset_daily_state(self):
-        # 🚨 Preserves the Token Hash across daily resets!
         old_state = self._read_state_file()
         new_state = {
             "last_reset_date": datetime.utcnow().strftime("%Y-%m-%d"),
@@ -38,8 +35,8 @@ class MasterQuotaManager:
             "youtube_points_used": 0,
             "cf_images_used": 0,
             "hf_images_used": 0,
-            "yt_token_hash": old_state.get("yt_token_hash", ""),
-            "yt_token_date": old_state.get("yt_token_date", datetime.utcnow().strftime("%Y-%m-%d"))
+            # 🚨 Preserves the last used date across daily resets!
+            "yt_last_used_date": old_state.get("yt_last_used_date", datetime.utcnow().strftime("%Y-%m-%d"))
         }
         self._write_state_file(new_state)
 
@@ -64,38 +61,32 @@ class MasterQuotaManager:
 
     def consume_points(self, provider, amount):
         state = self._get_active_state()
-        if provider == "youtube": state["youtube_points_used"] = state.get("youtube_points_used", 0) + amount
+        if provider == "youtube": 
+            state["youtube_points_used"] = state.get("youtube_points_used", 0) + amount
+            # 🚨 INACTIVITY TRACKER: Dynamically resets the timer to today anytime YouTube is used!
+            state["yt_last_used_date"] = datetime.utcnow().strftime("%Y-%m-%d")
         elif provider == "gemini": state["gemini_used"] = state.get("gemini_used", 0) + amount
         elif provider == "cloudflare": state["cf_images_used"] = state.get("cf_images_used", 0) + amount
         elif provider == "huggingface": state["hf_images_used"] = state.get("hf_images_used", 0) + amount
         self._write_state_file(state)
 
     def can_afford_youtube(self, cost):
-        """Checks if a YT action will push us over the 10,000 limit."""
         return self._get_active_state().get("youtube_points_used", 0) + cost <= self.yt_quota_limit
 
     def check_and_update_refresh_token(self):
-        """🚨 Security Tracker: Hashes token, checks age, sends Discord warning if > 120 days."""
-        current_token = os.environ.get("YOUTUBE_REFRESH_TOKEN", "")
-        if not current_token: return
-        
-        token_hash = hashlib.sha256(current_token.encode()).hexdigest()
+        """🚨 Security Tracker: Checks if token has been dormant for 120 days."""
         state = self._get_active_state()
+        date_str = state.get("yt_last_used_date", datetime.utcnow().strftime("%Y-%m-%d"))
         
-        # If the hash changed, you updated the token! Reset the clock.
-        if state.get("yt_token_hash", "") != token_hash:
-            state["yt_token_hash"] = token_hash
-            state["yt_token_date"] = datetime.utcnow().strftime("%Y-%m-%d")
-            self._write_state_file(state)
+        try:
+            last_used_date = datetime.strptime(date_str, "%Y-%m-%d")
+            days_unused = (datetime.utcnow() - last_used_date).days
             
-        date_str = state.get("yt_token_date", datetime.utcnow().strftime("%Y-%m-%d"))
-        token_date = datetime.strptime(date_str, "%Y-%m-%d")
-        days_active = (datetime.utcnow() - token_date).days
-        
-        # Ping Discord every day if the token is over 4 months old
-        if days_active >= 120:
-            from scripts.discord_notifier import notify_token_expiry
-            notify_token_expiry(days_active)
+            # Ping Discord only if unused for 4 months
+            if days_unused >= 120:
+                from scripts.discord_notifier import notify_token_expiry
+                notify_token_expiry(days_unused)
+        except: pass
 
     def is_provider_exhausted(self, provider):
         state = self._get_active_state()
