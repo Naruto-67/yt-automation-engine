@@ -91,7 +91,8 @@ def run_production_cycle():
             final_video = f"final_output_{success_count}.mp4"
 
             try:
-                script_text, image_prompts, scene_weights, script_prov = generate_script(niche, topic)
+                # 🚨 UNPACKING THE PEXELS QUERIES
+                script_text, image_prompts, pexels_queries, scene_weights, script_prov = generate_script(niche, topic)
                 if not script_text: raise Exception("Script generation failed.")
 
                 metadata, seo_prov = generate_seo_metadata(niche, script_text)
@@ -99,10 +100,10 @@ def run_production_cycle():
                 voice_success, voice_prov = generate_audio(script_text, output_base=audio_base)
                 if not voice_success: raise Exception("Voice generation failed.")
 
-                image_paths, visual_prov = fetch_scene_images(image_prompts, base_filename=f"temp_scene_{success_count}")
+                # 🚨 PASSING PEXELS QUERIES TO THE VISUAL ENGINE
+                image_paths, visual_prov = fetch_scene_images(image_prompts, pexels_queries, base_filename=f"temp_scene_{success_count}")
                 if len(image_paths) == 0: raise Exception("Visual generation failed.")
 
-                # 🚨 GRAB THE STATS FROM THE RENDERER
                 render_success, video_duration, video_size = render_video(
                     image_paths, 
                     f"{audio_base}.wav", 
@@ -127,7 +128,6 @@ def run_production_cycle():
                     item['published'] = False
                     success_count += 1
                 
-                # 🚨 PASS STATS TO DISCORD
                 notify_production_success(
                     niche=niche,
                     topic=topic,
