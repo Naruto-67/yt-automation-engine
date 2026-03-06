@@ -1,6 +1,82 @@
+import os
+import subprocess
+import json
+import re
+import urllib.request
+from pydub import AudioSegment
+
+def download_cinematic_font():
+    """🚨 ASSET FIX: Downloads Montserrat-Bold dynamically. No physical assets needed in repo."""
+    font_path = "/tmp/Montserrat-Bold.ttf"
+    if not os.path.exists(font_path):
+        print("📥 [RENDERER] Downloading Cinematic Font...")
+        url = "https://github.com/googlefonts/montserrat/raw/main/fonts/ttf/Montserrat-Bold.ttf"
+        try:
+            urllib.request.urlretrieve(url, font_path)
+        except:
+            return "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
+    return font_path
+
+def get_style_config(style_name="default"):
+    return {
+        "FontName": "Arial", "FontSize": "75", "PrimaryColour": "&H00FFFFFF", 
+        "OutlineColour": "&H00000000", "BackColour": "&H00000000", "Outline": "10", 
+        "Shadow": "0", "BorderStyle": "1", "Alignment": "2", "MarginV": "500"               
+    }
+
+def time_to_seconds(time_str):
+    h, m, s_ms = time_str.split(':')
+    s, ms = s_ms.split(',')
+    return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000.0
+
+def srt_to_ass(srt_path, ass_path, style):
+    print("🎨 [RENDERER] Generating High-Retention Subtitles...")
+    header = (
+        "[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n\n"
+        "[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
+        "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
+        "Alignment, MarginL, MarginR, MarginV, Encoding\n"
+        f"Style: Default,{style['FontName']},{style['FontSize']},{style['PrimaryColour']},&H000000FF,"
+        f"{style['OutlineColour']},{style['BackColour']},1,0,0,0,100,100,0,0,{style['BorderStyle']},"
+        f"{style['Outline']},{style['Shadow']},{style['Alignment']},10,10,{style['MarginV']},1\n\n"
+        "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+    )
+    try:
+        with open(srt_path, 'r', encoding='utf-8') as f: content = f.read()
+        def convert_time(ts): return ts.replace(',', '.')[:-1] 
+
+        events = []
+        for block in content.strip().split('\n\n'):
+            lines = block.split('\n')
+            if len(lines) >= 3:
+                times = re.findall(r'(\d+:\d+:\d+,\d+)', lines[1])
+                if len(times) == 2:
+                    text = re.sub(r'<[^>]+>', '', " ".join(lines[2:]))
+                    events.append(f"Dialogue: 0,{convert_time(times[0])},{convert_time(times[1])},Default,,0,0,0,,{text.upper()}")
+
+        with open(ass_path, 'w', encoding='utf-8') as f: f.write(header + "\n".join(events))
+        return True
+    except Exception as e:
+        print(f"⚠️ [RENDERER] Subtitle generation failed: {e}")
+        return False
+
+def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=60):
+    frames = int(duration * fps)
+    prep_filter = "scale=2160:3840:force_original_aspect_ratio=increase,crop=2160:3840"
+    effects = [
+        f"zoompan=z='min(zoom+0.0007,1.15)':x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}", 
+        f"zoompan=z='1.15-0.0007*on':x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}",      
+        f"zoompan=z='1.15':x='(iw-iw/zoom)*(on/{frames})':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}",     
+        f"zoompan=z='1.15':x='(iw-iw/zoom)*(1-(on/{frames}))':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}"  
+    ]
+    full_filter = f"{prep_filter},{effects[index % len(effects)]},eq=contrast=1.05:saturation=1.15"
+    subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", image_path, "-vf", full_filter, "-c:v", "libx264", "-t", str(duration), "-pix_fmt", "yuv420p", "-preset", "fast", "-crf", "18", output_path], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True)
+    return True
+
 def render_video(image_paths, audio_path, output_path, scene_weights=None, watermark_text="GhostEngine", style_name="default"):
     print(f"⚙️ [RENDERER] Executing Master Render Engine...")
     srt_path, ass_path, temp_concat, temp_merged = audio_path.replace(".wav", ".srt"), audio_path.replace(".wav", ".ass"), "concat_list.txt", "temp_merged_no_subs.mp4"
+    
     if not srt_to_ass(srt_path, ass_path, get_style_config(style_name)): return False
     
     try:
