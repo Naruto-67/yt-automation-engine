@@ -22,11 +22,22 @@ def get_channel_name(youtube):
     except: return "GhostEngine"
 
 def get_or_create_playlist(youtube, title, privacy_status="private"):
+    # 🚨 FIX: Exhaustive Pagination to prevent duplicate spam playlists
     try:
-        for item in youtube.playlists().list(part="snippet", mine=True, maxResults=50).execute().get("items", []):
+        playlists = []
+        request = youtube.playlists().list(part="snippet", mine=True, maxResults=50)
+        while request is not None:
+            response = request.execute()
+            playlists.extend(response.get("items", []))
+            request = youtube.playlists().list_next(request, response)
+            
+        for item in playlists:
             if item["snippet"]["title"].lower() == title.lower(): return item["id"]
+            
         return youtube.playlists().insert(part="snippet,status", body={"snippet": {"title": title}, "status": {"privacyStatus": privacy_status}}).execute()["id"]
-    except: return None
+    except Exception as e: 
+        print(f"⚠️ Playlist fetch error: {e}")
+        return None
 
 def get_actual_vault_count(youtube):
     try:
@@ -64,7 +75,6 @@ def upload_to_youtube_vault(video_path, topic, metadata):
         
         quota_manager.consume_points("youtube", 1600)
         
-        # 🚨 FIX: Isolate Playlist error so it doesn't nuke a successful upload
         try:
             vault_playlist_id = get_or_create_playlist(youtube, "Vault Backup")
             if vault_playlist_id:
