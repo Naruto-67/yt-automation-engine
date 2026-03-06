@@ -5,15 +5,17 @@ import time
 from google import genai
 
 def generate_gemini_image(prompt, output_path):
-    print("      [Tier 1: Gemini] Attempting Imagen generation...")
+    print("      [Tier 1: Gemini] Attempting Imagen 4 generation...")
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key: return False
         
     try:
         client = genai.Client(api_key=api_key)
         enhanced_prompt = f"{prompt}, cinematic lighting, 8k, highly detailed"
+        
+        # 🚨 THE FIX: Upgraded to Google's active Imagen 4 endpoint
         result = client.models.generate_images(
-            model='imagen-3.0-generate-001',
+            model='imagen-4.0-generate-001',
             prompt=enhanced_prompt,
             config=dict(number_of_images=1, aspect_ratio="9:16", output_mime_type="image/jpeg")
         )
@@ -71,9 +73,9 @@ def fetch_scene_images(prompts_list, base_filename="temp_scene"):
         output_path = f"{base_filename}_{i}.jpg"
         print(f"\n   -> Scene {i+1} Prompt: {prompt[:40]}...")
         
-        # 1. Try Gemini
+        # 1. Try Gemini Imagen 4
         success = generate_gemini_image(prompt, output_path)
-        if success: primary_provider = "Gemini Imagen 3"
+        if success: primary_provider = "Gemini Imagen 4"
         
         # 2. Try Hugging Face Fallback
         if not success:
@@ -91,7 +93,6 @@ def fetch_scene_images(prompts_list, base_filename="temp_scene"):
         else:
             print(f"   ❌ Scene {i+1} failed completely.")
             
-        # 🚨 THE PACING PROTOCOL: Sleep 6s to prevent IP/RPM bans across all services
         print("   ⏳ Pacing generation engines to prevent IP bans (Sleeping 6s)...")
         time.sleep(6) 
         
