@@ -16,8 +16,8 @@ from pydub import AudioSegment, effects
 from scripts.groq_client import groq_client
 from scripts.quota_manager import quota_manager
 
-# 🚨 FIX: Singleton pattern prevents PyTorch from overloading the GitHub Runner RAM during multi-video batch runs.
 _KOKORO_PIPELINE = None
+_WHISPER_MODEL = None
 
 def get_kokoro_pipeline():
     global _KOKORO_PIPELINE
@@ -25,6 +25,13 @@ def get_kokoro_pipeline():
         from kokoro import KPipeline
         _KOKORO_PIPELINE = KPipeline(lang_code='a')
     return _KOKORO_PIPELINE
+
+def get_whisper_model():
+    global _WHISPER_MODEL
+    if _WHISPER_MODEL is None:
+        from faster_whisper import WhisperModel
+        _WHISPER_MODEL = WhisperModel("tiny.en", device="cpu", compute_type="int8")
+    return _WHISPER_MODEL
 
 def format_time(seconds):
     if seconds < 0: seconds = 0
@@ -56,6 +63,7 @@ def sanitize_for_tts(text):
     return clean_text
 
 def generate_audio(text, output_base="temp_audio"):
+    global _KOKORO_PIPELINE
     final_wav = f"{output_base}.wav"
     srt_path = f"{output_base}.srt"
     
@@ -79,7 +87,8 @@ def generate_audio(text, output_base="temp_audio"):
             success = True
             provider = f"Kokoro ({chosen_voice})"
     except Exception as e: 
-        print(f"⚠️ Kokoro failed: {e}")
+        print(f"⚠️ Kokoro failed (resetting pipeline state): {e}")
+        _KOKORO_PIPELINE = None 
         success = False
 
     if not success:
@@ -97,8 +106,7 @@ def generate_audio(text, output_base="temp_audio"):
 
     try:
         print("📝 [VOICE] Transcribing and Chunking Captions (Max 3 words)...")
-        from faster_whisper import WhisperModel
-        model = WhisperModel("tiny.en", device="cpu", compute_type="int8")
+        model = get_whisper_model()
         segments, _ = model.transcribe(final_wav, word_timestamps=True)
         
         srt_lines = []
