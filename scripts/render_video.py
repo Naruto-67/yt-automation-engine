@@ -86,6 +86,11 @@ def render_video(image_paths, audio_path, output_path, scene_weights=None, water
     except: return False
 
     clip_durs = [w * total_dur for w in scene_weights] if scene_weights else [total_dur / len(image_paths)] * len(image_paths)
+    
+    # 🚨 FIX: Visual Padding. Adds 0.6 seconds to the final clip so FFmpeg's "-shortest" flag trims precisely at the audio tail, preventing voice clipping.
+    if clip_durs:
+        clip_durs[-1] += 0.6
+        
     clip_files = []
     
     for i, img in enumerate(image_paths):
@@ -101,7 +106,6 @@ def render_video(image_paths, audio_path, output_path, scene_weights=None, water
     safe_font = font_path.replace('\\', '/').replace(':', r'\:')
     safe_ass = ass_path.replace('\\', '/').replace(':', r'\:')
     
-    # 🚨 FIX: Mathematical Regex Escaping to prevent FFmpeg colon/quote parameter crashes
     safe_watermark = watermark_text.replace("\\", "\\\\").replace(":", r"\:").replace("'", "").replace('"', '').replace(" ", "\u2002")
     
     watermark_filter = f",drawtext=fontfile='{safe_font}':text='{safe_watermark}':fontcolor=0xD3D3D3@0.25:shadowcolor=0x000000@0.25:shadowx=3:shadowy=3:fontsize=60:x=(w-text_w)/2:y=h-250"
