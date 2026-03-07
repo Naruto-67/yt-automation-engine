@@ -86,7 +86,7 @@ def run_production_cycle():
                 raise Exception("Emergency Research failed to populate matrix.")
 
         videos_needed = 14 - vault_count
-        batch_size = min(videos_needed, 2) if TEST_MODE else min(videos_needed, 4)
+        batch_size = min(videos_needed, 4) 
         batch = unprocessed[:batch_size]
 
         channel_name = get_channel_name(youtube_client).replace("@", "") if not TEST_MODE else "GhostEngine_Test"
@@ -97,6 +97,10 @@ def run_production_cycle():
         for item in batch:
             topic = item['topic']
             niche = item['niche']
+            
+            # 🚨 FIX: Niche-Aware Timing Definitions
+            is_fact_based = any(k in niche.lower() for k in ['fact', 'hack', 'trend', 'brainrot'])
+            min_audio = 11.0 if is_fact_based else 24.0
             
             max_item_attempts = 3
             item_success = False
@@ -115,7 +119,6 @@ def run_production_cycle():
                 image_paths = []
 
                 try:
-                    # 🚨 FIX: The Dynamic Script Validation Loop. Guarantees audio fits in 60s Shorts window.
                     valid_script = False
                     for script_attempt in range(3):
                         print(f"   -> [SCRIPT] Generation Phase (Attempt {script_attempt + 1}/3)...")
@@ -130,21 +133,22 @@ def run_production_cycle():
                             
                         print(f"   -> [TIMING] Audio clocked at {audio_duration:.1f} seconds.")
                         
+                        # 🚨 FIX: Dynamic Acceptance Criteria allows fast loops for Facts
                         if audio_duration > 58.5:
-                            print(f"   ⚠️ [REJECTED] Audio exceeds 58.5s limit! Discarding script and regenerating...")
-                            continue # Try script generation again
+                            print(f"   ⚠️ [REJECTED] Audio is too long ({audio_duration:.1f}s). Regenerating...")
+                            continue 
                             
-                        if audio_duration < 30.0:
-                            print(f"   ⚠️ [REJECTED] Audio is too short ({audio_duration:.1f}s). Discarding script and regenerating...")
+                        if audio_duration < min_audio:
+                            print(f"   ⚠️ [REJECTED] Audio is too short for this niche type ({audio_duration:.1f}s < {min_audio}s). Regenerating...")
                             continue
 
+                        print(f"   ✅ [TIMING] Perfect duration for {niche.upper()} ({audio_duration:.1f}s).")
                         valid_script = True
-                        break # We found a perfect script!
+                        break 
                         
                     if not valid_script:
-                        raise Exception("Failed to generate a script with proper audio timing after 3 attempts.")
+                        raise ValueError("Failed to generate a script with proper audio timing after 3 attempts.")
 
-                    # Only generate metadata AFTER the audio length is validated to save quota!
                     print(f"   -> [METADATA] Generating SEO payload...")
                     time.sleep(5)
                     metadata, seo_prov = generate_seo_metadata(niche, script_text)
@@ -154,7 +158,7 @@ def run_production_cycle():
                     image_paths, visual_prov = fetch_scene_images(image_prompts, pexels_queries, base_filename=f"temp_scene_{success_count}")
                     
                     if len(image_paths) < len(image_prompts): 
-                        raise Exception(f"Visual Desync: Only generated {len(image_paths)}/{len(image_prompts)} images. Aborting.")
+                        raise ValueError(f"Visual Desync: Only generated {len(image_paths)}/{len(image_prompts)} images. Aborting.")
                     time.sleep(10)
 
                     render_success, video_duration, video_size = render_video(
@@ -195,16 +199,24 @@ def run_production_cycle():
                     break
 
                 except Exception as e:
-                    print(f"🚨 [CRASH] Topic '{topic}' failed: {e}")
-                    quota_manager.diagnose_fatal_error("main.py", e)
+                    error_msg = str(e)
+                    print(f"🚨 [CRASH] Topic '{topic}' failed: {error_msg}")
+                    
+                    is_api_error = not isinstance(e, ValueError)
+                    
+                    if is_api_error:
+                        quota_manager.diagnose_fatal_error("main.py", e)
                     
                     if not TEST_MODE:
                         global_garbage_collector()
                         
                     if attempt < max_item_attempts:
-                        cooldown = 60 * attempt
-                        print(f"⏳ [SAFETY PROTOCOL] Enforcing {cooldown}-second progressive cooldown before internal retry...")
-                        time.sleep(cooldown)
+                        if is_api_error:
+                            cooldown = 60 * attempt
+                            print(f"⏳ [SAFETY PROTOCOL] API Error. Enforcing {cooldown}-second progressive cooldown before retry...")
+                            time.sleep(cooldown)
+                        else:
+                            print(f"🔄 [SAFETY PROTOCOL] Logic Rejection. Retrying immediately without cooldown...")
                     else:
                         print(f"💀 [SAFETY PROTOCOL] Topic failed 3 times. Permanently quarantined.")
                         item['processed'] = True
@@ -213,7 +225,7 @@ def run_production_cycle():
             save_matrix(matrix)
 
         print(f"🏁 [FINISH] {success_count} videos sent to Vault.")
-        notify_summary(True, f"🌙 **System Sleep**\nProduction cycle complete. Successfully pushed {success_count} videos.")
+        notify_summary(True, f"🌙 **System Sleep**\nProduction cycle complete. Successfully processed {success_count} videos.")
         
     except Exception as fatal_e:
         quota_manager.diagnose_fatal_error("System Core (main.py)", fatal_e)
