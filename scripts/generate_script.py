@@ -52,7 +52,7 @@ def generate_script(niche, topic):
     CRITICAL RULES:
     1. DYNAMIC ADAPTATION: Analyze the NICHE. Dynamically deduce the absolute best narrative structure, tone, and visual style that guarantees virality for this specific niche (e.g. 3D Pixar style for stories, Dark Cinematic for facts, Hyper-chaotic for brainrot).
     2. NO META-COMMENTARY: NEVER say "In this video".
-    3. STRICT LENGTH: The total script MUST be exactly 65 to 75 words. This guarantees the video is under 55 seconds.
+    3. STRICT LENGTH: The total script MUST be exactly 95 to 110 words. This ensures the video length hits the 45-55 second sweet spot for optimal retention. Do not write less than 95 words.
     4. DYNAMIC SCENES: Break the script into EXACTLY {target_scenes} scenes.
        - Write the 'text' (the words spoken).
        - Write an 'image_prompt' (the specific visual style you deduced).
@@ -77,7 +77,6 @@ def generate_script(niche, topic):
         if raw_response:
             clean_str = raw_response.replace("```json", "").replace("```", "").strip()
             
-            # 🚨 FIX: Mathematical String Slicer. Bypasses regex errors entirely by grabbing absolute bounds.
             start_idx = clean_str.find('{')
             end_idx = clean_str.rfind('}')
             
