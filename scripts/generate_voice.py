@@ -2,6 +2,7 @@ import os
 import json
 import random
 import warnings
+import re
 
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -39,6 +40,12 @@ def trim_audio_precision(file_path):
         print(f"⚠️ Audio trim failed: {e}")
         return False, 0.0
 
+def sanitize_for_tts(text):
+    # 🚨 FIX: Purges all emojis, invisible characters, and weird symbols so espeak-ng doesn't crash or read them aloud.
+    clean_text = re.sub(r'[^\w\s.,!?\'"-]', '', text)
+    clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+    return clean_text
+
 def generate_audio(text, output_base="temp_audio"):
     final_wav = f"{output_base}.wav"
     srt_path = f"{output_base}.srt"
@@ -46,7 +53,8 @@ def generate_audio(text, output_base="temp_audio"):
     success = False
     provider = "Unknown"
     
-    buffered_text = f", {text}" 
+    sanitized_text = sanitize_for_tts(text)
+    buffered_text = f", {sanitized_text}" 
     
     print("🎙️ [VOICE] Attempting Primary: Kokoro (Ultra-Realistic Human)...")
     try:
@@ -75,7 +83,6 @@ def generate_audio(text, output_base="temp_audio"):
     if not success: 
         return False, provider, 0.0
     
-    # 🚨 FIX: Extract absolute duration mathematically to feed the Validation Loop in main.py
     trim_success, duration = trim_audio_precision(final_wav)
     if not trim_success:
         return False, provider, 0.0
