@@ -25,7 +25,6 @@ class MasterQuotaManager:
         ]
         self._ensure_state_exists()
 
-    # 🚨 FIX: Switched to Absolute Time (UTC) to perfectly align with GitHub Actions and Google API Resets
     def get_utc_date(self):
         return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
@@ -109,6 +108,13 @@ class MasterQuotaManager:
         
         log_path = os.path.join(self.memory_dir, "error_log.txt")
         try:
+            # 🚨 FIX: Ensure the log file doesn't grow infinitely and bloat the GitHub repo.
+            if os.path.exists(log_path) and os.path.getsize(log_path) > 1024 * 1024:
+                with open(log_path, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+                with open(log_path, 'w', encoding='utf-8') as f:
+                    f.writelines(lines[-200:])
+                    
             with open(log_path, "a", encoding="utf-8") as f:
                 f.write(f"[{datetime.utcnow().isoformat()}] {error_msg}\n{'-'*50}\n")
         except: pass
