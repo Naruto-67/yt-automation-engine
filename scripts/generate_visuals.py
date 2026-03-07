@@ -54,7 +54,6 @@ def generate_cloudflare_image(prompt, output_path):
     safe_prompt = prompt[:200].replace('"', '').replace('\n', ' ')
     payload = {"prompt": f"{safe_prompt}, vertical 9:16 format, masterpiece"}
     
-    # 🚨 FIX: One-time retry loop for transient Cloudflare 5xx errors before failing over to the limited HuggingFace pool.
     for retry in range(2):
         try:
             response = requests.post(url, headers=headers, json=payload, timeout=(15, 60))
@@ -154,8 +153,10 @@ def generate_huggingface_cascade(prompt, output_path):
 
 def fallback_pexels_image(search_query, output_path, is_retry=False):
     clean_query = re.sub(r'[^a-zA-Z\s]', '', search_query).strip()
-    words = [w for w in clean_query.split() if len(w) > 2]
-    safe_query = " ".join(words[:2]) if words else "cinematic background"
+    
+    # 🚨 FIX: Prevent words like "AI", "VR", "3D" from being destroyed by the length filter
+    words = [w for w in clean_query.split() if len(w) >= 2]
+    safe_query = " ".join(words[:3]) if words else "cinematic background"
     
     print(f"      [Tier 3: Pexels] AI Blocked. Searching strictly for: '{safe_query}'...")
     
