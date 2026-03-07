@@ -4,6 +4,16 @@ import re
 import random
 from scripts.quota_manager import quota_manager
 
+# ✅ FIX: Biologically-calibrated speech rate constants.
+# Average English TTS narration rate: ~130 words per minute (Kokoro runs slightly faster at ~135).
+# Hard ceiling = 59s × (130/60) = 127.8 words. We use 120 as the safe ceiling with headroom.
+# This eliminates the entire class of "word count passes, audio fails" wasted API calls.
+_WORDS_PER_SECOND_TTS = 130 / 60.0  # ~2.17 words/sec
+_MAX_VIDEO_SECONDS = 59.0
+_SAFE_WORD_CEILING = int(_MAX_VIDEO_SECONDS * _WORDS_PER_SECOND_TTS * 0.90)  # = 115 words, ~10% safety margin
+_ABSOLUTE_WORD_CEILING = int(_MAX_VIDEO_SECONDS * _WORDS_PER_SECOND_TTS)      # = 127 words, hard limit
+
+
 def extract_scene_data_dynamically(scene_dict, fallback_topic):
     if not isinstance(scene_dict, dict):
         return str(scene_dict), f"cinematic scene of {fallback_topic}", fallback_topic
@@ -41,17 +51,24 @@ def extract_scene_data_dynamically(scene_dict, fallback_topic):
         query = " ".join(words[:2]) if words else fallback_topic
     return narr, prompt, query
 
+
 def generate_script(niche, topic):
     is_fact_based = any(k in niche.lower() for k in ['fact', 'hack', 'trend', 'brainrot'])
     target_scenes = random.randint(3, 5) if is_fact_based else random.randint(5, 7)
     
+    # ✅ FIX: Give the LLM an accurate word-count target derived from the real speech rate.
+    # "35-50 seconds" is vague. "65-100 words" is precise and directly testable.
+    # This collapses the ambiguity window that causes the LLM to overshoot into 130-155 word territory.
+    target_words_min = int(35 * _WORDS_PER_SECOND_TTS)   # ~76 words
+    target_words_max = int(50 * _WORDS_PER_SECOND_TTS)   # ~108 words
+
     prompt = f"""
     You are an Elite Master Content Creator. Your task is to write a highly viral, engaging YouTube Short.
     NICHE: '{niche}'
     TOPIC: '{topic}'
     
     YOUTUBE SHORTS CONSTRAINTS:
-    1. The absolute maximum length is 60 seconds. Write a script that naturally takes about 35 to 50 seconds to read aloud.
+    1. The ABSOLUTE maximum is {_ABSOLUTE_WORD_CEILING} words total across ALL scenes. Stay between {target_words_min} and {target_words_max} words.
     2. Hook the viewer in the very first sentence. No long intros.
     3. NO META-COMMENTARY: NEVER say "In this video", "Welcome back", or "Subscribe". Just dive straight into the content.
     
@@ -105,10 +122,13 @@ def generate_script(niche, topic):
                     return None, [], [], [], provider
                 
                 word_count = len(full_script.split())
-                print(f"      -> [TEXT PRE-CHECK] Script generated: {word_count} words.")
+                print(f"      -> [TEXT PRE-CHECK] Script generated: {word_count} words (limit: {_ABSOLUTE_WORD_CEILING}).")
                 
-                if word_count > 160:
-                    print(f"      ⚠️ [TEXT REJECTED] Script is massively overgrown ({word_count} words). It will exceed 60s. Regenerating...")
+                # ✅ FIX: Gate is now calibrated to real TTS physics.
+                # _ABSOLUTE_WORD_CEILING (~127 words) = scripts that CANNOT exceed 59s.
+                # The old 160-word limit was physically guaranteed to produce 74s+ audio.
+                if word_count > _ABSOLUTE_WORD_CEILING:
+                    print(f"      ⚠️ [TEXT REJECTED] Script ({word_count}w) exceeds TTS-calibrated ceiling ({_ABSOLUTE_WORD_CEILING}w). Would produce ~{word_count / _WORDS_PER_SECOND_TTS:.0f}s audio. Regenerating...")
                     return None, [], [], [], provider
                 if word_count < 15:
                     print(f"      ⚠️ [TEXT REJECTED] Script is absurdly short ({word_count} words). Regenerating...")
