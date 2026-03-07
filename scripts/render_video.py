@@ -50,7 +50,9 @@ def srt_to_ass(srt_path, ass_path, style):
             if len(lines) >= 3 and "-->" in lines[1]:
                 times = re.findall(r'(\d+:\d+:\d+,\d+)', lines[1])
                 if len(times) == 2:
+                    # 🚨 FIX: Purges raw newlines to prevent .ass formatting structure collapse
                     text = re.sub(r'<[^>]+>', '', " ".join(lines[2:]))
+                    text = text.replace('\n', ' ').replace('\r', ' ').strip()
                     events.append(f"Dialogue: 0,{convert_time(times[0])},{convert_time(times[1])},Default,,0,0,0,,{text.upper()}")
 
         with open(ass_path, 'w', encoding='utf-8') as f: f.write(header + "\n".join(events))
@@ -69,8 +71,6 @@ def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=60):
         f"zoompan=z='1.15':x='(iw-iw/zoom)*(1-(on/{frames}))':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}"  
     ]
     full_filter = f"{prep_filter},{effects[index % len(effects)]},eq=contrast=1.05:saturation=1.15"
-    
-    # 🚨 FIX: Injected timeout=600 to prevent FFmpeg from stalling the Github Action infinitely on corrupted pixels
     try:
         subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", image_path, "-vf", full_filter, "-c:v", "libx264", "-t", str(duration), "-pix_fmt", "yuv420p", "-preset", "fast", "-crf", "18", output_path], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True, timeout=600)
         return True
