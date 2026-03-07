@@ -45,36 +45,34 @@ def generate_script(niche, topic):
     is_fact_based = any(k in niche.lower() for k in ['fact', 'hack', 'trend', 'brainrot'])
     target_scenes = random.randint(3, 5) if is_fact_based else random.randint(5, 7)
     
-    # 🚨 FIX: Chain-of-Thought (CoT) Prompting. Forces the LLM to think about structure and length before writing JSON.
-    pacing_rules = """
-    PACING: Extremely fast, punchy, and highly energetic.
-    LENGTH: You must write exactly 1 or 2 medium sentences per scene. The total combined script should be around 50 to 70 words.
-    """ if is_fact_based else """
-    PACING: Deep, narrative, and highly descriptive. Build suspense and lore.
-    LENGTH: You MUST write at least 3 to 4 long, highly descriptive sentences per scene. Do NOT output short fragments. The total combined script MUST be over 100 words. Take your time and be verbose.
-    """
-    
+    # 🚨 FIX: Context-Aware Dynamic Prompting. No more hard-coded word limits.
     prompt = f"""
-    You are an Elite Master Content Creator. Write a highly viral YouTube Short.
+    You are an Elite Master Content Creator. Your task is to write a highly viral, engaging YouTube Short.
     NICHE: '{niche}'
     TOPIC: '{topic}'
     
-    CRITICAL RULES:
-    1. DYNAMIC ADAPTATION: Analyze the NICHE. Dynamically deduce the best narrative structure and visual style.
-    2. NO META-COMMENTARY: NEVER say "In this video" or "Welcome to".
-    3. {pacing_rules}
-    4. DYNAMIC SCENES: Break the script into EXACTLY {target_scenes} scenes.
+    YOUTUBE SHORTS CONSTRAINTS:
+    1. The absolute maximum length is 60 seconds. Write a script that naturally takes about 35 to 50 seconds to read aloud.
+    2. Hook the viewer in the very first sentence. No long intros.
+    3. NO META-COMMENTARY: NEVER say "In this video", "Welcome back", or "Subscribe". Just dive straight into the content.
+    
+    DYNAMIC ADAPTATION:
+    - If the niche is Facts/Hacks/Brainrot: Make the script extremely fast-paced, punchy, and loopable.
+    - If the niche is Story/Lore/Mystery: Build suspense, use atmospheric descriptions, and end on a thought-provoking note.
+    
+    SCENE STRUCTURE:
+    Break the script into EXACTLY {target_scenes} visual scenes.
        - 'text': The actual words spoken by the narrator.
-       - 'image_prompt': The specific visual style you deduced.
+       - 'image_prompt': The specific visual style you deduced for the AI image generator.
        - 'pexels_query': A 1-2 word search term like 'abandoned house'.
     
     FORMAT: Return ONLY valid JSON.
     {{
-        "thought_process": "Briefly explain how you will pace this video to hit the exact word count requirements.",
-        "estimated_word_count": "Enter a number representing the total words you will write",
+        "thought_process": "Briefly explain how you structured this to maximize YouTube Shorts audience retention.",
+        "estimated_spoken_duration": "e.g., 40 seconds",
         "scenes": [
             {{
-                "text": "sentence 1... sentence 2... sentence 3...",
+                "text": "sentence 1... sentence 2...",
                 "image_prompt": "Specific visual style shot of...",
                 "pexels_query": "simple keyword"
             }}
@@ -104,11 +102,14 @@ def generate_script(niche, topic):
                     return None, [], [], [], provider
                 
                 word_count = len(full_script.split())
-                if is_fact_based and word_count > 90:
-                    print(f"      ⚠️ [TEXT REJECTED] Fact script too long ({word_count} words). Regenerating...")
+                print(f"      -> [TEXT PRE-CHECK] Script generated: {word_count} words.")
+                
+                # Broad, generous safety net. Only rejects extreme hallucinations.
+                if word_count > 160:
+                    print(f"      ⚠️ [TEXT REJECTED] Script is massively overgrown ({word_count} words). It will exceed 60s. Regenerating...")
                     return None, [], [], [], provider
-                if not is_fact_based and word_count < 60:
-                    print(f"      ⚠️ [TEXT REJECTED] Story script too short ({word_count} words). Regenerating...")
+                if word_count < 15:
+                    print(f"      ⚠️ [TEXT REJECTED] Script is absurdly short ({word_count} words). Regenerating...")
                     return None, [], [], [], provider
 
                 total_chars = sum(len(s[0]) for s in parsed_scenes)
