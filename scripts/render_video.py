@@ -3,6 +3,7 @@ import subprocess
 import json
 import re
 import urllib.request
+import urllib.error
 from pydub import AudioSegment
 
 def download_cinematic_font():
@@ -11,8 +12,12 @@ def download_cinematic_font():
         print("📥 [RENDERER] Downloading Cinematic Font...")
         url = "https://github.com/googlefonts/montserrat/raw/main/fonts/ttf/Montserrat-Bold.ttf"
         try:
-            urllib.request.urlretrieve(url, font_path)
-        except:
+            # 🚨 FIX: Replaced urlretrieve with urlopen to explicitly enforce a 15-second timeout, preventing indefinite socket deadlocks
+            req = urllib.request.urlopen(url, timeout=15)
+            with open(font_path, 'wb') as f:
+                f.write(req.read())
+        except Exception as e:
+            print(f"⚠️ [RENDERER] Font download failed/timed out: {e}. Using local fallback.")
             return "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
     return font_path
 
@@ -50,7 +55,6 @@ def srt_to_ass(srt_path, ass_path, style):
             if len(lines) >= 3 and "-->" in lines[1]:
                 times = re.findall(r'(\d+:\d+:\d+,\d+)', lines[1])
                 if len(times) == 2:
-                    # 🚨 FIX: Purges raw newlines to prevent .ass formatting structure collapse
                     text = re.sub(r'<[^>]+>', '', " ".join(lines[2:]))
                     text = text.replace('\n', ' ').replace('\r', ' ').strip()
                     events.append(f"Dialogue: 0,{convert_time(times[0])},{convert_time(times[1])},Default,,0,0,0,,{text.upper()}")
