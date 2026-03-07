@@ -2,18 +2,21 @@ import os
 import subprocess
 import json
 import re
-import urllib.request
 from pydub import AudioSegment
 
 def download_cinematic_font():
     font_path = "/tmp/Montserrat-Bold.ttf"
     if not os.path.exists(font_path):
         print("📥 [RENDERER] Downloading Cinematic Font...")
-        url = "https://github.com/google/fonts/raw/main/ofl/montserrat/Montserrat-Bold.ttf"
+        # 🚨 FIX: GitHub blocks default urllib User-Agents with a 404. We swap to requests with a mocked browser User-Agent.
+        url = "https://raw.githubusercontent.com/google/fonts/main/ofl/montserrat/Montserrat-Bold.ttf"
         try:
-            req = urllib.request.urlopen(url, timeout=15)
+            import requests
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+            response = requests.get(url, headers=headers, timeout=15)
+            response.raise_for_status()
             with open(font_path, 'wb') as f:
-                f.write(req.read())
+                f.write(response.content)
         except Exception as e:
             print(f"⚠️ [RENDERER] Font download failed/timed out: {e}. Using local fallback.")
             return "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
@@ -66,7 +69,6 @@ def srt_to_ass(srt_path, ass_path, style):
 def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=60):
     frames = int(duration * fps)
     
-    # 🚨 FIX: Restored native FFmpeg Center-Crop to ensure raw 1:1 squares are scaled perfectly to 9:16 fullscreen without blurry borders.
     prep_filter = "scale=2160:3840:force_original_aspect_ratio=increase,crop=2160:3840"
     
     effects = [
@@ -130,7 +132,9 @@ def render_video(image_paths, audio_path, output_path, scene_weights=None, water
     safe_font = font_path.replace('\\', '/').replace(':', r'\:')
     safe_ass = ass_path.replace('\\', '/').replace(':', r'\:')
     
-    safe_watermark_text = re.sub(r'[^a-zA-Z0-9\s]', '', watermark_text)
+    safe_watermark_text = re.sub(r'[^a-zA-Z0-9\s]', '', watermark_text).strip()
+    if not safe_watermark_text:
+        safe_watermark_text = "GhostEngine"
     safe_watermark = safe_watermark_text
     
     watermark_filter = f",drawtext=fontfile='{safe_font}':text='{safe_watermark}':fontcolor=0xD3D3D3@0.25:shadowcolor=0x000000@0.25:shadowx=3:shadowy=3:fontsize=60:x=(w-text_w)/2:y=h-250"
