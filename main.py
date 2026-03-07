@@ -6,7 +6,7 @@ import glob
 from datetime import datetime
 
 from scripts.quota_manager import quota_manager
-from scripts.discord_notifier import notify_production_success, notify_error, notify_summary
+from scripts.discord_notifier import notify_production_success, notify_error, notify_summary, notify_step
 from scripts.generate_script import generate_script
 from scripts.generate_metadata import generate_seo_metadata
 from scripts.logger import log_completed_video
@@ -86,8 +86,6 @@ def run_production_cycle():
                 raise Exception("Emergency Research failed to populate matrix.")
 
         videos_needed = 14 - vault_count
-        
-        # 🚨 FIX: Force batch_size to exactly 2 when TEST_MODE is active
         batch_size = min(videos_needed, 2) if TEST_MODE else min(videos_needed, 4)
         batch = unprocessed[:batch_size]
 
@@ -110,8 +108,12 @@ def run_production_cycle():
             for attempt in range(1, max_item_attempts + 1):
                 print(f"\n🎬 [PROCESSING] {niche.upper()}: {topic} (Attempt {attempt}/{max_item_attempts})")
                 
+                # 🚨 FIX: Live Telemetry. Broadcasts the start of the item loop.
+                notify_step(topic, f"Ignition (Attempt {attempt}/{max_item_attempts})", f"Niche: **{niche.upper()}**", 0x3498db) # Blue
+                
                 if not TEST_MODE and not quota_manager.can_afford_youtube(1700):
                     print("🛑 [QUOTA GUARDIAN] YouTube Quota limit reached (10k). Halting production to prevent API ban.")
+                    notify_step(topic, "Quota Guardian", "YouTube Quota limit reached (10k). Halting.", 0xe74c3c) # Red
                     return 
 
                 global_garbage_collector()
@@ -124,29 +126,38 @@ def run_production_cycle():
                     valid_script = False
                     for script_attempt in range(3):
                         print(f"   -> [SCRIPT] Generation Phase (Attempt {script_attempt + 1}/3)...")
+                        notify_step(topic, f"Drafting Script (Try {script_attempt + 1}/3)", "Asking AI for narrative constraints...", 0x95a5a6) # Gray
+                        
                         script_text, image_prompts, pexels_queries, scene_weights, script_prov = generate_script(niche, topic)
                         
                         if not script_text: 
+                            notify_step(topic, "Script Rejected", "AI returned invalid JSON/Length. Retrying...", 0xf1c40f) # Yellow
                             time.sleep(2)
                             continue
                             
                         print(f"   -> [VOICE] Testing audio length for Kokoro pacing...")
+                        notify_step(topic, "Testing Voice Pacing", f"Generating audio via {script_prov}...", 0x3498db) # Blue
+                        
                         voice_success, voice_prov, audio_duration = generate_audio(script_text, output_base=audio_base)
                         
                         if not voice_success: 
+                            notify_step(topic, "Voice Generator Crashed", "Kokoro/Groq failed to return audio.", 0xe74c3c) # Red
                             raise Exception("Voice generation crashed entirely.")
                             
                         print(f"   -> [TIMING] Audio clocked at {audio_duration:.1f} seconds.")
                         
                         if audio_duration > 59.0:
                             print(f"   ⚠️ [REJECTED] Audio is too long ({audio_duration:.1f}s). Regenerating...")
+                            notify_step(topic, "Validation Rejected", f"Audio is too long ({audio_duration:.1f}s). Max is 59s. Regenerating...", 0xf1c40f)
                             continue 
                             
                         if audio_duration < min_audio:
                             print(f"   ⚠️ [REJECTED] Audio is too short for this niche type ({audio_duration:.1f}s < {min_audio}s). Regenerating...")
+                            notify_step(topic, "Validation Rejected", f"Audio is too short ({audio_duration:.1f}s). Min is {min_audio}s. Regenerating...", 0xf1c40f)
                             continue
 
                         print(f"   ✅ [TIMING] Perfect duration for {niche.upper()} ({audio_duration:.1f}s).")
+                        notify_step(topic, "Validation Passed", f"Perfect duration achieved: **{audio_duration:.1f}s**.", 0x2ecc71) # Green
                         valid_script = True
                         break 
                         
@@ -154,10 +165,13 @@ def run_production_cycle():
                         raise ValueError("Failed to generate a script with proper audio timing after 3 attempts.")
 
                     print(f"   -> [METADATA] Generating SEO payload...")
+                    notify_step(topic, "Generating SEO", "Creating YouTube optimized metadata...", 0x3498db) # Blue
                     time.sleep(5)
                     metadata, seo_prov = generate_seo_metadata(niche, script_text)
                     print(f"      Title: {metadata.get('title')}")
 
+                    print(f"   -> [VISUALS] Sourcing {len(image_prompts)} scenes...")
+                    notify_step(topic, "Sourcing Visuals", f"Fetching {len(image_prompts)} scenes from Cloudflare/HF/Pexels...", 0x3498db) # Blue
                     time.sleep(5)
                     image_paths, visual_prov = fetch_scene_images(image_prompts, pexels_queries, base_filename=f"temp_scene_{success_count}")
                     
@@ -165,6 +179,8 @@ def run_production_cycle():
                         raise ValueError(f"Visual Desync: Only generated {len(image_paths)}/{len(image_prompts)} images. Aborting.")
                     time.sleep(10)
 
+                    print(f"   -> [RENDER] Compiling Video...")
+                    notify_step(topic, "Rendering Video", "Combining Audio, Visuals, and Subtitles via Master Engine...", 0x9b59b6) # Purple
                     render_success, video_duration, video_size = render_video(
                         image_paths, f"{audio_base}.wav", final_video, 
                         scene_weights=scene_weights, watermark_text=channel_name 
@@ -205,6 +221,7 @@ def run_production_cycle():
                 except Exception as e:
                     error_msg = str(e)
                     print(f"🚨 [CRASH] Topic '{topic}' failed: {error_msg}")
+                    notify_step(topic, "Exception Caught", error_msg[:300], 0xe74c3c) # Red
                     
                     is_api_error = not isinstance(e, ValueError)
                     
@@ -217,12 +234,13 @@ def run_production_cycle():
                     if attempt < max_item_attempts:
                         if is_api_error:
                             cooldown = 60 * attempt
-                            print(f"⏳ [SAFETY PROTOCOL] API Error. Enforcing {cooldown}-second progressive cooldown before retry...")
+                            notify_step(topic, "API Cooldown", f"Enforcing {cooldown}s progressive cooldown before retry...", 0xe67e22) # Orange
                             time.sleep(cooldown)
                         else:
-                            print(f"🔄 [SAFETY PROTOCOL] Logic Rejection. Retrying immediately without cooldown...")
+                            notify_step(topic, "Logic Retry", "Retrying immediately without cooldown...", 0xe67e22) # Orange
                     else:
                         print(f"💀 [SAFETY PROTOCOL] Topic failed 3 times. Permanently quarantined.")
+                        notify_step(topic, "Quarantined", "Topic failed 3 times. Permanently removing from queue.", 0x000000) # Black
                         item['processed'] = True
                         item['failed_flag'] = True
             
