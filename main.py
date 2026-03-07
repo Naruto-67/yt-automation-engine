@@ -41,7 +41,6 @@ def save_matrix(matrix):
 
 def global_garbage_collector():
     print("🧹 [GC] Initializing Global Garbage Collection...")
-    # 🚨 FIX: Aggressive cross-platform, case-insensitive garbage collection for all possible artifact types.
     extensions = ["*.wav", "*.srt", "*.ass", "*.jpg", "*.jpeg", "*.JPEG", "*.png", "temp_*", "concat_list.txt"]
     for ext in extensions:
         for file in glob.glob(ext):
@@ -214,12 +213,20 @@ def run_production_cycle():
                     )
                     break
 
-                except ConnectionError as ce:
-                    notify_step(topic, "Upload Blocked", "Video rendered safely, but YT refused upload. Retrying tomorrow.", 0xe74c3c)
-                    print(f"⚠️ [NETWORK] {ce}")
-                    break 
-
                 except Exception as e:
+                    # 🚨 FIX: Absolute 403 Failsafe. Instantly freezes the system and protects the topic if YouTube issues a Hard Limit response.
+                    from googleapiclient.errors import HttpError
+                    if isinstance(e, HttpError) and e.resp.status == 403 and b"quota" in e.content.lower():
+                        print(f"🛑 [FATAL] Hard YouTube Quota Reached. System is freezing to protect the queue.")
+                        notify_step(topic, "Quota Freeze", "Hard YouTube Quota reached mid-upload. Freezing process.", 0xe74c3c)
+                        save_matrix(matrix)
+                        sys.exit(0)
+                        
+                    if isinstance(e, ConnectionError):
+                        notify_step(topic, "Upload Blocked", "Video rendered safely, but YT refused upload. Retrying tomorrow.", 0xe74c3c)
+                        print(f"⚠️ [NETWORK] {e}")
+                        break 
+
                     error_msg = str(e)
                     print(f"🚨 [CRASH] Topic '{topic}' failed: {error_msg}")
                     notify_step(topic, "Exception Caught", error_msg[:300], 0xe74c3c)
@@ -243,7 +250,6 @@ def run_production_cycle():
                         item['failed_flag'] = True
                 
                 finally:
-                    # 🚨 FIX: Guarantees memory cleanup regardless of crash or success.
                     if not TEST_MODE:
                         global_garbage_collector()
             
