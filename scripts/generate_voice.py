@@ -29,9 +29,9 @@ def trim_audio_precision(file_path):
             
         audio = effects.normalize(audio)
         
-        # 🚨 FIX: Dynamically match frame_rate and channels to prevent silent digital artifacting (POPs/CLICKs)
-        silence_start = AudioSegment.silent(duration=200, frame_rate=audio.frame_rate)
-        silence_end = AudioSegment.silent(duration=500, frame_rate=audio.frame_rate)
+        # 🚨 FIX: Inherit frame_rate AND channels to completely eradicate random pop artifacting
+        silence_start = AudioSegment.silent(duration=200, frame_rate=audio.frame_rate).set_channels(audio.channels)
+        silence_end = AudioSegment.silent(duration=500, frame_rate=audio.frame_rate).set_channels(audio.channels)
         
         final = silence_start + audio + silence_end
         final.export(file_path, format="wav")
