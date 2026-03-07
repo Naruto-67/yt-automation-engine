@@ -41,8 +41,8 @@ def save_matrix(matrix):
 
 def global_garbage_collector():
     print("🧹 [GC] Initializing Global Garbage Collection...")
-    # 🚨 FIX: Purged concat_list.txt which was silently building up in the system memory across 365 days
-    extensions = ["*.wav", "*.srt", "*.ass", "*.jpg", "temp_*", "concat_list.txt"]
+    # 🚨 FIX: Aggressive cross-platform, case-insensitive garbage collection for all possible artifact types.
+    extensions = ["*.wav", "*.srt", "*.ass", "*.jpg", "*.jpeg", "*.JPEG", "*.png", "temp_*", "concat_list.txt"]
     for ext in extensions:
         for file in glob.glob(ext):
             try: os.remove(file)
@@ -212,9 +212,6 @@ def run_production_cycle():
                         metadata=metadata, duration=video_duration, size=video_size,
                         status="Successful (Test Mode)" if TEST_MODE else "Vaulted & Commented"
                     )
-                    
-                    if not TEST_MODE:
-                        global_garbage_collector()
                     break
 
                 except ConnectionError as ce:
@@ -231,9 +228,6 @@ def run_production_cycle():
                     
                     if is_api_error:
                         quota_manager.diagnose_fatal_error("main.py", e)
-                    
-                    if not TEST_MODE:
-                        global_garbage_collector()
                         
                     if attempt < max_item_attempts:
                         if is_api_error:
@@ -247,6 +241,11 @@ def run_production_cycle():
                         notify_step(topic, "Quarantined", "Topic failed 3 times. Permanently removing from queue.", 0x000000)
                         item['processed'] = True
                         item['failed_flag'] = True
+                
+                finally:
+                    # 🚨 FIX: Guarantees memory cleanup regardless of crash or success.
+                    if not TEST_MODE:
+                        global_garbage_collector()
             
             save_matrix(matrix)
 
