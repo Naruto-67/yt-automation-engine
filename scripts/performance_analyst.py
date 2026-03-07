@@ -9,12 +9,22 @@ def run_daily_analysis():
     
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     tracker_path = os.path.join(root_dir, "assets", "lessons_learned.json")
-    lessons = {"emphasize": ["Fast pacing"], "avoid": ["Boring intros"], "recent_tags": []}
+    
+    # 🚨 FIX: Memory Arrays are now structured to hold a rolling history.
+    lessons = {
+        "emphasize": ["Engineer seamless narrative loops to maximize watch time"], 
+        "avoid": ["Boring intros without immediate visual hooks"], 
+        "recent_tags": []
+    }
     
     if os.path.exists(tracker_path):
         try:
             with open(tracker_path, "r", encoding="utf-8") as f:
-                lessons = json.load(f)
+                file_data = json.load(f)
+                if isinstance(file_data.get("emphasize"), list):
+                    lessons["emphasize"] = file_data["emphasize"]
+                if isinstance(file_data.get("avoid"), list):
+                    lessons["avoid"] = file_data["avoid"]
         except: pass
 
     youtube = get_youtube_client()
@@ -22,7 +32,6 @@ def run_daily_analysis():
 
     try:
         channel_req = youtube.channels().list(part="statistics", mine=True).execute()
-        # 🚨 FIX: Log channel request API points
         quota_manager.consume_points("youtube", 1)
         
         if not channel_req.get("items"):
@@ -32,17 +41,24 @@ def run_daily_analysis():
         views = max(int(stats.get("viewCount", 0)), 1)
         subs = max(int(stats.get("subscriberCount", 0)), 0)
 
+        # Truncate lists to the latest 4 rules so the prompt doesn't blow up
+        current_emphasize = "\n".join([f"- {r}" for r in lessons["emphasize"][-4:]])
+        current_avoid = "\n".join([f"- {r}" for r in lessons["avoid"][-4:]])
+
         prompt = f"""
         You are the AI CEO of a YouTube Automation channel. 
         Current Stats: {views} total views, {subs} subscribers.
-        Current 'Emphasize' rules: {lessons.get('emphasize', [])}
-        Current 'Avoid' rules: {lessons.get('avoid', [])}
         
-        Based on algorithmic growth strategies for YouTube Shorts, update our creative rules.
-        Provide 1 short rule to emphasize, and 1 thing to strictly avoid.
+        Our current active strategies:
+        {current_emphasize}
+        
+        What we currently avoid:
+        {current_avoid}
+        
+        Based on algorithmic growth strategies for YouTube Shorts, give me ONE brand new rule to emphasize, and ONE brand new thing to avoid. Make them highly specific to psychological hooks and retention graphs.
         
         Return STRICTLY valid JSON:
-        {{"emphasize": ["..."], "avoid": ["..."]}}
+        {{"new_emphasize": "...", "new_avoid": "..."}}
         """
         
         analysis_raw, _ = quota_manager.generate_text(prompt, task_type="analysis")
@@ -53,16 +69,26 @@ def run_daily_analysis():
             if match:
                 new_rules = json.loads(match.group(0))
                 
-                emp_list = new_rules.get("emphasize", lessons["emphasize"])
-                avo_list = new_rules.get("avoid", lessons["avoid"])
+                new_emp = new_rules.get("new_emphasize", "").strip()
+                new_avo = new_rules.get("new_avoid", "").strip()
                 
-                lessons["emphasize"] = emp_list if isinstance(emp_list, list) and len(emp_list) > 0 else ["High retention pacing"]
-                lessons["avoid"] = avo_list if isinstance(avo_list, list) and len(avo_list) > 0 else ["Boring intros"]
+                # 🚨 FIX: Appends new rules to the array instead of overwriting, keeping a rolling history of max 5 items to cure amnesia.
+                if new_emp and new_emp not in lessons["emphasize"]:
+                    lessons["emphasize"].append(new_emp)
+                if new_avo and new_avo not in lessons["avoid"]:
+                    lessons["avoid"].append(new_avo)
+                    
+                lessons["emphasize"] = lessons["emphasize"][-5:]
+                lessons["avoid"] = lessons["avoid"][-5:]
                 
                 with open(tracker_path, "w", encoding="utf-8") as f:
                     json.dump(lessons, f, indent=4)
                     
-                notify_daily_pulse(views, subs, lessons)
+                pulse_data = {
+                    "emphasize": [new_emp if new_emp else lessons["emphasize"][-1]],
+                    "avoid": [new_avo if new_avo else lessons["avoid"][-1]]
+                }
+                notify_daily_pulse(views, subs, pulse_data)
                 
     except Exception as e:
         quota_manager.diagnose_fatal_error("performance_analyst.py", e)
