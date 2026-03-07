@@ -78,7 +78,6 @@ def run_daily_analysis():
                 lessons["emphasize"] = lessons["emphasize"][-5:]
                 lessons["avoid"] = lessons["avoid"][-5:]
                 
-                # 🚨 FIX: Atomic File Saving prevents OS-level IO termination from wiping the brain's long-term memory
                 tmp_path = tracker_path + ".tmp"
                 with open(tmp_path, "w", encoding="utf-8") as f:
                     json.dump(lessons, f, indent=4)
