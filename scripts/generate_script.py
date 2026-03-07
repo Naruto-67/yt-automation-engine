@@ -45,13 +45,13 @@ def generate_script(niche, topic):
     is_fact_based = any(k in niche.lower() for k in ['fact', 'hack', 'trend', 'brainrot'])
     target_scenes = random.randint(3, 5) if is_fact_based else random.randint(5, 7)
     
-    # 🚨 FIX: Structural Directives force Llama to write longer, richer text inside the JSON.
+    # 🚨 FIX: Chain-of-Thought (CoT) Prompting. Forces the LLM to think about structure and length before writing JSON.
     pacing_rules = """
-    PACING: Keep it extremely fast, punchy, and concise. High energy loop.
-    LENGTH: Write exactly 1 or 2 dense sentences per scene.
+    PACING: Extremely fast, punchy, and highly energetic.
+    LENGTH: You must write exactly 1 or 2 medium sentences per scene. The total combined script should be around 50 to 70 words.
     """ if is_fact_based else """
-    PACING: Build a deep, engaging, and detailed narrative. Expand on the lore.
-    LENGTH: You MUST write at least 3 long, highly descriptive sentences per scene. Do NOT output short fragments. The total script must be over 80 words.
+    PACING: Deep, narrative, and highly descriptive. Build suspense and lore.
+    LENGTH: You MUST write at least 3 to 4 long, highly descriptive sentences per scene. Do NOT output short fragments. The total combined script MUST be over 100 words. Take your time and be verbose.
     """
     
     prompt = f"""
@@ -61,20 +61,20 @@ def generate_script(niche, topic):
     
     CRITICAL RULES:
     1. DYNAMIC ADAPTATION: Analyze the NICHE. Dynamically deduce the best narrative structure and visual style.
-    2. NO META-COMMENTARY: NEVER say "In this video".
+    2. NO META-COMMENTARY: NEVER say "In this video" or "Welcome to".
     3. {pacing_rules}
     4. DYNAMIC SCENES: Break the script into EXACTLY {target_scenes} scenes.
-       - Write the 'text' (the words spoken).
-       - Write an 'image_prompt' (the specific visual style you deduced).
-       - Write a 'pexels_query' (a 1-2 word search term like 'abandoned house').
-    
-    VALIDATION: Verify your JSON contains exactly the keys "text", "image_prompt", and "pexels_query". Do not rename them.
+       - 'text': The actual words spoken by the narrator.
+       - 'image_prompt': The specific visual style you deduced.
+       - 'pexels_query': A 1-2 word search term like 'abandoned house'.
     
     FORMAT: Return ONLY valid JSON.
     {{
+        "thought_process": "Briefly explain how you will pace this video to hit the exact word count requirements.",
+        "estimated_word_count": "Enter a number representing the total words you will write",
         "scenes": [
             {{
-                "text": "sentence 1...",
+                "text": "sentence 1... sentence 2... sentence 3...",
                 "image_prompt": "Specific visual style shot of...",
                 "pexels_query": "simple keyword"
             }}
@@ -103,12 +103,11 @@ def generate_script(niche, topic):
                     print("      ⚠️ [TEXT REJECTED] Failed to parse valid text.")
                     return None, [], [], [], provider
                 
-                # 🚨 FIX: Quiet return instead of Exception. Keeps the inner loop alive!
                 word_count = len(full_script.split())
                 if is_fact_based and word_count > 90:
                     print(f"      ⚠️ [TEXT REJECTED] Fact script too long ({word_count} words). Regenerating...")
                     return None, [], [], [], provider
-                if not is_fact_based and word_count < 55:
+                if not is_fact_based and word_count < 60:
                     print(f"      ⚠️ [TEXT REJECTED] Story script too short ({word_count} words). Regenerating...")
                     return None, [], [], [], provider
 
