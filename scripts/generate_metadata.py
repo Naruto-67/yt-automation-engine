@@ -31,12 +31,15 @@ def generate_seo_metadata(niche, script):
             if match:
                 data = json.loads(match.group(0))
                 
-                # 🚨 FIX: Mathematically slice strings to guarantee 100% YouTube API compliance. 
                 raw_title = data.get("title", f"Amazing {niche} Facts #shorts").replace("<", "").replace(">", "")
                 raw_desc = data.get("description", "Mind blowing facts! #shorts").replace("<", "").replace(">", "")
                 
-                # Enforce YouTube Limits (100 char max title, 5000 max desc)
-                data["title"] = raw_title[:95] # Safe buffer
+                # 🚨 FIX: Safe Semantic Slicing. Never cut a word in half, never sever a Unicode emoji.
+                safe_title = raw_title[:95]
+                if len(raw_title) > 95:
+                    safe_title = safe_title.rsplit(' ', 1)[0]
+                
+                data["title"] = safe_title
                 data["description"] = raw_desc[:4900]
                 
                 return data, provider
