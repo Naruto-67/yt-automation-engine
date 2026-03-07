@@ -1,8 +1,10 @@
 import os
 import json
+import re
 from scripts.youtube_manager import get_youtube_client
 from scripts.quota_manager import quota_manager
 from scripts.discord_notifier import notify_daily_pulse
+
 
 def run_daily_analysis():
     print("📊 [CEO ENGINE] Running channel performance audit & self-improvement cycle...")
@@ -10,21 +12,39 @@ def run_daily_analysis():
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     tracker_path = os.path.join(root_dir, "assets", "lessons_learned.json")
     
-    lessons = {
-        "emphasize": ["Engineer seamless narrative loops to maximize watch time"], 
-        "avoid": ["Boring intros without immediate visual hooks"], 
-        "recent_tags": []
+    # ✅ FIX: Define safe absolute defaults ONLY for fields we own.
+    # Do NOT pre-populate the entire dict -- load from disk first.
+    safe_defaults = {
+        "emphasize": ["Engineer seamless narrative loops to maximize watch time"],
+        "avoid": ["Boring intros without immediate visual hooks"],
+        "recent_tags": [],
+        "preferred_visuals": []
     }
-    
+
+    # ✅ FIX: Load the ENTIRE file into a base dict first.
+    # This preserves ALL fields (recent_tags, preferred_visuals, etc.)
+    # that this module doesn't own but must not destroy.
+    lessons = dict(safe_defaults)  # Start with defaults as a safety net
     if os.path.exists(tracker_path):
         try:
             with open(tracker_path, "r", encoding="utf-8") as f:
                 file_data = json.load(f)
-                if isinstance(file_data.get("emphasize"), list):
-                    lessons["emphasize"] = file_data["emphasize"]
-                if isinstance(file_data.get("avoid"), list):
-                    lessons["avoid"] = file_data["avoid"]
-        except: pass
+                # Merge ALL fields from disk into lessons, overwriting defaults.
+                # This is the core fix: we preserve every key we don't explicitly manage.
+                if isinstance(file_data, dict):
+                    for key, value in file_data.items():
+                        lessons[key] = value
+                    # Enforce type safety AFTER full load, not before.
+                    if not isinstance(lessons.get("emphasize"), list):
+                        lessons["emphasize"] = safe_defaults["emphasize"]
+                    if not isinstance(lessons.get("avoid"), list):
+                        lessons["avoid"] = safe_defaults["avoid"]
+                    if not isinstance(lessons.get("recent_tags"), list):
+                        lessons["recent_tags"] = []
+                    if not isinstance(lessons.get("preferred_visuals"), list):
+                        lessons["preferred_visuals"] = []
+        except Exception as load_err:
+            print(f"⚠️ [CEO] Could not load lessons file, using defaults: {load_err}")
 
     youtube = get_youtube_client()
     if not youtube: return
@@ -62,12 +82,10 @@ def run_daily_analysis():
         analysis_raw, _ = quota_manager.generate_text(prompt, task_type="analysis")
         
         if analysis_raw:
-            import re
             match = re.search(r'\{.*\}', analysis_raw.replace("```json", "").replace("```", ""), re.DOTALL)
             if match:
                 new_rules = json.loads(match.group(0))
                 
-                # 🚨 FIX: Force hard-casting to string so LLM List-Hallucinations don't trigger AttributeError crashes.
                 new_emp = str(new_rules.get("new_emphasize", "")).strip()
                 new_avo = str(new_rules.get("new_avoid", "")).strip()
                 
@@ -75,10 +93,14 @@ def run_daily_analysis():
                     lessons["emphasize"].append(new_emp)
                 if new_avo and new_avo not in lessons["avoid"]:
                     lessons["avoid"].append(new_avo)
-                    
+
+                # ✅ FIX: Only cap the fields THIS module manages (emphasize, avoid).
+                # recent_tags and preferred_visuals are managed externally and must be
+                # left completely untouched.
                 lessons["emphasize"] = lessons["emphasize"][-5:]
                 lessons["avoid"] = lessons["avoid"][-5:]
                 
+                # ✅ FIX: Atomic write preserves the full, merged lessons object.
                 tmp_path = tracker_path + ".tmp"
                 with open(tmp_path, "w", encoding="utf-8") as f:
                     json.dump(lessons, f, indent=4)
@@ -92,6 +114,7 @@ def run_daily_analysis():
                 
     except Exception as e:
         quota_manager.diagnose_fatal_error("performance_analyst.py", e)
+
 
 if __name__ == "__main__":
     run_daily_analysis()
