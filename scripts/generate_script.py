@@ -42,7 +42,17 @@ def extract_scene_data_dynamically(scene_dict, fallback_topic):
     return narr, prompt, query
 
 def generate_script(niche, topic):
-    target_scenes = random.randint(4, 6)
+    # 🚨 FIX: Niche-Aware Logic flags
+    is_fact_based = any(k in niche.lower() for k in ['fact', 'hack', 'trend', 'brainrot'])
+    target_scenes = random.randint(3, 5) if is_fact_based else random.randint(5, 7)
+    
+    pacing_rules = """
+    PACING: Keep it extremely fast, punchy, and concise. High energy loop.
+    WORD COUNT: You MUST write exactly 40 to 65 words in total across all scenes.
+    """ if is_fact_based else """
+    PACING: Build a deep, engaging, and detailed narrative. Expand on the lore.
+    WORD COUNT: You MUST write exactly 90 to 115 words in total across all scenes. Make it highly descriptive.
+    """
     
     prompt = f"""
     You are an Elite Master Content Creator. Write a highly viral YouTube Short.
@@ -52,7 +62,7 @@ def generate_script(niche, topic):
     CRITICAL RULES:
     1. DYNAMIC ADAPTATION: Analyze the NICHE. Dynamically deduce the best narrative structure and visual style.
     2. NO META-COMMENTARY: NEVER say "In this video".
-    3. BIOLOGICAL TIMING: Do NOT rigidly count words. Write a natural, highly engaging script. This will be read by an AI Voice actor. It MUST be readable in 45 to 55 seconds (A good rule of thumb is 100 to 130 words). Make it dense and captivating.
+    3. {pacing_rules}
     4. DYNAMIC SCENES: Break the script into EXACTLY {target_scenes} scenes.
        - Write the 'text' (the words spoken).
        - Write an 'image_prompt' (the specific visual style you deduced).
@@ -76,7 +86,6 @@ def generate_script(niche, topic):
         raw_response, provider = quota_manager.generate_text(prompt, task_type="creative")
         if raw_response:
             clean_str = raw_response.replace("```json", "").replace("```", "").strip()
-            
             start_idx = clean_str.find('{')
             end_idx = clean_str.rfind('}')
             
@@ -93,11 +102,18 @@ def generate_script(niche, topic):
                 if not full_script.strip() or full_script == topic:
                     raise ValueError("JSON parsed, but no valid text extracted.")
                 
+                # 🚨 FIX: Instant Text Pre-Validation. Kills bad Llama scripts instantly before wasting Audio API.
+                word_count = len(full_script.split())
+                if is_fact_based and word_count > 85:
+                    raise ValueError(f"Script too long for a fast-paced Fact/Trend ({word_count} words). Regenerating.")
+                if not is_fact_based and word_count < 65:
+                    raise ValueError(f"Script too short for a Story narrative ({word_count} words). Regenerating.")
+
                 total_chars = sum(len(s[0]) for s in parsed_scenes)
                 scene_weights = [len(s[0]) / total_chars for s in parsed_scenes] if total_chars > 0 else []
                 
                 return full_script, prompts, pexels_queries, scene_weights, provider
         return None, [], [], [], "Failed"
     except Exception as e:
-        quota_manager.diagnose_fatal_error("generate_script.py", e)
-        return None, [], [], [], "Failed"
+        # Will bounce ValueError back to main.py for a 0-second instant retry
+        raise e
