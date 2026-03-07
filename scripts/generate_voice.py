@@ -29,16 +29,15 @@ def trim_audio_precision(file_path):
             
         audio = effects.normalize(audio)
         
-        # 🚨 FIX: Inherit frame_rate AND channels to completely eradicate random pop artifacting
         silence_start = AudioSegment.silent(duration=200, frame_rate=audio.frame_rate).set_channels(audio.channels)
         silence_end = AudioSegment.silent(duration=500, frame_rate=audio.frame_rate).set_channels(audio.channels)
         
         final = silence_start + audio + silence_end
         final.export(file_path, format="wav")
-        return True
+        return True, len(final) / 1000.0
     except Exception as e: 
         print(f"⚠️ Audio trim failed: {e}")
-        return False
+        return False, 0.0
 
 def generate_audio(text, output_base="temp_audio"):
     final_wav = f"{output_base}.wav"
@@ -74,10 +73,12 @@ def generate_audio(text, output_base="temp_audio"):
             provider = "Groq Orpheus API"
 
     if not success: 
-        return False, provider
+        return False, provider, 0.0
     
-    if not trim_audio_precision(final_wav):
-        return False, provider
+    # 🚨 FIX: Extract absolute duration mathematically to feed the Validation Loop in main.py
+    trim_success, duration = trim_audio_precision(final_wav)
+    if not trim_success:
+        return False, provider, 0.0
 
     try:
         print("📝 [VOICE] Transcribing and Chunking Captions (Max 3 words)...")
@@ -110,6 +111,6 @@ def generate_audio(text, output_base="temp_audio"):
             f.write("\n".join(srt_lines))
     except Exception as e: 
         print(f"⚠️ Transcription error: {e}")
-        return False, provider
+        return False, provider, 0.0
     
-    return True, provider
+    return True, provider, duration
