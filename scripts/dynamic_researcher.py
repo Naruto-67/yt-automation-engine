@@ -85,6 +85,20 @@ def run_dynamic_research():
         
     print(f"📊 [RESEARCHER] Need exactly {needed_topics} topics to reach 21 capacity. Calling AI...")
 
+    # Load history to feed as Negative Boundary constraints to the LLM
+    historical_topics = set()
+    recent_history_str = "None"
+    if os.path.exists(archive_path):
+        with open(archive_path, "r", encoding="utf-8") as f:
+            lines = [line.strip().lower() for line in f.readlines() if line.strip()]
+            historical_topics = set(lines)
+            # 🚨 FIX: Negative Boundary Prompting. We extract the last 20 videos and force the LLM to ignore them.
+            if lines:
+                recent_history_str = "\n".join([f"- {t}" for t in lines[-20:]])
+            
+    for item in existing_matrix:
+        historical_topics.add(item.get("topic", "").lower().strip())
+
     lenses = [
         "Historical Anomalies and Forgotten Empires",
         "Deep Ocean Mysteries and Bizarre Biology",
@@ -109,6 +123,9 @@ def run_dynamic_research():
     To prevent repetitive content, you MUST filter all your ideas through this specific lens: "{active_lens}".
     Generate highly unique, bizarre, or fascinating topics that strictly fit this lens. Do not give generic answers.
     
+    ⚠️ NEGATIVE BOUNDARY (DO NOT REPEAT THESE RECENT TOPICS):
+    {recent_history_str}
+    
     Return ONLY a raw JSON array of objects. No intro text. Do not use markdown blocks.
     Format:
     [
@@ -126,21 +143,10 @@ def run_dynamic_research():
         
         if match:
             new_matrix = json.loads(match.group(0))
-            
-            historical_topics = set()
-            if os.path.exists(archive_path):
-                with open(archive_path, "r", encoding="utf-8") as f:
-                    historical_topics = {line.strip().lower() for line in f.readlines() if line.strip()}
-                    
-            for item in existing_matrix:
-                historical_topics.add(item.get("topic", "").lower().strip())
-            
             unique_new_topics = []
             
-            # 🚨 FIX: Intra-Batch Semantic Sieve. Prevents the AI from hallucinating duplicates in the exact same generation payload.
             for item in new_matrix:
                 topic_clean = item.get("topic", "").lower().strip()
-                # We strip non-alphanumeric chars to catch "Mandela Effect!" vs "Mandela Effect"
                 semantic_core = re.sub(r'[^a-z0-9]', '', topic_clean)
                 
                 is_duplicate = False
