@@ -276,12 +276,16 @@
     {
         "niche": "Automation Insights",
         "topic": "Did You Know? The Hidden Automation Behind Your Daily Life",
-        "processed": false
+        "processed": true,
+        "vaulted_date": "2026-03-07T06:10:40.856478",
+        "published": false
     },
     {
         "niche": "Poetic AI Animation",
         "topic": "The Symphony of Silence | Finding Beauty in the Quiet",
-        "processed": false
+        "processed": true,
+        "vaulted_date": "2026-03-07T06:13:23.880953",
+        "published": false
     },
     {
         "niche": "Digital Journey Story",
