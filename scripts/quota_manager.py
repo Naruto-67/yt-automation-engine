@@ -20,8 +20,8 @@ class MasterQuotaManager:
         self.yt_quota_limit = 9500 
         self.gemini_blocked_for_run = False 
         
-        # We order from smartest to most robust
-        self.TEXT_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-pro']
+        # 🚨 FIX: Using '-latest' universally prevents 404 endpoint rot on Google's dynamic SDK nodes.
+        self.TEXT_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash-latest', 'gemini-1.5-pro-latest']
         self._ensure_state_exists()
 
     def get_pacific_date(self):
@@ -137,10 +137,9 @@ class MasterQuotaManager:
                         return response.text, model_name
                     except Exception as e:
                         print(f"⚠️ [GEMINI API TRACE] {model_name}: {e}")
-                        # 🚨 FIX: "continue" ensures we gracefully fall back to 1.5-flash if 2.5-flash limit is hit!
-                        if "429" in str(e) or "quota" in str(e).lower():
+                        if "429" in str(e) or "quota" in str(e).lower() or "404" in str(e):
                             continue 
-                # If we exhausted the entire array of models without a return:
+                
                 self.gemini_blocked_for_run = True
             except Exception as outer_e: 
                 print(f"⚠️ [GEMINI INIT TRACE]: {outer_e}")
