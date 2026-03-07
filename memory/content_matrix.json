@@ -224,22 +224,26 @@
     {
         "niche": "Adventure Short",
         "topic": "The Portal in the Attic | A Journey to Lost Civilizations",
-        "processed": false
+        "processed": true,
+        "failed_flag": true
     },
     {
         "niche": "Fantasy Animation",
         "topic": "The Dream Weaver's Apprentice | Learning to Craft Worlds",
-        "processed": false
+        "processed": true,
+        "failed_flag": true
     },
     {
         "niche": "Inspirational AI Story",
         "topic": "The Clockwork Gardener | Who Tended the Stars",
-        "processed": false
+        "processed": true,
+        "failed_flag": true
     },
     {
         "niche": "Liminal Spaces POV",
         "topic": "POV: You're in a Glitchcore Liminal Space (AI Visualized)",
-        "processed": false
+        "processed": true,
+        "failed_flag": true
     },
     {
         "niche": "AI-Generated Fable",
