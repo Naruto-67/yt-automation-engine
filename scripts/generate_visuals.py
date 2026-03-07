@@ -5,6 +5,7 @@ import time
 import random
 import subprocess
 import base64
+from PIL import Image, ImageDraw
 from scripts.quota_manager import quota_manager
 
 SIMULATE_CASCADE_TEST = False 
@@ -128,8 +129,30 @@ def fallback_pexels_image(search_query, output_path, is_retry=False):
         
     return False, "No images found"
 
+# 🚨 FIX: Absolute Offline Failsafe. Mathematically renders a cinematic gradient if the internet burns down.
+def generate_offline_gradient(output_path):
+    print(f"      🛡️ [Tier 4: Offline Failsafe] Total API Exhaustion. Generating Mathematical Gradient...")
+    try:
+        width, height = 1080, 1920
+        image = Image.new("RGB", (width, height), "#000000")
+        draw = ImageDraw.Draw(image)
+        
+        r1, g1, b1 = random.randint(10, 50), random.randint(10, 50), random.randint(50, 100)
+        r2, g2, b2 = random.randint(0, 20), random.randint(0, 20), random.randint(0, 20)
+        
+        for y in range(height):
+            r = int(r1 + (r2 - r1) * (y / height))
+            g = int(g1 + (g2 - g1) * (y / height))
+            b = int(b1 + (b2 - b1) * (y / height))
+            draw.line([(0, y), (width, y)], fill=(r, g, b))
+            
+        image.save(output_path, "JPEG", quality=90)
+        return True, "Python Local Render"
+    except:
+        return False, "Fatal Local Render Failure"
+
 def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene"):
-    print(f"🖼️ [VISUALS] Sourcing {len(prompts_list)} scene images via Decoupled 3-Tier System...")
+    print(f"🖼️ [VISUALS] Sourcing {len(prompts_list)} scene images via Decoupled 4-Tier System...")
     successful_images = []
     
     tier1_active = True
@@ -147,7 +170,6 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
             if success: 
                 final_provider = "Cloudflare FLUX API"
             else:
-                # 🚨 FIX: Safety Filter & 5xx Gateway Awareness. Only disable if Auth/Quota fails (401, 402, 403).
                 if any(x in err for x in ["401", "402", "403"]):
                     print(f"      🚨 [VISUALS] Tier 1 Fatal Quota/Auth Error ({err}). Disabling for remainder of run.")
                     tier1_active = False 
@@ -173,6 +195,12 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
             success, err = fallback_pexels_image(pexels_queries[i], output_path)
             if success: 
                 final_provider = "Pexels Stock Fallback"
+                
+        # 🚨 FIX: Tier 4 trigger to prevent Visual Desync crash in main.py
+        if not success:
+            success, err = generate_offline_gradient(output_path)
+            if success:
+                final_provider = "Python Offline Generator"
             
         if success:
             successful_images.append(output_path)
