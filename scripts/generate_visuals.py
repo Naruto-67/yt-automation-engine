@@ -11,7 +11,6 @@ from scripts.quota_manager import quota_manager
 
 SIMULATE_CASCADE_TEST = False 
 
-# 🚨 FIX: Mathematical Visual Padding. Intercepts 1:1 AI Squares and converts them to professional 9:16 blurred-background layouts to stop FFmpeg from over-cropping the subjects.
 def apply_cinematic_padding(image_path):
     try:
         img = Image.open(image_path).convert("RGB")
@@ -20,23 +19,18 @@ def apply_cinematic_padding(image_path):
         img_ratio = img.width / img.height
         target_ratio = target_w / target_h
         
-        # If the image isn't already perfectly vertical (like standard 1:1 AI gens)
         if abs(img_ratio - target_ratio) > 0.1: 
-            # 1. Stretch and heavily blur the background
             bg = img.resize((target_w, int(target_w / img_ratio)), Image.Resampling.LANCZOS)
             bg = bg.resize((target_w, target_h), Image.Resampling.LANCZOS) 
             bg = bg.filter(ImageFilter.GaussianBlur(50))
             
-            # 2. Resize original foreground to fit perfectly inside the frame
             fg = img.copy()
             fg.thumbnail((target_w, target_h), Image.Resampling.LANCZOS)
             
-            # 3. Paste sharp foreground into blurred background
             offset = ((target_w - fg.width) // 2, (target_h - fg.height) // 2)
             bg.paste(fg, offset)
             bg.save(image_path, "JPEG", quality=95)
         else:
-            # If it's already vertical, just standardise size
             img = img.resize((target_w, target_h), Image.Resampling.LANCZOS)
             img.save(image_path, "JPEG", quality=95)
     except Exception as e:
@@ -126,8 +120,17 @@ def generate_huggingface_cascade(prompt, output_path):
                 print(f"      ⚠️ {short_name} out of free quota or unauthorized. Switching models...")
                 continue 
             elif response.status_code >= 500:
-                print(f"      💤 {short_name} experiencing gateway issues. Waiting 15s...")
-                time.sleep(15)
+                # 🚨 FIX: Adaptive Wake-Up Protocol. Dynamically reads HF's model spin-up time requirements.
+                wait_time = 15
+                try:
+                    err_json = response.json()
+                    if "estimated_time" in err_json:
+                        wait_time = min(int(err_json["estimated_time"]) + 2, 60)
+                except: pass
+                
+                print(f"      💤 {short_name} loading into VRAM. Sleeping adaptively for {wait_time}s...")
+                time.sleep(wait_time)
+                
                 response = requests.post(url, headers=headers, json=payload, timeout=(15, 60))
                 if response.status_code == 200:
                     with open(output_path, 'wb') as f: f.write(response.content)
