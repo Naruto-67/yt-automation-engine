@@ -98,8 +98,9 @@ def run_production_cycle():
             topic = item['topic']
             niche = item['niche']
             
+            # 🚨 FIX: Biologically calibrated retention limits. 10s for fast viral loops, 22s for stories.
             is_fact_based = any(k in niche.lower() for k in ['fact', 'hack', 'trend', 'brainrot'])
-            min_audio = 11.0 if is_fact_based else 24.0
+            min_audio = 10.0 if is_fact_based else 22.0
             
             max_item_attempts = 3
             item_success = False
@@ -123,7 +124,6 @@ def run_production_cycle():
                         print(f"   -> [SCRIPT] Generation Phase (Attempt {script_attempt + 1}/3)...")
                         script_text, image_prompts, pexels_queries, scene_weights, script_prov = generate_script(niche, topic)
                         
-                        # 🚨 FIX: Safely handles bad length scripts by continuing the INNER loop without blowing up the engine.
                         if not script_text: 
                             time.sleep(2)
                             continue
@@ -136,7 +136,7 @@ def run_production_cycle():
                             
                         print(f"   -> [TIMING] Audio clocked at {audio_duration:.1f} seconds.")
                         
-                        if audio_duration > 58.5:
+                        if audio_duration > 59.0:
                             print(f"   ⚠️ [REJECTED] Audio is too long ({audio_duration:.1f}s). Regenerating...")
                             continue 
                             
