@@ -98,7 +98,6 @@ def run_production_cycle():
             topic = item['topic']
             niche = item['niche']
             
-            # 🚨 FIX: Niche-Aware Timing Definitions
             is_fact_based = any(k in niche.lower() for k in ['fact', 'hack', 'trend', 'brainrot'])
             min_audio = 11.0 if is_fact_based else 24.0
             
@@ -123,8 +122,12 @@ def run_production_cycle():
                     for script_attempt in range(3):
                         print(f"   -> [SCRIPT] Generation Phase (Attempt {script_attempt + 1}/3)...")
                         script_text, image_prompts, pexels_queries, scene_weights, script_prov = generate_script(niche, topic)
-                        if not script_text: continue
                         
+                        # 🚨 FIX: Safely handles bad length scripts by continuing the INNER loop without blowing up the engine.
+                        if not script_text: 
+                            time.sleep(2)
+                            continue
+                            
                         print(f"   -> [VOICE] Testing audio length for Kokoro pacing...")
                         voice_success, voice_prov, audio_duration = generate_audio(script_text, output_base=audio_base)
                         
@@ -133,7 +136,6 @@ def run_production_cycle():
                             
                         print(f"   -> [TIMING] Audio clocked at {audio_duration:.1f} seconds.")
                         
-                        # 🚨 FIX: Dynamic Acceptance Criteria allows fast loops for Facts
                         if audio_duration > 58.5:
                             print(f"   ⚠️ [REJECTED] Audio is too long ({audio_duration:.1f}s). Regenerating...")
                             continue 
