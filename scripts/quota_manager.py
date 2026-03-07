@@ -20,8 +20,8 @@ class MasterQuotaManager:
         self.yt_quota_limit = 9500 
         self.gemini_blocked_for_run = False 
         
-        # 🚨 FIX: Using '-latest' universally prevents 404 endpoint rot on Google's dynamic SDK nodes.
-        self.TEXT_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash-latest', 'gemini-1.5-pro-latest']
+        # 🚨 FIX: Strict canonical names to prevent google-genai 404 Endpoint Rot
+        self.TEXT_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro']
         self._ensure_state_exists()
 
     def get_pacific_date(self):
