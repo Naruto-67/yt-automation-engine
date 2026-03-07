@@ -60,14 +60,12 @@ class MasterQuotaManager:
 
     def _get_active_state(self):
         state = self._read_state_file()
-        # 🚨 FIX: Strict chronological evaluation of the date boundary.
         if state.get("last_reset_date") != self.get_pacific_date():
             self._reset_daily_state()
             return self._read_state_file()
         return state
 
     def consume_points(self, provider, amount):
-        # The state is guaranteed pure by _get_active_state before we touch it
         state = self._get_active_state()
         
         if provider == "youtube": 
@@ -137,10 +135,13 @@ class MasterQuotaManager:
                         time.sleep(4)
                         return response.text, model_name
                     except Exception as e:
+                        # 🚨 FIX: Force terminal print so silent errors are exposed
+                        print(f"⚠️ [GEMINI API TRACE]: {e}")
                         if "429" in str(e) or "quota" in str(e).lower():
                             self.gemini_blocked_for_run = True
                             break 
-            except: pass
+            except Exception as outer_e: 
+                print(f"⚠️ [GEMINI INIT TRACE]: {outer_e}")
             
         print("⚡ [ROUTER] Executing Fallback Protocol (Groq)...")
         return groq_client.generate_text(prompt, role=task_type), "Groq Llama 3.3 (Fallback)"
