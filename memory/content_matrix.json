@@ -294,12 +294,16 @@
     {
         "niche": "AI Animal Concepts",
         "topic": "What if Animals Had Human Jobs? AI's Wildest Creations",
-        "processed": false
+        "processed": true,
+        "vaulted_date": "2026-03-07T10:35:04.568350",
+        "published": false
     },
     {
         "niche": "Vanished Cultures - Rituals",
         "topic": "The Whispering Pyramids of Nubia: A Forgotten Echo-Chamber for Star Maps.",
-        "processed": false
+        "processed": true,
+        "vaulted_date": "2026-03-07T10:38:56.879998",
+        "published": false
     },
     {
         "niche": "Forgotten Empire's Daily Life",
