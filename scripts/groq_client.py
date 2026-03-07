@@ -18,7 +18,6 @@ class GroqAPIClient:
             return None
         url = f"{self.base_url}/{endpoint}"
         
-        # 🚨 FIX: Exponential Backoff. Intelligently retries 429 API blocks 3 times before surrendering.
         max_retries = 3
         for attempt in range(max_retries):
             try:
@@ -26,7 +25,15 @@ class GroqAPIClient:
                 if response.status_code == 200:
                     if is_audio:
                         return response.content
-                    return response.json()['choices'][0]['message']['content']
+                    
+                    # 🚨 FIX: Safe Dictionary Parsing prevents unhandled KeyErrors if Groq returns moderation flags instead of 'choices'
+                    data = response.json()
+                    if 'choices' in data and len(data['choices']) > 0:
+                        return data['choices'][0]['message']['content']
+                    else:
+                        print(f"⚠️ [GROQ] Unexpected JSON schema received: {data}")
+                        return None
+                        
                 elif response.status_code in [429, 503]:
                     print(f"⚠️ [GROQ] Server Busy (HTTP {response.status_code}). Attempt {attempt+1}/{max_retries}. Retrying in 15s...")
                     time.sleep(15 * (attempt + 1))
