@@ -47,7 +47,8 @@ def srt_to_ass(srt_path, ass_path, style):
         events = []
         for block in content.strip().split('\n\n'):
             lines = block.split('\n')
-            if len(lines) >= 3:
+            # 🚨 FIX: Strict bounds checking to silently ignore malformed/trailing silence blocks from Whisper
+            if len(lines) >= 3 and "-->" in lines[1]:
                 times = re.findall(r'(\d+:\d+:\d+,\d+)', lines[1])
                 if len(times) == 2:
                     text = re.sub(r'<[^>]+>', '', " ".join(lines[2:]))
@@ -105,7 +106,6 @@ def render_video(image_paths, audio_path, output_path, scene_weights=None, water
     safe_font = font_path.replace('\\', '/').replace(':', r'\:')
     safe_ass = ass_path.replace('\\', '/').replace(':', r'\:')
     
-    # 🚨 FIX: Radical Sanitize. Purges commas and weird syntax from the channel name so FFmpeg's filter chain doesn't parse it as a command argument.
     safe_watermark_text = re.sub(r'[^a-zA-Z0-9\s]', '', watermark_text)
     safe_watermark = safe_watermark_text.replace(" ", "\u2002")
     
