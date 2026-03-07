@@ -20,7 +20,6 @@ except ImportError as e:
     print(f"🚨 [SYSTEM] CRITICAL DEPENDENCY MISSING: {e}")
     sys.exit(1)
 
-# 🚨 ENGINE IS IN TEST MODE. ZERO YOUTUBE QUOTA WILL BE CONSUMED.
 TEST_MODE = True 
 
 def load_matrix():
@@ -57,7 +56,7 @@ def global_garbage_collector():
         except: pass
 
 def run_production_cycle():
-    notify_summary(True, "🚀 **Ghost Engine Ignition**\nInitializing Daily Production Cycle.")
+    notify_summary(True, "☀️ **System Wake**\nGhost Engine is spinning up the daily production cycle.")
     quota_manager.check_and_update_refresh_token()
 
     print("🚀 [ENGINE] Ignition. Analyzing Live YouTube Vault Status...")
@@ -71,13 +70,12 @@ def run_production_cycle():
         
         if vault_count >= 14:
             print("🛑 [ENGINE] Vault is fully stocked. Shutting down to conserve APIs.")
-            notify_summary(True, f"🛑 **Production Halted**\nVault is full ({vault_count}/14). Conserving APIs.")
+            notify_summary(True, "🌙 **System Sleep**\nVault is completely full. Shutting down to conserve API quotas.")
             return
 
         matrix = load_matrix()
         unprocessed = [t for t in matrix if not t.get("processed", False) and not t.get("failed_flag", False)]
         
-        # 🚨 FIX: Queue Exhaustion Logic. Triggers research if we drop below batch size, not just zero.
         if len(unprocessed) < 4:
             print(f"⚠️ [ENGINE] Queue low ({len(unprocessed)} left). Triggering Emergency Research Cycle...")
             from scripts.dynamic_researcher import run_dynamic_research
@@ -88,12 +86,11 @@ def run_production_cycle():
                 raise Exception("Emergency Research failed to populate matrix.")
 
         videos_needed = 14 - vault_count
-        batch_size = min(videos_needed, 4) 
+        batch_size = min(videos_needed, 2) if TEST_MODE else min(videos_needed, 4)
         batch = unprocessed[:batch_size]
 
         channel_name = get_channel_name(youtube_client).replace("@", "") if not TEST_MODE else "GhostEngine_Test"
         print(f"🏷️ [BRANDING] Secured Watermark: {channel_name}")
-        print(f"🎯 [TARGET] Processing {batch_size} videos for this run.")
 
         success_count = 0
         
@@ -118,21 +115,42 @@ def run_production_cycle():
                 image_paths = []
 
                 try:
-                    script_text, image_prompts, pexels_queries, scene_weights, script_prov = generate_script(niche, topic)
-                    if not script_text: raise Exception("Script generation failed.")
-                    
-                    # 🚨 FIX: Stripped silencers. Print the output to the log.
-                    print(f"📜 [SCRIPT GENERATED] ({len(script_text.split())} words, via {script_prov}):\n{script_text[:150]}...")
-                    
-                    time.sleep(10)
+                    # 🚨 FIX: The Dynamic Script Validation Loop. Guarantees audio fits in 60s Shorts window.
+                    valid_script = False
+                    for script_attempt in range(3):
+                        print(f"   -> [SCRIPT] Generation Phase (Attempt {script_attempt + 1}/3)...")
+                        script_text, image_prompts, pexels_queries, scene_weights, script_prov = generate_script(niche, topic)
+                        if not script_text: continue
+                        
+                        print(f"   -> [VOICE] Testing audio length for Kokoro pacing...")
+                        voice_success, voice_prov, audio_duration = generate_audio(script_text, output_base=audio_base)
+                        
+                        if not voice_success: 
+                            raise Exception("Voice generation crashed entirely.")
+                            
+                        print(f"   -> [TIMING] Audio clocked at {audio_duration:.1f} seconds.")
+                        
+                        if audio_duration > 58.5:
+                            print(f"   ⚠️ [REJECTED] Audio exceeds 58.5s limit! Discarding script and regenerating...")
+                            continue # Try script generation again
+                            
+                        if audio_duration < 30.0:
+                            print(f"   ⚠️ [REJECTED] Audio is too short ({audio_duration:.1f}s). Discarding script and regenerating...")
+                            continue
+
+                        valid_script = True
+                        break # We found a perfect script!
+                        
+                    if not valid_script:
+                        raise Exception("Failed to generate a script with proper audio timing after 3 attempts.")
+
+                    # Only generate metadata AFTER the audio length is validated to save quota!
+                    print(f"   -> [METADATA] Generating SEO payload...")
+                    time.sleep(5)
                     metadata, seo_prov = generate_seo_metadata(niche, script_text)
-                    print(f"🏷️ [METADATA GENERATED] Title: {metadata.get('title')}")
-                    time.sleep(10)
+                    print(f"      Title: {metadata.get('title')}")
 
-                    voice_success, voice_prov = generate_audio(script_text, output_base=audio_base)
-                    if not voice_success: raise Exception("Voice generation failed or returned silent/corrupt output.")
-                    time.sleep(10)
-
+                    time.sleep(5)
                     image_paths, visual_prov = fetch_scene_images(image_prompts, pexels_queries, base_filename=f"temp_scene_{success_count}")
                     
                     if len(image_paths) < len(image_prompts): 
@@ -195,7 +213,7 @@ def run_production_cycle():
             save_matrix(matrix)
 
         print(f"🏁 [FINISH] {success_count} videos sent to Vault.")
-        notify_summary(True, f"🏁 **Production Cycle Complete**\nSuccessfully processed {success_count} videos.")
+        notify_summary(True, f"🌙 **System Sleep**\nProduction cycle complete. Successfully pushed {success_count} videos.")
         
     except Exception as fatal_e:
         quota_manager.diagnose_fatal_error("System Core (main.py)", fatal_e)
