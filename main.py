@@ -86,11 +86,14 @@ def run_production_cycle():
                 raise Exception("Emergency Research failed to populate matrix.")
 
         videos_needed = 14 - vault_count
-        batch_size = min(videos_needed, 4) 
+        
+        # 🚨 FIX: Force batch_size to exactly 2 when TEST_MODE is active
+        batch_size = min(videos_needed, 2) if TEST_MODE else min(videos_needed, 4)
         batch = unprocessed[:batch_size]
 
         channel_name = get_channel_name(youtube_client).replace("@", "") if not TEST_MODE else "GhostEngine_Test"
         print(f"🏷️ [BRANDING] Secured Watermark: {channel_name}")
+        print(f"🎯 [TARGET] Processing {batch_size} videos for this run.")
 
         success_count = 0
         
@@ -99,7 +102,7 @@ def run_production_cycle():
             niche = item['niche']
             
             is_fact_based = any(k in niche.lower() for k in ['fact', 'hack', 'trend', 'brainrot'])
-            min_audio = 10.0 if is_fact_based else 20.0
+            min_audio = 10.0 if is_fact_based else 22.0
             
             max_item_attempts = 3
             item_success = False
@@ -135,9 +138,8 @@ def run_production_cycle():
                             
                         print(f"   -> [TIMING] Audio clocked at {audio_duration:.1f} seconds.")
                         
-                        # The ultimate truth check.
                         if audio_duration > 59.0:
-                            print(f"   ⚠️ [REJECTED] Audio is too long ({audio_duration:.1f}s). YouTube Shorts limit is 60s. Regenerating...")
+                            print(f"   ⚠️ [REJECTED] Audio is too long ({audio_duration:.1f}s). Regenerating...")
                             continue 
                             
                         if audio_duration < min_audio:
