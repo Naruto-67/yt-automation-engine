@@ -7,9 +7,9 @@ from scripts.discord_notifier import notify_summary
 from scripts.youtube_manager import get_youtube_client
 
 def _jaccard_similarity(str_a, str_b):
-    """Word-level Jaccard similarity. Immune to substring false-positives."""
-    tokens_a = set(re.findall(r'[a-z]{3,}', str_a))
-    tokens_b = set(re.findall(r'[a-z]{3,}', str_b))
+    # 🚨 FIX: Math inclusion. Now catches 2-letter acronyms (AI, VR, US) and numbers (3D, 4K) preventing false-positive duplication logic.
+    tokens_a = set(re.findall(r'[a-z0-9]{2,}', str_a))
+    tokens_b = set(re.findall(r'[a-z0-9]{2,}', str_b))
     if not tokens_a or not tokens_b:
         return 0.0
     intersection = tokens_a & tokens_b
