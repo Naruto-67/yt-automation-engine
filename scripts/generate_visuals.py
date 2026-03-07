@@ -23,7 +23,10 @@ def generate_cloudflare_image(prompt, output_path):
         
     url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/@cf/black-forest-labs/flux-1-schnell"
     headers = {"Authorization": f"Bearer {api_token}", "Content-Type": "application/json"}
-    payload = {"prompt": f"{prompt}, vertical 9:16 format, masterpiece"}
+    
+    # Pre-emptively truncate massively long prompts to protect the payload format
+    safe_prompt = prompt[:200].replace('"', '').replace('\n', ' ')
+    payload = {"prompt": f"{safe_prompt}, vertical 9:16 format, masterpiece"}
     
     try:
         response = requests.post(url, headers=headers, json=payload, timeout=(15, 60))
@@ -39,6 +42,9 @@ def generate_cloudflare_image(prompt, output_path):
             with open(output_path, 'wb') as f: f.write(response.content)
             quota_manager.consume_points("cloudflare", 1)
             return True, ""
+        elif response.status_code == 400:
+            # 🚨 FIX: Specifically catch safety filter rejections
+            return False, "HTTP 400 (Safety Filter / Prompt Rejected)"
         else:
             return False, f"HTTP {response.status_code}"
     except Exception as e:
@@ -59,7 +65,8 @@ def generate_huggingface_cascade(prompt, output_path):
     ]
     
     headers = {"Authorization": f"Bearer {hf_token}", "Content-Type": "application/json"}
-    payload = {"inputs": f"{prompt}, vertical 9:16 format, masterpiece"}
+    safe_prompt = prompt[:200].replace('"', '').replace('\n', ' ')
+    payload = {"inputs": f"{safe_prompt}, vertical 9:16 format, masterpiece"}
     
     for model in models:
         short_name = model.split('/')[-1]
@@ -78,8 +85,11 @@ def generate_huggingface_cascade(prompt, output_path):
                     f.write(response.content)
                 quota_manager.consume_points("huggingface", 1)
                 return True, f"HF ({short_name})"
-            elif response.status_code == 402:
-                print(f"      ⚠️ {short_name} out of free quota. Switching models...")
+            elif response.status_code == 400:
+                print(f"      ⚠️ {short_name} rejected prompt (Safety Filter). Switching models...")
+                continue
+            elif response.status_code in [401, 402, 403]:
+                print(f"      ⚠️ {short_name} out of free quota or unauthorized. Switching models...")
                 continue 
             elif response.status_code == 503:
                 print(f"      💤 {short_name} asleep. Waiting 20s...")
@@ -111,7 +121,6 @@ def fallback_pexels_image(search_query, output_path, is_retry=False):
             with open(output_path, 'wb') as f: f.write(img_data)
             return True, ""
             
-        # 🚨 FIX: Universal Double-Fallback prevents entire video failure due to weird API queries.
         elif not is_retry:
             print(f"      ⚠️ [Tier 3: Pexels] 0 results for '{search_query}'. Deploying Universal Fallback...")
             return fallback_pexels_image("cinematic aesthetic background", output_path, is_retry=True)
@@ -140,8 +149,12 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
             if success: 
                 final_provider = "Cloudflare FLUX API"
             else:
-                print(f"      🚨 [VISUALS] Tier 1 Failed ({err}). Disabling for remainder of run.")
-                tier1_active = False 
+                # 🚨 FIX: Safety Filter Awareness. Do NOT permanently disable Cloudflare if it just rejected one prompt!
+                if "400" in err or "Timeout" in err:
+                    print(f"      ⚠️ [VISUALS] Tier 1 localized failure ({err}). Keeping active for next scene.")
+                else:
+                    print(f"      🚨 [VISUALS] Tier 1 Fatal Quota/Auth Error ({err}). Disabling for remainder of run.")
+                    tier1_active = False 
         else:
             print("      [Tier 1: Cloudflare] Skipped (Previously Blocked)")
 
@@ -150,8 +163,11 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
             if success: 
                 final_provider = err 
             else:
-                print(f"      🚨 [VISUALS] Tier 2 Failed ({err}). Disabling for remainder of run.")
-                tier2_active = False 
+                if "400" in err or "Timeout" in err:
+                    print(f"      ⚠️ [VISUALS] Tier 2 localized failure ({err}). Keeping active for next scene.")
+                else:
+                    print(f"      🚨 [VISUALS] Tier 2 Fatal Quota/Auth Error ({err}). Disabling for remainder of run.")
+                    tier2_active = False 
         elif not success and not tier2_active:
             print("      [Tier 2: Hugging Face] Skipped (Previously Blocked)")
                 
