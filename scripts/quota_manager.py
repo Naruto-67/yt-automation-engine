@@ -13,13 +13,14 @@ class MasterQuotaManager:
         self.state_file = os.path.join(self.memory_dir, "api_state.json")
         self.gemini_key = os.environ.get("GEMINI_API_KEY")
         
-        self.gemini_text_limit = 250 
+        self.gemini_text_limit = 1450 
         self.cloudflare_image_limit = 95 
         self.hf_image_limit = 50 
         
         self.yt_quota_limit = 9500 
         self.gemini_blocked_for_run = False 
         
+        # We order from smartest to most robust
         self.TEXT_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-pro']
         self._ensure_state_exists()
 
@@ -132,14 +133,15 @@ class MasterQuotaManager:
                     try:
                         response = client.models.generate_content(model=model_name, contents=prompt)
                         self.consume_points("gemini", 1)
-                        time.sleep(4)
+                        time.sleep(3)
                         return response.text, model_name
                     except Exception as e:
-                        # 🚨 FIX: Force terminal print so silent errors are exposed
-                        print(f"⚠️ [GEMINI API TRACE]: {e}")
+                        print(f"⚠️ [GEMINI API TRACE] {model_name}: {e}")
+                        # 🚨 FIX: "continue" ensures we gracefully fall back to 1.5-flash if 2.5-flash limit is hit!
                         if "429" in str(e) or "quota" in str(e).lower():
-                            self.gemini_blocked_for_run = True
-                            break 
+                            continue 
+                # If we exhausted the entire array of models without a return:
+                self.gemini_blocked_for_run = True
             except Exception as outer_e: 
                 print(f"⚠️ [GEMINI INIT TRACE]: {outer_e}")
             
