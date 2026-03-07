@@ -21,7 +21,7 @@ except ImportError as e:
     print(f"🚨 [SYSTEM] CRITICAL DEPENDENCY MISSING: {e}")
     sys.exit(1)
 
-TEST_MODE = True
+TEST_MODE = True 
 
 def load_matrix():
     path = os.path.join(os.path.dirname(__file__), "memory", "content_matrix.json")
@@ -59,9 +59,6 @@ def global_garbage_collector():
 def run_production_cycle():
     notify_summary(True, "☀️ **System Wake**\nGhost Engine is spinning up the daily production cycle.")
     quota_manager.check_and_update_refresh_token()
-    
-    # 🚨 FIX: Absolute SIGKILL Defense. Deletes massive partial video renders from the previous day immediately upon boot to save GitHub Actions Storage Space.
-    global_garbage_collector()
 
     print("🚀 [ENGINE] Ignition. Analyzing Live YouTube Vault Status...")
     try:
@@ -100,8 +97,9 @@ def run_production_cycle():
         success_count = 0
         
         for item in batch:
-            topic = item['topic']
-            niche = item['niche']
+            # 🚨 FIX: Immune to LLM Dictionary Hallucinations. Replaced rigid indexing with safe defaults to prevent fatal KeyErrors.
+            topic = item.get('topic', 'A Fascinating Mystery')
+            niche = item.get('niche', 'Story')
             
             is_fact_based = any(k in niche.lower() for k in ['fact', 'hack', 'trend', 'brainrot'])
             min_audio = 10.0 if is_fact_based else 22.0
