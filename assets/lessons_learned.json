@@ -1,13 +1,15 @@
 {
     "emphasize": [
-        "Engineer seamless narrative loops to maximize watch time and re-engagement."
+        "Engineer seamless narrative loops to maximize watch time and re-engagement.",
+        "Engineer a 'cognitive resolution loop' where an initial question or visual ambiguity (the 'puzzle') is introduced within the first 3 seconds, leading to a satisfying, yet slightly surprising, answer or twist by the 10-second mark, designed to immediately re-contextualize the loop for replay value."
     ],
     "avoid": [
-        "Content with slow narrative pacing or a lack of immediate visual intrigue within the first 3 seconds."
+        "Content with slow narrative pacing or a lack of immediate visual intrigue within the first 3 seconds.",
+        "Any segment where the narrative or visual progression becomes entirely predictable for more than 2 consecutive seconds, as this signals to the brain that no new information or emotional stimulus is forthcoming, leading to premature disengagement from the retention curve."
     ],
+    "recent_tags": [],
     "preferred_visuals": [
         "3D Animation",
         "Visually rich and detailed animated styles"
-    ],
-    "recent_tags": []
+    ]
 }
