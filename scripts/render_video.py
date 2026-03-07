@@ -2,25 +2,40 @@ import os
 import subprocess
 import json
 import re
+import requests
 from pydub import AudioSegment
 
 def download_cinematic_font():
     font_path = "/tmp/Montserrat-Bold.ttf"
-    if not os.path.exists(font_path):
-        print("📥 [RENDERER] Downloading Cinematic Font...")
-        # 🚨 FIX: GitHub blocks default urllib User-Agents with a 404. We swap to requests with a mocked browser User-Agent.
-        url = "https://raw.githubusercontent.com/google/fonts/main/ofl/montserrat/Montserrat-Bold.ttf"
+    
+    # Fast-pass: If the font is already downloaded and mathematically valid, skip.
+    if os.path.exists(font_path) and os.path.getsize(font_path) > 50000:
+        return font_path
+
+    print("📥 [RENDERER] Downloading Cinematic Font...")
+    
+    # 🚨 FIX: Immortal Dual-CDN Architecture. Bypasses GitHub/Google Bot Protections.
+    mirrors = [
+        "https://cdn.jsdelivr.net/gh/JulietaUla/Montserrat@master/fonts/ttf/Montserrat-Bold.ttf",
+        "https://raw.githubusercontent.com/JulietaUla/Montserrat/master/fonts/ttf/Montserrat-Bold.ttf"
+    ]
+    
+    for url in mirrors:
         try:
-            import requests
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-            response = requests.get(url, headers=headers, timeout=15)
+            response = requests.get(url, timeout=15)
             response.raise_for_status()
+            
             with open(font_path, 'wb') as f:
                 f.write(response.content)
+            
+            # Verify we didn't accidentally download an HTML error page
+            if os.path.getsize(font_path) > 50000:
+                return font_path
         except Exception as e:
-            print(f"⚠️ [RENDERER] Font download failed/timed out: {e}. Using local fallback.")
-            return "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
-    return font_path
+            print(f"⚠️ [RENDERER] Font mirror failed: {e}")
+            
+    print("⚠️ [RENDERER] All font mirrors failed. Using local fallback.")
+    return "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
 
 def get_style_config(style_name="default"):
     return {
