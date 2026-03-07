@@ -5,6 +5,7 @@ import time
 import random
 import subprocess
 import base64
+import re
 from PIL import Image, ImageDraw
 from scripts.quota_manager import quota_manager
 
@@ -103,12 +104,18 @@ def generate_huggingface_cascade(prompt, output_path):
     return False, "HF Models Exhausted/Blocked"
 
 def fallback_pexels_image(search_query, output_path, is_retry=False):
-    print(f"      [Tier 3: Pexels] AI Blocked. Searching strictly for: '{search_query}'...")
+    # 🚨 FIX: Purges LLM Hallucinations. If the AI writes a full sentence into the Pexels query, we mathematically chop it down to the first 2 meaningful words so Pexels doesn't choke.
+    clean_query = re.sub(r'[^a-zA-Z\s]', '', search_query).strip()
+    words = [w for w in clean_query.split() if len(w) > 2]
+    safe_query = " ".join(words[:2]) if words else "cinematic background"
+    
+    print(f"      [Tier 3: Pexels] AI Blocked. Searching strictly for: '{safe_query}'...")
+    
     api_key = os.environ.get("PEXELS_API_KEY")
     if not api_key: return False, "No Key"
         
     try:
-        query = urllib.parse.quote(search_query) 
+        query = urllib.parse.quote(safe_query) 
         url = f"https://api.pexels.com/v1/search?query={query}&orientation=portrait&per_page=15"
         headers = {"Authorization": api_key}
         res = requests.get(url, headers=headers, timeout=(10, 30)).json()
@@ -121,7 +128,7 @@ def fallback_pexels_image(search_query, output_path, is_retry=False):
             return True, ""
             
         elif not is_retry:
-            print(f"      ⚠️ [Tier 3: Pexels] 0 results for '{search_query}'. Deploying Universal Fallback...")
+            print(f"      ⚠️ [Tier 3: Pexels] 0 results for '{safe_query}'. Deploying Universal Fallback...")
             return fallback_pexels_image("cinematic aesthetic background", output_path, is_retry=True)
             
     except Exception as e: 
@@ -129,7 +136,6 @@ def fallback_pexels_image(search_query, output_path, is_retry=False):
         
     return False, "No images found"
 
-# 🚨 FIX: Absolute Offline Failsafe. Mathematically renders a cinematic gradient if the internet burns down.
 def generate_offline_gradient(output_path):
     print(f"      🛡️ [Tier 4: Offline Failsafe] Total API Exhaustion. Generating Mathematical Gradient...")
     try:
@@ -196,7 +202,6 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
             if success: 
                 final_provider = "Pexels Stock Fallback"
                 
-        # 🚨 FIX: Tier 4 trigger to prevent Visual Desync crash in main.py
         if not success:
             success, err = generate_offline_gradient(output_path)
             if success:
