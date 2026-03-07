@@ -4,6 +4,7 @@ import re
 import random
 from scripts.quota_manager import quota_manager
 
+# 🚨 RESTORED: Biologically-calibrated speech rate constants to stop TTS pipeline bleeding.
 _WORDS_PER_SECOND_TTS = 130 / 60.0  
 _MAX_VIDEO_SECONDS = 59.0
 _SAFE_WORD_CEILING = int(_MAX_VIDEO_SECONDS * _WORDS_PER_SECOND_TTS * 0.90)  
