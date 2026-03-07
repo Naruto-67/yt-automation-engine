@@ -1,0 +1,9 @@
+[2026-03-07T03:54:20.261657] 
+🚨 [AI DOCTOR] Crash in main.py:
+Traceback (most recent call last):
+  File "/home/runner/work/yt-automation-engine/yt-automation-engine/main.py", line 145, in run_production_cycle
+    raise Exception("Failed to generate a script with proper audio timing after 3 attempts.")
+Exception: Failed to generate a script with proper audio timing after 3 attempts.
+
+
+--------------------------------------------------
