@@ -16,6 +16,16 @@ from pydub import AudioSegment, effects
 from scripts.groq_client import groq_client
 from scripts.quota_manager import quota_manager
 
+# 🚨 FIX: Singleton pattern prevents PyTorch from overloading the GitHub Runner RAM during multi-video batch runs.
+_KOKORO_PIPELINE = None
+
+def get_kokoro_pipeline():
+    global _KOKORO_PIPELINE
+    if _KOKORO_PIPELINE is None:
+        from kokoro import KPipeline
+        _KOKORO_PIPELINE = KPipeline(lang_code='a')
+    return _KOKORO_PIPELINE
+
 def format_time(seconds):
     if seconds < 0: seconds = 0
     hours, minutes = int(seconds // 3600), int((seconds % 3600) // 60)
@@ -41,7 +51,6 @@ def trim_audio_precision(file_path):
         return False, 0.0
 
 def sanitize_for_tts(text):
-    # 🚨 FIX: Purges all emojis, invisible characters, and weird symbols so espeak-ng doesn't crash or read them aloud.
     clean_text = re.sub(r'[^\w\s.,!?\'"-]', '', text)
     clean_text = re.sub(r'\s+', ' ', clean_text).strip()
     return clean_text
@@ -58,12 +67,11 @@ def generate_audio(text, output_base="temp_audio"):
     
     print("🎙️ [VOICE] Attempting Primary: Kokoro (Ultra-Realistic Human)...")
     try:
-        from kokoro import KPipeline
         kokoro_voices = ['am_adam', 'af_bella', 'am_michael', 'af_sarah']
         chosen_voice = random.choice(kokoro_voices)
         print(f"🎙️ [VOICE] Selected actor: {chosen_voice.upper()}")
         
-        pipeline = KPipeline(lang_code='a') 
+        pipeline = get_kokoro_pipeline() 
         gen = pipeline(buffered_text, voice=chosen_voice, speed=1.1, split_pattern=r'\n+')
         audio_chunks = [audio for _, _, audio in gen if audio is not None]
         if audio_chunks:
