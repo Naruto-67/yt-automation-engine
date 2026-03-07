@@ -2,8 +2,7 @@ import os
 import json
 import traceback
 import time
-from datetime import datetime
-import pytz
+from datetime import datetime, timezone
 from scripts.groq_client import groq_client
 
 class MasterQuotaManager:
@@ -13,23 +12,22 @@ class MasterQuotaManager:
         self.state_file = os.path.join(self.memory_dir, "api_state.json")
         self.gemini_key = os.environ.get("GEMINI_API_KEY")
         
-        self.gemini_text_limit = 40 # Strictly aligned to your 20 + 20 dashboard limits
+        self.gemini_text_limit = 40 
         self.cloudflare_image_limit = 95 
         self.hf_image_limit = 50 
         
         self.yt_quota_limit = 9500 
         self.gemini_blocked_for_run = False 
         
-        # 🚨 FIX: Purged ghost models. We only ping what you mathematically own.
         self.TEXT_MODELS = [
             'gemini-2.5-flash', 
             'gemini-2.5-flash-lite'
         ]
         self._ensure_state_exists()
 
-    def get_pacific_date(self):
-        pt_timezone = pytz.timezone('US/Pacific')
-        return datetime.now(pt_timezone).strftime("%Y-%m-%d")
+    # 🚨 FIX: Switched to Absolute Time (UTC) to perfectly align with GitHub Actions and Google API Resets
+    def get_utc_date(self):
+        return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     def _ensure_state_exists(self):
         os.makedirs(self.memory_dir, exist_ok=True)
@@ -39,12 +37,12 @@ class MasterQuotaManager:
     def _reset_daily_state(self):
         old_state = self._read_state_file()
         new_state = {
-            "last_reset_date": self.get_pacific_date(),
+            "last_reset_date": self.get_utc_date(),
             "gemini_used": 0,
             "youtube_points_used": 0,
             "cf_images_used": 0,
             "hf_images_used": 0,
-            "yt_last_used_date": old_state.get("yt_last_used_date", self.get_pacific_date())
+            "yt_last_used_date": old_state.get("yt_last_used_date", self.get_utc_date())
         }
         self._write_state_file(new_state)
 
@@ -64,7 +62,7 @@ class MasterQuotaManager:
 
     def _get_active_state(self):
         state = self._read_state_file()
-        if state.get("last_reset_date") != self.get_pacific_date():
+        if state.get("last_reset_date") != self.get_utc_date():
             self._reset_daily_state()
             return self._read_state_file()
         return state
@@ -74,7 +72,7 @@ class MasterQuotaManager:
         
         if provider == "youtube": 
             state["youtube_points_used"] = state.get("youtube_points_used", 0) + amount
-            state["yt_last_used_date"] = self.get_pacific_date()
+            state["yt_last_used_date"] = self.get_utc_date()
         elif provider == "gemini": state["gemini_used"] = state.get("gemini_used", 0) + amount
         elif provider == "cloudflare": state["cf_images_used"] = state.get("cf_images_used", 0) + amount
         elif provider == "huggingface": state["hf_images_used"] = state.get("hf_images_used", 0) + amount
@@ -86,12 +84,12 @@ class MasterQuotaManager:
 
     def check_and_update_refresh_token(self):
         state = self._get_active_state()
-        date_str = state.get("yt_last_used_date", self.get_pacific_date())
+        date_str = state.get("yt_last_used_date", self.get_utc_date())
         
         try:
             last_used_date = datetime.strptime(date_str, "%Y-%m-%d")
-            current_pt_date = datetime.strptime(self.get_pacific_date(), "%Y-%m-%d")
-            days_unused = (current_pt_date - last_used_date).days
+            current_utc_date = datetime.strptime(self.get_utc_date(), "%Y-%m-%d")
+            days_unused = (current_utc_date - last_used_date).days
             
             if days_unused >= 120:
                 from scripts.discord_notifier import notify_token_expiry
