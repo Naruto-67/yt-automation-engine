@@ -85,14 +85,12 @@ def run_dynamic_research():
         
     print(f"📊 [RESEARCHER] Need exactly {needed_topics} topics to reach 21 capacity. Calling AI...")
 
-    # Load history to feed as Negative Boundary constraints to the LLM
     historical_topics = set()
     recent_history_str = "None"
     if os.path.exists(archive_path):
         with open(archive_path, "r", encoding="utf-8") as f:
             lines = [line.strip().lower() for line in f.readlines() if line.strip()]
             historical_topics = set(lines)
-            # 🚨 FIX: Negative Boundary Prompting. We extract the last 20 videos and force the LLM to ignore them.
             if lines:
                 recent_history_str = "\n".join([f"- {t}" for t in lines[-20:]])
             
@@ -139,10 +137,14 @@ def run_dynamic_research():
         if not raw_text: raise Exception("All AI providers failed to respond.")
 
         clean_json_str = raw_text.replace("```json", "").replace("```", "").strip()
-        match = re.search(r'\[.*\]', clean_json_str, re.DOTALL)
         
-        if match:
-            new_matrix = json.loads(match.group(0))
+        # 🚨 FIX: Replaced greedy regex with exact mathematical indexing to completely avoid JSONDecodeErrors caused by trailing conversational LLM text.
+        start_idx = clean_json_str.find('[')
+        end_idx = clean_json_str.rfind(']')
+        
+        if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+            json_target = clean_json_str[start_idx:end_idx+1]
+            new_matrix = json.loads(json_target)
             unique_new_topics = []
             
             for item in new_matrix:
