@@ -20,7 +20,7 @@ except ImportError as e:
     print(f"🚨 [SYSTEM] CRITICAL DEPENDENCY MISSING: {e}")
     sys.exit(1)
 
-TEST_MODE = True 
+TEST_MODE = False 
 
 def load_matrix():
     path = os.path.join(os.path.dirname(__file__), "memory", "content_matrix.json")
@@ -107,13 +107,11 @@ def run_production_cycle():
             
             for attempt in range(1, max_item_attempts + 1):
                 print(f"\n🎬 [PROCESSING] {niche.upper()}: {topic} (Attempt {attempt}/{max_item_attempts})")
-                
-                # 🚨 FIX: Live Telemetry. Broadcasts the start of the item loop.
-                notify_step(topic, f"Ignition (Attempt {attempt}/{max_item_attempts})", f"Niche: **{niche.upper()}**", 0x3498db) # Blue
+                notify_step(topic, f"Ignition (Attempt {attempt}/{max_item_attempts})", f"Niche: **{niche.upper()}**", 0x3498db) 
                 
                 if not TEST_MODE and not quota_manager.can_afford_youtube(1700):
                     print("🛑 [QUOTA GUARDIAN] YouTube Quota limit reached (10k). Halting production to prevent API ban.")
-                    notify_step(topic, "Quota Guardian", "YouTube Quota limit reached (10k). Halting.", 0xe74c3c) # Red
+                    notify_step(topic, "Quota Guardian", "YouTube Quota limit reached (10k). Halting.", 0xe74c3c)
                     return 
 
                 global_garbage_collector()
@@ -126,23 +124,23 @@ def run_production_cycle():
                     valid_script = False
                     for script_attempt in range(3):
                         print(f"   -> [SCRIPT] Generation Phase (Attempt {script_attempt + 1}/3)...")
-                        notify_step(topic, f"Drafting Script (Try {script_attempt + 1}/3)", "Asking AI for narrative constraints...", 0x95a5a6) # Gray
+                        notify_step(topic, f"Drafting Script (Try {script_attempt + 1}/3)", "Asking AI for narrative constraints...", 0x95a5a6)
                         
                         script_text, image_prompts, pexels_queries, scene_weights, script_prov = generate_script(niche, topic)
                         
                         if not script_text: 
-                            notify_step(topic, "Script Rejected", "AI returned invalid JSON/Length. Retrying...", 0xf1c40f) # Yellow
+                            notify_step(topic, "Script Rejected", "AI returned invalid JSON/Length. Retrying...", 0xf1c40f)
                             time.sleep(2)
                             continue
                             
                         print(f"   -> [VOICE] Testing audio length for Kokoro pacing...")
-                        notify_step(topic, "Testing Voice Pacing", f"Generating audio via {script_prov}...", 0x3498db) # Blue
+                        notify_step(topic, "Testing Voice Pacing", f"Generating audio via {script_prov}...", 0x3498db)
                         
                         voice_success, voice_prov, audio_duration = generate_audio(script_text, output_base=audio_base)
                         
                         if not voice_success: 
-                            notify_step(topic, "Voice Generator Crashed", "Kokoro/Groq failed to return audio.", 0xe74c3c) # Red
-                            raise Exception("Voice generation crashed entirely.")
+                            notify_step(topic, "Voice Generator Crashed", "Kokoro/Groq failed to return audio.", 0xe74c3c)
+                            raise ValueError("Voice generation crashed entirely.")
                             
                         print(f"   -> [TIMING] Audio clocked at {audio_duration:.1f} seconds.")
                         
@@ -157,7 +155,7 @@ def run_production_cycle():
                             continue
 
                         print(f"   ✅ [TIMING] Perfect duration for {niche.upper()} ({audio_duration:.1f}s).")
-                        notify_step(topic, "Validation Passed", f"Perfect duration achieved: **{audio_duration:.1f}s**.", 0x2ecc71) # Green
+                        notify_step(topic, "Validation Passed", f"Perfect duration achieved: **{audio_duration:.1f}s**.", 0x2ecc71)
                         valid_script = True
                         break 
                         
@@ -165,13 +163,13 @@ def run_production_cycle():
                         raise ValueError("Failed to generate a script with proper audio timing after 3 attempts.")
 
                     print(f"   -> [METADATA] Generating SEO payload...")
-                    notify_step(topic, "Generating SEO", "Creating YouTube optimized metadata...", 0x3498db) # Blue
+                    notify_step(topic, "Generating SEO", "Creating YouTube optimized metadata...", 0x3498db)
                     time.sleep(5)
                     metadata, seo_prov = generate_seo_metadata(niche, script_text)
                     print(f"      Title: {metadata.get('title')}")
 
                     print(f"   -> [VISUALS] Sourcing {len(image_prompts)} scenes...")
-                    notify_step(topic, "Sourcing Visuals", f"Fetching {len(image_prompts)} scenes from Cloudflare/HF/Pexels...", 0x3498db) # Blue
+                    notify_step(topic, "Sourcing Visuals", f"Fetching {len(image_prompts)} scenes from Cloudflare/HF/Pexels...", 0x3498db)
                     time.sleep(5)
                     image_paths, visual_prov = fetch_scene_images(image_prompts, pexels_queries, base_filename=f"temp_scene_{success_count}")
                     
@@ -180,13 +178,14 @@ def run_production_cycle():
                     time.sleep(10)
 
                     print(f"   -> [RENDER] Compiling Video...")
-                    notify_step(topic, "Rendering Video", "Combining Audio, Visuals, and Subtitles via Master Engine...", 0x9b59b6) # Purple
+                    notify_step(topic, "Rendering Video", "Combining Audio, Visuals, and Subtitles via Master Engine...", 0x9b59b6)
                     render_success, video_duration, video_size = render_video(
                         image_paths, f"{audio_base}.wav", final_video, 
                         scene_weights=scene_weights, watermark_text=channel_name 
                     )
-                    if not render_success: raise Exception("Render failed or output file is corrupted/zero-bytes.")
+                    if not render_success: raise ValueError("Render failed or output file is corrupted/zero-bytes.")
 
+                    # 🚨 FIX: Decouple the Upload from the Generation. If generation succeeds but network fails, we abort the loop safely.
                     if not TEST_MODE:
                         upload_success, video_id = upload_to_youtube_vault(final_video, topic, metadata)
                         if upload_success:
@@ -198,7 +197,7 @@ def run_production_cycle():
                             log_completed_video(niche, topic, final_video)
                             item_success = True
                         else:
-                            raise Exception("YouTube Upload API Rejected the Payload.")
+                            raise ConnectionError("YouTube Upload API Rejected the Payload after successful render.")
                     else:
                         print(f"🛑 [TEST MODE] Skipped YT Upload. Vaulting '{topic}' virtually.")
                         item['processed'] = True
@@ -218,10 +217,16 @@ def run_production_cycle():
                         global_garbage_collector()
                     break
 
+                except ConnectionError as ce:
+                    # 🚨 FIX: Safely handles YT API upload failures by exiting the attempt loop without quarantining the topic.
+                    notify_step(topic, "Upload Blocked", "Video rendered safely, but YT refused upload. Retrying tomorrow.", 0xe74c3c)
+                    print(f"⚠️ [NETWORK] {ce}")
+                    break 
+
                 except Exception as e:
                     error_msg = str(e)
                     print(f"🚨 [CRASH] Topic '{topic}' failed: {error_msg}")
-                    notify_step(topic, "Exception Caught", error_msg[:300], 0xe74c3c) # Red
+                    notify_step(topic, "Exception Caught", error_msg[:300], 0xe74c3c)
                     
                     is_api_error = not isinstance(e, ValueError)
                     
@@ -234,13 +239,13 @@ def run_production_cycle():
                     if attempt < max_item_attempts:
                         if is_api_error:
                             cooldown = 60 * attempt
-                            notify_step(topic, "API Cooldown", f"Enforcing {cooldown}s progressive cooldown before retry...", 0xe67e22) # Orange
+                            notify_step(topic, "API Cooldown", f"Enforcing {cooldown}s progressive cooldown before retry...", 0xe67e22)
                             time.sleep(cooldown)
                         else:
-                            notify_step(topic, "Logic Retry", "Retrying immediately without cooldown...", 0xe67e22) # Orange
+                            notify_step(topic, "Logic Retry", "Retrying immediately without cooldown...", 0xe67e22)
                     else:
                         print(f"💀 [SAFETY PROTOCOL] Topic failed 3 times. Permanently quarantined.")
-                        notify_step(topic, "Quarantined", "Topic failed 3 times. Permanently removing from queue.", 0x000000) # Black
+                        notify_step(topic, "Quarantined", "Topic failed 3 times. Permanently removing from queue.", 0x000000)
                         item['processed'] = True
                         item['failed_flag'] = True
             
