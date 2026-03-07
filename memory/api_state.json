@@ -1,8 +1,8 @@
 {
     "last_reset_date": "2026-03-07",
-    "gemini_used": 13,
-    "youtube_points_used": 3,
-    "cf_images_used": 38,
+    "gemini_used": 0,
+    "youtube_points_used": 0,
+    "cf_images_used": 0,
     "hf_images_used": 0,
     "yt_last_used_date": "2026-03-07"
 }
