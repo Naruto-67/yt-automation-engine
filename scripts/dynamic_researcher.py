@@ -12,13 +12,14 @@ def get_deep_channel_context(youtube):
         uploads_id = youtube.channels().list(part="contentDetails", mine=True).execute()["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
         quota_manager.consume_points("youtube", 1)
         
-        vids = youtube.playlistItems().list(part="snippet", playlistId=uploads_id, maxResults=15).execute()
+        # 🚨 FIX: Expanded temporal horizon to 50 videos (approx. 2 weeks) for deep analytical smoothing
+        vids = youtube.playlistItems().list(part="snippet", playlistId=uploads_id, maxResults=50).execute()
         quota_manager.consume_points("youtube", 1)
         
         vid_ids = [v["snippet"]["resourceId"]["videoId"] for v in vids.get("items", [])]
         if not vid_ids: return "Channel is brand new. Rely purely on current broad internet trends."
         
-        stats_response = youtube.videos().list(part="statistics,snippet", id=",".join(vid_ids)).execute()
+        stats_response = youtube.videos().list(part="statistics,snippet", id=",".join(vid_ids[:50])).execute()
         quota_manager.consume_points("youtube", 1)
         
         video_data = []
@@ -38,7 +39,7 @@ def get_deep_channel_context(youtube):
                 fan_suggestions.append(c["snippet"]["topLevelComment"]["snippet"]["textOriginal"])
         except: pass
         
-        context = "📊 CHANNEL PERFORMANCE REPORT (PAST 7 DAYS):\nTOP PERFORMING VIDEOS:\n"
+        context = "📊 CHANNEL PERFORMANCE REPORT (PAST 14 DAYS):\nTOP PERFORMING VIDEOS:\n"
         for v in top_vids:
             context += f"- Title: '{v['title']}' | Views: {v['views']} | Likes: {v['likes']}\n"
         
@@ -70,16 +71,23 @@ def run_dynamic_research():
             try: existing_matrix = json.load(f)
             except: pass
 
-    unprocessed_count = len([i for i in existing_matrix if not i.get("processed", False) and not i.get("failed_flag", False)])
+    # 🚨 FIX: Memory Leak Pruning. Destroys published/failed items from JSON to prevent infinite file bloat.
+    pruned_matrix = [i for i in existing_matrix if not i.get("published", False) and not i.get("failed_flag", False)]
+    unprocessed_count = len([i for i in pruned_matrix if not i.get("processed", False)])
     needed_topics = 21 - unprocessed_count
     
     if needed_topics <= 0:
         print(f"🛑 [RESEARCHER] Matrix is already at maximum capacity ({unprocessed_count} topics). Skipping API call to save money.")
+        
+        # Save the pruned matrix to clean up the garbage even if we don't fetch new topics
+        tmp_path = matrix_path + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(pruned_matrix, f, indent=4)
+        os.replace(tmp_path, matrix_path)
         return
         
     print(f"📊 [RESEARCHER] Need exactly {needed_topics} topics to reach 21 capacity. Calling AI...")
 
-    # 🚨 FIX: Creative Lenses force the LLM out of repetitive loops over a 365-day cycle.
     lenses = [
         "Historical Anomalies and Forgotten Empires",
         "Deep Ocean Mysteries and Bizarre Biology",
@@ -130,19 +138,6 @@ def run_dynamic_research():
             for item in existing_matrix:
                 historical_topics.add(item.get("topic", "").lower().strip())
             
-            preserved_items = []
-            for i in existing_matrix:
-                is_processed = i.get("processed", False)
-                is_failed = i.get("failed_flag", False)
-                is_published = i.get("published", False)
-                
-                if is_failed: continue
-                
-                if is_processed and not is_published:
-                    preserved_items.append(i)
-                elif not is_processed:
-                    preserved_items.append(i)
-            
             unique_new_topics = []
             for item in new_matrix:
                 topic_clean = item.get("topic", "").lower().strip()
@@ -154,7 +149,7 @@ def run_dynamic_research():
             random.shuffle(unique_new_topics)
             
             final_new_batch = unique_new_topics[:needed_topics]
-            final_matrix = preserved_items + final_new_batch
+            final_matrix = pruned_matrix + final_new_batch
             
             tmp_path = matrix_path + ".tmp"
             with open(tmp_path, "w", encoding="utf-8") as f:
@@ -165,7 +160,7 @@ def run_dynamic_research():
                 for item in final_new_batch:
                     f.write(f"{item.get('topic', '').strip()}\n")
                 
-            print(f"✅ [RESEARCHER] Matrix updated. Kept {len(preserved_items)} queue items + added {len(final_new_batch)} perfectly timed topics.")
+            print(f"✅ [RESEARCHER] Matrix updated. Kept {len(pruned_matrix)} queue items + added {len(final_new_batch)} perfectly timed topics.")
             notify_summary(True, f"🧠 **AI Researcher Update**\nQueue restocked using lens: *{active_lens}*. Generated {len(final_new_batch)} highly unique niches.")
         else: raise ValueError("AI returned non-JSON parsable content.")
 
