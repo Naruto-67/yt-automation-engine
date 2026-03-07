@@ -10,7 +10,6 @@ def run_daily_analysis():
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     tracker_path = os.path.join(root_dir, "assets", "lessons_learned.json")
     
-    # 🚨 FIX: Memory Arrays are now structured to hold a rolling history.
     lessons = {
         "emphasize": ["Engineer seamless narrative loops to maximize watch time"], 
         "avoid": ["Boring intros without immediate visual hooks"], 
@@ -41,7 +40,6 @@ def run_daily_analysis():
         views = max(int(stats.get("viewCount", 0)), 1)
         subs = max(int(stats.get("subscriberCount", 0)), 0)
 
-        # Truncate lists to the latest 4 rules so the prompt doesn't blow up
         current_emphasize = "\n".join([f"- {r}" for r in lessons["emphasize"][-4:]])
         current_avoid = "\n".join([f"- {r}" for r in lessons["avoid"][-4:]])
 
@@ -72,7 +70,6 @@ def run_daily_analysis():
                 new_emp = new_rules.get("new_emphasize", "").strip()
                 new_avo = new_rules.get("new_avoid", "").strip()
                 
-                # 🚨 FIX: Appends new rules to the array instead of overwriting, keeping a rolling history of max 5 items to cure amnesia.
                 if new_emp and new_emp not in lessons["emphasize"]:
                     lessons["emphasize"].append(new_emp)
                 if new_avo and new_avo not in lessons["avoid"]:
@@ -81,8 +78,11 @@ def run_daily_analysis():
                 lessons["emphasize"] = lessons["emphasize"][-5:]
                 lessons["avoid"] = lessons["avoid"][-5:]
                 
-                with open(tracker_path, "w", encoding="utf-8") as f:
+                # 🚨 FIX: Atomic File Saving prevents OS-level IO termination from wiping the brain's long-term memory
+                tmp_path = tracker_path + ".tmp"
+                with open(tmp_path, "w", encoding="utf-8") as f:
                     json.dump(lessons, f, indent=4)
+                os.replace(tmp_path, tracker_path)
                     
                 pulse_data = {
                     "emphasize": [new_emp if new_emp else lessons["emphasize"][-1]],
