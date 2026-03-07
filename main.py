@@ -41,7 +41,8 @@ def save_matrix(matrix):
 
 def global_garbage_collector():
     print("🧹 [GC] Initializing Global Garbage Collection...")
-    extensions = ["*.wav", "*.srt", "*.ass", "*.jpg", "temp_*"]
+    # 🚨 FIX: Purged concat_list.txt which was silently building up in the system memory across 365 days
+    extensions = ["*.wav", "*.srt", "*.ass", "*.jpg", "temp_*", "concat_list.txt"]
     for ext in extensions:
         for file in glob.glob(ext):
             try: os.remove(file)
@@ -185,7 +186,6 @@ def run_production_cycle():
                     )
                     if not render_success: raise ValueError("Render failed or output file is corrupted/zero-bytes.")
 
-                    # 🚨 FIX: Decouple the Upload from the Generation. If generation succeeds but network fails, we abort the loop safely.
                     if not TEST_MODE:
                         upload_success, video_id = upload_to_youtube_vault(final_video, topic, metadata)
                         if upload_success:
@@ -218,7 +218,6 @@ def run_production_cycle():
                     break
 
                 except ConnectionError as ce:
-                    # 🚨 FIX: Safely handles YT API upload failures by exiting the attempt loop without quarantining the topic.
                     notify_step(topic, "Upload Blocked", "Video rendered safely, but YT refused upload. Retrying tomorrow.", 0xe74c3c)
                     print(f"⚠️ [NETWORK] {ce}")
                     break 
