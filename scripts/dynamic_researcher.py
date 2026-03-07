@@ -6,6 +6,18 @@ from scripts.quota_manager import quota_manager
 from scripts.discord_notifier import notify_summary
 from scripts.youtube_manager import get_youtube_client
 
+
+def _jaccard_similarity(str_a, str_b):
+    """Word-level Jaccard similarity. Immune to substring false-positives."""
+    tokens_a = set(re.findall(r'[a-z]{3,}', str_a))
+    tokens_b = set(re.findall(r'[a-z]{3,}', str_b))
+    if not tokens_a or not tokens_b:
+        return 0.0
+    intersection = tokens_a & tokens_b
+    union = tokens_a | tokens_b
+    return len(intersection) / len(union)
+
+
 def get_deep_channel_context(youtube):
     if not youtube: return "No channel data available. You must rely purely on current internet trends."
     try:
@@ -51,6 +63,7 @@ def get_deep_channel_context(youtube):
         print(f"⚠️ [RESEARCHER] Data fetch error: {e}")
         return "Failed to fetch stats. Generate broadly appealing viral niches."
 
+
 def run_dynamic_research():
     if not quota_manager.can_afford_youtube(5):
         print("🛑 [QUOTA GUARDIAN] YouTube Quota limit reached. Aborting Research to prevent ban.")
@@ -75,8 +88,7 @@ def run_dynamic_research():
     needed_topics = 21 - unprocessed_count
     
     if needed_topics <= 0:
-        print(f"🛑 [RESEARCHER] Matrix is already at maximum capacity ({unprocessed_count} topics). Skipping API call to save money.")
-        
+        print(f"🛑 [RESEARCHER] Matrix is already at maximum capacity ({unprocessed_count} topics). Skipping API call.")
         tmp_path = matrix_path + ".tmp"
         with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(pruned_matrix, f, indent=4)
@@ -85,15 +97,20 @@ def run_dynamic_research():
         
     print(f"📊 [RESEARCHER] Need exactly {needed_topics} topics to reach 21 capacity. Calling AI...")
 
-    historical_topics = set()
+    # ✅ FIX: Load the last 200 lines from the archive (not all 1460+) to prevent
+    # the historical_topics set from growing so large it suffocates deduplication.
+    # 200 entries represents ~50 days of context -- more than enough for creative variety.
+    historical_topics_raw = []
     recent_history_str = "None"
     if os.path.exists(archive_path):
         with open(archive_path, "r", encoding="utf-8") as f:
-            lines = [line.strip().lower() for line in f.readlines() if line.strip()]
-            historical_topics = set(lines)
-            if lines:
-                recent_history_str = "\n".join([f"- {t}" for t in lines[-20:]])
+            all_lines = [line.strip().lower() for line in f.readlines() if line.strip()]
+            # Use only the last 200 for the dedup set, but all last 20 for the prompt context
+            historical_topics_raw = all_lines[-200:]
+            if all_lines:
+                recent_history_str = "\n".join([f"- {t}" for t in all_lines[-20:]])
             
+    historical_topics = set(historical_topics_raw)
     for item in existing_matrix:
         historical_topics.add(item.get("topic", "").lower().strip())
 
@@ -138,7 +155,6 @@ def run_dynamic_research():
 
         clean_json_str = raw_text.replace("```json", "").replace("```", "").strip()
         
-        # 🚨 FIX: Replaced greedy regex with exact mathematical indexing to completely avoid JSONDecodeErrors caused by trailing conversational LLM text.
         start_idx = clean_json_str.find('[')
         end_idx = clean_json_str.rfind(']')
         
@@ -149,18 +165,26 @@ def run_dynamic_research():
             
             for item in new_matrix:
                 topic_clean = item.get("topic", "").lower().strip()
-                semantic_core = re.sub(r'[^a-z0-9]', '', topic_clean)
-                
+                if not topic_clean:
+                    continue
+
+                # ✅ FIX: Jaccard similarity instead of dangerous substring containment.
+                # A new topic is only flagged as a duplicate if it shares >= 60% of its
+                # meaningful word-tokens with any archived topic. This correctly catches
+                # true repeats (e.g., "Black Holes Explained" vs "Explaining Black Holes")
+                # while allowing legitimate thematic overlaps (e.g., "Space" topics can
+                # appear repeatedly because "space" is too short to trigger the 3-char filter
+                # in the Jaccard tokenizer anyway).
                 is_duplicate = False
                 for existing_topic in historical_topics:
-                    if semantic_core in re.sub(r'[^a-z0-9]', '', existing_topic):
+                    if _jaccard_similarity(topic_clean, existing_topic) >= 0.60:
                         is_duplicate = True
                         break
                         
                 if not is_duplicate:
                     item["processed"] = False
                     unique_new_topics.append(item)
-                    historical_topics.add(topic_clean) 
+                    historical_topics.add(topic_clean)
             
             random.shuffle(unique_new_topics)
             
@@ -182,6 +206,7 @@ def run_dynamic_research():
 
     except Exception as e:
         quota_manager.diagnose_fatal_error("dynamic_researcher.py", e)
+
 
 if __name__ == "__main__":
     run_dynamic_research()
