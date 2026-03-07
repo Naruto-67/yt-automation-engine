@@ -85,7 +85,6 @@ def upload_to_youtube_vault(video_path, topic, metadata):
     try:
         media = MediaFileUpload(video_path, chunksize=1024*1024*5, resumable=True, mimetype="video/mp4")
         
-        # 🚨 FIX: The API `null` Nuke Shield. Enforces absolute datatype compliance even if the LLM hallucinates `null`.
         safe_title = (metadata.get("title") or f"{topic} #shorts")[:100]
         safe_desc = metadata.get("description") or ""
         safe_tags = metadata.get("tags") or ["shorts"]
@@ -106,7 +105,8 @@ def upload_to_youtube_vault(video_path, topic, metadata):
             try:
                 status, response = request.next_chunk()
                 error_count = 0
-            except (HttpError, httplib2.HttpLib2Error, ConnectionError) as net_err:
+            # 🚨 FIX: Catches all native socket drops and SSL handshake failures, ensuring the chunk upload loop survives generic drops.
+            except Exception as net_err:
                 error_count += 1
                 print(f"⚠️ [VAULT] Network drop during chunk upload (Attempt {error_count}/5): {net_err}")
                 if error_count >= 5:
