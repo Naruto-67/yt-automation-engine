@@ -98,9 +98,8 @@ def run_production_cycle():
             topic = item['topic']
             niche = item['niche']
             
-            # 🚨 FIX: Biologically calibrated retention limits. 10s for fast viral loops, 22s for stories.
             is_fact_based = any(k in niche.lower() for k in ['fact', 'hack', 'trend', 'brainrot'])
-            min_audio = 10.0 if is_fact_based else 22.0
+            min_audio = 10.0 if is_fact_based else 20.0
             
             max_item_attempts = 3
             item_success = False
@@ -136,8 +135,9 @@ def run_production_cycle():
                             
                         print(f"   -> [TIMING] Audio clocked at {audio_duration:.1f} seconds.")
                         
+                        # The ultimate truth check.
                         if audio_duration > 59.0:
-                            print(f"   ⚠️ [REJECTED] Audio is too long ({audio_duration:.1f}s). Regenerating...")
+                            print(f"   ⚠️ [REJECTED] Audio is too long ({audio_duration:.1f}s). YouTube Shorts limit is 60s. Regenerating...")
                             continue 
                             
                         if audio_duration < min_audio:
