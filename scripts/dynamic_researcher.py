@@ -70,7 +70,6 @@ def run_dynamic_research():
             try: existing_matrix = json.load(f)
             except: pass
 
-    # 🚨 FIX: The Queue Hoarder Shield. Assess how many topics we ACTUALLY need before asking AI.
     unprocessed_count = len([i for i in existing_matrix if not i.get("processed", False) and not i.get("failed_flag", False)])
     needed_topics = 21 - unprocessed_count
     
@@ -80,12 +79,30 @@ def run_dynamic_research():
         
     print(f"📊 [RESEARCHER] Need exactly {needed_topics} topics to reach 21 capacity. Calling AI...")
 
+    # 🚨 FIX: Creative Lenses force the LLM out of repetitive loops over a 365-day cycle.
+    lenses = [
+        "Historical Anomalies and Forgotten Empires",
+        "Deep Ocean Mysteries and Bizarre Biology",
+        "Psychological Paradoxes and Mind Experiments",
+        "Futuristic Tech and Cyberpunk Concepts",
+        "Microscopic World and Invisible Sciences",
+        "Space Oddities and Cosmic Terrors",
+        "Glitches in the Matrix and Simulation Theories",
+        "Unsolved Cryptography and Hidden Codes",
+        "Bizarre Internet Subcultures and Digital Lore",
+        "Ancient Mythology visualized through Sci-Fi"
+    ]
+    active_lens = random.choice(lenses)
+
     prompt = f"""
     You are an Elite YouTube Shorts Strategist. Your job is to analyze live internet trends and generate EXACTLY {max(5, needed_topics + 5)} fresh video topics.
     
     Review our channel data below. Use the "Explore and Exploit" framework:
-    
     {channel_context}
+    
+    CRITICAL CREATIVE DIRECTIVE:
+    To prevent repetitive content, you MUST filter all your ideas through this specific lens: "{active_lens}".
+    Generate highly unique, bizarre, or fascinating topics that strictly fit this lens. Do not give generic answers.
     
     Return ONLY a raw JSON array of objects. No intro text. Do not use markdown blocks.
     Format:
@@ -136,9 +153,7 @@ def run_dynamic_research():
             
             random.shuffle(unique_new_topics)
             
-            # Slice the list so we only add EXACTLY what is needed to reach 21
             final_new_batch = unique_new_topics[:needed_topics]
-            
             final_matrix = preserved_items + final_new_batch
             
             tmp_path = matrix_path + ".tmp"
@@ -151,7 +166,7 @@ def run_dynamic_research():
                     f.write(f"{item.get('topic', '').strip()}\n")
                 
             print(f"✅ [RESEARCHER] Matrix updated. Kept {len(preserved_items)} queue items + added {len(final_new_batch)} perfectly timed topics.")
-            notify_summary(True, f"🧠 **AI Researcher Update**\nQueue restocked. Generated {len(final_new_batch)} highly unique niches.")
+            notify_summary(True, f"🧠 **AI Researcher Update**\nQueue restocked using lens: *{active_lens}*. Generated {len(final_new_batch)} highly unique niches.")
         else: raise ValueError("AI returned non-JSON parsable content.")
 
     except Exception as e:
