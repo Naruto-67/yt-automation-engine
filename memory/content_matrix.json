@@ -248,22 +248,30 @@
     {
         "niche": "AI-Generated Fable",
         "topic": "The Alchemist of Sunlight | Turning Rays into Hope",
-        "processed": false
+        "processed": true,
+        "vaulted_date": "2026-03-07T05:23:51.550714",
+        "published": false
     },
     {
         "niche": "Philosophical Animation",
         "topic": "The Inventor of Empathy | Building Bridges of Understanding",
-        "processed": false
+        "processed": true,
+        "vaulted_date": "2026-03-07T05:27:08.334263",
+        "published": false
     },
     {
         "niche": "Animated Short Story",
         "topic": "The Whispering Librarian | A Story of Books That Talk",
-        "processed": false
+        "processed": true,
+        "vaulted_date": "2026-03-07T05:30:32.862428",
+        "published": false
     },
     {
         "niche": "Satisfying AI Art",
         "topic": "Oddly Satisfying AI Art Transitions: From Chaos to Calm",
-        "processed": false
+        "processed": true,
+        "vaulted_date": "2026-03-07T05:33:35.188671",
+        "published": false
     },
     {
         "niche": "Automation Insights",
