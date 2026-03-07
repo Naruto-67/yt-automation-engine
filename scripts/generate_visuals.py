@@ -6,10 +6,41 @@ import random
 import subprocess
 import base64
 import re
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 from scripts.quota_manager import quota_manager
 
 SIMULATE_CASCADE_TEST = False 
+
+# 🚨 FIX: Mathematical Visual Padding. Intercepts 1:1 AI Squares and converts them to professional 9:16 blurred-background layouts to stop FFmpeg from over-cropping the subjects.
+def apply_cinematic_padding(image_path):
+    try:
+        img = Image.open(image_path).convert("RGB")
+        target_w, target_h = 1080, 1920
+        
+        img_ratio = img.width / img.height
+        target_ratio = target_w / target_h
+        
+        # If the image isn't already perfectly vertical (like standard 1:1 AI gens)
+        if abs(img_ratio - target_ratio) > 0.1: 
+            # 1. Stretch and heavily blur the background
+            bg = img.resize((target_w, int(target_w / img_ratio)), Image.Resampling.LANCZOS)
+            bg = bg.resize((target_w, target_h), Image.Resampling.LANCZOS) 
+            bg = bg.filter(ImageFilter.GaussianBlur(50))
+            
+            # 2. Resize original foreground to fit perfectly inside the frame
+            fg = img.copy()
+            fg.thumbnail((target_w, target_h), Image.Resampling.LANCZOS)
+            
+            # 3. Paste sharp foreground into blurred background
+            offset = ((target_w - fg.width) // 2, (target_h - fg.height) // 2)
+            bg.paste(fg, offset)
+            bg.save(image_path, "JPEG", quality=95)
+        else:
+            # If it's already vertical, just standardise size
+            img = img.resize((target_w, target_h), Image.Resampling.LANCZOS)
+            img.save(image_path, "JPEG", quality=95)
+    except Exception as e:
+        print(f"      ⚠️ [VISUALS] Cinematic padding failed, proceeding with raw image: {e}")
 
 def generate_cloudflare_image(prompt, output_path):
     print("      [Tier 1: Cloudflare AI] Attempting Official FLUX generation...")
@@ -38,9 +69,11 @@ def generate_cloudflare_image(prompt, output_path):
                 if "result" in data and "image" in data["result"]:
                     img_data = base64.b64decode(data["result"]["image"])
                     with open(output_path, 'wb') as f: f.write(img_data)
+                    apply_cinematic_padding(output_path)
                     quota_manager.consume_points("cloudflare", 1)
                     return True, ""
             with open(output_path, 'wb') as f: f.write(response.content)
+            apply_cinematic_padding(output_path)
             quota_manager.consume_points("cloudflare", 1)
             return True, ""
         elif response.status_code == 400:
@@ -83,6 +116,7 @@ def generate_huggingface_cascade(prompt, output_path):
             if response.status_code == 200:
                 with open(output_path, 'wb') as f: 
                     f.write(response.content)
+                apply_cinematic_padding(output_path)
                 quota_manager.consume_points("huggingface", 1)
                 return True, f"HF ({short_name})"
             elif response.status_code == 400:
@@ -97,6 +131,7 @@ def generate_huggingface_cascade(prompt, output_path):
                 response = requests.post(url, headers=headers, json=payload, timeout=(15, 60))
                 if response.status_code == 200:
                     with open(output_path, 'wb') as f: f.write(response.content)
+                    apply_cinematic_padding(output_path)
                     quota_manager.consume_points("huggingface", 1)
                     return True, f"HF ({short_name})"
         except: pass
@@ -104,7 +139,6 @@ def generate_huggingface_cascade(prompt, output_path):
     return False, "HF Models Exhausted/Blocked"
 
 def fallback_pexels_image(search_query, output_path, is_retry=False):
-    # 🚨 FIX: Purges LLM Hallucinations. If the AI writes a full sentence into the Pexels query, we mathematically chop it down to the first 2 meaningful words so Pexels doesn't choke.
     clean_query = re.sub(r'[^a-zA-Z\s]', '', search_query).strip()
     words = [w for w in clean_query.split() if len(w) > 2]
     safe_query = " ".join(words[:2]) if words else "cinematic background"
@@ -125,6 +159,7 @@ def fallback_pexels_image(search_query, output_path, is_retry=False):
             img_url = photo['src']['large2x']
             img_data = requests.get(img_url, timeout=(10, 30)).content
             with open(output_path, 'wb') as f: f.write(img_data)
+            apply_cinematic_padding(output_path)
             return True, ""
             
         elif not is_retry:
