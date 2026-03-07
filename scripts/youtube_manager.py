@@ -87,8 +87,19 @@ def upload_to_youtube_vault(video_path, topic, metadata):
         
         safe_title = (metadata.get("title") or f"{topic} #shorts")[:100]
         safe_desc = metadata.get("description") or ""
-        safe_tags = metadata.get("tags") or ["shorts"]
+        raw_tags = metadata.get("tags") or ["shorts"]
         
+        # 🚨 FIX: Tag Payload Sanitizer prevents HTTP 400 rejection from oversized tag arrays.
+        safe_tags = []
+        char_count = 0
+        for tag in raw_tags:
+            clean_tag = str(tag).replace("<", "").replace(">", "").strip()[:30]
+            if char_count + len(clean_tag) < 400 and len(safe_tags) < 15:
+                safe_tags.append(clean_tag)
+                char_count += len(clean_tag)
+        
+        if not safe_tags: safe_tags = ["shorts"]
+
         request = youtube.videos().insert(
             part="snippet,status",
             body={
@@ -106,7 +117,6 @@ def upload_to_youtube_vault(video_path, topic, metadata):
                 status, response = request.next_chunk()
                 error_count = 0
             except Exception as net_err:
-                # 🚨 FIX: Pass hard quota limits upwards to prevent the engine from quarantining videos.
                 if isinstance(net_err, HttpError) and net_err.resp.status == 403 and b"quota" in net_err.content.lower():
                     raise net_err
                 
@@ -135,7 +145,6 @@ def upload_to_youtube_vault(video_path, topic, metadata):
         return True, video_id
         
     except Exception as e:
-        # Pass 403 upwards explicitly
         if isinstance(e, HttpError) and e.resp.status == 403 and b"quota" in e.content.lower():
             raise e
             
