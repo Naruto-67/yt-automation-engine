@@ -4,6 +4,7 @@ import sys
 import time
 import glob
 from datetime import datetime
+from googleapiclient.errors import HttpError
 
 from scripts.quota_manager import quota_manager
 from scripts.discord_notifier import notify_production_success, notify_error, notify_summary, notify_step
@@ -213,19 +214,17 @@ def run_production_cycle():
                     )
                     break
 
+                except ConnectionError as ce:
+                    notify_step(topic, "Upload Blocked", "Video rendered safely, but YT refused upload. Retrying tomorrow.", 0xe74c3c)
+                    print(f"⚠️ [NETWORK] {ce}")
+                    break 
+
                 except Exception as e:
-                    # 🚨 FIX: Absolute 403 Failsafe. Instantly freezes the system and protects the topic if YouTube issues a Hard Limit response.
-                    from googleapiclient.errors import HttpError
                     if isinstance(e, HttpError) and e.resp.status == 403 and b"quota" in e.content.lower():
                         print(f"🛑 [FATAL] Hard YouTube Quota Reached. System is freezing to protect the queue.")
                         notify_step(topic, "Quota Freeze", "Hard YouTube Quota reached mid-upload. Freezing process.", 0xe74c3c)
                         save_matrix(matrix)
                         sys.exit(0)
-                        
-                    if isinstance(e, ConnectionError):
-                        notify_step(topic, "Upload Blocked", "Video rendered safely, but YT refused upload. Retrying tomorrow.", 0xe74c3c)
-                        print(f"⚠️ [NETWORK] {e}")
-                        break 
 
                     error_msg = str(e)
                     print(f"🚨 [CRASH] Topic '{topic}' failed: {error_msg}")
