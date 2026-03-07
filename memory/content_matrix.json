@@ -290,12 +290,16 @@
     {
         "niche": "Digital Journey Story",
         "topic": "The Data Streamer | A Story of Information's Journey",
-        "processed": false
+        "processed": true,
+        "vaulted_date": "2026-03-07T09:47:21.610435",
+        "published": false
     },
     {
         "niche": "Artistic Storytelling",
         "topic": "The Living Mural | A Painting That Tells Its Own Tale",
-        "processed": false
+        "processed": true,
+        "vaulted_date": "2026-03-07T09:50:51.290317",
+        "published": false
     },
     {
         "niche": "Self-Discovery Short",
