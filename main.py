@@ -6,7 +6,7 @@ import glob
 from datetime import datetime
 
 from scripts.quota_manager import quota_manager
-from scripts.discord_notifier import notify_production_success, notify_error
+from scripts.discord_notifier import notify_production_success, notify_error, notify_summary
 from scripts.generate_script import generate_script
 from scripts.generate_metadata import generate_seo_metadata
 from scripts.logger import log_completed_video
@@ -20,7 +20,8 @@ except ImportError as e:
     print(f"🚨 [SYSTEM] CRITICAL DEPENDENCY MISSING: {e}")
     sys.exit(1)
 
-TEST_MODE = False 
+# 🚨 ENGINE IS IN TEST MODE. ZERO YOUTUBE QUOTA WILL BE CONSUMED.
+TEST_MODE = True 
 
 def load_matrix():
     path = os.path.join(os.path.dirname(__file__), "memory", "content_matrix.json")
@@ -56,26 +57,29 @@ def global_garbage_collector():
         except: pass
 
 def run_production_cycle():
+    notify_summary(True, "🚀 **Ghost Engine Ignition**\nInitializing Daily Production Cycle.")
     quota_manager.check_and_update_refresh_token()
 
     print("🚀 [ENGINE] Ignition. Analyzing Live YouTube Vault Status...")
     try:
         youtube_client = get_youtube_client()
-        if not youtube_client:
+        if not youtube_client and not TEST_MODE:
             raise Exception("YouTube Client failed to initialize. Check OAuth tokens.")
 
-        vault_count = get_actual_vault_count(youtube_client)
+        vault_count = get_actual_vault_count(youtube_client) if not TEST_MODE else 5
         print(f"🏦 [VAULT] Verified YouTube Playlist Backlog: {vault_count}/14 videos.")
         
         if vault_count >= 14:
             print("🛑 [ENGINE] Vault is fully stocked. Shutting down to conserve APIs.")
+            notify_summary(True, f"🛑 **Production Halted**\nVault is full ({vault_count}/14). Conserving APIs.")
             return
 
         matrix = load_matrix()
         unprocessed = [t for t in matrix if not t.get("processed", False) and not t.get("failed_flag", False)]
         
-        if not unprocessed:
-            print("⚠️ [ENGINE] Content Matrix is empty! Triggering Emergency Research Cycle...")
+        # 🚨 FIX: Queue Exhaustion Logic. Triggers research if we drop below batch size, not just zero.
+        if len(unprocessed) < 4:
+            print(f"⚠️ [ENGINE] Queue low ({len(unprocessed)} left). Triggering Emergency Research Cycle...")
             from scripts.dynamic_researcher import run_dynamic_research
             run_dynamic_research()
             matrix = load_matrix()
@@ -84,11 +88,12 @@ def run_production_cycle():
                 raise Exception("Emergency Research failed to populate matrix.")
 
         videos_needed = 14 - vault_count
-        batch_size = min(videos_needed, 4) if not TEST_MODE else 1
+        batch_size = min(videos_needed, 4) 
         batch = unprocessed[:batch_size]
 
-        channel_name = get_channel_name(youtube_client).replace("@", "")
+        channel_name = get_channel_name(youtube_client).replace("@", "") if not TEST_MODE else "GhostEngine_Test"
         print(f"🏷️ [BRANDING] Secured Watermark: {channel_name}")
+        print(f"🎯 [TARGET] Processing {batch_size} videos for this run.")
 
         success_count = 0
         
@@ -102,7 +107,7 @@ def run_production_cycle():
             for attempt in range(1, max_item_attempts + 1):
                 print(f"\n🎬 [PROCESSING] {niche.upper()}: {topic} (Attempt {attempt}/{max_item_attempts})")
                 
-                if not quota_manager.can_afford_youtube(1700):
+                if not TEST_MODE and not quota_manager.can_afford_youtube(1700):
                     print("🛑 [QUOTA GUARDIAN] YouTube Quota limit reached (10k). Halting production to prevent API ban.")
                     return 
 
@@ -116,8 +121,12 @@ def run_production_cycle():
                     script_text, image_prompts, pexels_queries, scene_weights, script_prov = generate_script(niche, topic)
                     if not script_text: raise Exception("Script generation failed.")
                     
+                    # 🚨 FIX: Stripped silencers. Print the output to the log.
+                    print(f"📜 [SCRIPT GENERATED] ({len(script_text.split())} words, via {script_prov}):\n{script_text[:150]}...")
+                    
                     time.sleep(10)
                     metadata, seo_prov = generate_seo_metadata(niche, script_text)
+                    print(f"🏷️ [METADATA GENERATED] Title: {metadata.get('title')}")
                     time.sleep(10)
 
                     voice_success, voice_prov = generate_audio(script_text, output_base=audio_base)
@@ -175,7 +184,6 @@ def run_production_cycle():
                         global_garbage_collector()
                         
                     if attempt < max_item_attempts:
-                        # 🚨 FIX: Progressive Global Backoff mathematically accounts for sustained API outages
                         cooldown = 60 * attempt
                         print(f"⏳ [SAFETY PROTOCOL] Enforcing {cooldown}-second progressive cooldown before internal retry...")
                         time.sleep(cooldown)
@@ -187,6 +195,7 @@ def run_production_cycle():
             save_matrix(matrix)
 
         print(f"🏁 [FINISH] {success_count} videos sent to Vault.")
+        notify_summary(True, f"🏁 **Production Cycle Complete**\nSuccessfully processed {success_count} videos.")
         
     except Exception as fatal_e:
         quota_manager.diagnose_fatal_error("System Core (main.py)", fatal_e)
