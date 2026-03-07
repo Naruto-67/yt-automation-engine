@@ -96,6 +96,10 @@ def publish_vault_videos():
         ai_times = get_optimal_publish_times(youtube)
         now = datetime.utcnow()
 
+        # 🚨 FIX: Mathematical trackers to prevent Discord from lying about successful scheduling.
+        published_count = 0
+        published_times = []
+
         for idx, item in enumerate(items):
             vid_id = item["snippet"]["resourceId"]["videoId"]
             
@@ -160,6 +164,10 @@ def publish_vault_videos():
                     if m_item.get("youtube_id") == vid_id:
                         m_item['published'] = True
                         m_item['published_date'] = datetime.utcnow().isoformat()
+                
+                # Update trackers on flawless execution
+                published_count += 1
+                published_times.append(target_time_str)
                         
             except Exception as vid_e:
                 print(f"⚠️ [PUBLISHER] Failed to publish video {vid_id}: {vid_e}.")
@@ -168,7 +176,6 @@ def publish_vault_videos():
                 if "404" in str(vid_e) or "not found" in str(vid_e).lower():
                     print(f"🗑️ [PUBLISHER] 404 Detected. Removing ghost video {vid_id} from memory.")
                     matrix = [m for m in matrix if m.get("youtube_id") != vid_id]
-                    # Persist matrix change immediately so the 404 ghost doesn't survive the continue
                     tmp_path = matrix_path + ".tmp"
                     with open(tmp_path, "w", encoding="utf-8") as f:
                         json.dump(matrix, f, indent=4)
@@ -180,8 +187,13 @@ def publish_vault_videos():
             json.dump(matrix, f, indent=4)
         os.replace(tmp_path, matrix_path)
         
-        times_str = ", ".join(ai_times[:len(items)])
-        notify_summary(True, f"🚀 **Publisher Online**\nScheduled {len(items)} videos for {times_str} UTC. Routed to Mega-Playlists.")
+        # 🚨 FIX: 100% Accurate Discord Notification Engine
+        if published_count > 0:
+            times_str = ", ".join(published_times)
+            notify_summary(True, f"🚀 **Publisher Online**\nSuccessfully scheduled {published_count} videos for {times_str} UTC. Routed to Mega-Playlists.")
+        else:
+            notify_summary(False, f"⚠️ **Publisher Alert**\nAttempted to publish videos, but encountered 404 Ghosts or Quota blocks. Matrix cleaned and queue preserved.")
+            
     except Exception as e:
         quota_manager.diagnose_fatal_error("schedule_video.py", e)
 
