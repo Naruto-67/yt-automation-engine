@@ -13,7 +13,6 @@ class MasterQuotaManager:
         self.state_file = os.path.join(self.memory_dir, "api_state.json")
         self.gemini_key = os.environ.get("GEMINI_API_KEY")
         
-        # 🚨 FIX: Calibrated exactly to your dashboard limits (500 + 20 + 20 + 20)
         self.gemini_text_limit = 550 
         self.cloudflare_image_limit = 95 
         self.hf_image_limit = 50 
@@ -21,12 +20,12 @@ class MasterQuotaManager:
         self.yt_quota_limit = 9500 
         self.gemini_blocked_for_run = False 
         
-        # 🚨 FIX: The Golden Routing Table. We hit the 500-limit model first, then cascade through the 20-limit models.
+        # 🚨 FIX: Strict canonical names to prevent google-genai 404 Endpoint Rot. Avoid '-latest' flags.
         self.TEXT_MODELS = [
-            'gemini-3.1-flash-lite', 
-            'gemini-3-flash', 
+            'gemini-2.5-flash', 
             'gemini-2.5-flash-lite', 
-            'gemini-2.5-flash'
+            'gemini-2.0-flash',
+            'gemini-1.5-flash'
         ]
         self._ensure_state_exists()
 
