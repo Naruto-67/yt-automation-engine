@@ -12,7 +12,6 @@ def get_deep_channel_context(youtube):
         uploads_id = youtube.channels().list(part="contentDetails", mine=True).execute()["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
         quota_manager.consume_points("youtube", 1)
         
-        # 🚨 FIX: Expanded temporal horizon to 50 videos (approx. 2 weeks) for deep analytical smoothing
         vids = youtube.playlistItems().list(part="snippet", playlistId=uploads_id, maxResults=50).execute()
         quota_manager.consume_points("youtube", 1)
         
@@ -71,7 +70,6 @@ def run_dynamic_research():
             try: existing_matrix = json.load(f)
             except: pass
 
-    # 🚨 FIX: Memory Leak Pruning. Destroys published/failed items from JSON to prevent infinite file bloat.
     pruned_matrix = [i for i in existing_matrix if not i.get("published", False) and not i.get("failed_flag", False)]
     unprocessed_count = len([i for i in pruned_matrix if not i.get("processed", False)])
     needed_topics = 21 - unprocessed_count
@@ -79,7 +77,6 @@ def run_dynamic_research():
     if needed_topics <= 0:
         print(f"🛑 [RESEARCHER] Matrix is already at maximum capacity ({unprocessed_count} topics). Skipping API call to save money.")
         
-        # Save the pruned matrix to clean up the garbage even if we don't fetch new topics
         tmp_path = matrix_path + ".tmp"
         with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(pruned_matrix, f, indent=4)
@@ -139,9 +136,20 @@ def run_dynamic_research():
                 historical_topics.add(item.get("topic", "").lower().strip())
             
             unique_new_topics = []
+            
+            # 🚨 FIX: Intra-Batch Semantic Sieve. Prevents the AI from hallucinating duplicates in the exact same generation payload.
             for item in new_matrix:
                 topic_clean = item.get("topic", "").lower().strip()
-                if topic_clean not in historical_topics:
+                # We strip non-alphanumeric chars to catch "Mandela Effect!" vs "Mandela Effect"
+                semantic_core = re.sub(r'[^a-z0-9]', '', topic_clean)
+                
+                is_duplicate = False
+                for existing_topic in historical_topics:
+                    if semantic_core in re.sub(r'[^a-z0-9]', '', existing_topic):
+                        is_duplicate = True
+                        break
+                        
+                if not is_duplicate:
                     item["processed"] = False
                     unique_new_topics.append(item)
                     historical_topics.add(topic_clean) 
