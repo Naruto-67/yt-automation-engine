@@ -35,7 +35,7 @@ def get_historical_time_data(youtube):
         return "No historical data available."
 
 def get_optimal_publish_times(youtube):
-    print("🧠 [PUBLISHER] Asking Gemini Data Scientist for optimal retention times...")
+    print("🧠 [PUBLISHER] Asking Data Scientist for optimal retention times...")
     historical_data = get_historical_time_data(youtube)
     
     prompt = f"""
@@ -63,7 +63,7 @@ def get_optimal_publish_times(youtube):
     return ["15:00", "23:00"] 
 
 def publish_vault_videos():
-    if not quota_manager.can_afford_youtube(400):
+    if not quota_manager.can_afford_youtube(600):
         print("🛑 [QUOTA GUARDIAN] YouTube Quota too low to safely publish. Aborting to prevent API ban.")
         return
 
@@ -91,11 +91,16 @@ def publish_vault_videos():
             vid_id = item["snippet"]["resourceId"]["videoId"]
             
             try:
-                niche_tag = "Viral Shorts"
+                # Default assume it's a story unless proven otherwise
+                is_fact_based = False
                 for m_item in matrix:
                     if m_item.get("youtube_id") == vid_id:
-                        niche_tag = f"{m_item['niche'].title()} Shorts"
+                        is_fact_based = any(k in m_item['niche'].lower() for k in ['fact', 'hack', 'trend', 'brainrot'])
                         break
+                
+                # 🚨 FIX: Mega-Playlist Routing Logic
+                primary_playlist_name = "All Uploads | Viral Shorts"
+                secondary_playlist_name = "Mind-Blowing Facts" if is_fact_based else "Immersive AI Stories"
                 
                 target_time_str = ai_times[idx] if idx < len(ai_times) else "15:00"
                 try:
@@ -111,6 +116,7 @@ def publish_vault_videos():
                     target_dt += timedelta(days=1) 
                 pub_time = target_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
                 
+                # 1. Update Video Status to Public/Scheduled
                 youtube.videos().update(
                     part="status", 
                     body={
@@ -125,15 +131,26 @@ def publish_vault_videos():
                 quota_manager.consume_points("youtube", 50) 
                 time.sleep(5)
                 
-                niche_playlist = get_or_create_playlist(youtube, niche_tag, "public")
-                youtube.playlistItems().insert(part="snippet", body={"snippet": {"playlistId": niche_playlist, "resourceId": {"kind": "youtube#video", "videoId": vid_id}}}).execute()
-                quota_manager.consume_points("youtube", 50) 
-                time.sleep(5)
+                # 2. Add to Primary "All Uploads" Mega-Playlist
+                primary_playlist_id = get_or_create_playlist(youtube, primary_playlist_name, "public")
+                if primary_playlist_id:
+                    youtube.playlistItems().insert(part="snippet", body={"snippet": {"playlistId": primary_playlist_id, "resourceId": {"kind": "youtube#video", "videoId": vid_id}}}).execute()
+                    quota_manager.consume_points("youtube", 50) 
+                    time.sleep(3)
                 
+                # 3. Add to Secondary Categorized Playlist
+                secondary_playlist_id = get_or_create_playlist(youtube, secondary_playlist_name, "public")
+                if secondary_playlist_id:
+                    youtube.playlistItems().insert(part="snippet", body={"snippet": {"playlistId": secondary_playlist_id, "resourceId": {"kind": "youtube#video", "videoId": vid_id}}}).execute()
+                    quota_manager.consume_points("youtube", 50) 
+                    time.sleep(3)
+                
+                # 4. Remove from Vault
                 youtube.playlistItems().delete(id=item["id"]).execute()
                 quota_manager.consume_points("youtube", 50) 
-                time.sleep(5)
+                time.sleep(3)
                 
+                # 5. Update Matrix Memory
                 for m_item in matrix:
                     if m_item.get("youtube_id") == vid_id:
                         m_item['published'] = True
@@ -148,13 +165,12 @@ def publish_vault_videos():
                     matrix = [m for m in matrix if m.get("youtube_id") != vid_id]
                 continue
 
-            # 🚨 FIX: Atomic Save injected deep inside the loop to guarantee State Persistence per-video
             tmp_path = matrix_path + ".tmp"
             with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(matrix, f, indent=4)
             os.replace(tmp_path, matrix_path)
             
-        notify_summary(True, f"Publisher scheduled 2 videos for {ai_times[0]} and {ai_times[1]} UTC based on AI Data Correlation.")
+        notify_summary(True, f"🚀 **Publisher Online**\nScheduled 2 videos for {ai_times[0]} and {ai_times[1]} UTC. Routed to Mega-Playlists.")
     except Exception as e:
         quota_manager.diagnose_fatal_error("schedule_video.py", e)
 
