@@ -105,8 +105,11 @@ def upload_to_youtube_vault(video_path, topic, metadata):
             try:
                 status, response = request.next_chunk()
                 error_count = 0
-            # 🚨 FIX: Catches all native socket drops and SSL handshake failures, ensuring the chunk upload loop survives generic drops.
             except Exception as net_err:
+                # 🚨 FIX: Pass hard quota limits upwards to prevent the engine from quarantining videos.
+                if isinstance(net_err, HttpError) and net_err.resp.status == 403 and b"quota" in net_err.content.lower():
+                    raise net_err
+                
                 error_count += 1
                 print(f"⚠️ [VAULT] Network drop during chunk upload (Attempt {error_count}/5): {net_err}")
                 if error_count >= 5:
@@ -130,6 +133,11 @@ def upload_to_youtube_vault(video_path, topic, metadata):
             
         notify_vault_secure(safe_title, video_id, vault_playlist_id)
         return True, video_id
+        
     except Exception as e:
+        # Pass 403 upwards explicitly
+        if isinstance(e, HttpError) and e.resp.status == 403 and b"quota" in e.content.lower():
+            raise e
+            
         quota_manager.diagnose_fatal_error("youtube_manager.py", e)
         return False, None
