@@ -9,7 +9,8 @@ def download_cinematic_font():
     font_path = "/tmp/Montserrat-Bold.ttf"
     if not os.path.exists(font_path):
         print("📥 [RENDERER] Downloading Cinematic Font...")
-        url = "https://github.com/googlefonts/montserrat/raw/main/fonts/ttf/Montserrat-Bold.ttf"
+        # 🚨 FIX: Updated to the correct, permanent Google Fonts OFL directory.
+        url = "https://github.com/google/fonts/raw/main/ofl/montserrat/Montserrat-Bold.ttf"
         try:
             req = urllib.request.urlopen(url, timeout=15)
             with open(font_path, 'wb') as f:
@@ -65,7 +66,11 @@ def srt_to_ass(srt_path, ass_path, style):
 
 def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=60):
     frames = int(duration * fps)
+    
+    # 🚨 FIX: Reverted back to native FFmpeg Pan & Scan cropping. 
+    # This takes the 1024x1024 raw AI square, upscales it dynamically, and perfectly center-crops it to 1080x1920 without blurring.
     prep_filter = "scale=2160:3840:force_original_aspect_ratio=increase,crop=2160:3840"
+    
     effects = [
         f"zoompan=z='min(zoom+0.0007,1.15)':x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}", 
         f"zoompan=z='1.15-0.0007*on':x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}",      
@@ -73,6 +78,7 @@ def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=60):
         f"zoompan=z='1.15':x='(iw-iw/zoom)*(1-(on/{frames}))':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}"  
     ]
     full_filter = f"{prep_filter},{effects[index % len(effects)]},eq=contrast=1.05:saturation=1.15"
+    
     try:
         subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", image_path, "-vf", full_filter, "-c:v", "libx264", "-t", str(duration), "-pix_fmt", "yuv420p", "-preset", "fast", "-crf", "18", output_path], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True, timeout=600)
         return True
@@ -127,7 +133,6 @@ def render_video(image_paths, audio_path, output_path, scene_weights=None, water
     safe_ass = ass_path.replace('\\', '/').replace(':', r'\:')
     
     safe_watermark_text = re.sub(r'[^a-zA-Z0-9\s]', '', watermark_text)
-    # Reverting to a standard space but letting FFmpeg handle quoting to prevent missing glyphs
     safe_watermark = safe_watermark_text
     
     watermark_filter = f",drawtext=fontfile='{safe_font}':text='{safe_watermark}':fontcolor=0xD3D3D3@0.25:shadowcolor=0x000000@0.25:shadowx=3:shadowy=3:fontsize=60:x=(w-text_w)/2:y=h-250"
