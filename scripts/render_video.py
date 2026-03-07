@@ -3,7 +3,6 @@ import subprocess
 import json
 import re
 import urllib.request
-import urllib.error
 from pydub import AudioSegment
 
 def download_cinematic_font():
@@ -12,7 +11,6 @@ def download_cinematic_font():
         print("📥 [RENDERER] Downloading Cinematic Font...")
         url = "https://github.com/googlefonts/montserrat/raw/main/fonts/ttf/Montserrat-Bold.ttf"
         try:
-            # 🚨 FIX: Replaced urlretrieve with urlopen to explicitly enforce a 15-second timeout, preventing indefinite socket deadlocks
             req = urllib.request.urlopen(url, timeout=15)
             with open(font_path, 'wb') as f:
                 f.write(req.read())
@@ -89,14 +87,16 @@ def render_video(image_paths, audio_path, output_path, scene_weights=None, water
     print(f"⚙️ [RENDERER] Executing Master Render Engine...")
     srt_path, ass_path, temp_concat, temp_merged = audio_path.replace(".wav", ".srt"), audio_path.replace(".wav", ".ass"), "concat_list.txt", "temp_merged_no_subs.mp4"
     
-    if not srt_to_ass(srt_path, ass_path, get_style_config(style_name)): return False
+    if not srt_to_ass(srt_path, ass_path, get_style_config(style_name)): return False, 0.0, 0
     
     try:
         audio = AudioSegment.from_file(audio_path)
         total_dur = min(len(audio) / 1000.0, 59.0)
         if len(audio) / 1000.0 > 59.0:
             audio[:59000].fade_out(1500).export(audio_path, format="wav")
-    except: return False
+    except Exception as e: 
+        print(f"⚠️ [RENDERER] Audio parse failed: {e}")
+        return False, 0.0, 0
 
     clip_durs = [w * total_dur for w in scene_weights] if scene_weights else [total_dur / len(image_paths)] * len(image_paths)
     
@@ -108,6 +108,10 @@ def render_video(image_paths, audio_path, output_path, scene_weights=None, water
     for i, img in enumerate(image_paths):
         clip_out = f"temp_anim_{i}.mp4"
         if create_ken_burns_clip(img, clip_durs[i], clip_out, index=i): clip_files.append(clip_out)
+
+    if not clip_files:
+        print("⚠️ [RENDERER] No visual clips were generated successfully. Aborting FFmpeg concat.")
+        return False, total_dur, 0
 
     with open(temp_concat, "w") as f:
         for c in clip_files: f.write(f"file '{c}'\n")
@@ -123,7 +127,8 @@ def render_video(image_paths, audio_path, output_path, scene_weights=None, water
     safe_ass = ass_path.replace('\\', '/').replace(':', r'\:')
     
     safe_watermark_text = re.sub(r'[^a-zA-Z0-9\s]', '', watermark_text)
-    safe_watermark = safe_watermark_text.replace(" ", "\u2002")
+    # Reverting to a standard space but letting FFmpeg handle quoting to prevent missing glyphs
+    safe_watermark = safe_watermark_text
     
     watermark_filter = f",drawtext=fontfile='{safe_font}':text='{safe_watermark}':fontcolor=0xD3D3D3@0.25:shadowcolor=0x000000@0.25:shadowx=3:shadowy=3:fontsize=60:x=(w-text_w)/2:y=h-250"
     
