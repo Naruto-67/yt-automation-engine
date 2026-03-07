@@ -70,11 +70,10 @@ def publish_vault_videos():
     youtube = get_youtube_client()
     if not youtube: return
     
+    matrix_path = os.path.join(os.path.dirname(__file__), "..", "memory", "content_matrix.json")
+    matrix = []
+    
     try:
-        matrix_path = os.path.join(os.path.dirname(__file__), "..", "memory", "content_matrix.json")
-        matrix = []
-        
-        # 🚨 FIX: Safe fallback if matrix corrupted during IO operations
         if os.path.exists(matrix_path):
             try:
                 with open(matrix_path, "r") as f: matrix = json.load(f)
@@ -83,11 +82,15 @@ def publish_vault_videos():
                 matrix = []
 
         vault_id = get_or_create_playlist(youtube, "Vault Backup")
+        if not vault_id:
+            print("⚠️ [PUBLISHER] Failed to find or create the Vault Backup playlist. Halting publisher to protect metadata.")
+            return
+
         items = youtube.playlistItems().list(part="snippet", playlistId=vault_id, maxResults=2).execute().get("items", [])
         quota_manager.consume_points("youtube", 1) 
         
-        if len(items) < 2:
-            print("⚠️ [PUBLISHER] Not enough videos in the vault to execute dual-release.")
+        if len(items) == 0:
+            print("⚠️ [PUBLISHER] No videos found in the vault.")
             return
 
         ai_times = get_optimal_publish_times(youtube)
@@ -146,9 +149,12 @@ def publish_vault_videos():
                     quota_manager.consume_points("youtube", 50) 
                     time.sleep(3)
                 
-                youtube.playlistItems().delete(id=item["id"]).execute()
-                quota_manager.consume_points("youtube", 50) 
-                time.sleep(3)
+                try:
+                    youtube.playlistItems().delete(id=item["id"]).execute()
+                    quota_manager.consume_points("youtube", 50) 
+                    time.sleep(3)
+                except Exception as del_err:
+                    print(f"⚠️ [PUBLISHER] Failed to remove video {vid_id} from Vault Playlist: {del_err}")
                 
                 for m_item in matrix:
                     if m_item.get("youtube_id") == vid_id:
@@ -162,14 +168,20 @@ def publish_vault_videos():
                 if "404" in str(vid_e) or "not found" in str(vid_e).lower():
                     print(f"🗑️ [PUBLISHER] 404 Detected. Removing ghost video {vid_id} from memory.")
                     matrix = [m for m in matrix if m.get("youtube_id") != vid_id]
+                    # Persist matrix change immediately so the 404 ghost doesn't survive the continue
+                    tmp_path = matrix_path + ".tmp"
+                    with open(tmp_path, "w", encoding="utf-8") as f:
+                        json.dump(matrix, f, indent=4)
+                    os.replace(tmp_path, matrix_path)
                 continue
 
-            tmp_path = matrix_path + ".tmp"
-            with open(tmp_path, "w", encoding="utf-8") as f:
-                json.dump(matrix, f, indent=4)
-            os.replace(tmp_path, matrix_path)
-            
-        notify_summary(True, f"🚀 **Publisher Online**\nScheduled 2 videos for {ai_times[0]} and {ai_times[1]} UTC. Routed to Mega-Playlists.")
+        tmp_path = matrix_path + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(matrix, f, indent=4)
+        os.replace(tmp_path, matrix_path)
+        
+        times_str = ", ".join(ai_times[:len(items)])
+        notify_summary(True, f"🚀 **Publisher Online**\nScheduled {len(items)} videos for {times_str} UTC. Routed to Mega-Playlists.")
     except Exception as e:
         quota_manager.diagnose_fatal_error("schedule_video.py", e)
 
