@@ -42,16 +42,16 @@ def extract_scene_data_dynamically(scene_dict, fallback_topic):
     return narr, prompt, query
 
 def generate_script(niche, topic):
-    # 🚨 FIX: Niche-Aware Logic flags
     is_fact_based = any(k in niche.lower() for k in ['fact', 'hack', 'trend', 'brainrot'])
     target_scenes = random.randint(3, 5) if is_fact_based else random.randint(5, 7)
     
+    # 🚨 FIX: Structural Directives force Llama to write longer, richer text inside the JSON.
     pacing_rules = """
     PACING: Keep it extremely fast, punchy, and concise. High energy loop.
-    WORD COUNT: You MUST write exactly 40 to 65 words in total across all scenes.
+    LENGTH: Write exactly 1 or 2 dense sentences per scene.
     """ if is_fact_based else """
     PACING: Build a deep, engaging, and detailed narrative. Expand on the lore.
-    WORD COUNT: You MUST write exactly 90 to 115 words in total across all scenes. Make it highly descriptive.
+    LENGTH: You MUST write at least 3 long, highly descriptive sentences per scene. Do NOT output short fragments. The total script must be over 80 words.
     """
     
     prompt = f"""
@@ -100,14 +100,17 @@ def generate_script(niche, topic):
                 pexels_queries = [s[2] for s in parsed_scenes]
                 
                 if not full_script.strip() or full_script == topic:
-                    raise ValueError("JSON parsed, but no valid text extracted.")
+                    print("      ⚠️ [TEXT REJECTED] Failed to parse valid text.")
+                    return None, [], [], [], provider
                 
-                # 🚨 FIX: Instant Text Pre-Validation. Kills bad Llama scripts instantly before wasting Audio API.
+                # 🚨 FIX: Quiet return instead of Exception. Keeps the inner loop alive!
                 word_count = len(full_script.split())
-                if is_fact_based and word_count > 85:
-                    raise ValueError(f"Script too long for a fast-paced Fact/Trend ({word_count} words). Regenerating.")
-                if not is_fact_based and word_count < 65:
-                    raise ValueError(f"Script too short for a Story narrative ({word_count} words). Regenerating.")
+                if is_fact_based and word_count > 90:
+                    print(f"      ⚠️ [TEXT REJECTED] Fact script too long ({word_count} words). Regenerating...")
+                    return None, [], [], [], provider
+                if not is_fact_based and word_count < 55:
+                    print(f"      ⚠️ [TEXT REJECTED] Story script too short ({word_count} words). Regenerating...")
+                    return None, [], [], [], provider
 
                 total_chars = sum(len(s[0]) for s in parsed_scenes)
                 scene_weights = [len(s[0]) / total_chars for s in parsed_scenes] if total_chars > 0 else []
@@ -115,5 +118,5 @@ def generate_script(niche, topic):
                 return full_script, prompts, pexels_queries, scene_weights, provider
         return None, [], [], [], "Failed"
     except Exception as e:
-        # Will bounce ValueError back to main.py for a 0-second instant retry
-        raise e
+        print(f"      ⚠️ [SCRIPT GEN ERROR] {e}")
+        return None, [], [], [], "Failed"
