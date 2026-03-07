@@ -60,19 +60,34 @@ def run_dynamic_research():
     youtube = get_youtube_client()
     channel_context = get_deep_channel_context(youtube)
     
+    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    matrix_path = os.path.join(root_dir, "memory", "content_matrix.json")
+    archive_path = os.path.join(root_dir, "memory", "topic_archive.txt")
+    
+    existing_matrix = []
+    if os.path.exists(matrix_path):
+        with open(matrix_path, "r", encoding="utf-8") as f:
+            try: existing_matrix = json.load(f)
+            except: pass
+
+    # 🚨 FIX: The Queue Hoarder Shield. Assess how many topics we ACTUALLY need before asking AI.
+    unprocessed_count = len([i for i in existing_matrix if not i.get("processed", False) and not i.get("failed_flag", False)])
+    needed_topics = 21 - unprocessed_count
+    
+    if needed_topics <= 0:
+        print(f"🛑 [RESEARCHER] Matrix is already at maximum capacity ({unprocessed_count} topics). Skipping API call to save money.")
+        return
+        
+    print(f"📊 [RESEARCHER] Need exactly {needed_topics} topics to reach 21 capacity. Calling AI...")
+
     prompt = f"""
-    You are an Elite YouTube Shorts Strategist. Your job is to analyze live internet trends and build a 21-video content matrix for an AI automation channel.
+    You are an Elite YouTube Shorts Strategist. Your job is to analyze live internet trends and generate EXACTLY {max(5, needed_topics + 5)} fresh video topics.
     
-    Review our channel data below. You must use the "Explore and Exploit" framework to build the 21 topics:
-    
-    MANDATORY BUSINESS QUOTA:
-    1. THE BASELINE: At least 2 "Short Story" topics and 2 "Facts" topics (pick the best sub-category based on data or trends).
-    2. THE EXPLOIT: 12 topics MUST double-down on whatever is currently working best in the channel data below. If a format or topic went viral, milk it.
-    3. THE EXPLORE (WILDCARDS): 5 topics MUST be completely NEW, highly viral internet niches that are perfect for AI image generation.
+    Review our channel data below. Use the "Explore and Exploit" framework:
     
     {channel_context}
     
-    Return ONLY a raw JSON array of exactly 21 objects. No intro text. Do not use markdown blocks.
+    Return ONLY a raw JSON array of objects. No intro text. Do not use markdown blocks.
     Format:
     [
         {{"niche": "Liminal Spaces", "topic": "The infinite pool room experiment"}},
@@ -89,19 +104,7 @@ def run_dynamic_research():
         
         if match:
             new_matrix = json.loads(match.group(0))
-            for item in new_matrix: item["processed"] = False 
             
-            root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-            matrix_path = os.path.join(root_dir, "memory", "content_matrix.json")
-            archive_path = os.path.join(root_dir, "memory", "topic_archive.txt")
-            
-            existing_matrix = []
-            if os.path.exists(matrix_path):
-                with open(matrix_path, "r", encoding="utf-8") as f:
-                    try: existing_matrix = json.load(f)
-                    except: pass
-                    
-            # 🚨 FIX: The "Amnesia Shield". Build an absolute history log to prevent 365-day duplication.
             historical_topics = set()
             if os.path.exists(archive_path):
                 with open(archive_path, "r", encoding="utf-8") as f:
@@ -132,19 +135,23 @@ def run_dynamic_research():
                     historical_topics.add(topic_clean) 
             
             random.shuffle(unique_new_topics)
-            final_matrix = preserved_items + unique_new_topics
             
-            # Save the updated matrix
-            with open(matrix_path, "w", encoding="utf-8") as f:
+            # Slice the list so we only add EXACTLY what is needed to reach 21
+            final_new_batch = unique_new_topics[:needed_topics]
+            
+            final_matrix = preserved_items + final_new_batch
+            
+            tmp_path = matrix_path + ".tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(final_matrix, f, indent=4)
+            os.replace(tmp_path, matrix_path)
                 
-            # 🚨 FIX: Append the new topics to the permanent text vault.
             with open(archive_path, "a", encoding="utf-8") as f:
-                for item in unique_new_topics:
+                for item in final_new_batch:
                     f.write(f"{item.get('topic', '').strip()}\n")
                 
-            print(f"✅ [RESEARCHER] Matrix updated. Kept {len(preserved_items)} queue items + {len(unique_new_topics)} UNIQUE new topics.")
-            notify_summary(True, f"Deep Research Complete. Historical Archive checked. {len(unique_new_topics)} unique niches generated.")
+            print(f"✅ [RESEARCHER] Matrix updated. Kept {len(preserved_items)} queue items + added {len(final_new_batch)} perfectly timed topics.")
+            notify_summary(True, f"🧠 **AI Researcher Update**\nQueue restocked. Generated {len(final_new_batch)} highly unique niches.")
         else: raise ValueError("AI returned non-JSON parsable content.")
 
     except Exception as e:
