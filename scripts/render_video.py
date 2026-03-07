@@ -47,7 +47,6 @@ def srt_to_ass(srt_path, ass_path, style):
         events = []
         for block in content.strip().split('\n\n'):
             lines = block.split('\n')
-            # 🚨 FIX: Strict bounds checking to silently ignore malformed/trailing silence blocks from Whisper
             if len(lines) >= 3 and "-->" in lines[1]:
                 times = re.findall(r'(\d+:\d+:\d+,\d+)', lines[1])
                 if len(times) == 2:
@@ -70,8 +69,17 @@ def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=60):
         f"zoompan=z='1.15':x='(iw-iw/zoom)*(1-(on/{frames}))':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}"  
     ]
     full_filter = f"{prep_filter},{effects[index % len(effects)]},eq=contrast=1.05:saturation=1.15"
-    subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", image_path, "-vf", full_filter, "-c:v", "libx264", "-t", str(duration), "-pix_fmt", "yuv420p", "-preset", "fast", "-crf", "18", output_path], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True)
-    return True
+    
+    # 🚨 FIX: Injected timeout=600 to prevent FFmpeg from stalling the Github Action infinitely on corrupted pixels
+    try:
+        subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", image_path, "-vf", full_filter, "-c:v", "libx264", "-t", str(duration), "-pix_fmt", "yuv420p", "-preset", "fast", "-crf", "18", output_path], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True, timeout=600)
+        return True
+    except subprocess.TimeoutExpired:
+        print(f"⚠️ [RENDERER] FFmpeg timed out creating clip for {image_path}")
+        return False
+    except Exception as e:
+        print(f"⚠️ [RENDERER] FFmpeg failed on clip: {e}")
+        return False
 
 def render_video(image_paths, audio_path, output_path, scene_weights=None, watermark_text="GhostEngine", style_name="default"):
     print(f"⚙️ [RENDERER] Executing Master Render Engine...")
@@ -100,7 +108,11 @@ def render_video(image_paths, audio_path, output_path, scene_weights=None, water
     with open(temp_concat, "w") as f:
         for c in clip_files: f.write(f"file '{c}'\n")
 
-    subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", temp_concat, "-i", audio_path, "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", temp_merged], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True)
+    try:
+        subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", temp_concat, "-i", audio_path, "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", temp_merged], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True, timeout=600)
+    except Exception as e:
+        print(f"⚠️ [RENDERER] FFmpeg concatenation failed or timed out: {e}")
+        return False, total_dur, 0
 
     font_path = download_cinematic_font()
     safe_font = font_path.replace('\\', '/').replace(':', r'\:')
@@ -111,7 +123,11 @@ def render_video(image_paths, audio_path, output_path, scene_weights=None, water
     
     watermark_filter = f",drawtext=fontfile='{safe_font}':text='{safe_watermark}':fontcolor=0xD3D3D3@0.25:shadowcolor=0x000000@0.25:shadowx=3:shadowy=3:fontsize=60:x=(w-text_w)/2:y=h-250"
     
-    subprocess.run(["ffmpeg", "-y", "-i", temp_merged, "-vf", f"ass='{safe_ass}'{watermark_filter}", "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-c:a", "copy", output_path], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True)
+    try:
+        subprocess.run(["ffmpeg", "-y", "-i", temp_merged, "-vf", f"ass='{safe_ass}'{watermark_filter}", "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-c:a", "copy", output_path], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True, timeout=600)
+    except Exception as e:
+        print(f"⚠️ [RENDERER] FFmpeg final compilation failed or timed out: {e}")
+        return False, total_dur, 0
 
     if not os.path.exists(output_path): 
         return False, total_dur, 0
