@@ -7,7 +7,7 @@ from scripts.discord_notifier import notify_summary
 from scripts.youtube_manager import get_youtube_client
 
 def _jaccard_similarity(str_a, str_b):
-    # 🚨 FIX: Math inclusion. Now catches 2-letter acronyms (AI, VR, US) and numbers (3D, 4K) preventing false-positive duplication logic.
+    # 🚨 RESTORED: Jaccard similarity. Prevents deep-time substring singularity.
     tokens_a = set(re.findall(r'[a-z0-9]{2,}', str_a))
     tokens_b = set(re.findall(r'[a-z0-9]{2,}', str_b))
     if not tokens_a or not tokens_b:
@@ -22,6 +22,7 @@ def get_deep_channel_context(youtube):
         uploads_id = youtube.channels().list(part="contentDetails", mine=True).execute()["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
         quota_manager.consume_points("youtube", 1)
         
+        # Expanded temporal horizon to 50 videos
         vids = youtube.playlistItems().list(part="snippet", playlistId=uploads_id, maxResults=50).execute()
         quota_manager.consume_points("youtube", 1)
         
@@ -147,6 +148,8 @@ def run_dynamic_research():
         if not raw_text: raise Exception("All AI providers failed to respond.")
 
         clean_json_str = raw_text.replace("```json", "").replace("```", "").strip()
+        
+        # 🚨 RESTORED: Index mathematical extraction to survive LLM conversational padding.
         start_idx = clean_json_str.find('[')
         end_idx = clean_json_str.rfind(']')
         
