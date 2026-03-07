@@ -3,38 +3,11 @@ import requests
 import urllib.parse
 import time
 import random
-import subprocess
 import base64
 import re
-from PIL import Image, ImageDraw, ImageFilter
 from scripts.quota_manager import quota_manager
 
 SIMULATE_CASCADE_TEST = False 
-
-def apply_cinematic_padding(image_path):
-    try:
-        img = Image.open(image_path).convert("RGB")
-        target_w, target_h = 1080, 1920
-        
-        img_ratio = img.width / img.height
-        target_ratio = target_w / target_h
-        
-        if abs(img_ratio - target_ratio) > 0.1: 
-            bg = img.resize((target_w, int(target_w / img_ratio)), Image.Resampling.LANCZOS)
-            bg = bg.resize((target_w, target_h), Image.Resampling.LANCZOS) 
-            bg = bg.filter(ImageFilter.GaussianBlur(50))
-            
-            fg = img.copy()
-            fg.thumbnail((target_w, target_h), Image.Resampling.LANCZOS)
-            
-            offset = ((target_w - fg.width) // 2, (target_h - fg.height) // 2)
-            bg.paste(fg, offset)
-            bg.save(image_path, "JPEG", quality=95)
-        else:
-            img = img.resize((target_w, target_h), Image.Resampling.LANCZOS)
-            img.save(image_path, "JPEG", quality=95)
-    except Exception as e:
-        print(f"      ⚠️ [VISUALS] Cinematic padding failed, proceeding with raw image: {e}")
 
 def generate_cloudflare_image(prompt, output_path):
     print("      [Tier 1: Cloudflare AI] Attempting Official FLUX generation...")
@@ -64,11 +37,9 @@ def generate_cloudflare_image(prompt, output_path):
                     if "result" in data and "image" in data["result"]:
                         img_data = base64.b64decode(data["result"]["image"])
                         with open(output_path, 'wb') as f: f.write(img_data)
-                        apply_cinematic_padding(output_path)
                         quota_manager.consume_points("cloudflare", 1)
                         return True, ""
                 with open(output_path, 'wb') as f: f.write(response.content)
-                apply_cinematic_padding(output_path)
                 quota_manager.consume_points("cloudflare", 1)
                 return True, ""
             elif response.status_code >= 500 and retry == 0:
@@ -121,7 +92,6 @@ def generate_huggingface_cascade(prompt, output_path):
             if response.status_code == 200:
                 with open(output_path, 'wb') as f: 
                     f.write(response.content)
-                apply_cinematic_padding(output_path)
                 quota_manager.consume_points("huggingface", 1)
                 return True, f"HF ({short_name})"
             elif response.status_code == 400:
@@ -144,7 +114,6 @@ def generate_huggingface_cascade(prompt, output_path):
                 response = requests.post(url, headers=headers, json=payload, timeout=(15, 60))
                 if response.status_code == 200:
                     with open(output_path, 'wb') as f: f.write(response.content)
-                    apply_cinematic_padding(output_path)
                     quota_manager.consume_points("huggingface", 1)
                     return True, f"HF ({short_name})"
         except: pass
@@ -152,9 +121,7 @@ def generate_huggingface_cascade(prompt, output_path):
     return False, "HF Models Exhausted/Blocked"
 
 def fallback_pexels_image(search_query, output_path, is_retry=False):
-    clean_query = re.sub(r'[^a-zA-Z\s]', '', search_query).strip()
-    
-    # 🚨 FIX: Prevent words like "AI", "VR", "3D" from being destroyed by the length filter
+    clean_query = re.sub(r'[^a-zA-Z0-9\s]', '', search_query).strip()
     words = [w for w in clean_query.split() if len(w) >= 2]
     safe_query = " ".join(words[:3]) if words else "cinematic background"
     
@@ -174,7 +141,6 @@ def fallback_pexels_image(search_query, output_path, is_retry=False):
             img_url = photo['src']['large2x']
             img_data = requests.get(img_url, timeout=(10, 30)).content
             with open(output_path, 'wb') as f: f.write(img_data)
-            apply_cinematic_padding(output_path)
             return True, ""
             
         elif not is_retry:
@@ -186,29 +152,8 @@ def fallback_pexels_image(search_query, output_path, is_retry=False):
         
     return False, "No images found"
 
-def generate_offline_gradient(output_path):
-    print(f"      🛡️ [Tier 4: Offline Failsafe] Total API Exhaustion. Generating Mathematical Gradient...")
-    try:
-        width, height = 1080, 1920
-        image = Image.new("RGB", (width, height), "#000000")
-        draw = ImageDraw.Draw(image)
-        
-        r1, g1, b1 = random.randint(10, 50), random.randint(10, 50), random.randint(50, 100)
-        r2, g2, b2 = random.randint(0, 20), random.randint(0, 20), random.randint(0, 20)
-        
-        for y in range(height):
-            r = int(r1 + (r2 - r1) * (y / height))
-            g = int(g1 + (g2 - g1) * (y / height))
-            b = int(b1 + (b2 - b1) * (y / height))
-            draw.line([(0, y), (width, y)], fill=(r, g, b))
-            
-        image.save(output_path, "JPEG", quality=90)
-        return True, "Python Local Render"
-    except:
-        return False, "Fatal Local Render Failure"
-
 def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene"):
-    print(f"🖼️ [VISUALS] Sourcing {len(prompts_list)} scene images via Decoupled 4-Tier System...")
+    print(f"🖼️ [VISUALS] Sourcing {len(prompts_list)} scene images via Decoupled 3-Tier System...")
     successful_images = []
     
     tier1_active = True
@@ -251,11 +196,6 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
             success, err = fallback_pexels_image(pexels_queries[i], output_path)
             if success: 
                 final_provider = "Pexels Stock Fallback"
-                
-        if not success:
-            success, err = generate_offline_gradient(output_path)
-            if success:
-                final_provider = "Python Offline Generator"
             
         if success:
             successful_images.append(output_path)
