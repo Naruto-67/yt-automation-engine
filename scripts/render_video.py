@@ -9,7 +9,6 @@ def download_cinematic_font():
     font_path = "/tmp/Montserrat-Bold.ttf"
     if not os.path.exists(font_path):
         print("📥 [RENDERER] Downloading Cinematic Font...")
-        # 🚨 FIX: Updated to the correct, permanent Google Fonts OFL directory.
         url = "https://github.com/google/fonts/raw/main/ofl/montserrat/Montserrat-Bold.ttf"
         try:
             req = urllib.request.urlopen(url, timeout=15)
@@ -67,8 +66,7 @@ def srt_to_ass(srt_path, ass_path, style):
 def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=60):
     frames = int(duration * fps)
     
-    # 🚨 FIX: Reverted back to native FFmpeg Pan & Scan cropping. 
-    # This takes the 1024x1024 raw AI square, upscales it dynamically, and perfectly center-crops it to 1080x1920 without blurring.
+    # 🚨 FIX: Restored native FFmpeg Center-Crop to ensure raw 1:1 squares are scaled perfectly to 9:16 fullscreen without blurry borders.
     prep_filter = "scale=2160:3840:force_original_aspect_ratio=increase,crop=2160:3840"
     
     effects = [
