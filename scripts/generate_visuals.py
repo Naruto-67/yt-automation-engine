@@ -54,28 +54,40 @@ def generate_cloudflare_image(prompt, output_path):
     safe_prompt = prompt[:200].replace('"', '').replace('\n', ' ')
     payload = {"prompt": f"{safe_prompt}, vertical 9:16 format, masterpiece"}
     
-    try:
-        response = requests.post(url, headers=headers, json=payload, timeout=(15, 60))
-        if response.status_code == 200:
-            content_type = response.headers.get("Content-Type", "")
-            if "application/json" in content_type:
-                data = response.json()
-                if "result" in data and "image" in data["result"]:
-                    img_data = base64.b64decode(data["result"]["image"])
-                    with open(output_path, 'wb') as f: f.write(img_data)
-                    apply_cinematic_padding(output_path)
-                    quota_manager.consume_points("cloudflare", 1)
-                    return True, ""
-            with open(output_path, 'wb') as f: f.write(response.content)
-            apply_cinematic_padding(output_path)
-            quota_manager.consume_points("cloudflare", 1)
-            return True, ""
-        elif response.status_code == 400:
-            return False, "HTTP 400 (Safety Filter / Prompt Rejected)"
-        else:
-            return False, f"HTTP {response.status_code}"
-    except Exception as e:
-        return False, "Timeout/Connection Error"
+    # 🚨 FIX: One-time retry loop for transient Cloudflare 5xx errors before failing over to the limited HuggingFace pool.
+    for retry in range(2):
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=(15, 60))
+            if response.status_code == 200:
+                content_type = response.headers.get("Content-Type", "")
+                if "application/json" in content_type:
+                    data = response.json()
+                    if "result" in data and "image" in data["result"]:
+                        img_data = base64.b64decode(data["result"]["image"])
+                        with open(output_path, 'wb') as f: f.write(img_data)
+                        apply_cinematic_padding(output_path)
+                        quota_manager.consume_points("cloudflare", 1)
+                        return True, ""
+                with open(output_path, 'wb') as f: f.write(response.content)
+                apply_cinematic_padding(output_path)
+                quota_manager.consume_points("cloudflare", 1)
+                return True, ""
+            elif response.status_code >= 500 and retry == 0:
+                print(f"      💤 Cloudflare Transient Error ({response.status_code}). Waiting 5s and retrying...")
+                time.sleep(5)
+                continue
+            elif response.status_code == 400:
+                return False, "HTTP 400 (Safety Filter / Prompt Rejected)"
+            else:
+                return False, f"HTTP {response.status_code}"
+        except Exception as e:
+            if retry == 0:
+                print(f"      💤 Cloudflare connection timeout. Retrying once...")
+                time.sleep(5)
+                continue
+            return False, "Timeout/Connection Error"
+            
+    return False, "Exhausted Retries"
 
 def generate_huggingface_cascade(prompt, output_path):
     print("      [Tier 2: HuggingFace] Attempting AI generation...")
@@ -120,7 +132,6 @@ def generate_huggingface_cascade(prompt, output_path):
                 print(f"      ⚠️ {short_name} out of free quota or unauthorized. Switching models...")
                 continue 
             elif response.status_code >= 500:
-                # 🚨 FIX: Adaptive Wake-Up Protocol. Dynamically reads HF's model spin-up time requirements.
                 wait_time = 15
                 try:
                     err_json = response.json()
