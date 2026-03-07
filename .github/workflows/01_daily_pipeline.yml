@@ -14,7 +14,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      # 🚨 FIX: Inject DEBIAN_FRONTEND=noninteractive to bypass all OS-level terminal freezes
       - name: Install System Dependencies
         env:
           DEBIAN_FRONTEND: noninteractive
@@ -57,5 +56,6 @@ jobs:
           path: final_*.mp4
           if-no-files-found: warn
           compression-level: 6
+          retention-days: 3
           
       - run: rm -rf *.mp4 *.wav *.mp3 *.srt *.ass temp_* && pip cache purge
