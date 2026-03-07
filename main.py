@@ -59,6 +59,9 @@ def global_garbage_collector():
 def run_production_cycle():
     notify_summary(True, "☀️ **System Wake**\nGhost Engine is spinning up the daily production cycle.")
     quota_manager.check_and_update_refresh_token()
+    
+    # 🚨 FIX: Absolute SIGKILL Defense. Deletes massive partial video renders from the previous day immediately upon boot to save GitHub Actions Storage Space.
+    global_garbage_collector()
 
     print("🚀 [ENGINE] Ignition. Analyzing Live YouTube Vault Status...")
     try:
@@ -214,17 +217,17 @@ def run_production_cycle():
                     )
                     break
 
-                except ConnectionError as ce:
-                    notify_step(topic, "Upload Blocked", "Video rendered safely, but YT refused upload. Retrying tomorrow.", 0xe74c3c)
-                    print(f"⚠️ [NETWORK] {ce}")
-                    break 
-
                 except Exception as e:
                     if isinstance(e, HttpError) and e.resp.status == 403 and b"quota" in e.content.lower():
                         print(f"🛑 [FATAL] Hard YouTube Quota Reached. System is freezing to protect the queue.")
                         notify_step(topic, "Quota Freeze", "Hard YouTube Quota reached mid-upload. Freezing process.", 0xe74c3c)
                         save_matrix(matrix)
                         sys.exit(0)
+                        
+                    if isinstance(e, ConnectionError):
+                        notify_step(topic, "Upload Blocked", "Video rendered safely, but YT refused upload. Retrying tomorrow.", 0xe74c3c)
+                        print(f"⚠️ [NETWORK] {e}")
+                        break 
 
                     error_msg = str(e)
                     print(f"🚨 [CRASH] Topic '{topic}' failed: {error_msg}")
