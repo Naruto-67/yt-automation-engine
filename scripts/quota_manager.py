@@ -13,15 +13,21 @@ class MasterQuotaManager:
         self.state_file = os.path.join(self.memory_dir, "api_state.json")
         self.gemini_key = os.environ.get("GEMINI_API_KEY")
         
-        self.gemini_text_limit = 1450 
+        # 🚨 FIX: Calibrated exactly to your dashboard limits (500 + 20 + 20 + 20)
+        self.gemini_text_limit = 550 
         self.cloudflare_image_limit = 95 
         self.hf_image_limit = 50 
         
         self.yt_quota_limit = 9500 
         self.gemini_blocked_for_run = False 
         
-        # 🚨 FIX: Strict canonical names to prevent google-genai 404 Endpoint Rot
-        self.TEXT_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro']
+        # 🚨 FIX: The Golden Routing Table. We hit the 500-limit model first, then cascade through the 20-limit models.
+        self.TEXT_MODELS = [
+            'gemini-3.1-flash-lite', 
+            'gemini-3-flash', 
+            'gemini-2.5-flash-lite', 
+            'gemini-2.5-flash'
+        ]
         self._ensure_state_exists()
 
     def get_pacific_date(self):
@@ -137,9 +143,11 @@ class MasterQuotaManager:
                         return response.text, model_name
                     except Exception as e:
                         print(f"⚠️ [GEMINI API TRACE] {model_name}: {e}")
-                        if "429" in str(e) or "quota" in str(e).lower() or "404" in str(e):
+                        # If a specific model hits a 429 quota or 404 not found, immediately try the next model in the array
+                        if "429" in str(e) or "quota" in str(e).lower() or "404" in str(e) or "not found" in str(e).lower():
                             continue 
                 
+                # If it exits the loop, ALL models failed.
                 self.gemini_blocked_for_run = True
             except Exception as outer_e: 
                 print(f"⚠️ [GEMINI INIT TRACE]: {outer_e}")
