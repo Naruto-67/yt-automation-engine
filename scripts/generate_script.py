@@ -45,7 +45,6 @@ def generate_script(niche, topic):
     is_fact_based = any(k in niche.lower() for k in ['fact', 'hack', 'trend', 'brainrot'])
     target_scenes = random.randint(3, 5) if is_fact_based else random.randint(5, 7)
     
-    # 🚨 FIX: Context-Aware Dynamic Prompting. No more hard-coded word limits.
     prompt = f"""
     You are an Elite Master Content Creator. Your task is to write a highly viral, engaging YouTube Short.
     NICHE: '{niche}'
@@ -55,6 +54,10 @@ def generate_script(niche, topic):
     1. The absolute maximum length is 60 seconds. Write a script that naturally takes about 35 to 50 seconds to read aloud.
     2. Hook the viewer in the very first sentence. No long intros.
     3. NO META-COMMENTARY: NEVER say "In this video", "Welcome back", or "Subscribe". Just dive straight into the content.
+    
+    JSON SAFETY PROTOCOL (CRITICAL):
+    - DO NOT use unescaped double quotes (") inside your text strings. If you need to quote someone or something, use single quotes (').
+    - DO NOT use line breaks (\\n) inside strings.
     
     DYNAMIC ADAPTATION:
     - If the niche is Facts/Hacks/Brainrot: Make the script extremely fast-paced, punchy, and loopable.
@@ -104,7 +107,6 @@ def generate_script(niche, topic):
                 word_count = len(full_script.split())
                 print(f"      -> [TEXT PRE-CHECK] Script generated: {word_count} words.")
                 
-                # Broad, generous safety net. Only rejects extreme hallucinations.
                 if word_count > 160:
                     print(f"      ⚠️ [TEXT REJECTED] Script is massively overgrown ({word_count} words). It will exceed 60s. Regenerating...")
                     return None, [], [], [], provider
