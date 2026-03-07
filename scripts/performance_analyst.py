@@ -67,8 +67,9 @@ def run_daily_analysis():
             if match:
                 new_rules = json.loads(match.group(0))
                 
-                new_emp = new_rules.get("new_emphasize", "").strip()
-                new_avo = new_rules.get("new_avoid", "").strip()
+                # 🚨 FIX: Force hard-casting to string so LLM List-Hallucinations don't trigger AttributeError crashes.
+                new_emp = str(new_rules.get("new_emphasize", "")).strip()
+                new_avo = str(new_rules.get("new_avoid", "")).strip()
                 
                 if new_emp and new_emp not in lessons["emphasize"]:
                     lessons["emphasize"].append(new_emp)
