@@ -37,7 +37,6 @@ def run_engagement_protocol():
     print("💬 [ENGAGEMENT] Scanning for top unanswered fan interactions...")
     try:
         channel_id = youtube.channels().list(part="id", mine=True).execute()["items"][0]["id"]
-        # 🚨 FIX: Log channel request points
         quota_manager.consume_points("youtube", 1)
         
         uploads = youtube.channels().list(part="contentDetails", mine=True).execute()["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
@@ -53,7 +52,6 @@ def run_engagement_protocol():
             vid_id = vid["snippet"]["resourceId"]["videoId"]
             try:
                 comments = youtube.commentThreads().list(part="snippet", videoId=vid_id, maxResults=15, order="relevance").execute()
-                # 🚨 FIX: Log comment thread request points
                 quota_manager.consume_points("youtube", 1)
                 
                 for thread in comments.get("items", []):
@@ -64,22 +62,31 @@ def run_engagement_protocol():
                             print("🛑 [QUOTA GUARDIAN] YouTube Quota limit reached. Halting comments.")
                             break
 
-                        reply_text = generate_ai_reply(vid["snippet"]["title"], top["textDisplay"], replies_count + 1)
-                        
-                        if not reply_text:
-                            print(f"🛡️ [SECURITY] Ignored inappropriate/troll comment from {top.get('authorDisplayName')}")
+                        # 🚨 FIX: Inner Scope Failure Containment. If a single comment 404s, it skips just that comment, not the entire video block.
+                        try:
+                            reply_text = generate_ai_reply(vid["snippet"]["title"], top["textDisplay"], replies_count + 1)
+                            
+                            if not reply_text:
+                                print(f"🛡️ [SECURITY] Ignored inappropriate/troll comment from {top.get('authorDisplayName')}")
+                                continue
+    
+                            youtube.comments().insert(
+                                part="snippet", 
+                                body={"snippet": {"parentId": thread["id"], "textOriginal": reply_text}}
+                            ).execute()
+                            
+                            replies_count += 1
+                            quota_manager.consume_points("youtube", 50)
+                            time.sleep(4) 
+                            
+                        except Exception as comment_err:
+                            print(f"⚠️ [ENGAGEMENT] Failed to reply to specific comment (might be deleted/disabled): {comment_err}")
                             continue
-
-                        youtube.comments().insert(
-                            part="snippet", 
-                            body={"snippet": {"parentId": thread["id"], "textOriginal": reply_text}}
-                        ).execute()
-                        
-                        replies_count += 1
-                        quota_manager.consume_points("youtube", 50)
-                        time.sleep(4) 
+                            
                         if replies_count >= target_replies: break
-            except: continue
+            except Exception as video_err: 
+                print(f"⚠️ [ENGAGEMENT] Failed to fetch threads for video {vid_id}: {video_err}")
+                continue
             
             if replies_count >= target_replies or not quota_manager.can_afford_youtube(50): 
                 break
