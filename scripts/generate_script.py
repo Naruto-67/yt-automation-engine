@@ -42,7 +42,7 @@ def extract_scene_data_dynamically(scene_dict, fallback_topic):
     return narr, prompt, query
 
 def generate_script(niche, topic):
-    target_scenes = random.randint(4, 7)
+    target_scenes = random.randint(4, 6)
     
     prompt = f"""
     You are an Elite Master Content Creator. Write a highly viral YouTube Short.
@@ -50,9 +50,9 @@ def generate_script(niche, topic):
     TOPIC: '{topic}'
     
     CRITICAL RULES:
-    1. DYNAMIC ADAPTATION: Analyze the NICHE. Dynamically deduce the absolute best narrative structure, tone, and visual style that guarantees virality for this specific niche (e.g. 3D Pixar style for stories, Dark Cinematic for facts, Hyper-chaotic for brainrot).
+    1. DYNAMIC ADAPTATION: Analyze the NICHE. Dynamically deduce the best narrative structure and visual style.
     2. NO META-COMMENTARY: NEVER say "In this video".
-    3. STRICT LENGTH: The total script MUST be exactly 95 to 110 words. This ensures the video length hits the 45-55 second sweet spot for optimal retention. Do not write less than 95 words.
+    3. BIOLOGICAL TIMING: Do NOT rigidly count words. Write a natural, highly engaging script. This will be read by an AI Voice actor. It MUST be readable in 45 to 55 seconds (A good rule of thumb is 100 to 130 words). Make it dense and captivating.
     4. DYNAMIC SCENES: Break the script into EXACTLY {target_scenes} scenes.
        - Write the 'text' (the words spoken).
        - Write an 'image_prompt' (the specific visual style you deduced).
