@@ -24,7 +24,6 @@ def generate_cloudflare_image(prompt, output_path):
     url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/@cf/black-forest-labs/flux-1-schnell"
     headers = {"Authorization": f"Bearer {api_token}", "Content-Type": "application/json"}
     
-    # Pre-emptively truncate massively long prompts to protect the payload format
     safe_prompt = prompt[:200].replace('"', '').replace('\n', ' ')
     payload = {"prompt": f"{safe_prompt}, vertical 9:16 format, masterpiece"}
     
@@ -43,7 +42,6 @@ def generate_cloudflare_image(prompt, output_path):
             quota_manager.consume_points("cloudflare", 1)
             return True, ""
         elif response.status_code == 400:
-            # 🚨 FIX: Specifically catch safety filter rejections
             return False, "HTTP 400 (Safety Filter / Prompt Rejected)"
         else:
             return False, f"HTTP {response.status_code}"
@@ -91,9 +89,9 @@ def generate_huggingface_cascade(prompt, output_path):
             elif response.status_code in [401, 402, 403]:
                 print(f"      ⚠️ {short_name} out of free quota or unauthorized. Switching models...")
                 continue 
-            elif response.status_code == 503:
-                print(f"      💤 {short_name} asleep. Waiting 20s...")
-                time.sleep(20)
+            elif response.status_code >= 500:
+                print(f"      💤 {short_name} experiencing gateway issues. Waiting 15s...")
+                time.sleep(15)
                 response = requests.post(url, headers=headers, json=payload, timeout=(15, 60))
                 if response.status_code == 200:
                     with open(output_path, 'wb') as f: f.write(response.content)
@@ -149,12 +147,12 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
             if success: 
                 final_provider = "Cloudflare FLUX API"
             else:
-                # 🚨 FIX: Safety Filter Awareness. Do NOT permanently disable Cloudflare if it just rejected one prompt!
-                if "400" in err or "Timeout" in err:
-                    print(f"      ⚠️ [VISUALS] Tier 1 localized failure ({err}). Keeping active for next scene.")
-                else:
+                # 🚨 FIX: Safety Filter & 5xx Gateway Awareness. Only disable if Auth/Quota fails (401, 402, 403).
+                if any(x in err for x in ["401", "402", "403"]):
                     print(f"      🚨 [VISUALS] Tier 1 Fatal Quota/Auth Error ({err}). Disabling for remainder of run.")
                     tier1_active = False 
+                else:
+                    print(f"      ⚠️ [VISUALS] Tier 1 localized/network failure ({err}). Keeping active for next scene.")
         else:
             print("      [Tier 1: Cloudflare] Skipped (Previously Blocked)")
 
@@ -163,11 +161,11 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
             if success: 
                 final_provider = err 
             else:
-                if "400" in err or "Timeout" in err:
-                    print(f"      ⚠️ [VISUALS] Tier 2 localized failure ({err}). Keeping active for next scene.")
-                else:
+                if any(x in err for x in ["401", "402", "403"]):
                     print(f"      🚨 [VISUALS] Tier 2 Fatal Quota/Auth Error ({err}). Disabling for remainder of run.")
                     tier2_active = False 
+                else:
+                    print(f"      ⚠️ [VISUALS] Tier 2 localized/network failure ({err}). Keeping active for next scene.")
         elif not success and not tier2_active:
             print("      [Tier 2: Hugging Face] Skipped (Previously Blocked)")
                 
