@@ -73,8 +73,14 @@ def publish_vault_videos():
     try:
         matrix_path = os.path.join(os.path.dirname(__file__), "..", "memory", "content_matrix.json")
         matrix = []
+        
+        # 🚨 FIX: Safe fallback if matrix corrupted during IO operations
         if os.path.exists(matrix_path):
-            with open(matrix_path, "r") as f: matrix = json.load(f)
+            try:
+                with open(matrix_path, "r") as f: matrix = json.load(f)
+            except Exception as e:
+                print(f"⚠️ [PUBLISHER] Matrix JSON load failed. Falling back to empty array: {e}")
+                matrix = []
 
         vault_id = get_or_create_playlist(youtube, "Vault Backup")
         items = youtube.playlistItems().list(part="snippet", playlistId=vault_id, maxResults=2).execute().get("items", [])
@@ -91,14 +97,12 @@ def publish_vault_videos():
             vid_id = item["snippet"]["resourceId"]["videoId"]
             
             try:
-                # Default assume it's a story unless proven otherwise
                 is_fact_based = False
                 for m_item in matrix:
                     if m_item.get("youtube_id") == vid_id:
-                        is_fact_based = any(k in m_item['niche'].lower() for k in ['fact', 'hack', 'trend', 'brainrot'])
+                        is_fact_based = any(k in m_item.get('niche', '').lower() for k in ['fact', 'hack', 'trend', 'brainrot'])
                         break
                 
-                # 🚨 FIX: Mega-Playlist Routing Logic
                 primary_playlist_name = "All Uploads | Viral Shorts"
                 secondary_playlist_name = "Mind-Blowing Facts" if is_fact_based else "Immersive AI Stories"
                 
@@ -116,7 +120,6 @@ def publish_vault_videos():
                     target_dt += timedelta(days=1) 
                 pub_time = target_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
                 
-                # 1. Update Video Status to Public/Scheduled
                 youtube.videos().update(
                     part="status", 
                     body={
@@ -131,26 +134,22 @@ def publish_vault_videos():
                 quota_manager.consume_points("youtube", 50) 
                 time.sleep(5)
                 
-                # 2. Add to Primary "All Uploads" Mega-Playlist
                 primary_playlist_id = get_or_create_playlist(youtube, primary_playlist_name, "public")
                 if primary_playlist_id:
                     youtube.playlistItems().insert(part="snippet", body={"snippet": {"playlistId": primary_playlist_id, "resourceId": {"kind": "youtube#video", "videoId": vid_id}}}).execute()
                     quota_manager.consume_points("youtube", 50) 
                     time.sleep(3)
                 
-                # 3. Add to Secondary Categorized Playlist
                 secondary_playlist_id = get_or_create_playlist(youtube, secondary_playlist_name, "public")
                 if secondary_playlist_id:
                     youtube.playlistItems().insert(part="snippet", body={"snippet": {"playlistId": secondary_playlist_id, "resourceId": {"kind": "youtube#video", "videoId": vid_id}}}).execute()
                     quota_manager.consume_points("youtube", 50) 
                     time.sleep(3)
                 
-                # 4. Remove from Vault
                 youtube.playlistItems().delete(id=item["id"]).execute()
                 quota_manager.consume_points("youtube", 50) 
                 time.sleep(3)
                 
-                # 5. Update Matrix Memory
                 for m_item in matrix:
                     if m_item.get("youtube_id") == vid_id:
                         m_item['published'] = True
