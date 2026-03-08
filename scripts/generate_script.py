@@ -29,7 +29,7 @@ def validate_script_quality(script_text, prompts_cfg):
     except: return True 
 
 def generate_script(niche, topic):
-    print(f"🎬 [SCRIPT] Orchestrating narrative for: {topic}")
+    print(f"🎬 [SCRIPT] AI Director drafting narrative for: {topic}")
     
     channel_id = os.environ.get("CURRENT_CHANNEL_ID", "default")
     intel = db.get_channel_intelligence(channel_id)
@@ -46,21 +46,28 @@ def generate_script(niche, topic):
 
     try:
         raw_response, provider = quota_manager.generate_text(user_prompt, task_type="creative", system_prompt=prompts_cfg['script_gen']['system_prompt'])
-        if not raw_response: return None, [], [], [], "Failed"
+        if not raw_response: return None, [], [], [], "Failed", "am_adam", "&H00FFFFFF"
 
         match = re.search(r'\{.*\}', raw_response.replace("```json", "").replace("```", "").strip(), re.DOTALL)
-        if not match: return None, [], [], [], provider
+        if not match: return None, [], [], [], provider, "am_adam", "&H00FFFFFF"
             
         data = json.loads(match.group(0))
+        
+        # Extract Director Choices
+        chosen_voice = data.get("voice_actor", "am_adam")
+        chosen_color = data.get("subtitle_color", "&H00FFFFFF")
+        
         parsed_scenes = [extract_scene_data(s, topic) for s in data.get("scenes", [])]
         full_text = " ".join([s[0] for s in parsed_scenes])
         img_prompts, pexels_queries = [s[1] for s in parsed_scenes], [s[2] for s in parsed_scenes]
         
         word_count = len(full_text.split())
-        if word_count > _ABSOLUTE_WORD_CEILING or word_count < 10: return None, [], [], [], provider
-        if not validate_script_quality(full_text, prompts_cfg): return None, [], [], [], provider
+        if word_count > _ABSOLUTE_WORD_CEILING or word_count < 10: return None, [], [], [], provider, chosen_voice, chosen_color
+        if not validate_script_quality(full_text, prompts_cfg): return None, [], [], [], provider, chosen_voice, chosen_color
 
         total_chars = sum(len(s[0]) for s in parsed_scenes)
         scene_weights = [len(s[0])/total_chars for s in parsed_scenes] if total_chars > 0 else []
-        return full_text, img_prompts, pexels_queries, scene_weights, provider
-    except: return None, [], [], [], "Error"
+        
+        print(f"✅ [SCRIPT] Validated via {provider}. Director chose Voice: {chosen_voice}, Color: {chosen_color}")
+        return full_text, img_prompts, pexels_queries, scene_weights, provider, chosen_voice, chosen_color
+    except: return None, [], [], [], "Error", "am_adam", "&H00FFFFFF"
