@@ -1,3 +1,4 @@
+# engine/orchestrator.py
 import glob
 import os
 import time
@@ -13,6 +14,8 @@ from scripts.discord_notifier import notify_summary, notify_step
 # 🧙‍♀️ THE TEST SWITCH ────────────────────────────────────────────────────────
 TEST_MODE = True  # Set to False when you are ready to officially launch!
 # ─────────────────────────────────────────────────────────────────────────
+
+os.environ["TEST_MODE"] = str(TEST_MODE)
 
 class Orchestrator:
     def __init__(self):
@@ -57,7 +60,6 @@ class Orchestrator:
                 logger.engine(f"🛑 Vault full for {channel.channel_name}. Halting production to conserve APIs.")
                 continue
 
-            # Assess current queue
             queued_jobs = db.get_jobs_by_state(channel.channel_id, JobState.QUEUED, limit=20)
             if len(queued_jobs) < 4:
                 logger.research(f"⚠️ Queue critically low ({len(queued_jobs)}). Triggering Emergency Researcher...")
@@ -67,7 +69,6 @@ class Orchestrator:
                     logger.research("🧪 [TEST MODE] Skipping actual YouTube metadata pull, running researcher...")
                     run_dynamic_research(channel, yt_client)
             
-            # Fetch active jobs (Anything not successfully vaulted/published/failed)
             pending_jobs = (
                 db.get_jobs_by_state(channel.channel_id, JobState.QUEUED, limit=4) +
                 db.get_jobs_by_state(channel.channel_id, JobState.SCRIPT_GENERATION, limit=4) +
@@ -76,9 +77,13 @@ class Orchestrator:
                 db.get_jobs_by_state(channel.channel_id, JobState.RENDERING, limit=4)
             )
             
-            # We sort by created_at and process maximum 2 videos per channel to balance the GitHub runner load
             pending_jobs.sort(key=lambda x: x.created_at)
-            batch = pending_jobs[:2]
+            
+            # 🚨 FIX: Limit production to 1 video per channel if TEST_MODE is active
+            if TEST_MODE:
+                batch = pending_jobs[:1]
+            else:
+                batch = pending_jobs[:4] 
             
             if not batch:
                 logger.engine(f"No pending jobs found for {channel.channel_name}. Proceeding to next.")
@@ -90,12 +95,10 @@ class Orchestrator:
                 self.global_garbage_collector()
                 
                 runner = JobRunner(job)
-                runner.job.channel_id = yt_channel_display_name # Used for watermark text
+                runner.job.channel_id = yt_channel_display_name 
                 
-                # Executes Idempotent Pipeline
                 runner.process()
                 
-                # V5 Addition: If the pipeline successfully rendered, handle the YouTube Vault upload
                 if runner.job.state == JobState.VAULTED and runner.job.video_path and not runner.job.youtube_id:
                     if not TEST_MODE:
                         logger.publish(f"Uploading Video {runner.job.id} to {channel.channel_name} Vault...")
