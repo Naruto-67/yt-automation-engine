@@ -3,6 +3,7 @@ import os
 import time
 import requests
 import random
+from engine.config_manager import config_manager
 
 class GroqAPIClient:
     def __init__(self):
@@ -16,9 +17,7 @@ class GroqAPIClient:
         self._models_discovered = False
 
     def _discover_models(self):
-        """Auto-discovers and scores the best available Groq model."""
-        if self._models_discovered:
-            return
+        if self._models_discovered: return
             
         if not self.api_key:
             self.TEXT_MODEL = "llama-3.3-70b-versatile"
@@ -34,23 +33,18 @@ class GroqAPIClient:
                 valid_text_models = []
                 for m in available_models:
                     m_lower = m.lower()
-                    # Filter out audio, whisper, and vision models
-                    if 'whisper' in m_lower or 'llava' in m_lower or 'vision' in m_lower or 'tool' in m_lower:
-                        continue
+                    if 'whisper' in m_lower or 'llava' in m_lower or 'vision' in m_lower or 'tool' in m_lower: continue
                     valid_text_models.append(m)
                     
                 if valid_text_models:
                     def _score(name):
                         s = 0
                         n = name.lower()
-                        # Reward versatile/instruct models
                         if 'llama' in n: s += 30
                         if 'versatile' in n: s += 20
                         if 'instruct' in n or '-it' in n: s += 10
-                        # Reward higher parameter counts implicitly by generation/version
                         if '3.3' in n: s += 15
                         if '70b' in n: s += 10
-                        # Penalize previews
                         if 'preview' in n: s -= 20
                         return s
                         
@@ -62,13 +56,11 @@ class GroqAPIClient:
         except Exception as e:
             print(f"⚠️ [GROQ] Discovery failed: {e}")
 
-        # Failsafe Fallback
         self.TEXT_MODEL = "llama-3.3-70b-versatile"
         self._models_discovered = True
 
     def _execute_request(self, endpoint, payload, is_audio=False):
-        if not self.api_key:
-            return None
+        if not self.api_key: return None
         url = f"{self.base_url}/{endpoint}"
         
         max_retries = 3
@@ -76,9 +68,7 @@ class GroqAPIClient:
             try:
                 response = requests.post(url, headers=self.headers, json=payload, timeout=45)
                 if response.status_code == 200:
-                    if is_audio:
-                        return response.content
-                    
+                    if is_audio: return response.content
                     data = response.json()
                     if 'choices' in data and len(data['choices']) > 0:
                         return data['choices'][0]['message']['content']
@@ -106,21 +96,15 @@ class GroqAPIClient:
 
     def generate_text(self, prompt, role="creative", system_prompt="You are a viral YouTube Shorts scriptwriter.", throttle=False):
         self._discover_models()
-        if throttle:
-            time.sleep(2)
+        if throttle: time.sleep(2)
             
         payload = {
             "model": self.TEXT_MODEL,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt}
-            ],
+            "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}],
             "temperature": 0.7
         }
         
         res = self._execute_request("chat/completions", payload)
-        
-        # If the API returned a 404 (model suddenly deprecated), discover again and retry once
         if res is None and not self._models_discovered:
             self._discover_models()
             payload["model"] = self.TEXT_MODEL
@@ -129,23 +113,19 @@ class GroqAPIClient:
         return res
 
     def generate_audio(self, text, output_filepath):
-        valid_voices = ["autumn", "diana", "hannah", "austin", "daniel", "troy"]
+        # Load voices dynamically from settings.yaml
+        settings = config_manager.get_settings()
+        valid_voices = settings.get("voice_actors", {}).get("groq", ["autumn"])
         selected_voice = random.choice(valid_voices)
         
         print(f"🎙️ [GROQ] Initializing Orpheus TTS with voice: '{selected_voice.upper()}'...")
         
-        payload = {
-            "model": self.AUDIO_MODEL,
-            "input": text,
-            "voice": selected_voice,
-            "response_format": "wav" 
-        }
+        payload = {"model": self.AUDIO_MODEL, "input": text, "voice": selected_voice, "response_format": "wav"}
         
         audio_bytes = self._execute_request("audio/speech", payload, is_audio=True)
         if audio_bytes:
             try:
-                with open(output_filepath, 'wb') as f:
-                    f.write(audio_bytes)
+                with open(output_filepath, 'wb') as f: f.write(audio_bytes)
                 return True
             except Exception as e:
                 print(f"❌ [GROQ] Audio write failed: {e}")
@@ -155,8 +135,7 @@ class GroqAPIClient:
     def check_safety(self, text_to_check):
         prompt = f"Reply strictly with SAFE or UNSAFE. Is this safe? '{text_to_check}'"
         res = self.generate_text(prompt, system_prompt="Content Moderator")
-        if res and "UNSAFE" in res.upper():
-            return False
+        if res and "UNSAFE" in res.upper(): return False
         return True
 
 groq_client = GroqAPIClient()
