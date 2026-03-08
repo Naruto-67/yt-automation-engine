@@ -21,8 +21,6 @@ class MasterQuotaManager:
         self.yt_quota_limit = 9500
         self.gemini_blocked_for_run = False
 
-        # 🧠 PATCH: Baseline fallback models. _discover_gemini_models() will overwrite
-        # this at runtime with whatever Google actually has live — future-proof by design.
         self.TEXT_MODELS = [
             'gemini-2.5-flash',
             'gemini-2.5-flash-lite',
@@ -33,16 +31,7 @@ class MasterQuotaManager:
         self._models_discovered = False
         self._ensure_state_exists()
 
-    # ── Dynamic Model Discovery ───────────────────────────────────────────────
-
     def _discover_gemini_models(self):
-        """
-        Auto-discover available Gemini models via the API at runtime.
-        Runs ONCE per process. Overwrites TEXT_MODELS with the live list,
-        sorted by capability score so the engine always uses the best available model.
-        This makes the system self-updating — no manual edits needed when Google
-        releases new models.
-        """
         if self._models_discovered:
             return
         self._models_discovered = True
@@ -59,8 +48,10 @@ class MasterQuotaManager:
             for m in all_models:
                 name = getattr(m, 'name', '') or ''
                 model_id = name.split('/')[-1] if '/' in name else name
-                supported = getattr(m, 'supported_generation_methods', []) or []
-                if 'generateContent' in supported and 'gemini' in model_id.lower():
+                name_lower = model_id.lower()
+                
+                # 🚨 FIX: New SDK string-based validation instead of relying on missing methods
+                if 'gemini' in name_lower and 'embedding' not in name_lower and 'aqa' not in name_lower and 'vision' not in name_lower:
                     valid.append(model_id)
 
             if len(valid) >= 2:
@@ -79,7 +70,6 @@ class MasterQuotaManager:
                     return s
 
                 valid.sort(key=_score, reverse=True)
-                # Cap at 5 models — prefer diversity (don't queue 10 flash variants)
                 self.TEXT_MODELS = valid[:5]
                 print(f"🔍 [GEMINI] Auto-discovered {len(valid)} models. Active queue: {self.TEXT_MODELS}")
             else:
@@ -87,8 +77,6 @@ class MasterQuotaManager:
 
         except Exception as e:
             print(f"⚠️ [GEMINI] Model auto-discovery skipped (using defaults): {e}")
-
-    # ── State Management ──────────────────────────────────────────────────────
 
     def get_utc_date(self):
         return datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -191,7 +179,6 @@ class MasterQuotaManager:
         notify_error(module_name, type(exception_obj).__name__, str(exception_obj))
 
     def generate_text(self, prompt, task_type="creative", force_provider=None):
-        # 🧠 PATCH: Auto-discover models once per process before first API call
         self._discover_gemini_models()
 
         state = self._get_active_state()
