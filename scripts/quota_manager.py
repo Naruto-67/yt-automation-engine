@@ -12,12 +12,14 @@ class MasterQuotaManager:
         self.root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         self.gemini_key = os.environ.get("GEMINI_API_KEY")
         
-        self.LIMITS = {
+        # Load limits dynamically from settings.yaml
+        settings = config_manager.get_settings()
+        self.LIMITS = settings.get("api_limits", {
             "gemini": 40,
             "cloudflare": 95,
             "huggingface": 50,
             "youtube": 9500
-        }
+        })
 
     def _get_active_state(self):
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
