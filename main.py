@@ -21,7 +21,19 @@ except ImportError as e:
     print(f"🚨 [SYSTEM] CRITICAL DEPENDENCY MISSING: {e}")
     sys.exit(1)
 
-TEST_MODE = False 
+TEST_MODE = False
+
+# ─── SYSTEM KILL SWITCH ────────────────────────────────────────────────────────
+# Set repository variable GHOST_ENGINE_ENABLED = false in:
+# GitHub → Settings → Secrets and Variables → Actions → Variables
+# to instantly halt all scheduled workflows without touching code.
+_SYSTEM_ENABLED = os.environ.get("GHOST_ENGINE_ENABLED", "true").strip().lower()
+if _SYSTEM_ENABLED == "false":
+    print("🔴 [KILL SWITCH] GHOST_ENGINE_ENABLED=false. System is halted by operator.")
+    notify_summary(False, "🔴 **Kill Switch Active**\nSystem halted. Set `GHOST_ENGINE_ENABLED=true` in repo variables to resume.")
+    sys.exit(0)
+# ───────────────────────────────────────────────────────────────────────────────
+
 
 def load_matrix():
     path = os.path.join(os.path.dirname(__file__), "memory", "content_matrix.json")
@@ -47,16 +59,20 @@ def global_garbage_collector():
         for file in glob.glob(ext):
             try: os.remove(file)
             except: pass
-            
+
     for file in glob.glob("temp_anim_*.mp4"):
         try: os.remove(file)
         except: pass
-        
+
     for file in glob.glob("temp_merged*.mp4"):
         try: os.remove(file)
         except: pass
 
 def run_production_cycle():
+    # 🚨 PATCH: Notify Discord immediately if running in TEST_MODE so you always know.
+    if TEST_MODE:
+        notify_summary(True, "🧪 **TEST MODE ACTIVE**\nNo YouTube quota will be used. Videos will be rendered but NOT uploaded.")
+
     notify_summary(True, "☀️ **System Wake**\nGhost Engine is spinning up the daily production cycle.")
     quota_manager.check_and_update_refresh_token()
 
@@ -68,7 +84,7 @@ def run_production_cycle():
 
         vault_count = get_actual_vault_count(youtube_client) if not TEST_MODE else 5
         print(f"🏦 [VAULT] Verified YouTube Playlist Backlog: {vault_count}/14 videos.")
-        
+
         if vault_count >= 14:
             print("🛑 [ENGINE] Vault is fully stocked. Shutting down to conserve APIs.")
             notify_summary(True, "🌙 **System Sleep**\nVault is completely full. Shutting down to conserve API quotas.")
@@ -76,11 +92,23 @@ def run_production_cycle():
 
         matrix = load_matrix()
         unprocessed = [t for t in matrix if not t.get("processed", False) and not t.get("failed_flag", False)]
-        
+
         if len(unprocessed) < 4:
             print(f"⚠️ [ENGINE] Queue low ({len(unprocessed)} left). Triggering Emergency Research Cycle...")
+            # 🚨 NOTIFICATION PATCH: Alert Discord when emergency research fires
+            notify_step(
+                "Content Matrix",
+                "⚠️ Emergency Research Triggered",
+                f"Queue critically low: only **{len(unprocessed)}** topics remaining. Calling AI researcher now...",
+                0xe67e22
+            )
             from scripts.dynamic_researcher import run_dynamic_research
-            run_dynamic_research()
+            # 🚨 TEST_MODE PATCH: Emergency research was silently burning YouTube quota even in TEST_MODE.
+            # Now bypassed entirely — test runs use whatever topics already exist in the matrix.
+            if not TEST_MODE:
+                run_dynamic_research()
+            else:
+                print("🧪 [TEST MODE] Emergency research skipped to protect YouTube quota.")
             matrix = load_matrix()
             unprocessed = [t for t in matrix if not t.get("processed", False) and not t.get("failed_flag", False)]
             if not unprocessed:
@@ -94,27 +122,34 @@ def run_production_cycle():
         print(f"🏷️ [BRANDING] Secured Watermark: {channel_name}")
         print(f"🎯 [TARGET] Processing {batch_size} videos for this run.")
 
+        # 🚨 NOTIFICATION PATCH: Show vault + queue status at run start
+        notify_step(
+            "System Status",
+            "🚀 Production Cycle Starting",
+            f"Vault: **{vault_count}/14** | Queue: **{len(unprocessed)} topics** | Target: **{batch_size} videos**",
+            0x3498db
+        )
+
         success_count = 0
-        
+
         for item in batch:
-            # 🚨 FIX: Immune to LLM Dictionary Hallucinations. Replaced rigid indexing with safe defaults to prevent fatal KeyErrors.
             topic = item.get('topic', 'A Fascinating Mystery')
             niche = item.get('niche', 'Story')
-            
+
             is_fact_based = any(k in niche.lower() for k in ['fact', 'hack', 'trend', 'brainrot'])
             min_audio = 10.0 if is_fact_based else 22.0
-            
+
             max_item_attempts = 3
             item_success = False
-            
+
             for attempt in range(1, max_item_attempts + 1):
                 print(f"\n🎬 [PROCESSING] {niche.upper()}: {topic} (Attempt {attempt}/{max_item_attempts})")
-                notify_step(topic, f"Ignition (Attempt {attempt}/{max_item_attempts})", f"Niche: **{niche.upper()}**", 0x3498db) 
-                
+                notify_step(topic, f"Ignition (Attempt {attempt}/{max_item_attempts})", f"Niche: **{niche.upper()}**", 0x3498db)
+
                 if not TEST_MODE and not quota_manager.can_afford_youtube(1700):
                     print("🛑 [QUOTA GUARDIAN] YouTube Quota limit reached (10k). Halting production to prevent API ban.")
                     notify_step(topic, "Quota Guardian", "YouTube Quota limit reached (10k). Halting.", 0xe74c3c)
-                    return 
+                    return
 
                 global_garbage_collector()
 
@@ -127,30 +162,30 @@ def run_production_cycle():
                     for script_attempt in range(3):
                         print(f"   -> [SCRIPT] Generation Phase (Attempt {script_attempt + 1}/3)...")
                         notify_step(topic, f"Drafting Script (Try {script_attempt + 1}/3)", "Asking AI for narrative constraints...", 0x95a5a6)
-                        
+
                         script_text, image_prompts, pexels_queries, scene_weights, script_prov = generate_script(niche, topic)
-                        
-                        if not script_text: 
+
+                        if not script_text:
                             notify_step(topic, "Script Rejected", "AI returned invalid JSON/Length. Retrying...", 0xf1c40f)
                             time.sleep(2)
                             continue
-                            
+
                         print(f"   -> [VOICE] Testing audio length for Kokoro pacing...")
                         notify_step(topic, "Testing Voice Pacing", f"Generating audio via {script_prov}...", 0x3498db)
-                        
+
                         voice_success, voice_prov, audio_duration = generate_audio(script_text, output_base=audio_base)
-                        
-                        if not voice_success: 
+
+                        if not voice_success:
                             notify_step(topic, "Voice Generator Crashed", "Kokoro/Groq failed to return audio.", 0xe74c3c)
                             raise ValueError("Voice generation crashed entirely.")
-                            
+
                         print(f"   -> [TIMING] Audio clocked at {audio_duration:.1f} seconds.")
-                        
+
                         if audio_duration > 59.0:
                             print(f"   ⚠️ [REJECTED] Audio is too long ({audio_duration:.1f}s). Regenerating...")
                             notify_step(topic, "Validation Rejected", f"Audio is too long ({audio_duration:.1f}s). Max is 59s. Regenerating...", 0xf1c40f)
-                            continue 
-                            
+                            continue
+
                         if audio_duration < min_audio:
                             print(f"   ⚠️ [REJECTED] Audio is too short for this niche type ({audio_duration:.1f}s < {min_audio}s). Regenerating...")
                             notify_step(topic, "Validation Rejected", f"Audio is too short ({audio_duration:.1f}s). Min is {min_audio}s. Regenerating...", 0xf1c40f)
@@ -159,8 +194,8 @@ def run_production_cycle():
                         print(f"   ✅ [TIMING] Perfect duration for {niche.upper()} ({audio_duration:.1f}s).")
                         notify_step(topic, "Validation Passed", f"Perfect duration achieved: **{audio_duration:.1f}s**.", 0x2ecc71)
                         valid_script = True
-                        break 
-                        
+                        break
+
                     if not valid_script:
                         raise ValueError("Failed to generate a script with proper audio timing after 3 attempts.")
 
@@ -174,16 +209,16 @@ def run_production_cycle():
                     notify_step(topic, "Sourcing Visuals", f"Fetching {len(image_prompts)} scenes from Cloudflare/HF/Pexels...", 0x3498db)
                     time.sleep(5)
                     image_paths, visual_prov = fetch_scene_images(image_prompts, pexels_queries, base_filename=f"temp_scene_{success_count}")
-                    
-                    if len(image_paths) < len(image_prompts): 
+
+                    if len(image_paths) < len(image_prompts):
                         raise ValueError(f"Visual Desync: Only generated {len(image_paths)}/{len(image_prompts)} images. Aborting.")
                     time.sleep(10)
 
                     print(f"   -> [RENDER] Compiling Video...")
                     notify_step(topic, "Rendering Video", "Combining Audio, Visuals, and Subtitles via Master Engine...", 0x9b59b6)
                     render_success, video_duration, video_size = render_video(
-                        image_paths, f"{audio_base}.wav", final_video, 
-                        scene_weights=scene_weights, watermark_text=channel_name 
+                        image_paths, f"{audio_base}.wav", final_video,
+                        scene_weights=scene_weights, watermark_text=channel_name
                     )
                     if not render_success: raise ValueError("Render failed or output file is corrupted/zero-bytes.")
 
@@ -193,7 +228,7 @@ def run_production_cycle():
                             item['processed'] = True
                             item['vaulted_date'] = datetime.utcnow().isoformat()
                             item['published'] = False
-                            item['youtube_id'] = video_id 
+                            item['youtube_id'] = video_id
                             success_count += 1
                             log_completed_video(niche, topic, final_video)
                             item_success = True
@@ -206,7 +241,7 @@ def run_production_cycle():
                         item['published'] = False
                         success_count += 1
                         item_success = True
-                    
+
                     notify_production_success(
                         niche=niche, topic=topic, script=script_text, script_ai=script_prov,
                         seo_ai=seo_prov, voice_ai=voice_prov, visual_ai=visual_prov,
@@ -221,21 +256,21 @@ def run_production_cycle():
                         notify_step(topic, "Quota Freeze", "Hard YouTube Quota reached mid-upload. Freezing process.", 0xe74c3c)
                         save_matrix(matrix)
                         sys.exit(0)
-                        
+
                     if isinstance(e, ConnectionError):
                         notify_step(topic, "Upload Blocked", "Video rendered safely, but YT refused upload. Retrying tomorrow.", 0xe74c3c)
                         print(f"⚠️ [NETWORK] {e}")
-                        break 
+                        break
 
                     error_msg = str(e)
                     print(f"🚨 [CRASH] Topic '{topic}' failed: {error_msg}")
                     notify_step(topic, "Exception Caught", error_msg[:300], 0xe74c3c)
-                    
+
                     is_api_error = not isinstance(e, ValueError)
-                    
+
                     if is_api_error:
                         quota_manager.diagnose_fatal_error("main.py", e)
-                        
+
                     if attempt < max_item_attempts:
                         if is_api_error:
                             cooldown = 60 * attempt
@@ -248,16 +283,16 @@ def run_production_cycle():
                         notify_step(topic, "Quarantined", "Topic failed 3 times. Permanently removing from queue.", 0x000000)
                         item['processed'] = True
                         item['failed_flag'] = True
-                
+
                 finally:
                     if not TEST_MODE:
                         global_garbage_collector()
-            
+
             save_matrix(matrix)
 
         print(f"🏁 [FINISH] {success_count} videos sent to Vault.")
         notify_summary(True, f"🌙 **System Sleep**\nProduction cycle complete. Successfully processed {success_count} videos.")
-        
+
     except Exception as fatal_e:
         quota_manager.diagnose_fatal_error("System Core (main.py)", fatal_e)
 
