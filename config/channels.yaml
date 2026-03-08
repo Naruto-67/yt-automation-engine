@@ -4,11 +4,13 @@ channels:
     niche: "Cosmic Horror and Space Mysteries"
     target_audience: "US"
     youtube_refresh_token_env: "YOUTUBE_REFRESH_TOKEN"
+    discord_webhook_env: "DISCORD_WEBHOOK_MAIN" # Secret name in GitHub
     active: true
 
   - id: "CH_TECH_02"
     name: "GhostEngine_Tech"
     niche: "AI, Automation, and Futuristic Tech"
     target_audience: "US"
-    youtube_refresh_token_env: "YOUTUBE_REFRESH_TOKEN_TECH" # Requires a 2nd token in GitHub Secrets
+    youtube_refresh_token_env: "YOUTUBE_REFRESH_TOKEN_TECH"
+    discord_webhook_env: "DISCORD_WEBHOOK_TECH" # Different secret for Tech
     active: true
