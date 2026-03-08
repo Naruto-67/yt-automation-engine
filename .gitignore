@@ -1,12 +1,12 @@
-# Ghost Engine - Ignored Files
-*.mp4
+# .gitignore
+memory/ghost_engine.db
+memory/error_log.txt
+memory/*.json
+assets/lessons_learned.json
 *.wav
-*.mp3
-*.jpg
-*.png
+*.mp4
 *.srt
 *.ass
+*.jpg
 temp_*
-concat_list.txt
-__pycache__/
 .env
