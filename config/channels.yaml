@@ -1,0 +1,14 @@
+channels:
+  - id: "CH_MAIN_01"
+    name: "GhostEngine_Main"
+    niche: "Cosmic Horror and Space Mysteries"
+    target_audience: "US"
+    youtube_refresh_token_env: "YOUTUBE_REFRESH_TOKEN"
+    active: true
+
+  - id: "CH_TECH_02"
+    name: "GhostEngine_Tech"
+    niche: "AI, Automation, and Futuristic Tech"
+    target_audience: "US"
+    youtube_refresh_token_env: "YOUTUBE_REFRESH_TOKEN_TECH" # Requires a 2nd token in GitHub Secrets
+    active: true
