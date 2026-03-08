@@ -9,33 +9,29 @@ from googleapiclient.errors import HttpError
 from scripts.quota_manager import quota_manager
 from scripts.discord_notifier import notify_vault_secure, notify_error
 
-# Note: httplib2 import removed — it was imported but never used anywhere in this file.
-
-
-def get_youtube_client():
+def get_youtube_client(token_env_var="YOUTUBE_REFRESH_TOKEN"):
+    """🚨 V5 PATCH: Dynamically grabs the correct token for the specific channel being processed."""
     client_id = os.environ.get("YOUTUBE_CLIENT_ID")
     client_secret = os.environ.get("YOUTUBE_CLIENT_SECRET")
-    refresh_token = os.environ.get("YOUTUBE_REFRESH_TOKEN")
+    refresh_token = os.environ.get(token_env_var)
 
     if not all([client_id, client_secret, refresh_token]):
-        notify_error("YouTube Auth", "Missing Credentials", "One or more YouTube OAuth ENV vars are missing. System is frozen.")
+        notify_error("YouTube Auth", "Missing Credentials", f"Missing OAuth vars for {token_env_var}. Channel skipped.")
         return None
 
     try:
         creds = Credentials(None, refresh_token=refresh_token, token_uri="https://oauth2.googleapis.com/token", client_id=client_id, client_secret=client_secret)
         return build('youtube', 'v3', credentials=creds, static_discovery=False)
     except Exception as e:
-        notify_error("YouTube Auth", "Token Verification Failed", f"Your YouTube Refresh Token was rejected by Google: {e}")
+        notify_error("YouTube Auth", "Token Verification Failed", f"Rejected by Google for {token_env_var}: {e}")
         return None
-
 
 def get_channel_name(youtube):
     try:
         name = youtube.channels().list(part="snippet", mine=True).execute()["items"][0]["snippet"]["title"]
         quota_manager.consume_points("youtube", 1)
         return name
-    except: return "GhostEngine"
-
+    except: return "GhostEngine_Channel"
 
 def get_or_create_playlist(youtube, title, privacy_status="private"):
     try:
@@ -63,7 +59,6 @@ def get_or_create_playlist(youtube, title, privacy_status="private"):
         print(f"⚠️ Playlist fetch error: {e}")
         return None
 
-
 def get_actual_vault_count(youtube):
     try:
         playlist_id = get_or_create_playlist(youtube, "Vault Backup")
@@ -73,17 +68,8 @@ def get_actual_vault_count(youtube):
         return response["items"][0]["contentDetails"]["itemCount"]
     except: return 0
 
-
 def _get_creator_comment(niche):
-    """
-    🚨 CONTENT FIX: post_creator_comment was hardcoded to "What myth or story should
-    we cover next?" — but this channel covers space/cosmic/sci-fi topics, not myths.
-    The comment was off-brand and looked generic on every video regardless of content.
-
-    Fix: dynamic comment based on the video's actual niche category.
-    """
     niche_lower = niche.lower() if niche else ""
-
     if any(k in niche_lower for k in ['fact', 'hack', 'science', 'weird']):
         return "Which fact blew your mind the most? Drop it below and subscribe for more! 🧠✨"
     elif any(k in niche_lower for k in ['horror', 'terror', 'eldritch', 'cosmic horror']):
@@ -94,9 +80,10 @@ def _get_creator_comment(niche):
         return "Which corner of the cosmos should we explore next? Comment below and subscribe! 🚀🌠"
     elif any(k in niche_lower for k in ['dream', 'dimensional', 'quantum', 'simulation']):
         return "Does reality feel stranger after this? Share your thoughts and subscribe for more mind-bending content! 🌀"
+    elif any(k in niche_lower for k in ['tech', 'ai', 'automation', 'future']):
+        return "How long until AI takes over this job entirely? Let me know below and subscribe! 🤖⚡"
     else:
         return "What should we explore next? Drop your idea below and subscribe for more! 🌟"
-
 
 def post_creator_comment(youtube, video_id, text):
     try:
@@ -104,10 +91,8 @@ def post_creator_comment(youtube, video_id, text):
         return True
     except: return False
 
-
-def upload_to_youtube_vault(video_path, topic, metadata, niche=""):
+def upload_to_youtube_vault(youtube, video_path, topic, metadata, niche=""):
     if shutil.disk_usage("/").free < (500 * 1024 * 1024): return False, None
-    youtube = get_youtube_client()
     if not youtube: return False, None
 
     try:
@@ -117,7 +102,6 @@ def upload_to_youtube_vault(video_path, topic, metadata, niche=""):
         safe_desc = metadata.get("description") or ""
         raw_tags = metadata.get("tags") or ["shorts"]
 
-        # Tag Payload Sanitizer — prevents HTTP 400 rejection from oversized tag arrays
         safe_tags = []
         char_count = 0
         for tag in raw_tags:
@@ -165,8 +149,6 @@ def upload_to_youtube_vault(video_path, topic, metadata, niche=""):
             print(f"⚠️ [VAULT] Video uploaded, but playlist assignment failed: {playlist_err}")
             vault_playlist_id = "Failed to Assign"
 
-        # 🚨 CONTENT FIX: Dynamic comment instead of hardcoded "myth or story" text.
-        # The comment is now contextually appropriate to the video's actual niche.
         comment_text = _get_creator_comment(niche)
         if post_creator_comment(youtube, video_id, comment_text):
             quota_manager.consume_points("youtube", 50)
