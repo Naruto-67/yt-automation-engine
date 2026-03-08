@@ -235,10 +235,12 @@ def run_production_cycle():
                         else:
                             raise ConnectionError("YouTube Upload API Rejected the Payload after successful render.")
                     else:
-                        print(f"🛑 [TEST MODE] Skipped YT Upload. Vaulting '{topic}' virtually.")
-                        item['processed'] = True
-                        item['vaulted_date'] = datetime.utcnow().isoformat()
-                        item['published'] = False
+                        # 🚨 PATCH: TEST_MODE must NEVER mutate content_matrix.json.
+                        # Previously set item['processed'] = True here, which got saved
+                        # and git-committed — permanently burning real topics from the queue
+                        # even though zero videos were uploaded.
+                        # Fix: only increment the in-memory counter. Matrix stays untouched.
+                        print(f"🛑 [TEST MODE] Skipped YT Upload. Topic '{topic}' preserved in queue.")
                         success_count += 1
                         item_success = True
 
@@ -288,7 +290,11 @@ def run_production_cycle():
                     if not TEST_MODE:
                         global_garbage_collector()
 
-            save_matrix(matrix)
+            # 🚨 PATCH: Don't write matrix to disk in TEST_MODE.
+            # Prevents the workflow git step from committing topic state changes
+            # that shouldn't exist — no real upload happened, queue must stay intact.
+            if not TEST_MODE:
+                save_matrix(matrix)
 
         print(f"🏁 [FINISH] {success_count} videos sent to Vault.")
         notify_summary(True, f"🌙 **System Sleep**\nProduction cycle complete. Successfully processed {success_count} videos.")
