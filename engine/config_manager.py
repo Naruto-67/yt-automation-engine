@@ -40,5 +40,8 @@ class ConfigManager:
 
     def get_active_channels(self) -> List[ChannelConfig]:
         return self.channels
+        
+    def get_providers(self) -> Dict[str, Any]:
+        return self._load_yaml(self.providers_path)
 
 config_manager = ConfigManager()
