@@ -1,44 +1,55 @@
 name: 01_Ghost_Daily_Production
-on:
-  schedule:
-    - cron: '0 0 * * *'
-  workflow_dispatch:
-    inputs:
-      force_run:
-        description: 'Force run even if kill switch is active'
-        type: boolean
-        default: false
 
-concurrency:
-  group: ghost-engine-lock
-  cancel-in-progress: false
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *' # Adjust this to your original desired time
 
 jobs:
   build-and-vault:
-    runs-on: ubuntu-latest
-    # ── KILL SWITCH ──────────────────────────────────────────────────────────
-    # GitHub → Settings → Variables → Actions → New variable
-    # Name: GHOST_ENGINE_ENABLED  |  Value: false  → halts all workflows.
-    # workflow_dispatch with force_run=true bypasses for one-off runs.
-    if: vars.GHOST_ENGINE_ENABLED != 'false' || github.event.inputs.force_run == 'true'
-    # ─────────────────────────────────────────────────────────────────────────
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ssh-strict: true
+          ssh-user: git
+          persist-credentials: true
+          clean: true
+          sparse-checkout-cone-mode: true
+          fetch-depth: 1
+          fetch-tags: false
+          show-progress: true
+          lfs: false
+          submodules: false
+          set-safe-directory: true
 
       - name: Install System Dependencies
+        run: sudo apt-get update && sudo apt-get install -yq ffmpeg fonts-liberation espeak-ng
         env:
           DEBIAN_FRONTEND: noninteractive
-        run: sudo apt-get update && sudo apt-get install -yq ffmpeg fonts-liberation espeak-ng
 
-      - uses: actions/setup-python@v5
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          check-latest: false
+          update-environment: true
+          allow-prereleases: false
+          freethreaded: false
 
-      - run: pip install -r requirements.txt
+      - name: Install Python Dependencies
+        run: |
+          pip install -r requirements.txt
+          python -m spacy download en_core_web_sm
 
-      - env:
-          PYTHONUNBUFFERED: "1"
-          GHOST_ENGINE_ENABLED: ${{ vars.GHOST_ENGINE_ENABLED }}
+      - name: Run Ghost Engine
+        run: python main.py
+        env:
+          PYTHONUNBUFFERED: 1
+          GHOST_ENGINE_ENABLED: true
+          TEST_MODE: true
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
@@ -51,26 +62,28 @@ jobs:
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-        run: python main.py
 
-      - run: |
+      - name: Update API State & Memory
+        run: |
           git config --global user.name "Ghost-Engine-Bot"
           git config --global user.email "bot@ghostengine.ai"
-          git add memory/ assets/lessons_learned.json
+          git add memory/ assets/lessons_learned.json || true
           if ! git diff --staged --quiet; then
             git commit -m "Update API State & Memory [skip ci]"
             git pull --rebase origin main
             git push origin main
           fi
 
-      - name: Upload Final Video Artifacts
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
-        if: always()
         with:
           name: finished-youtube-shorts
           path: final_*.mp4
           if-no-files-found: warn
           compression-level: 6
           retention-days: 3
+          overwrite: false
+          include-hidden-files: false
 
-      - run: rm -rf *.mp4 *.wav *.mp3 *.srt *.ass temp_* && pip cache purge
+      - name: Cleanup Space
+        run: rm -rf *.mp4 *.wav *.mp3 *.srt *.ass temp_* && pip cache purge
