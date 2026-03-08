@@ -5,10 +5,40 @@ import random
 from scripts.quota_manager import quota_manager
 
 # 🚨 RESTORED: Biologically-calibrated speech rate constants to stop TTS pipeline bleeding.
-_WORDS_PER_SECOND_TTS = 130 / 60.0  
+_WORDS_PER_SECOND_TTS = 130 / 60.0
 _MAX_VIDEO_SECONDS = 59.0
-_SAFE_WORD_CEILING = int(_MAX_VIDEO_SECONDS * _WORDS_PER_SECOND_TTS * 0.90)  
-_ABSOLUTE_WORD_CEILING = int(_MAX_VIDEO_SECONDS * _WORDS_PER_SECOND_TTS)      
+_SAFE_WORD_CEILING = int(_MAX_VIDEO_SECONDS * _WORDS_PER_SECOND_TTS * 0.90)
+_ABSOLUTE_WORD_CEILING = int(_MAX_VIDEO_SECONDS * _WORDS_PER_SECOND_TTS)
+
+
+def _load_lessons():
+    """
+    Load AI-learned content rules from performance_analyst.py.
+    Previously these were written but NEVER READ — this fix closes that loop.
+    """
+    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    lessons_path = os.path.join(root_dir, "assets", "lessons_learned.json")
+    defaults = {
+        "emphasize": ["Engineer seamless narrative loops to maximize watch time and re-engagement."],
+        "avoid": ["Content with slow narrative pacing or a lack of immediate visual intrigue."],
+        "preferred_visuals": ["3D Animation", "Visually rich and detailed animated styles"]
+    }
+    if not os.path.exists(lessons_path):
+        return defaults
+    try:
+        with open(lessons_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, dict):
+                merged = {**defaults, **data}
+                # Validate list types
+                for key in ("emphasize", "avoid", "preferred_visuals"):
+                    if not isinstance(merged.get(key), list):
+                        merged[key] = defaults[key]
+                return merged
+    except Exception:
+        pass
+    return defaults
+
 
 def extract_scene_data_dynamically(scene_dict, fallback_topic):
     if not isinstance(scene_dict, dict):
@@ -41,43 +71,59 @@ def extract_scene_data_dynamically(scene_dict, fallback_topic):
 
     if not narr: narr = fallback_topic
     if not prompt: prompt = f"High quality shot of {fallback_topic}"
-    if not query: 
+    if not query:
         clean_str = re.sub(r'(?i)(photorealistic|cinematic|shot|of|a|the|in|with|3d|render)', '', prompt)
         words = [w for w in clean_str.split() if len(w) > 3]
         query = " ".join(words[:2]) if words else fallback_topic
     return narr, prompt, query
 
+
 def generate_script(niche, topic):
+    # 🧠 PATCH: Load AI-learned performance rules to inject into prompt
+    lessons = _load_lessons()
+    emphasize_rules = "\n".join([f"  - {r}" for r in lessons.get("emphasize", [])[-3:]])
+    avoid_rules = "\n".join([f"  - {r}" for r in lessons.get("avoid", [])[-3:]])
+    visual_preference = ", ".join(lessons.get("preferred_visuals", ["cinematic"])[:3])
+
     is_fact_based = any(k in niche.lower() for k in ['fact', 'hack', 'trend', 'brainrot'])
     target_scenes = random.randint(3, 5) if is_fact_based else random.randint(5, 7)
-    
-    target_words_min = int(35 * _WORDS_PER_SECOND_TTS)   
-    target_words_max = int(50 * _WORDS_PER_SECOND_TTS)   
-    
+
+    target_words_min = int(35 * _WORDS_PER_SECOND_TTS)
+    target_words_max = int(50 * _WORDS_PER_SECOND_TTS)
+
     prompt = f"""
     You are an Elite Master Content Creator. Your task is to write a highly viral, engaging YouTube Short.
     NICHE: '{niche}'
     TOPIC: '{topic}'
-    
+
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    🧠 PERFORMANCE INTELLIGENCE (Rules auto-learned from real channel analytics — MUST follow):
+    ✅ EMPHASIZE:
+{emphasize_rules}
+    ❌ AVOID:
+{avoid_rules}
+    🎨 PREFERRED VISUAL STYLE: {visual_preference}
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
     YOUTUBE SHORTS CONSTRAINTS:
     1. The ABSOLUTE maximum is {_ABSOLUTE_WORD_CEILING} words total across ALL scenes. Stay between {target_words_min} and {target_words_max} words.
     2. Hook the viewer in the very first sentence. No long intros.
     3. NO META-COMMENTARY: NEVER say "In this video", "Welcome back", or "Subscribe". Just dive straight into the content.
-    
+
     JSON SAFETY PROTOCOL (CRITICAL):
     - DO NOT use unescaped double quotes (") inside your text strings. If you need to quote someone or something, use single quotes (').
     - DO NOT use line breaks (\\n) inside strings.
-    
+
     DYNAMIC ADAPTATION:
     - If the niche is Facts/Hacks/Brainrot: Make the script extremely fast-paced, punchy, and loopable.
     - If the niche is Story/Lore/Mystery: Build suspense, use atmospheric descriptions, and end on a thought-provoking note.
-    
+
     SCENE STRUCTURE:
     Break the script into EXACTLY {target_scenes} visual scenes.
        - 'text': The actual words spoken by the narrator.
-       - 'image_prompt': The specific visual style you deduced for the AI image generator.
+       - 'image_prompt': The specific visual style you deduced for the AI image generator. Match the preferred visual style above.
        - 'pexels_query': A 1-2 word search term like 'abandoned house'.
-    
+
     FORMAT: Return ONLY valid JSON.
     {{
         "thought_process": "Briefly explain how you structured this to maximize YouTube Shorts audience retention.",
@@ -98,24 +144,24 @@ def generate_script(niche, topic):
             clean_str = raw_response.replace("```json", "").replace("```", "").strip()
             start_idx = clean_str.find('{')
             end_idx = clean_str.rfind('}')
-            
+
             if start_idx != -1 and end_idx != -1:
                 json_str = clean_str[start_idx:end_idx+1]
                 data = json.loads(json_str)
                 scenes = data.get("scenes", [])
                 parsed_scenes = [extract_scene_data_dynamically(s, topic) for s in scenes]
-                
+
                 full_script = " ".join([s[0] for s in parsed_scenes])
                 prompts = [s[1] for s in parsed_scenes]
                 pexels_queries = [s[2] for s in parsed_scenes]
-                
+
                 if not full_script.strip() or full_script == topic:
                     print("      ⚠️ [TEXT REJECTED] Failed to parse valid text.")
                     return None, [], [], [], provider
-                
+
                 word_count = len(full_script.split())
                 print(f"      -> [TEXT PRE-CHECK] Script generated: {word_count} words (limit: {_ABSOLUTE_WORD_CEILING}).")
-                
+
                 if word_count > _ABSOLUTE_WORD_CEILING:
                     print(f"      ⚠️ [TEXT REJECTED] Script ({word_count}w) exceeds TTS-calibrated ceiling ({_ABSOLUTE_WORD_CEILING}w). Would produce ~{word_count / _WORDS_PER_SECOND_TTS:.0f}s audio. Regenerating...")
                     return None, [], [], [], provider
@@ -125,7 +171,7 @@ def generate_script(niche, topic):
 
                 total_chars = sum(len(s[0]) for s in parsed_scenes)
                 scene_weights = [len(s[0]) / total_chars for s in parsed_scenes] if total_chars > 0 else []
-                
+
                 return full_script, prompts, pexels_queries, scene_weights, provider
         return None, [], [], [], "Failed"
     except Exception as e:
