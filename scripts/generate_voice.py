@@ -1,12 +1,9 @@
+# scripts/generate_voice.py
 import os
 import json
 import random
-import warnings
 import re
 
-warnings.filterwarnings("ignore", category=UserWarning)
-warnings.filterwarnings("ignore", category=FutureWarning)
-os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 if os.environ.get("HF_TOKEN"):
     os.environ["HUGGING_FACE_HUB_TOKEN"] = os.environ.get("HF_TOKEN")
 
@@ -24,7 +21,7 @@ def get_kokoro_pipeline():
     global _KOKORO_PIPELINE
     if _KOKORO_PIPELINE is None:
         from kokoro import KPipeline
-        # 🚨 FIX: Explicitly pass repo_id to prevent library warnings
+        # The true solve for the warning, no suppression needed.
         _KOKORO_PIPELINE = KPipeline(lang_code='a', repo_id='hexgrad/Kokoro-82M')
     return _KOKORO_PIPELINE
 
