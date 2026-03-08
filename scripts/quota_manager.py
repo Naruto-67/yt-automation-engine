@@ -1,219 +1,109 @@
-# scripts/quota_manager.py
+# scripts/quota_manager.py (Full Refined V5)
 import os
 import json
 import traceback
 import time
-import re as _re
+import re
 from datetime import datetime, timezone
 from scripts.groq_client import groq_client
 
 class MasterQuotaManager:
     def __init__(self):
         self.root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-        self.memory_dir = os.path.join(self.root_dir, "memory")
-        self.state_file = os.path.join(self.memory_dir, "api_state.json")
+        self.state_file = os.path.join(self.root_dir, "memory", "api_state.json")
         self.gemini_key = os.environ.get("GEMINI_API_KEY")
+        
+        # Hard Limits
+        self.LIMITS = {
+            "gemini": 40,
+            "cloudflare": 95,
+            "huggingface": 50,
+            "youtube": 9500
+        }
 
-        self.gemini_text_limit = 40
-        self.cloudflare_image_limit = 95
-        self.hf_image_limit = 50
-
-        self.yt_quota_limit = 9500
-        self.gemini_blocked_for_run = False
-
-        self.TEXT_MODELS = [
-            'gemini-2.5-flash',
-            'gemini-2.5-flash-lite',
-            'gemini-1.5-flash',
-            'gemini-1.5-flash-8b',
-        ]
-
-        self._models_discovered = False
-        self._ensure_state_exists()
-
-    def _discover_gemini_models(self):
-        if self._models_discovered:
-            return
-        self._models_discovered = True
-
-        if not self.gemini_key:
-            return
-
-        try:
-            from google import genai
-            client = genai.Client(api_key=self.gemini_key)
-            all_models = list(client.models.list())
-
-            valid = []
-            for m in all_models:
-                name = getattr(m, 'name', '') or ''
-                model_id = name.split('/')[-1] if '/' in name else name
-                name_lower = model_id.lower()
-                
-                # 🚨 SOLVED: Stricter filtering to completely avoid text-to-speech, image, vision, and custom tools
-                if 'gemini' in name_lower and 'embedding' not in name_lower and 'aqa' not in name_lower and 'vision' not in name_lower and 'tts' not in name_lower and 'image' not in name_lower and 'customtools' not in name_lower:
-                    valid.append(model_id)
-
-            if len(valid) >= 2:
-                def _score(n):
-                    s = 0
-                    n_lower = n.lower()
-                    nums = _re.findall(r'\d+(?:\.\d+)?', n_lower)
-                    if nums:
-                        try:
-                            s += float(nums[0]) * 3
-                        except Exception:
-                            pass
-                    
-                    # 🚨 SOLVED: Reward flash (generous free tier), heavily penalize pro (strict/no free tier)
-                    if 'flash' in n_lower: s += 20
-                    if 'pro' in n_lower: s -= 50
-                    if 'lite' in n_lower: s += 5
-                    if 'exp' in n_lower or 'preview' in n_lower: s -= 5
-                    return s
-
-                valid.sort(key=_score, reverse=True)
-                self.TEXT_MODELS = valid[:5]
-                print(f"🔍 [GEMINI] Auto-discovered {len(valid)} models. Active queue: {self.TEXT_MODELS}")
-            else:
-                print(f"⚠️ [GEMINI] Discovery returned <2 models ({valid}). Keeping defaults.")
-
-        except Exception as e:
-            print(f"⚠️ [GEMINI] Model auto-discovery skipped (using defaults): {e}")
-
-    def get_utc_date(self):
-        return datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
-    def _ensure_state_exists(self):
-        os.makedirs(self.memory_dir, exist_ok=True)
+    def _get_active_state(self):
+        """Reads and auto-resets daily quotas based on UTC date."""
         if not os.path.exists(self.state_file):
-            self._reset_daily_state()
+            return self._reset_state()
+        
+        with open(self.state_file, 'r') as f:
+            state = json.load(f)
+            
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if state.get("last_reset_date") != today:
+            return self._reset_state(today)
+        return state
 
-    def _reset_daily_state(self):
-        old_state = self._read_state_file()
+    def _reset_state(self, date_str=None):
+        today = date_str or datetime.now(timezone.utc).strftime("%Y-%m-%d")
         new_state = {
-            "last_reset_date": self.get_utc_date(),
+            "last_reset_date": today,
             "gemini_used": 0,
             "youtube_points_used": 0,
             "cf_images_used": 0,
             "hf_images_used": 0,
-            "yt_last_used_date": old_state.get("yt_last_used_date", self.get_utc_date())
+            "yt_last_used_date": today # POINT 11: Tracks inactivity
         }
-        self._write_state_file(new_state)
-
-    def _read_state_file(self):
-        if os.path.exists(self.state_file):
-            try:
-                with open(self.state_file, 'r', encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception:
-                return {}
-        return {}
-
-    def _write_state_file(self, data):
-        tmp_path = self.state_file + ".tmp"
-        with open(tmp_path, 'w', encoding="utf-8") as f:
-            json.dump(data, f, indent=4)
-        os.replace(tmp_path, self.state_file)
-
-    def _get_active_state(self):
-        state = self._read_state_file()
-        if state.get("last_reset_date") != self.get_utc_date():
-            self._reset_daily_state()
-            return self._read_state_file()
-        return state
+        with open(self.state_file, 'w') as f:
+            json.dump(new_state, f, indent=4)
+        return new_state
 
     def consume_points(self, provider, amount):
         state = self._get_active_state()
-        if provider == "youtube":
-            state["youtube_points_used"] = state.get("youtube_points_used", 0) + amount
-            state["yt_last_used_date"] = self.get_utc_date()
-        elif provider == "gemini":
-            state["gemini_used"] = state.get("gemini_used", 0) + amount
-        elif provider == "cloudflare":
-            state["cf_images_used"] = state.get("cf_images_used", 0) + amount
-        elif provider == "huggingface":
-            state["hf_images_used"] = state.get("hf_images_used", 0) + amount
-        self._write_state_file(state)
+        key_map = {
+            "youtube": "youtube_points_used",
+            "gemini": "gemini_used",
+            "cloudflare": "cf_images_used",
+            "huggingface": "hf_images_used"
+        }
+        
+        key = key_map.get(provider)
+        if key:
+            state[key] += amount
+            if provider == "youtube":
+                state["yt_last_used_date"] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            
+            with open(self.state_file, 'w') as f:
+                json.dump(state, f, indent=4)
 
     def can_afford_youtube(self, cost):
-        return self._get_active_state().get("youtube_points_used", 0) + cost <= self.yt_quota_limit
-
-    def check_and_update_refresh_token(self):
         state = self._get_active_state()
-        date_str = state.get("yt_last_used_date", self.get_utc_date())
-        try:
-            last_used_date = datetime.strptime(date_str, "%Y-%m-%d")
-            current_utc_date = datetime.strptime(self.get_utc_date(), "%Y-%m-%d")
-            days_unused = (current_utc_date - last_used_date).days
-            if days_unused >= 120:
-                from scripts.discord_notifier import notify_token_expiry
-                notify_token_expiry(days_unused)
-        except Exception:
-            pass
+        return (state["youtube_points_used"] + cost) <= self.LIMITS["youtube"]
 
-    def is_provider_exhausted(self, provider):
-        state = self._get_active_state()
-        if provider == "cloudflare":
-            return state.get("cf_images_used", 0) >= self.cloudflare_image_limit
-        if provider == "huggingface":
-            return state.get("hf_images_used", 0) >= self.hf_image_limit
-        return False
-
-    def diagnose_fatal_error(self, module_name, exception_obj):
-        tb = "".join(traceback.format_exception(type(exception_obj), exception_obj, exception_obj.__traceback__))
-        error_msg = f"\n🚨 [AI DOCTOR] Crash in {module_name}:\n{tb}\n"
-        print(error_msg)
-
-        log_path = os.path.join(self.memory_dir, "error_log.txt")
-        try:
-            if os.path.exists(log_path) and os.path.getsize(log_path) > 1024 * 1024:
-                with open(log_path, 'r', encoding='utf-8') as f:
-                    lines = f.readlines()
-                with open(log_path, 'w', encoding='utf-8') as f:
-                    f.writelines(lines[-200:])
-
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(f"[{datetime.utcnow().isoformat()}] {error_msg}\n{'-' * 50}\n")
-        except Exception:
-            pass
-
+    def diagnose_fatal_error(self, module, exception):
+        """POINT 20: Persistent Error Logging."""
+        error_log = os.path.join(self.root_dir, "memory", "error_log.txt")
+        timestamp = datetime.now().isoformat()
+        err_type = type(exception).__name__
+        trace = traceback.format_exc()
+        
+        with open(error_log, "a") as f:
+            f.write(f"\n[{timestamp}] [{module}] {err_type}: {exception}\n{trace}\n{'-'*40}")
+        
         from scripts.discord_notifier import notify_error
-        notify_error(module_name, type(exception_obj).__name__, str(exception_obj))
+        notify_error(module, err_type, str(exception))
 
-    def generate_text(self, prompt, task_type="creative", force_provider=None):
-        self._discover_gemini_models()
-
+    def generate_text(self, prompt, task_type="creative", system_prompt=None):
+        """POINT 7: Provider Registry (Gemini -> Groq Fallback)."""
         state = self._get_active_state()
-        usage = state.get("gemini_used", 0)
-
-        if force_provider == "groq" or task_type == "comment_reply_groq":
-            return groq_client.generate_text(prompt, role="commenter"), "Groq Llama 3.3"
-
-        if self.gemini_blocked_for_run and force_provider != "gemini":
-            return groq_client.generate_text(prompt, role=task_type), "Groq Llama 3.3 (Fallback)"
-
-        if usage < self.gemini_text_limit:
+        
+        # Try Gemini first
+        if state["gemini_used"] < self.LIMITS["gemini"]:
             try:
                 from google import genai
                 client = genai.Client(api_key=self.gemini_key)
-                for model_name in self.TEXT_MODELS:
-                    try:
-                        response = client.models.generate_content(model=model_name, contents=prompt)
-                        self.consume_points("gemini", 1)
-                        time.sleep(3)
-                        return response.text, model_name
-                    except Exception as e:
-                        print(f"⚠️ [GEMINI API TRACE] {model_name}: {e}")
-                        if "429" in str(e) or "quota" in str(e).lower() or "404" in str(e) or "not found" in str(e).lower():
-                            continue
+                response = client.models.generate_content(
+                    model='gemini-1.5-flash', 
+                    contents=prompt,
+                    config={'system_instruction': system_prompt} if system_prompt else None
+                )
+                self.consume_points("gemini", 1)
+                return response.text, "Gemini 1.5 Flash"
+            except Exception as e:
+                print(f"⚠️ Gemini failed: {e}. Falling back to Groq...")
 
-                self.gemini_blocked_for_run = True
-            except Exception as outer_e:
-                print(f"⚠️ [GEMINI INIT TRACE]: {outer_e}")
-
-        print("⚡ [ROUTER] Executing Fallback Protocol (Groq)...")
-        return groq_client.generate_text(prompt, role=task_type), "Groq Llama 3.3 (Fallback)"
-
+        # Fallback to Groq Llama 3.3 (POINT 7)
+        res = groq_client.generate_text(prompt, system_prompt=system_prompt)
+        return res, "Groq Llama 3.3"
 
 quota_manager = MasterQuotaManager()
