@@ -3,6 +3,11 @@ on:
   schedule:
     - cron: '30 17 * * *'
   workflow_dispatch:
+    inputs:
+      force_run:
+        description: 'Force run even if kill switch is active'
+        type: boolean
+        default: false
 
 concurrency:
   group: ghost-engine-lock
@@ -11,13 +16,15 @@ concurrency:
 jobs:
   channel_health_pulse:
     runs-on: ubuntu-latest
+    if: vars.GHOST_ENGINE_ENABLED != 'false' || github.event.inputs.force_run == 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.x'   # 🔄 PATCH: Dynamic Python version
+          python-version: '3.x'
       - run: pip install -r requirements.txt
       - env:
+          GHOST_ENGINE_ENABLED: ${{ vars.GHOST_ENGINE_ENABLED }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
