@@ -1,0 +1,34 @@
+# Ghost Engine V5.0 - Dynamic Prompt Registry
+version: "5.0.1"
+
+script_generation:
+  system: "You are an Elite Master Content Creator for YouTube Shorts."
+  template: |
+    NICHE: '{niche}'
+    TOPIC: '{topic}'
+    
+    🧠 PERFORMANCE RULES:
+    {emphasize}
+    
+    ❌ AVOID:
+    {avoid}
+    
+    VISUAL STYLE: {visual_preference}
+    
+    CONSTRAINTS:
+    - Max {word_ceiling} words.
+    - Hook in the first 3 seconds.
+    - No meta-commentary.
+    
+    Return ONLY valid JSON with 'thought_process', 'duration', and 'scenes' array.
+
+metadata_generation:
+  template: |
+    Generate viral SEO for: {script_text}
+    Niche: {niche}
+    Include tags: {recent_tags}
+    Format: JSON {title, description, tags}
+
+content_validation:
+  logic_check: "Does this script follow a coherent narrative? Answer only YES or NO."
+  quality_score: "Rate this script 1-10 for retention potential. Output only the integer."
