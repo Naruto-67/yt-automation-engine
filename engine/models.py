@@ -22,6 +22,7 @@ class ChannelConfig(BaseModel):
     niche: str
     target_audience: str = "US"
     youtube_refresh_token_env: str
+    discord_webhook_env: str = "DISCORD_WEBHOOK_URL"
     active: bool = True
 
 class VideoJob(BaseModel):
@@ -30,16 +31,12 @@ class VideoJob(BaseModel):
     topic: str
     niche: str
     state: JobState = JobState.QUEUED
-    
-    # Payload Data
-    script: Optional[str] = None # JSON string containing text, prompts, etc.
-    metadata: Optional[str] = None # JSON string containing SEO data
+    script: Optional[str] = None
+    metadata: Optional[str] = None
     audio_path: Optional[str] = None
-    image_paths: Optional[str] = None # JSON string list
+    image_paths: Optional[str] = None
     video_path: Optional[str] = None
     youtube_id: Optional[str] = None
-    
-    # State tracking
     attempts: int = Field(default=0)
     created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
