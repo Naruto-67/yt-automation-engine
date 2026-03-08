@@ -2,8 +2,10 @@ import os
 import json
 import traceback
 import time
+import re as _re
 from datetime import datetime, timezone
 from scripts.groq_client import groq_client
+
 
 class MasterQuotaManager:
     def __init__(self):
@@ -11,19 +13,82 @@ class MasterQuotaManager:
         self.memory_dir = os.path.join(self.root_dir, "memory")
         self.state_file = os.path.join(self.memory_dir, "api_state.json")
         self.gemini_key = os.environ.get("GEMINI_API_KEY")
-        
-        self.gemini_text_limit = 40 
-        self.cloudflare_image_limit = 95 
-        self.hf_image_limit = 50 
-        
-        self.yt_quota_limit = 9500 
-        self.gemini_blocked_for_run = False 
-        
+
+        self.gemini_text_limit = 40
+        self.cloudflare_image_limit = 95
+        self.hf_image_limit = 50
+
+        self.yt_quota_limit = 9500
+        self.gemini_blocked_for_run = False
+
+        # 🧠 PATCH: Baseline fallback models. _discover_gemini_models() will overwrite
+        # this at runtime with whatever Google actually has live — future-proof by design.
         self.TEXT_MODELS = [
-            'gemini-2.5-flash', 
-            'gemini-2.5-flash-lite'
+            'gemini-2.5-flash',
+            'gemini-2.5-flash-lite',
+            'gemini-1.5-flash',
+            'gemini-1.5-flash-8b',
         ]
+
+        self._models_discovered = False
         self._ensure_state_exists()
+
+    # ── Dynamic Model Discovery ───────────────────────────────────────────────
+
+    def _discover_gemini_models(self):
+        """
+        Auto-discover available Gemini models via the API at runtime.
+        Runs ONCE per process. Overwrites TEXT_MODELS with the live list,
+        sorted by capability score so the engine always uses the best available model.
+        This makes the system self-updating — no manual edits needed when Google
+        releases new models.
+        """
+        if self._models_discovered:
+            return
+        self._models_discovered = True
+
+        if not self.gemini_key:
+            return
+
+        try:
+            from google import genai
+            client = genai.Client(api_key=self.gemini_key)
+            all_models = list(client.models.list())
+
+            valid = []
+            for m in all_models:
+                name = getattr(m, 'name', '') or ''
+                model_id = name.split('/')[-1] if '/' in name else name
+                supported = getattr(m, 'supported_generation_methods', []) or []
+                if 'generateContent' in supported and 'gemini' in model_id.lower():
+                    valid.append(model_id)
+
+            if len(valid) >= 2:
+                def _score(n):
+                    s = 0
+                    nums = _re.findall(r'\d+(?:\.\d+)?', n)
+                    if nums:
+                        try:
+                            s += float(nums[0]) * 3
+                        except Exception:
+                            pass
+                    if 'flash' in n: s += 5
+                    if 'pro' in n: s += 8
+                    if 'lite' in n: s -= 3
+                    if 'exp' in n or 'preview' in n: s += 2
+                    return s
+
+                valid.sort(key=_score, reverse=True)
+                # Cap at 5 models — prefer diversity (don't queue 10 flash variants)
+                self.TEXT_MODELS = valid[:5]
+                print(f"🔍 [GEMINI] Auto-discovered {len(valid)} models. Active queue: {self.TEXT_MODELS}")
+            else:
+                print(f"⚠️ [GEMINI] Discovery returned <2 models ({valid}). Keeping defaults.")
+
+        except Exception as e:
+            print(f"⚠️ [GEMINI] Model auto-discovery skipped (using defaults): {e}")
+
+    # ── State Management ──────────────────────────────────────────────────────
 
     def get_utc_date(self):
         return datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -50,7 +115,8 @@ class MasterQuotaManager:
             try:
                 with open(self.state_file, 'r', encoding="utf-8") as f:
                     return json.load(f)
-            except: return {}
+            except Exception:
+                return {}
         return {}
 
     def _write_state_file(self, data):
@@ -68,14 +134,15 @@ class MasterQuotaManager:
 
     def consume_points(self, provider, amount):
         state = self._get_active_state()
-        
-        if provider == "youtube": 
+        if provider == "youtube":
             state["youtube_points_used"] = state.get("youtube_points_used", 0) + amount
             state["yt_last_used_date"] = self.get_utc_date()
-        elif provider == "gemini": state["gemini_used"] = state.get("gemini_used", 0) + amount
-        elif provider == "cloudflare": state["cf_images_used"] = state.get("cf_images_used", 0) + amount
-        elif provider == "huggingface": state["hf_images_used"] = state.get("hf_images_used", 0) + amount
-        
+        elif provider == "gemini":
+            state["gemini_used"] = state.get("gemini_used", 0) + amount
+        elif provider == "cloudflare":
+            state["cf_images_used"] = state.get("cf_images_used", 0) + amount
+        elif provider == "huggingface":
+            state["hf_images_used"] = state.get("hf_images_used", 0) + amount
         self._write_state_file(state)
 
     def can_afford_youtube(self, cost):
@@ -84,48 +151,52 @@ class MasterQuotaManager:
     def check_and_update_refresh_token(self):
         state = self._get_active_state()
         date_str = state.get("yt_last_used_date", self.get_utc_date())
-        
         try:
             last_used_date = datetime.strptime(date_str, "%Y-%m-%d")
             current_utc_date = datetime.strptime(self.get_utc_date(), "%Y-%m-%d")
             days_unused = (current_utc_date - last_used_date).days
-            
             if days_unused >= 120:
                 from scripts.discord_notifier import notify_token_expiry
                 notify_token_expiry(days_unused)
-        except: pass
+        except Exception:
+            pass
 
     def is_provider_exhausted(self, provider):
         state = self._get_active_state()
-        if provider == "cloudflare": return state.get("cf_images_used", 0) >= self.cloudflare_image_limit
-        if provider == "huggingface": return state.get("hf_images_used", 0) >= self.hf_image_limit
+        if provider == "cloudflare":
+            return state.get("cf_images_used", 0) >= self.cloudflare_image_limit
+        if provider == "huggingface":
+            return state.get("hf_images_used", 0) >= self.hf_image_limit
         return False
 
     def diagnose_fatal_error(self, module_name, exception_obj):
         tb = "".join(traceback.format_exception(type(exception_obj), exception_obj, exception_obj.__traceback__))
         error_msg = f"\n🚨 [AI DOCTOR] Crash in {module_name}:\n{tb}\n"
         print(error_msg)
-        
+
         log_path = os.path.join(self.memory_dir, "error_log.txt")
         try:
-            # 🚨 FIX: Ensure the log file doesn't grow infinitely and bloat the GitHub repo.
             if os.path.exists(log_path) and os.path.getsize(log_path) > 1024 * 1024:
                 with open(log_path, 'r', encoding='utf-8') as f:
                     lines = f.readlines()
                 with open(log_path, 'w', encoding='utf-8') as f:
                     f.writelines(lines[-200:])
-                    
+
             with open(log_path, "a", encoding="utf-8") as f:
-                f.write(f"[{datetime.utcnow().isoformat()}] {error_msg}\n{'-'*50}\n")
-        except: pass
-        
+                f.write(f"[{datetime.utcnow().isoformat()}] {error_msg}\n{'-' * 50}\n")
+        except Exception:
+            pass
+
         from scripts.discord_notifier import notify_error
         notify_error(module_name, type(exception_obj).__name__, str(exception_obj))
 
     def generate_text(self, prompt, task_type="creative", force_provider=None):
+        # 🧠 PATCH: Auto-discover models once per process before first API call
+        self._discover_gemini_models()
+
         state = self._get_active_state()
         usage = state.get("gemini_used", 0)
-        
+
         if force_provider == "groq" or task_type == "comment_reply_groq":
             return groq_client.generate_text(prompt, role="commenter"), "Groq Llama 3.3"
 
@@ -145,13 +216,14 @@ class MasterQuotaManager:
                     except Exception as e:
                         print(f"⚠️ [GEMINI API TRACE] {model_name}: {e}")
                         if "429" in str(e) or "quota" in str(e).lower() or "404" in str(e) or "not found" in str(e).lower():
-                            continue 
-                
+                            continue
+
                 self.gemini_blocked_for_run = True
-            except Exception as outer_e: 
+            except Exception as outer_e:
                 print(f"⚠️ [GEMINI INIT TRACE]: {outer_e}")
-            
+
         print("⚡ [ROUTER] Executing Fallback Protocol (Groq)...")
         return groq_client.generate_text(prompt, role=task_type), "Groq Llama 3.3 (Fallback)"
+
 
 quota_manager = MasterQuotaManager()
