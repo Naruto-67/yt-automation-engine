@@ -24,9 +24,6 @@ except ImportError as e:
 TEST_MODE = False
 
 # ─── SYSTEM KILL SWITCH ────────────────────────────────────────────────────────
-# Set repository variable GHOST_ENGINE_ENABLED = false in:
-# GitHub → Settings → Secrets and Variables → Actions → Variables
-# to instantly halt all scheduled workflows without touching code.
 _SYSTEM_ENABLED = os.environ.get("GHOST_ENGINE_ENABLED", "true").strip().lower()
 if _SYSTEM_ENABLED == "false":
     print("🔴 [KILL SWITCH] GHOST_ENGINE_ENABLED=false. System is halted by operator.")
@@ -59,17 +56,14 @@ def global_garbage_collector():
         for file in glob.glob(ext):
             try: os.remove(file)
             except: pass
-
     for file in glob.glob("temp_anim_*.mp4"):
         try: os.remove(file)
         except: pass
-
     for file in glob.glob("temp_merged*.mp4"):
         try: os.remove(file)
         except: pass
 
 def run_production_cycle():
-    # 🚨 PATCH: Notify Discord immediately if running in TEST_MODE so you always know.
     if TEST_MODE:
         notify_summary(True, "🧪 **TEST MODE ACTIVE**\nNo YouTube quota will be used. Videos will be rendered but NOT uploaded.")
 
@@ -95,7 +89,6 @@ def run_production_cycle():
 
         if len(unprocessed) < 4:
             print(f"⚠️ [ENGINE] Queue low ({len(unprocessed)} left). Triggering Emergency Research Cycle...")
-            # 🚨 NOTIFICATION PATCH: Alert Discord when emergency research fires
             notify_step(
                 "Content Matrix",
                 "⚠️ Emergency Research Triggered",
@@ -103,8 +96,6 @@ def run_production_cycle():
                 0xe67e22
             )
             from scripts.dynamic_researcher import run_dynamic_research
-            # 🚨 TEST_MODE PATCH: Emergency research was silently burning YouTube quota even in TEST_MODE.
-            # Now bypassed entirely — test runs use whatever topics already exist in the matrix.
             if not TEST_MODE:
                 run_dynamic_research()
             else:
@@ -122,7 +113,6 @@ def run_production_cycle():
         print(f"🏷️ [BRANDING] Secured Watermark: {channel_name}")
         print(f"🎯 [TARGET] Processing {batch_size} videos for this run.")
 
-        # 🚨 NOTIFICATION PATCH: Show vault + queue status at run start
         notify_step(
             "System Status",
             "🚀 Production Cycle Starting",
@@ -140,7 +130,6 @@ def run_production_cycle():
             min_audio = 10.0 if is_fact_based else 22.0
 
             max_item_attempts = 3
-            item_success = False
 
             for attempt in range(1, max_item_attempts + 1):
                 print(f"\n🎬 [PROCESSING] {niche.upper()}: {topic} (Attempt {attempt}/{max_item_attempts})")
@@ -223,7 +212,10 @@ def run_production_cycle():
                     if not render_success: raise ValueError("Render failed or output file is corrupted/zero-bytes.")
 
                     if not TEST_MODE:
-                        upload_success, video_id = upload_to_youtube_vault(final_video, topic, metadata)
+                        # 🚨 CONTENT FIX: Pass niche so upload_to_youtube_vault can post
+                        # a contextually appropriate creator comment (was always hardcoded
+                        # to "What myth or story should we cover next?" regardless of topic).
+                        upload_success, video_id = upload_to_youtube_vault(final_video, topic, metadata, niche=niche)
                         if upload_success:
                             item['processed'] = True
                             item['vaulted_date'] = datetime.utcnow().isoformat()
@@ -231,18 +223,11 @@ def run_production_cycle():
                             item['youtube_id'] = video_id
                             success_count += 1
                             log_completed_video(niche, topic, final_video)
-                            item_success = True
                         else:
                             raise ConnectionError("YouTube Upload API Rejected the Payload after successful render.")
                     else:
-                        # 🚨 PATCH: TEST_MODE must NEVER mutate content_matrix.json.
-                        # Previously set item['processed'] = True here, which got saved
-                        # and git-committed — permanently burning real topics from the queue
-                        # even though zero videos were uploaded.
-                        # Fix: only increment the in-memory counter. Matrix stays untouched.
                         print(f"🛑 [TEST MODE] Skipped YT Upload. Topic '{topic}' preserved in queue.")
                         success_count += 1
-                        item_success = True
 
                     notify_production_success(
                         niche=niche, topic=topic, script=script_text, script_ai=script_prov,
@@ -269,7 +254,6 @@ def run_production_cycle():
                     notify_step(topic, "Exception Caught", error_msg[:300], 0xe74c3c)
 
                     is_api_error = not isinstance(e, ValueError)
-
                     if is_api_error:
                         quota_manager.diagnose_fatal_error("main.py", e)
 
@@ -290,9 +274,6 @@ def run_production_cycle():
                     if not TEST_MODE:
                         global_garbage_collector()
 
-            # 🚨 PATCH: Don't write matrix to disk in TEST_MODE.
-            # Prevents the workflow git step from committing topic state changes
-            # that shouldn't exist — no real upload happened, queue must stay intact.
             if not TEST_MODE:
                 save_matrix(matrix)
 
