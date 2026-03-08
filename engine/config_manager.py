@@ -10,6 +10,7 @@ class ConfigManager:
         self.root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         self.channels_path = os.path.join(self.root_dir, "config", "channels.yaml")
         self.providers_path = os.path.join(self.root_dir, "config", "providers.yaml")
+        self.settings_path = os.path.join(self.root_dir, "config", "settings.yaml")
         self.channels = self._load_channels()
 
     def _load_yaml(self, path: str) -> Dict[str, Any]:
@@ -43,5 +44,8 @@ class ConfigManager:
         
     def get_providers(self) -> Dict[str, Any]:
         return self._load_yaml(self.providers_path)
+
+    def get_settings(self) -> Dict[str, Any]:
+        return self._load_yaml(self.settings_path)
 
 config_manager = ConfigManager()
