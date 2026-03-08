@@ -22,9 +22,7 @@ class JobRunner:
         self.base_filename = f"job_{self.job.id}_{self.job.channel_id.replace(' ', '_')}"
 
     def process(self):
-        # 🚨 V5 CONTEXT INJECTION: Used by Guardian and DB fetchers down the stack.
         os.environ["CURRENT_CHANNEL_ID"] = self.job.channel_id
-        
         logger.engine(f"Processing Job {self.job.id} | Topic: {self.job.topic} | State: {self.job.state.name}")
 
         try:
@@ -83,11 +81,16 @@ class JobRunner:
 
     def _execute_script_generation(self):
         logger.generation("Drafting script...")
-        script_text, prompts, pexels, weights, prov = generate_script(self.job.niche, self.job.topic)
+        script_text, prompts, pexels, weights, prov, voice, color = generate_script(self.job.niche, self.job.topic)
         if not script_text: raise ValueError("Empty script returned.")
 
         meta_data, _ = generate_seo_metadata(self.job.niche, script_text)
-        self.job.script = json.dumps({"text": script_text, "prompts": prompts, "pexels": pexels, "weights": weights, "provider": prov})
+        # Store the AI's choices in the script payload
+        self.job.script = json.dumps({
+            "text": script_text, "prompts": prompts, "pexels": pexels, 
+            "weights": weights, "provider": prov, 
+            "target_voice": voice, "target_color": color
+        })
         self.job.metadata = json.dumps(meta_data)
         self._transition_to(JobState.VOICE_GENERATION)
 
@@ -96,7 +99,9 @@ class JobRunner:
         script_data = json.loads(self.job.script)
         audio_base = f"temp_audio_{self.base_filename}"
         
-        success, prov, duration = generate_audio(script_data["text"], output_base=audio_base)
+        # Pass the chosen voice to the audio generator
+        target_voice = script_data.get("target_voice", "am_adam")
+        success, prov, duration = generate_audio(script_data["text"], output_base=audio_base, target_voice=target_voice)
         if not success: raise RuntimeError("TTS Pipeline collapsed.")
             
         self.job.audio_path = f"{audio_base}.wav"
@@ -116,14 +121,20 @@ class JobRunner:
         logger.render("Final FFmpeg composite...")
         script_data = json.loads(self.job.script)
         img_paths = json.loads(self.job.image_paths)
+        target_color = script_data.get("target_color", "&H00FFFFFF")
         final_out = f"final_{self.base_filename}.mp4"
         
-        success, duration, size = render_video(img_paths, self.job.audio_path, final_out, scene_weights=script_data["weights"], watermark_text=self.job.channel_id)
+        # Pass the chosen color to the renderer
+        success, duration, size = render_video(
+            img_paths, self.job.audio_path, final_out, 
+            scene_weights=script_data["weights"], watermark_text=self.job.channel_id,
+            subtitle_color=target_color
+        )
         if not success: raise RuntimeError("FFmpeg render failed.")
 
         self.job.video_path = final_out
         notify_production_success(
             niche=self.job.niche, topic=self.job.topic, script=script_data["text"], script_ai=script_data["provider"], seo_ai="V5 Engine",
-            voice_ai="Kokoro", visual_ai="Cascade", metadata=json.loads(self.job.metadata), duration=duration, size=size
+            voice_ai=f"Kokoro ({script_data.get('target_voice', 'Auto')})", visual_ai="Cascade", metadata=json.loads(self.job.metadata), duration=duration, size=size
         )
         self._transition_to(JobState.VAULTED)
