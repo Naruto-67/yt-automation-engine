@@ -1,0 +1,90 @@
+name: 06_System_Control
+
+# ── HOW TO USE ────────────────────────────────────────────────────────────────
+# Go to: GitHub → Actions → 06_System_Control → Run workflow
+# Pick "disable" to halt all 5 production workflows instantly.
+# Pick "enable" to resume normal operations.
+# No code changes, no commits, no redeploys needed.
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Toggle system state'
+        required: true
+        type: choice
+        options:
+          - disable
+          - enable
+      reason:
+        description: 'Reason (shown in Discord notification)'
+        required: false
+        default: 'Manual operator action'
+
+permissions:
+  actions: write   # Required to update repository variables
+
+jobs:
+  toggle:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Apply Kill Switch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          ACTION: ${{ github.event.inputs.action }}
+          REASON: ${{ github.event.inputs.reason }}
+        run: |
+          REPO="${{ github.repository }}"
+
+          if [ "$ACTION" = "disable" ]; then
+            NEW_VALUE="false"
+            EMOJI="🔴"
+            LABEL="HALTED"
+          else
+            NEW_VALUE="true"
+            EMOJI="🟢"
+            LABEL="RESUMED"
+          fi
+
+          # Update the GHOST_ENGINE_ENABLED repository variable via GitHub API
+          echo "Setting GHOST_ENGINE_ENABLED=$NEW_VALUE..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X PATCH \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$REPO/actions/variables/GHOST_ENGINE_ENABLED" \
+            -d "{\"name\":\"GHOST_ENGINE_ENABLED\",\"value\":\"$NEW_VALUE\"}")
+
+          # If variable doesn't exist yet (first time), create it instead of patching
+          if [ "$STATUS" = "404" ]; then
+            echo "Variable not found — creating it..."
+            curl -s -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/$REPO/actions/variables" \
+              -d "{\"name\":\"GHOST_ENGINE_ENABLED\",\"value\":\"$NEW_VALUE\"}"
+          fi
+
+          echo "✅ GHOST_ENGINE_ENABLED set to: $NEW_VALUE"
+
+          # Send Discord notification
+          if [ -n "$DISCORD_WEBHOOK_URL" ]; then
+            curl -s -X POST "$DISCORD_WEBHOOK_URL" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"username\": \"Ghost Engine AI\",
+                \"embeds\": [{
+                  \"title\": \"$EMOJI System $LABEL\",
+                  \"color\": $([ \"$ACTION\" = \"disable\" ] && echo 15158332 || echo 3066993),
+                  \"fields\": [
+                    {\"name\": \"⚙️ State\", \"value\": \"└ GHOST_ENGINE_ENABLED = \`$NEW_VALUE\`\", \"inline\": false},
+                    {\"name\": \"📝 Reason\", \"value\": \"└ $REASON\", \"inline\": false},
+                    {\"name\": \"👤 Triggered By\", \"value\": \"└ ${{ github.actor }}\", \"inline\": false}
+                  ]
+                }]
+              }"
+          fi
