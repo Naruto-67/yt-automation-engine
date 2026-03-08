@@ -3,7 +3,6 @@ import requests
 import urllib.parse
 import time
 import random
-import subprocess
 import base64
 import re
 from PIL import Image, ImageDraw
@@ -11,6 +10,19 @@ from scripts.quota_manager import quota_manager
 
 SIMULATE_CASCADE_TEST = False
 
+def _regenerate_safe_prompt(bad_prompt):
+    """🚨 V5 FEATURE: Self-Healing Prompt Protocol. If an image API rejects a prompt, the LLM rewrites it."""
+    prompt = f"""
+    The following image generation prompt was rejected by an AI safety filter (likely due to violence, gore, NSFW, or restricted terms):
+    "{bad_prompt}"
+    
+    Rewrite this prompt so it conveys a similar visual concept but is 100% safe, family-friendly, and complies with strict AI content filters. Make it highly cinematic.
+    Return ONLY the new prompt string, nothing else. No intro or markdown.
+    """
+    clean_text, _ = quota_manager.generate_text(prompt, task_type="creative")
+    if clean_text:
+        return clean_text.strip().replace('"', '').replace('\n', ' ')
+    return "Cinematic 3D animation of a mysterious glowing artifact in space, highly detailed"
 
 def generate_cloudflare_image(prompt, output_path):
     print("      [Tier 1: Cloudflare AI] Attempting Official FLUX generation...")
@@ -62,7 +74,6 @@ def generate_cloudflare_image(prompt, output_path):
 
     return False, "Exhausted Retries"
 
-
 def generate_huggingface_cascade(prompt, output_path):
     print("      [Tier 2: HuggingFace] Attempting AI generation...")
 
@@ -99,8 +110,7 @@ def generate_huggingface_cascade(prompt, output_path):
                 quota_manager.consume_points("huggingface", 1)
                 return True, f"HF ({short_name})"
             elif response.status_code == 400:
-                print(f"      ⚠️ {short_name} rejected prompt (Safety Filter). Switching models...")
-                continue
+                return False, "HTTP 400 (Safety Filter / Prompt Rejected)"
             elif response.status_code in [401, 402, 403]:
                 print(f"      ⚠️ {short_name} out of free quota or unauthorized. Switching models...")
                 continue
@@ -123,7 +133,6 @@ def generate_huggingface_cascade(prompt, output_path):
         except: pass
 
     return False, "HF Models Exhausted/Blocked"
-
 
 def fallback_pexels_image(search_query, output_path, is_retry=False):
     clean_query = re.sub(r'[^a-zA-Z0-9\s]', '', search_query).strip()
@@ -157,7 +166,6 @@ def fallback_pexels_image(search_query, output_path, is_retry=False):
 
     return False, "No images found"
 
-
 def generate_offline_gradient(output_path):
     print(f"      🛡️ [Tier 4: Offline Failsafe] Total API Exhaustion. Generating Mathematical Gradient...")
     try:
@@ -179,7 +187,6 @@ def generate_offline_gradient(output_path):
     except:
         return False, "Fatal Local Render Failure"
 
-
 def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene"):
     print(f"🖼️ [VISUALS] Sourcing {len(prompts_list)} scene images via Decoupled 4-Tier System...")
     successful_images = []
@@ -188,62 +195,66 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
     tier2_active = True
     final_provider = "Unknown"
 
-    # 🚨 NOTIFICATION PATCH: Track fallback events to alert Discord once per run
     offline_gradient_used = False
     tier1_disabled_notified = False
     tier2_disabled_notified = False
 
-    for i, prompt in enumerate(prompts_list):
+    for i, original_prompt in enumerate(prompts_list):
         output_path = f"{base_filename}_{i}.jpg"
-        print(f"\n   -> Scene {i+1} Prompt: {prompt[:40]}...")
+        print(f"\n   -> Scene {i+1} Prompt: {original_prompt[:40]}...")
 
         success = False
+        current_prompt = original_prompt
+        prompt_sanitized = False
 
-        if tier1_active:
-            success, err = generate_cloudflare_image(prompt, output_path)
-            if success:
-                final_provider = "Cloudflare FLUX API"
-            else:
-                if any(x in err for x in ["401", "402", "403"]):
-                    print(f"      🚨 [VISUALS] Tier 1 Fatal Quota/Auth Error ({err}). Disabling for remainder of run.")
-                    tier1_active = False
-                    # 🚨 NOTIFICATION PATCH: Alert when Cloudflare permanently disabled
-                    if not tier1_disabled_notified:
-                        from scripts.discord_notifier import notify_step
-                        notify_step(
-                            "Visual Pipeline",
-                            "⚠️ Cloudflare FLUX Disabled",
-                            f"Auth/quota error: `{err}`. Falling back to HuggingFace for remaining scenes.",
-                            0xe67e22
-                        )
-                        tier1_disabled_notified = True
+        # Self-Healing Loop: Try API -> If 400 Error -> Sanitize Prompt -> Try Again
+        while True:
+            if tier1_active:
+                success, err = generate_cloudflare_image(current_prompt, output_path)
+                if success:
+                    final_provider = "Cloudflare FLUX API"
+                    break
                 else:
-                    print(f"      ⚠️ [VISUALS] Tier 1 localized/network failure ({err}). Keeping active for next scene.")
-        else:
-            print("      [Tier 1: Cloudflare] Skipped (Previously Blocked)")
+                    if "400" in err and not prompt_sanitized:
+                        print(f"      ⚠️ [VISUALS] Tier 1 Safety Filter triggered. Asking AI to sanitize prompt...")
+                        current_prompt = _regenerate_safe_prompt(current_prompt)
+                        prompt_sanitized = True
+                        continue  # Immediately loop back up and try Cloudflare again with the new safe prompt
+                    
+                    if any(x in err for x in ["401", "402", "403"]):
+                        print(f"      🚨 [VISUALS] Tier 1 Fatal Quota/Auth Error ({err}). Disabling for remainder of run.")
+                        tier1_active = False
+                        if not tier1_disabled_notified:
+                            from scripts.discord_notifier import notify_step
+                            notify_step("Visual Pipeline", "⚠️ Cloudflare FLUX Disabled", f"Auth/quota error: `{err}`. Falling back to HuggingFace.", 0xe67e22)
+                            tier1_disabled_notified = True
+                    else:
+                        print(f"      ⚠️ [VISUALS] Tier 1 localized/network failure ({err}).")
 
-        if not success and tier2_active:
-            success, err = generate_huggingface_cascade(prompt, output_path)
-            if success:
-                final_provider = err
-            else:
-                if any(x in err for x in ["401", "402", "403"]):
-                    print(f"      🚨 [VISUALS] Tier 2 Fatal Quota/Auth Error ({err}). Disabling for remainder of run.")
-                    tier2_active = False
-                    # 🚨 NOTIFICATION PATCH: Alert when HuggingFace permanently disabled
-                    if not tier2_disabled_notified:
-                        from scripts.discord_notifier import notify_step
-                        notify_step(
-                            "Visual Pipeline",
-                            "⚠️ HuggingFace Disabled",
-                            f"Auth/quota error: `{err}`. Falling back to Pexels stock for remaining scenes.",
-                            0xe67e22
-                        )
-                        tier2_disabled_notified = True
+            if not success and tier2_active:
+                success, err = generate_huggingface_cascade(current_prompt, output_path)
+                if success:
+                    final_provider = err
+                    break
                 else:
-                    print(f"      ⚠️ [VISUALS] Tier 2 localized/network failure ({err}). Keeping active for next scene.")
-        elif not success and not tier2_active:
-            print("      [Tier 2: Hugging Face] Skipped (Previously Blocked)")
+                    if "400" in err and not prompt_sanitized:
+                        print(f"      ⚠️ [VISUALS] Tier 2 Safety Filter triggered. Asking AI to sanitize prompt...")
+                        current_prompt = _regenerate_safe_prompt(current_prompt)
+                        prompt_sanitized = True
+                        continue # Try HuggingFace again with the new safe prompt
+
+                    if any(x in err for x in ["401", "402", "403"]):
+                        print(f"      🚨 [VISUALS] Tier 2 Fatal Quota/Auth Error ({err}). Disabling for remainder of run.")
+                        tier2_active = False
+                        if not tier2_disabled_notified:
+                            from scripts.discord_notifier import notify_step
+                            notify_step("Visual Pipeline", "⚠️ HuggingFace Disabled", f"Auth/quota error: `{err}`. Falling back to Pexels.", 0xe67e22)
+                            tier2_disabled_notified = True
+                    else:
+                        print(f"      ⚠️ [VISUALS] Tier 2 localized/network failure ({err}).")
+
+            # If we reach here, both AI tiers failed (even after sanitization), break the loop to trigger Pexels
+            break
 
         if not success:
             success, err = fallback_pexels_image(pexels_queries[i], output_path)
@@ -254,16 +265,10 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
             success, err = generate_offline_gradient(output_path)
             if success:
                 final_provider = "Python Offline Generator"
-                # 🚨 NOTIFICATION PATCH: Offline gradient is a critical signal — all AI APIs exhausted
                 if not offline_gradient_used:
                     offline_gradient_used = True
                     from scripts.discord_notifier import notify_step
-                    notify_step(
-                        "Visual Pipeline",
-                        "🚨 Offline Gradient Activated",
-                        f"Scene {i+1}: ALL image APIs exhausted (Cloudflare + HuggingFace + Pexels). Using local math gradient. Check API keys/quotas.",
-                        0xe74c3c
-                    )
+                    notify_step("Visual Pipeline", "🚨 Offline Gradient Activated", f"Scene {i+1}: ALL image APIs exhausted. Using local math gradient.", 0xe74c3c)
 
         if success:
             successful_images.append(output_path)
