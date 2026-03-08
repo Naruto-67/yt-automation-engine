@@ -1,0 +1,28 @@
+# .github/workflows/11_weekly_audit.yml
+name: "11_Weekly_API_Audit"
+
+on:
+  schedule:
+    - cron: "0 20 * * 0" # 20:00 UTC every Sunday
+  workflow_dispatch: # Manual trigger
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: pip install requests google-genai pyyaml pytz pydantic
+
+      - name: Run Audit Agent
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_MAIN }} # Default to main channel
+        run: python scripts/api_monitor.py
