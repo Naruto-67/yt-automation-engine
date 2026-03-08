@@ -12,6 +12,7 @@ import soundfile as sf
 from pydub import AudioSegment, effects
 from scripts.groq_client import groq_client
 from scripts.quota_manager import quota_manager
+from engine.config_manager import config_manager
 
 _KOKORO_PIPELINE = None
 _WHISPER_MODEL = None
@@ -21,10 +22,8 @@ def get_kokoro_pipeline():
     global _KOKORO_PIPELINE
     if _KOKORO_PIPELINE is None:
         from kokoro import KPipeline
-        # The true solve for the warning, no suppression needed.
         _KOKORO_PIPELINE = KPipeline(lang_code='a', repo_id='hexgrad/Kokoro-82M')
     return _KOKORO_PIPELINE
-
 
 def get_whisper_model():
     global _WHISPER_MODEL
@@ -33,13 +32,11 @@ def get_whisper_model():
         _WHISPER_MODEL = WhisperModel("tiny.en", device="cpu", compute_type="int8")
     return _WHISPER_MODEL
 
-
 def format_time(seconds):
     if seconds < 0: seconds = 0
     hours, minutes = int(seconds // 3600), int((seconds % 3600) // 60)
     secs, millis = int(seconds % 60), int((seconds - int(seconds)) * 1000)
     return f"{hours:02}:{minutes:02}:{secs:02},{millis:03}"
-
 
 def trim_audio_precision(file_path):
     try:
@@ -59,12 +56,10 @@ def trim_audio_precision(file_path):
         print(f"⚠️ Audio trim failed: {e}")
         return False, 0.0
 
-
 def sanitize_for_tts(text):
     clean_text = re.sub(r'[^\w\s.,!?\'"-]', '', text)
     clean_text = re.sub(r'\s+', ' ', clean_text).strip()
     return clean_text
-
 
 def generate_fallback_srt(text, duration, srt_path):
     try:
@@ -95,7 +90,6 @@ def generate_fallback_srt(text, duration, srt_path):
         print(f"⚠️ [VOICE] Fallback SRT generation failed: {e}")
         return False
 
-
 def generate_audio(text, output_base="temp_audio"):
     global _KOKORO_PIPELINE
     final_wav = f"{output_base}.wav"
@@ -109,8 +103,11 @@ def generate_audio(text, output_base="temp_audio"):
 
     print("🎙️ [VOICE] Attempting Primary: Kokoro (Ultra-Realistic Human)...")
     try:
-        kokoro_voices = ['am_adam', 'af_bella', 'am_michael', 'af_sarah']
+        # Load voices dynamically from settings.yaml
+        settings = config_manager.get_settings()
+        kokoro_voices = settings.get("voice_actors", {}).get("kokoro", ['am_adam'])
         chosen_voice = random.choice(kokoro_voices)
+        
         print(f"🎙️ [VOICE] Selected actor: {chosen_voice.upper()}")
 
         pipeline = get_kokoro_pipeline()
