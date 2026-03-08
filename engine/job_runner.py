@@ -2,6 +2,7 @@
 import os
 import time
 import traceback
+import json
 from datetime import datetime
 from engine.logger import logger
 from engine.models import VideoJob, JobState, FailureLog
