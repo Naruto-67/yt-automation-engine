@@ -96,6 +96,30 @@ def notify_production_success(niche, topic, script, script_ai, seo_ai, voice_ai,
     ]
     notifier.send_rich_embed("🪬 Production Success", 0x9b59b6, fields)
 
+def notify_daily_pulse(views, subs, rules):
+    """
+    🚨 ADDED: Used by performance_analyst.py.
+    Provides a daily digest of channel growth and strategy updates.
+    """
+    notifier = DiscordNotifier()
+    fields = [
+        {"name": "📈 Stats", "value": f"└ Views: {views} | Subs: {subs}", "inline": True},
+        {"name": "🧠 AI Lesson", "value": f"└ **Focus:** {rules['emphasize'][0]}", "inline": False}
+    ]
+    notifier.send_rich_embed("🔮 Daily Channel Analysis", 0x3498db, fields)
+
+def notify_vault_secure(topic, video_id, playlist_id):
+    """
+    🚨 ADDED: Used by youtube_manager.py.
+    Confirms a video has been moved into the secure private vault.
+    """
+    notifier = DiscordNotifier()
+    fields = [
+        {"name": "📝 Video", "value": f"└ {topic}", "inline": False},
+        {"name": "🏦 Vault", "value": f"└ Video ID: `{video_id}` | Playlist: `{playlist_id}`", "inline": False}
+    ]
+    notifier.send_rich_embed("🔒 Vault Secured", 0x2ecc71, fields)
+
 def notify_summary(success, message):
     """Standardized pipeline status log."""
     notifier = DiscordNotifier()
