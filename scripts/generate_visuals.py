@@ -198,6 +198,9 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
     offline_gradient_used = False
     tier1_disabled_notified = False
     tier2_disabled_notified = False
+    
+    # 🚨 SOLVED: Explicit integer limit on prompt regeneration to mathematically prevent infinite loops
+    MAX_SAFETY_RETRIES = 1
 
     for i, original_prompt in enumerate(prompts_list):
         output_path = f"{base_filename}_{i}.jpg"
@@ -205,9 +208,9 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
 
         success = False
         current_prompt = original_prompt
-        prompt_sanitized = False
+        safety_retries = 0
 
-        # Self-Healing Loop: Try API -> If 400 Error -> Sanitize Prompt -> Try Again
+        # Self-Healing Loop: Try API -> If 400 Error -> Sanitize Prompt -> Try Again (Up to MAX_SAFETY_RETRIES)
         while True:
             if tier1_active:
                 success, err = generate_cloudflare_image(current_prompt, output_path)
@@ -215,68 +218,7 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
                     final_provider = "Cloudflare FLUX API"
                     break
                 else:
-                    if "400" in err and not prompt_sanitized:
-                        print(f"      ⚠️ [VISUALS] Tier 1 Safety Filter triggered. Asking AI to sanitize prompt...")
+                    if "400" in err and safety_retries < MAX_SAFETY_RETRIES:
+                        print(f"      ⚠️ [VISUALS] Tier 1 Safety Filter triggered. Asking AI to sanitize prompt ({safety_retries + 1}/{MAX_SAFETY_RETRIES})...")
                         current_prompt = _regenerate_safe_prompt(current_prompt)
-                        prompt_sanitized = True
-                        continue  # Immediately loop back up and try Cloudflare again with the new safe prompt
-                    
-                    if any(x in err for x in ["401", "402", "403"]):
-                        print(f"      🚨 [VISUALS] Tier 1 Fatal Quota/Auth Error ({err}). Disabling for remainder of run.")
-                        tier1_active = False
-                        if not tier1_disabled_notified:
-                            from scripts.discord_notifier import notify_step
-                            notify_step("Visual Pipeline", "⚠️ Cloudflare FLUX Disabled", f"Auth/quota error: `{err}`. Falling back to HuggingFace.", 0xe67e22)
-                            tier1_disabled_notified = True
-                    else:
-                        print(f"      ⚠️ [VISUALS] Tier 1 localized/network failure ({err}).")
-
-            if not success and tier2_active:
-                success, err = generate_huggingface_cascade(current_prompt, output_path)
-                if success:
-                    final_provider = err
-                    break
-                else:
-                    if "400" in err and not prompt_sanitized:
-                        print(f"      ⚠️ [VISUALS] Tier 2 Safety Filter triggered. Asking AI to sanitize prompt...")
-                        current_prompt = _regenerate_safe_prompt(current_prompt)
-                        prompt_sanitized = True
-                        continue # Try HuggingFace again with the new safe prompt
-
-                    if any(x in err for x in ["401", "402", "403"]):
-                        print(f"      🚨 [VISUALS] Tier 2 Fatal Quota/Auth Error ({err}). Disabling for remainder of run.")
-                        tier2_active = False
-                        if not tier2_disabled_notified:
-                            from scripts.discord_notifier import notify_step
-                            notify_step("Visual Pipeline", "⚠️ HuggingFace Disabled", f"Auth/quota error: `{err}`. Falling back to Pexels.", 0xe67e22)
-                            tier2_disabled_notified = True
-                    else:
-                        print(f"      ⚠️ [VISUALS] Tier 2 localized/network failure ({err}).")
-
-            # If we reach here, both AI tiers failed (even after sanitization), break the loop to trigger Pexels
-            break
-
-        if not success:
-            success, err = fallback_pexels_image(pexels_queries[i], output_path)
-            if success:
-                final_provider = "Pexels Stock Fallback"
-
-        if not success:
-            success, err = generate_offline_gradient(output_path)
-            if success:
-                final_provider = "Python Offline Generator"
-                if not offline_gradient_used:
-                    offline_gradient_used = True
-                    from scripts.discord_notifier import notify_step
-                    notify_step("Visual Pipeline", "🚨 Offline Gradient Activated", f"Scene {i+1}: ALL image APIs exhausted. Using local math gradient.", 0xe74c3c)
-
-        if success:
-            successful_images.append(output_path)
-            print(f"   ✅ Scene {i+1} saved successfully.")
-        else:
-            print(f"   ❌ Scene {i+1} failed completely.")
-
-        print("   ⏳ Pacing generation engines (Sleeping 3s)...")
-        time.sleep(3)
-
-    return successful_images, final_provider
+                        safety
