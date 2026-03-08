@@ -1,3 +1,4 @@
+# scripts/groq_client.py
 import os
 import time
 import requests
@@ -12,6 +13,58 @@ class GroqAPIClient:
             "Content-Type": "application/json"
         }
         self.AUDIO_MODEL = "canopylabs/orpheus-v1-english"
+        self._models_discovered = False
+
+    def _discover_models(self):
+        """Auto-discovers and scores the best available Groq model."""
+        if self._models_discovered:
+            return
+            
+        if not self.api_key:
+            self.TEXT_MODEL = "llama-3.3-70b-versatile"
+            return
+
+        print("🔍 [GROQ] Auto-discovering latest text models...")
+        try:
+            response = requests.get(f"{self.base_url}/models", headers=self.headers, timeout=15)
+            if response.status_code == 200:
+                data = response.json()
+                available_models = [m['id'] for m in data.get('data', [])]
+                
+                valid_text_models = []
+                for m in available_models:
+                    m_lower = m.lower()
+                    # Filter out audio, whisper, and vision models
+                    if 'whisper' in m_lower or 'llava' in m_lower or 'vision' in m_lower or 'tool' in m_lower:
+                        continue
+                    valid_text_models.append(m)
+                    
+                if valid_text_models:
+                    def _score(name):
+                        s = 0
+                        n = name.lower()
+                        # Reward versatile/instruct models
+                        if 'llama' in n: s += 30
+                        if 'versatile' in n: s += 20
+                        if 'instruct' in n or '-it' in n: s += 10
+                        # Reward higher parameter counts implicitly by generation/version
+                        if '3.3' in n: s += 15
+                        if '70b' in n: s += 10
+                        # Penalize previews
+                        if 'preview' in n: s -= 20
+                        return s
+                        
+                    valid_text_models.sort(key=_score, reverse=True)
+                    self.TEXT_MODEL = valid_text_models[0]
+                    print(f"✅ [GROQ] Model auto-selected: {self.TEXT_MODEL}")
+                    self._models_discovered = True
+                    return
+        except Exception as e:
+            print(f"⚠️ [GROQ] Discovery failed: {e}")
+
+        # Failsafe Fallback
+        self.TEXT_MODEL = "llama-3.3-70b-versatile"
+        self._models_discovered = True
 
     def _execute_request(self, endpoint, payload, is_audio=False):
         if not self.api_key:
@@ -26,7 +79,6 @@ class GroqAPIClient:
                     if is_audio:
                         return response.content
                     
-                    # 🚨 FIX: Safe Dictionary Parsing prevents unhandled KeyErrors if Groq returns moderation flags instead of 'choices'
                     data = response.json()
                     if 'choices' in data and len(data['choices']) > 0:
                         return data['choices'][0]['message']['content']
@@ -38,6 +90,10 @@ class GroqAPIClient:
                     print(f"⚠️ [GROQ] Server Busy (HTTP {response.status_code}). Attempt {attempt+1}/{max_retries}. Retrying in 15s...")
                     time.sleep(15 * (attempt + 1))
                     continue
+                elif response.status_code == 404:
+                    print(f"⚠️ [GROQ] Model deprecated (404). Forcing rediscovery...")
+                    self._models_discovered = False
+                    return None
                 else:
                     print(f"⚠️ [GROQ] HTTP {response.status_code} Error: {response.text}")
                     return None
@@ -49,18 +105,28 @@ class GroqAPIClient:
         return None
 
     def generate_text(self, prompt, role="creative", system_prompt="You are a viral YouTube Shorts scriptwriter.", throttle=False):
+        self._discover_models()
         if throttle:
             time.sleep(2)
             
         payload = {
-            "model": "llama-3.3-70b-versatile",
+            "model": self.TEXT_MODEL,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt}
             ],
             "temperature": 0.7
         }
-        return self._execute_request("chat/completions", payload)
+        
+        res = self._execute_request("chat/completions", payload)
+        
+        # If the API returned a 404 (model suddenly deprecated), discover again and retry once
+        if res is None and not self._models_discovered:
+            self._discover_models()
+            payload["model"] = self.TEXT_MODEL
+            res = self._execute_request("chat/completions", payload)
+            
+        return res
 
     def generate_audio(self, text, output_filepath):
         valid_voices = ["autumn", "diana", "hannah", "austin", "daniel", "troy"]
