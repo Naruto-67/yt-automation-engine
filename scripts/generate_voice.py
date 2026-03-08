@@ -24,7 +24,8 @@ def get_kokoro_pipeline():
     global _KOKORO_PIPELINE
     if _KOKORO_PIPELINE is None:
         from kokoro import KPipeline
-        _KOKORO_PIPELINE = KPipeline(lang_code='a')
+        # 🚨 FIX: Explicitly pass repo_id to prevent library warnings
+        _KOKORO_PIPELINE = KPipeline(lang_code='a', repo_id='hexgrad/Kokoro-82M')
     return _KOKORO_PIPELINE
 
 
@@ -69,11 +70,6 @@ def sanitize_for_tts(text):
 
 
 def generate_fallback_srt(text, duration, srt_path):
-    """
-    🚨 PATCH: Graceful SRT fallback when Whisper transcription fails.
-    Distributes words proportionally across the audio duration (3-word chunks).
-    Previously, any Whisper failure would kill the entire successfully-generated audio.
-    """
     try:
         words = [w.strip().upper() for w in text.split() if w.strip()]
         if not words:
@@ -145,7 +141,6 @@ def generate_audio(text, output_base="temp_audio"):
     if not trim_success:
         return False, provider, 0.0
 
-    # ── Caption Generation (Whisper primary → proportional fallback) ──────────
     try:
         print("📝 [VOICE] Transcribing and Chunking Captions (Max 3 words)...")
         model = get_whisper_model()
@@ -176,8 +171,6 @@ def generate_audio(text, output_base="temp_audio"):
             f.write("\n".join(srt_lines))
 
     except Exception as e:
-        # 🚨 PATCH: Whisper failure no longer kills successfully-generated audio.
-        # Previously returned False here, wasting the entire TTS pipeline.
         print(f"⚠️ Whisper transcription failed: {e}. Deploying proportional SRT fallback...")
         if not generate_fallback_srt(sanitized_text, duration, srt_path):
             return False, provider, 0.0
