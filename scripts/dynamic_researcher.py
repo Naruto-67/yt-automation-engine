@@ -1,3 +1,4 @@
+# scripts/dynamic_researcher.py
 import re
 import random
 import json
@@ -6,6 +7,7 @@ from scripts.discord_notifier import notify_summary
 from scripts.youtube_manager import get_youtube_client
 from engine.database import db
 from engine.models import VideoJob, ChannelConfig
+from engine.config_manager import config_manager
 
 def _jaccard_similarity(str_a, str_b):
     tokens_a = set(re.findall(r'[a-z0-9]{2,}', str_a))
@@ -57,7 +59,6 @@ def run_dynamic_research(channel_config: ChannelConfig, yt_client):
     print(f"🔎 [RESEARCHER] Fetching deep channel data for {channel_config.channel_name}...")
     channel_context = get_deep_channel_context(yt_client)
     
-    # 🚨 V5 PATCH: Interact directly with SQLite to get active jobs instead of JSON
     with db._connect() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT count(*) FROM jobs WHERE channel_id = ? AND state != 'published' AND state != 'failed'", (channel_config.channel_id,))
@@ -71,7 +72,6 @@ def run_dynamic_research(channel_config: ChannelConfig, yt_client):
         
     print(f"📊 [RESEARCHER] Need exactly {needed_topics} topics to reach 21 capacity. Calling AI...")
 
-    # Load temporal history directly from SQLite
     with db._connect() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT topic FROM jobs WHERE channel_id = ? ORDER BY id ASC", (channel_config.channel_id,))
@@ -134,7 +134,6 @@ def run_dynamic_research(channel_config: ChannelConfig, yt_client):
             random.shuffle(unique_new_topics)
             final_new_batch = unique_new_topics[:needed_topics]
             
-            # 🚨 V5 PATCH: Insert validated topics directly into SQLite Queue
             for item in final_new_batch:
                 job = VideoJob(
                     channel_id=channel_config.channel_id,
@@ -149,3 +148,9 @@ def run_dynamic_research(channel_config: ChannelConfig, yt_client):
 
     except Exception as e:
         quota_manager.diagnose_fatal_error("dynamic_researcher.py", e)
+
+if __name__ == "__main__":
+    for channel in config_manager.get_active_channels():
+        print(f"--- 🚀 Commencing Research Cycle for {channel.channel_name} ---")
+        yt_client = get_youtube_client(channel.youtube_refresh_token_env)
+        run_dynamic_research(channel, yt_client)
