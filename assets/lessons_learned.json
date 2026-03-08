@@ -1,13 +1,36 @@
 {
     "emphasize": [
         "Engineer seamless narrative loops to maximize watch time and re-engagement.",
-        "Engineer a 'cognitive resolution loop' where an initial question or visual ambiguity (the 'puzzle') is introduced within the first 3 seconds, leading to a satisfying, yet slightly surprising, answer or twist by the 10-second mark, designed to immediately re-contextualize the loop for replay value."
+        "Engineer a 'cognitive resolution loop' where an initial question or visual ambiguity (the 'puzzle') is introduced within the first 3 seconds, leading to a satisfying, yet slightly surprising, answer or twist by the 10-second mark, designed to immediately re-contextualize the loop for replay value.",
+        "Engineer 'anticipatory dissonance' by deliberately withholding the *exact* immediate consequence of a visual or auditory cue within the first 5 seconds, creating a subconscious mental urgency to understand the full cause-and-effect sequence for continued viewing."
     ],
     "avoid": [
         "Content with slow narrative pacing or a lack of immediate visual intrigue within the first 3 seconds.",
-        "Any segment where the narrative or visual progression becomes entirely predictable for more than 2 consecutive seconds, as this signals to the brain that no new information or emotional stimulus is forthcoming, leading to premature disengagement from the retention curve."
+        "Any segment where the narrative or visual progression becomes entirely predictable for more than 2 consecutive seconds, as this signals to the brain that no new information or emotional stimulus is forthcoming, leading to premature disengagement from the retention curve.",
+        "Introducing any visual element or narrative beat that fulfills a common, easily predictable trope for more than 1.5 seconds without a micro-twist or subversion, as this triggers a 'pattern completion' bypass in the viewer's brain, ceasing the engagement feedback loop prematurely."
     ],
-    "recent_tags": [],
+    "recent_tags": [
+        "3D Animation",
+        "Animated Short",
+        "The Invisible Painter",
+        "Hidden Talent",
+        "Creative Journey",
+        "Inspirational Animation",
+        "Magical Animation",
+        "Heartwarming Story",
+        "Fantasy Animation",
+        "Art and Creativity",
+        "Believe in Yourself",
+        "Visual Storytelling",
+        "Short Animated Film",
+        "Animerise",
+        "Talent Shines",
+        "Overcoming Doubts",
+        "Persistence",
+        "Fantasy Story",
+        "Inspirational Story",
+        "Creative Animation"
+    ],
     "preferred_visuals": [
         "3D Animation",
         "Visually rich and detailed animated styles"
