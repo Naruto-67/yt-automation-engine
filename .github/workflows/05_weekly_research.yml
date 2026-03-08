@@ -26,6 +26,7 @@ jobs:
           python-version: '3.11'
       - run: |
           pip install -r requirements.txt
+          python -m spacy download en_core_web_sm
           echo "PYTHONPATH=$(pwd)" >> $GITHUB_ENV
       - env:
           GHOST_ENGINE_ENABLED: ${{ vars.GHOST_ENGINE_ENABLED }}
