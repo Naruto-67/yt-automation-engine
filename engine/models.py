@@ -1,10 +1,9 @@
 # engine/models.py
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 from enum import Enum
 from datetime import datetime
 
-# The Job State Machine
 class JobState(str, Enum):
     QUEUED = "queued"
     RESEARCHING = "researching"
@@ -21,8 +20,9 @@ class ChannelConfig(BaseModel):
     channel_id: str
     channel_name: str
     niche: str
-    target_audience: str
-    youtube_refresh_token_env: str  # e.g., "YOUTUBE_REFRESH_TOKEN_MAIN"
+    target_audience: str = "US"
+    youtube_refresh_token_env: str
+    active: bool = True
 
 class VideoJob(BaseModel):
     id: Optional[int] = None
@@ -31,11 +31,11 @@ class VideoJob(BaseModel):
     niche: str
     state: JobState = JobState.QUEUED
     
-    # Payload Data (Populated as the job moves through the state machine)
-    script: Optional[str] = None
-    metadata: Optional[Dict] = None
+    # Payload Data
+    script: Optional[str] = None # JSON string containing text, prompts, etc.
+    metadata: Optional[str] = None # JSON string containing SEO data
     audio_path: Optional[str] = None
-    image_paths: Optional[List[str]] = None
+    image_paths: Optional[str] = None # JSON string list
     video_path: Optional[str] = None
     youtube_id: Optional[str] = None
     
@@ -45,8 +45,10 @@ class VideoJob(BaseModel):
     updated_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
 
 class FailureLog(BaseModel):
+    id: Optional[int] = None
     job_id: int
     channel_id: str
     module: str
     error_message: str
+    traceback: Optional[str] = None
     timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
