@@ -9,41 +9,34 @@ from engine.config_manager import config_manager
 
 def download_cinematic_font():
     font_path = "/tmp/Montserrat-Bold.ttf"
-
-    if os.path.exists(font_path) and os.path.getsize(font_path) > 50000:
-        return font_path
-
-    print("📥 [RENDERER] Downloading Cinematic Font...")
-
+    if os.path.exists(font_path) and os.path.getsize(font_path) > 50000: return font_path
     mirrors = [
         "https://cdn.jsdelivr.net/gh/JulietaUla/Montserrat@master/fonts/ttf/Montserrat-Bold.ttf",
         "https://raw.githubusercontent.com/JulietaUla/Montserrat/master/fonts/ttf/Montserrat-Bold.ttf"
     ]
-
     for url in mirrors:
         try:
             response = requests.get(url, timeout=15)
             response.raise_for_status()
-            with open(font_path, 'wb') as f:
-                f.write(response.content)
-            if os.path.getsize(font_path) > 50000:
-                return font_path
-        except Exception as e:
-            print(f"⚠️ [RENDERER] Font mirror failed: {e}")
-
-    print("⚠️ [RENDERER] All font mirrors failed. Using local fallback.")
+            with open(font_path, 'wb') as f: f.write(response.content)
+            if os.path.getsize(font_path) > 50000: return font_path
+        except: pass
     return "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
 
-def get_style_config(style_name="default"):
-    # Load dynamic style configuration from settings.yaml
+def get_style_config(subtitle_color=None):
     settings = config_manager.get_settings()
-    
-    # Fallback to defaults if missing
-    return settings.get("subtitle_style", {
+    base_style = settings.get("subtitle_style", {
         "FontName": "Arial", "FontSize": "75", "PrimaryColour": "&H00FFFFFF",
         "OutlineColour": "&H00000000", "BackColour": "&H00000000", "Outline": "10",
         "Shadow": "0", "BorderStyle": "1", "Alignment": "2", "MarginV": "500"
     })
+    
+    # Override with AI Director's choice if valid
+    if subtitle_color and subtitle_color.startswith("&H"):
+        base_style["PrimaryColour"] = subtitle_color
+        print(f"🎨 [RENDERER] Applied AI Director color: {subtitle_color}")
+        
+    return base_style
 
 def time_to_seconds(time_str):
     h, m, s_ms = time_str.split(':')
@@ -51,7 +44,6 @@ def time_to_seconds(time_str):
     return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000.0
 
 def srt_to_ass(srt_path, ass_path, style):
-    print("🎨 [RENDERER] Generating High-Retention Subtitles...")
     header = (
         "[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n\n"
         "[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
@@ -78,17 +70,11 @@ def srt_to_ass(srt_path, ass_path, style):
 
         with open(ass_path, 'w', encoding='utf-8') as f: f.write(header + "\n".join(events))
         return True
-    except Exception as e:
-        print(f"⚠️ [RENDERER] Subtitle generation failed: {e}")
-        return False
+    except: return False
 
 def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=30):
-    # GUARANTEED HARDCODING: 30 FPS
     frames = int(duration * fps)
-
-    # GUARANTEED HARDCODING: 1080x1920 Aspect Ratio Math
     prep_filter = "scale=2160:3840:force_original_aspect_ratio=increase,crop=2160:3840"
-
     effects = [
         f"zoompan=z='min(zoom+0.0007,1.15)':x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}",
         f"zoompan=z='1.15-0.0007*on':x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}",
@@ -96,80 +82,53 @@ def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=30):
         f"zoompan=z='1.15':x='(iw-iw/zoom)*(1-(on/{frames}))':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}"
     ]
     full_filter = f"{prep_filter},{effects[index % len(effects)]},eq=contrast=1.05:saturation=1.15"
-
     try:
         subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", image_path, "-vf", full_filter, "-c:v", "libx264", "-t", str(duration), "-pix_fmt", "yuv420p", "-preset", "fast", "-crf", "18", output_path], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True, timeout=600)
         return True
-    except subprocess.TimeoutExpired:
-        print(f"⚠️ [RENDERER] FFmpeg timed out creating clip for {image_path}")
-        return False
-    except Exception as e:
-        print(f"⚠️ [RENDERER] FFmpeg failed on clip: {e}")
-        return False
+    except: return False
 
-def render_video(image_paths, audio_path, output_path, scene_weights=None, watermark_text="GhostEngine", style_name="default"):
+def render_video(image_paths, audio_path, output_path, scene_weights=None, watermark_text="GhostEngine", subtitle_color=None):
     print(f"⚙️ [RENDERER] Executing Master Render Engine...")
     srt_path, ass_path, temp_concat, temp_merged = audio_path.replace(".wav", ".srt"), audio_path.replace(".wav", ".ass"), "concat_list.txt", "temp_merged_no_subs.mp4"
 
-    if not srt_to_ass(srt_path, ass_path, get_style_config(style_name)): return False, 0.0, 0
+    if not srt_to_ass(srt_path, ass_path, get_style_config(subtitle_color)): return False, 0.0, 0
 
     try:
         audio = AudioSegment.from_file(audio_path)
-        # GUARANTEED HARDCODING: 59.0 Seconds Absolute Maximum Duration
         total_dur = min(len(audio) / 1000.0, 59.0)
-        if len(audio) / 1000.0 > 59.0:
-            audio[:59000].fade_out(1500).export(audio_path, format="wav")
-    except Exception as e:
-        print(f"⚠️ [RENDERER] Audio parse failed: {e}")
-        return False, 0.0, 0
+        if len(audio) / 1000.0 > 59.0: audio[:59000].fade_out(1500).export(audio_path, format="wav")
+    except: return False, 0.0, 0
 
     clip_durs = [w * total_dur for w in scene_weights] if scene_weights else [total_dur / len(image_paths)] * len(image_paths)
-
-    if clip_durs:
-        clip_durs[-1] += 0.6
+    if clip_durs: clip_durs[-1] += 0.6
 
     clip_files = []
-
     for i, img in enumerate(image_paths):
         clip_out = f"temp_anim_{i}.mp4"
         if create_ken_burns_clip(img, clip_durs[i], clip_out, index=i): clip_files.append(clip_out)
 
-    if not clip_files:
-        print("⚠️ [RENDERER] No visual clips were generated successfully. Aborting FFmpeg concat.")
-        return False, total_dur, 0
+    if not clip_files: return False, total_dur, 0
 
     with open(temp_concat, "w") as f:
         for c in clip_files: f.write(f"file '{c}'\n")
 
     try:
         subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", temp_concat, "-i", audio_path, "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", temp_merged], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True, timeout=600)
-    except Exception as e:
-        print(f"⚠️ [RENDERER] FFmpeg concatenation failed or timed out: {e}")
-        return False, total_dur, 0
+    except: return False, total_dur, 0
 
     font_path = download_cinematic_font()
     safe_font = font_path.replace('\\', '/').replace(':', r'\:')
     safe_ass = ass_path.replace('\\', '/').replace(':', r'\:')
-
-    safe_watermark_text = re.sub(r'[^a-zA-Z0-9\s]', '', watermark_text).strip()
-    if not safe_watermark_text:
-        safe_watermark_text = "GhostEngine"
-    safe_watermark = safe_watermark_text
+    safe_watermark = re.sub(r'[^a-zA-Z0-9\s]', '', watermark_text).strip() or "GhostEngine"
 
     watermark_filter = f",drawtext=fontfile='{safe_font}':text='{safe_watermark}':fontcolor=0xD3D3D3@0.25:shadowcolor=0x000000@0.25:shadowx=3:shadowy=3:fontsize=60:x=(w-text_w)/2:y=h-250"
 
     try:
         subprocess.run(["ffmpeg", "-y", "-i", temp_merged, "-vf", f"ass='{safe_ass}'{watermark_filter}", "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-c:a", "copy", output_path], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True, timeout=600)
-    except Exception as e:
-        print(f"⚠️ [RENDERER] FFmpeg final compilation failed or timed out: {e}")
-        return False, total_dur, 0
+    except: return False, total_dur, 0
 
-    if not os.path.exists(output_path):
-        return False, total_dur, 0
-
+    if not os.path.exists(output_path): return False, total_dur, 0
     file_size_mb = os.path.getsize(output_path) / (1024 * 1024)
-    if file_size_mb < 0.5:
-        print(f"⚠️ [RENDERER] Critical Failure: Video rendered at {file_size_mb:.2f}MB. Suspected FFmpeg collapse.")
-        return False, total_dur, file_size_mb
+    if file_size_mb < 0.5: return False, total_dur, file_size_mb
 
     return True, total_dur, file_size_mb
