@@ -1,3 +1,4 @@
+# scripts/quota_manager.py
 import os
 import json
 import traceback
@@ -5,7 +6,6 @@ import time
 import re as _re
 from datetime import datetime, timezone
 from scripts.groq_client import groq_client
-
 
 class MasterQuotaManager:
     def __init__(self):
@@ -50,23 +50,26 @@ class MasterQuotaManager:
                 model_id = name.split('/')[-1] if '/' in name else name
                 name_lower = model_id.lower()
                 
-                # 🚨 FIX: New SDK string-based validation instead of relying on missing methods
-                if 'gemini' in name_lower and 'embedding' not in name_lower and 'aqa' not in name_lower and 'vision' not in name_lower:
+                # 🚨 SOLVED: Stricter filtering to completely avoid text-to-speech, image, vision, and custom tools
+                if 'gemini' in name_lower and 'embedding' not in name_lower and 'aqa' not in name_lower and 'vision' not in name_lower and 'tts' not in name_lower and 'image' not in name_lower and 'customtools' not in name_lower:
                     valid.append(model_id)
 
             if len(valid) >= 2:
                 def _score(n):
                     s = 0
-                    nums = _re.findall(r'\d+(?:\.\d+)?', n)
+                    n_lower = n.lower()
+                    nums = _re.findall(r'\d+(?:\.\d+)?', n_lower)
                     if nums:
                         try:
                             s += float(nums[0]) * 3
                         except Exception:
                             pass
-                    if 'flash' in n: s += 5
-                    if 'pro' in n: s += 8
-                    if 'lite' in n: s -= 3
-                    if 'exp' in n or 'preview' in n: s += 2
+                    
+                    # 🚨 SOLVED: Reward flash (generous free tier), heavily penalize pro (strict/no free tier)
+                    if 'flash' in n_lower: s += 20
+                    if 'pro' in n_lower: s -= 50
+                    if 'lite' in n_lower: s += 5
+                    if 'exp' in n_lower or 'preview' in n_lower: s -= 5
                     return s
 
                 valid.sort(key=_score, reverse=True)
