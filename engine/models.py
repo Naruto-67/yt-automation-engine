@@ -1,5 +1,5 @@
 # engine/models.py
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from typing import List, Optional, Dict, Any
 from enum import Enum
 from datetime import datetime
@@ -19,11 +19,19 @@ class JobState(str, Enum):
 class ChannelConfig(BaseModel):
     channel_id: str
     channel_name: str
-    niche: str
+    # Niche is now optional during boot to allow discovery
+    niche: Optional[str] = None 
     target_audience: str = "US"
     youtube_refresh_token_env: str
+    # Default to a global webhook if the specific one is missing
     discord_webhook_env: str = "DISCORD_WEBHOOK_URL"
     active: bool = True
+
+    @validator('channel_id', 'youtube_refresh_token_env')
+    def validate_critical_fields(cls, v):
+        if not v or len(v) < 3:
+            raise ValueError("Critical ID or Token Env missing from configuration.")
+        return v
 
 class VideoJob(BaseModel):
     id: Optional[int] = None
