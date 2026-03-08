@@ -1,10 +1,14 @@
+# scripts/schedule_video.py
 import os
 import json
 import time
 from datetime import datetime, timedelta
-from scripts.youtube_manager import get_youtube_client, get_or_create_playlist
+from scripts.youtube_manager import get_youtube_client, get_or_create_playlist, get_channel_name
 from scripts.quota_manager import quota_manager
 from scripts.discord_notifier import notify_summary, notify_error
+from engine.database import db
+from engine.models import JobState
+from engine.config_manager import config_manager
 
 
 def get_historical_time_data(youtube):
@@ -65,97 +69,79 @@ def get_optimal_publish_times(youtube):
     return ["15:00", "23:00"]
 
 
-def _save_matrix(matrix, matrix_path):
-    """Atomic matrix write — shared helper used after each video publish."""
-    tmp_path = matrix_path + ".tmp"
-    with open(tmp_path, "w", encoding="utf-8") as f:
-        json.dump(matrix, f, indent=4)
-    os.replace(tmp_path, matrix_path)
-
-
 def publish_vault_videos():
     if not quota_manager.can_afford_youtube(600):
         print("🛑 [QUOTA GUARDIAN] YouTube Quota too low to safely publish. Aborting to prevent API ban.")
         return
 
-    youtube = get_youtube_client()
-    if not youtube: return
+    channels = config_manager.get_active_channels()
+    published_total = 0
 
-    matrix_path = os.path.join(os.path.dirname(__file__), "..", "memory", "content_matrix.json")
-    matrix = []
+    for channel in channels:
+        print(f"🚀 [PUBLISHER] Initiating publish cycle for {channel.channel_name}...")
+        youtube = get_youtube_client(channel.youtube_refresh_token_env)
+        if not youtube:
+            continue
 
-    try:
-        if os.path.exists(matrix_path):
-            try:
-                with open(matrix_path, "r") as f: matrix = json.load(f)
-            except Exception as e:
-                print(f"⚠️ [PUBLISHER] Matrix JSON load failed. Falling back to empty array: {e}")
-                matrix = []
+        # Map channel name strictly to match what the Orchestrator saves in the DB
+        yt_channel_display_name = get_channel_name(youtube).replace("@", "") if os.environ.get("TEST_MODE", "False") == "False" else channel.channel_name
+
+        jobs = db.get_jobs_by_state(yt_channel_display_name, JobState.VAULTED, limit=2)
+        
+        if not jobs:
+            print(f"⚠️ [PUBLISHER] No vaulted jobs found in database for {channel.channel_name}.")
+            continue
 
         vault_id = get_or_create_playlist(youtube, "Vault Backup")
         if not vault_id:
-            print("⚠️ [PUBLISHER] Failed to find or create the Vault Backup playlist. Halting publisher to protect metadata.")
-            return
+            print(f"⚠️ [PUBLISHER] Failed to retrieve Vault Backup playlist for {channel.channel_name}.")
+            continue
 
-        items = youtube.playlistItems().list(part="snippet", playlistId=vault_id, maxResults=2).execute().get("items", [])
+        # Fetch items from YouTube Vault to map videoId to playlistItemId for deletion
+        vault_items_req = youtube.playlistItems().list(part="snippet", playlistId=vault_id, maxResults=50).execute()
         quota_manager.consume_points("youtube", 1)
-
-        if len(items) == 0:
-            print("⚠️ [PUBLISHER] No videos found in the vault.")
-            return
+        
+        vid_to_playlist_item = {}
+        for item in vault_items_req.get("items", []):
+            v_id = item["snippet"]["resourceId"]["videoId"]
+            vid_to_playlist_item[v_id] = item["id"]
 
         ai_times = get_optimal_publish_times(youtube)
         now = datetime.utcnow()
 
-        # 🚨 FLAW FIX: Playlist ID cache.
-        # Previously get_or_create_playlist() was called 3× per video with NO caching.
-        # Each call does a full paginated fetch of ALL playlists (1+ quota points each).
-        # For 2 videos that's 6+ wasted quota points fetching the same three playlists.
-        # Fix: resolve all playlist IDs once upfront, reuse the IDs in the loop.
-        print("📋 [PUBLISHER] Pre-resolving playlist IDs...")
-        playlist_cache = {}
-
+        playlist_cache = {"Vault Backup": vault_id}
         def get_cached_playlist(name, privacy="public"):
             if name not in playlist_cache:
                 playlist_cache[name] = get_or_create_playlist(youtube, name, privacy)
             return playlist_cache[name]
 
-        # Pre-warm vault (already fetched above) + both content playlists
-        playlist_cache["Vault Backup"] = vault_id
+        # Pre-warm primary playlist
         get_cached_playlist("All Uploads | Viral Shorts", "public")
-        get_cached_playlist("Mind-Blowing Facts", "public")
-        get_cached_playlist("Immersive AI Stories", "public")
 
-        published_count = 0
-        published_times = []
+        for idx, job in enumerate(jobs):
+            vid_id = job.youtube_id
+            if not vid_id or vid_id == "test_mode_dummy_id":
+                print(f"⚠️ [PUBLISHER] Skipping Job {job.id} - Invalid or Test Video ID.")
+                continue
 
-        for idx, item in enumerate(items):
-            vid_id = item["snippet"]["resourceId"]["videoId"]
+            is_fact_based = any(k in job.niche.lower() for k in ['fact', 'hack', 'trend', 'brainrot'])
+            primary_playlist_name = "All Uploads | Viral Shorts"
+            secondary_playlist_name = "Mind-Blowing Facts" if is_fact_based else "Immersive AI Stories"
+
+            target_time_str = ai_times[idx] if idx < len(ai_times) else "15:00"
+            try:
+                hr_str, mn_str = target_time_str.split(':')
+                hr = int(hr_str) % 24
+                mn = int(mn_str) % 60
+            except:
+                hr, mn = (15 + (idx * 8)) % 24, 0
+
+            target_dt = now.replace(hour=hr, minute=mn, second=0, microsecond=0)
+            if target_dt <= now + timedelta(minutes=15):
+                target_dt += timedelta(days=1)
+            pub_time = target_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
             try:
-                is_fact_based = False
-                for m_item in matrix:
-                    if m_item.get("youtube_id") == vid_id:
-                        is_fact_based = any(k in m_item.get('niche', '').lower() for k in ['fact', 'hack', 'trend', 'brainrot'])
-                        break
-
-                primary_playlist_name = "All Uploads | Viral Shorts"
-                secondary_playlist_name = "Mind-Blowing Facts" if is_fact_based else "Immersive AI Stories"
-
-                target_time_str = ai_times[idx] if idx < len(ai_times) else "15:00"
-                try:
-                    hr_str, mn_str = target_time_str.split(':')
-                    hr = int(hr_str) % 24
-                    mn = int(mn_str) % 60
-                except:
-                    hr, mn = (15 + (idx * 8)) % 24, 0
-
-                target_dt = now.replace(hour=hr, minute=mn, second=0, microsecond=0)
-
-                if target_dt <= now + timedelta(minutes=15):
-                    target_dt += timedelta(days=1)
-                pub_time = target_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
-
                 youtube.videos().update(
                     part="status",
                     body={
@@ -170,7 +156,6 @@ def publish_vault_videos():
                 quota_manager.consume_points("youtube", 50)
                 time.sleep(5)
 
-                # Use cached playlist IDs — no redundant API calls
                 primary_playlist_id = get_cached_playlist(primary_playlist_name, "public")
                 if primary_playlist_id:
                     youtube.playlistItems().insert(part="snippet", body={"snippet": {"playlistId": primary_playlist_id, "resourceId": {"kind": "youtube#video", "videoId": vid_id}}}).execute()
@@ -183,54 +168,37 @@ def publish_vault_videos():
                     quota_manager.consume_points("youtube", 50)
                     time.sleep(3)
 
-                try:
-                    youtube.playlistItems().delete(id=item["id"]).execute()
-                    quota_manager.consume_points("youtube", 50)
-                    time.sleep(3)
-                except Exception as del_err:
-                    print(f"⚠️ [PUBLISHER] Failed to remove video {vid_id} from Vault Playlist: {del_err}")
+                playlist_item_id = vid_to_playlist_item.get(vid_id)
+                if playlist_item_id:
+                    try:
+                        youtube.playlistItems().delete(id=playlist_item_id).execute()
+                        quota_manager.consume_points("youtube", 50)
+                        time.sleep(3)
+                    except Exception as del_err:
+                        print(f"⚠️ [PUBLISHER] Failed to remove {vid_id} from Vault Playlist: {del_err}")
 
-                # Mark published in matrix
-                for m_item in matrix:
-                    if m_item.get("youtube_id") == vid_id:
-                        m_item['published'] = True
-                        m_item['published_date'] = datetime.utcnow().isoformat()
-
-                published_count += 1
-                published_times.append(target_time_str)
-
-                # 🚨 FLAW FIX: Write matrix to disk IMMEDIATELY after each successful publish.
-                # Previously the matrix was written ONCE at the very end of the function.
-                # If the runner was killed mid-loop (quota freeze, timeout, network drop),
-                # any videos that HAD been published never got their published=True flag saved.
-                # On the next publisher run, those videos would be fetched again, hit 404 on
-                # the vault (since they were already removed), and trigger ghost cleanup.
-                # Fix: atomic write after every video — partial success is always persisted.
-                _save_matrix(matrix, matrix_path)
-                print(f"   💾 [PUBLISHER] Matrix state persisted after video {vid_id}.")
+                # Update SQLite State to PUBLISHED
+                job.state = JobState.PUBLISHED
+                job.updated_at = datetime.utcnow().isoformat()
+                db.upsert_job(job)
+                published_total += 1
+                
+                print(f"   ✅ Scheduled Video {vid_id} for {target_time_str} UTC.")
 
             except Exception as vid_e:
                 print(f"⚠️ [PUBLISHER] Failed to publish video {vid_id}: {vid_e}.")
                 notify_error("Publisher", "Publishing Error", f"Video {vid_id} failed: {vid_e}")
-
+                
                 if "404" in str(vid_e) or "not found" in str(vid_e).lower():
-                    print(f"🗑️ [PUBLISHER] 404 Detected. Removing ghost video {vid_id} from memory.")
-                    matrix = [m for m in matrix if m.get("youtube_id") != vid_id]
-                    _save_matrix(matrix, matrix_path)
-                continue
+                    print(f"🗑️ [PUBLISHER] 404 Detected. Flagging ghost video {vid_id} as FAILED in DB.")
+                    job.state = JobState.FAILED
+                    job.updated_at = datetime.utcnow().isoformat()
+                    db.upsert_job(job)
 
-        # Final write for any trailing state changes (no-op if already written per-video above)
-        _save_matrix(matrix, matrix_path)
-
-        if published_count > 0:
-            times_str = ", ".join(published_times)
-            notify_summary(True, f"🚀 **Publisher Online**\nSuccessfully scheduled {published_count} videos for {times_str} UTC. Routed to Mega-Playlists.")
-        else:
-            notify_summary(False, f"⚠️ **Publisher Alert**\nAttempted to publish videos, but encountered 404 Ghosts or Quota blocks. Matrix cleaned and queue preserved.")
-
-    except Exception as e:
-        quota_manager.diagnose_fatal_error("schedule_video.py", e)
-
+    if published_total > 0:
+        notify_summary(True, f"🚀 **Publisher Online**\nSuccessfully scheduled {published_total} videos across channels. Routed to Mega-Playlists.")
+    else:
+        notify_summary(False, "⚠️ **Publisher Alert**\nAttempted to publish videos, but found no valid vaulted jobs or encountered an error.")
 
 if __name__ == "__main__":
     publish_vault_videos()
