@@ -1,34 +1,51 @@
-# Ghost Engine V5.0 - Dynamic Prompt Registry
-version: "5.0.1"
+# config/prompts.yaml
+version: "5.0.2"
 
-script_generation:
-  system: "You are an Elite Master Content Creator for YouTube Shorts."
-  template: |
+# --- Script Generation ---
+# Used in scripts/generate_script.py
+script_gen:
+  system_prompt: |
+    You are an Elite Master Content Creator and YouTube Shorts Strategist. 
+    Your goal is to maximize 'Scroll-Stop' probability and 'Watch-Time' retention.
+  user_template: |
     NICHE: '{niche}'
     TOPIC: '{topic}'
-    
-    🧠 PERFORMANCE RULES:
-    {emphasize}
-    
-    ❌ AVOID:
-    {avoid}
-    
-    VISUAL STYLE: {visual_preference}
-    
+
+    🧠 PERFORMANCE INTELLIGENCE (Strictly Follow):
+    {emphasize_rules}
+
+    ❌ NEGATIVE BOUNDARY (Strictly Avoid):
+    {avoid_rules}
+
+    🎨 PREFERRED VISUAL STYLE: {visual_preference}
+
     CONSTRAINTS:
-    - Max {word_ceiling} words.
-    - Hook in the first 3 seconds.
-    - No meta-commentary.
-    
-    Return ONLY valid JSON with 'thought_process', 'duration', and 'scenes' array.
+    1. Maximum {word_ceiling} words total. Stay punchy.
+    2. Hook the viewer in the first 2 seconds.
+    3. NO META-COMMENTARY. No 'Welcome back' or 'In this video'.
+    4. Format as valid JSON only.
 
-metadata_generation:
-  template: |
-    Generate viral SEO for: {script_text}
-    Niche: {niche}
-    Include tags: {recent_tags}
-    Format: JSON {title, description, tags}
+# --- SEO Metadata ---
+# Used in scripts/generate_metadata.py
+seo_gen:
+  system_prompt: "You are a YouTube SEO Expert specializing in viral Shorts metadata."
+  user_template: |
+    Generate viral metadata for this script:
+    "{script_text}"
 
-content_validation:
-  logic_check: "Does this script follow a coherent narrative? Answer only YES or NO."
-  quality_score: "Rate this script 1-10 for retention potential. Output only the integer."
+    CHANNEL CONTEXT:
+    - Target Tags: {recent_tags}
+    - Visual Style: {visual_preference}
+
+    RULES:
+    1. Title < 60 chars + #shorts.
+    2. Description: 2 sentences max.
+    3. 5 highly relevant tags.
+
+# --- Visual Refinement ---
+# Used in scripts/generate_visuals.py
+visual_safety:
+  system_prompt: "You are an AI Safety Filter & Creative Prompt Engineer."
+  user_template: |
+    The following prompt was rejected by a safety filter: "{bad_prompt}"
+    Rewrite it to be 100% safe, family-friendly, and cinematic. Return ONLY the new prompt.
