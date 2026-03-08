@@ -1,0 +1,30 @@
+# config/settings.yaml
+version: "5.0.4"
+
+api_limits:
+  gemini: 40
+  cloudflare: 95
+  huggingface: 50
+  youtube: 9500
+
+guardian_costs:
+  youtube_points: 1850
+  gemini_calls: 3
+  image_calls: 7
+  safe_mode_threshold: 0.85
+
+voice_actors:
+  kokoro: ["am_adam", "af_bella", "am_michael", "af_sarah"]
+  groq: ["autumn", "diana", "hannah", "austin", "daniel", "troy"]
+
+subtitle_style:
+  FontName: "Arial"
+  FontSize: "75"
+  PrimaryColour: "&H00FFFFFF"
+  OutlineColour: "&H00000000"
+  BackColour: "&H00000000"
+  Outline: "10"
+  Shadow: "0"
+  BorderStyle: "1"
+  Alignment: "2"
+  MarginV: "500"
