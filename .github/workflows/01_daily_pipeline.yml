@@ -13,16 +13,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Install System Dependencies
         env:
           DEBIAN_FRONTEND: noninteractive
         run: sudo apt-get update && sudo apt-get install -yq ffmpeg fonts-liberation espeak-ng
-        
+
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.x'   # 🔄 PATCH: Always use latest stable Python 3 (was hardcoded 3.11)
+
       - run: pip install -r requirements.txt
+
       - env:
           PYTHONUNBUFFERED: "1"
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -38,6 +40,7 @@ jobs:
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
         run: python main.py
+
       - run: |
           git config --global user.name "Ghost-Engine-Bot"
           git config --global user.email "bot@ghostengine.ai"
@@ -47,7 +50,7 @@ jobs:
             git pull --rebase origin main
             git push origin main
           fi
-          
+
       - name: Upload Final Video Artifacts
         uses: actions/upload-artifact@v4
         if: always()
@@ -57,5 +60,5 @@ jobs:
           if-no-files-found: warn
           compression-level: 6
           retention-days: 3
-          
+
       - run: rm -rf *.mp4 *.wav *.mp3 *.srt *.ass temp_* && pip cache purge
