@@ -17,7 +17,6 @@ from engine.config_manager import config_manager
 _KOKORO_PIPELINE = None
 _WHISPER_MODEL = None
 
-
 def get_kokoro_pipeline():
     global _KOKORO_PIPELINE
     if _KOKORO_PIPELINE is None:
@@ -41,132 +40,91 @@ def format_time(seconds):
 def trim_audio_precision(file_path):
     try:
         audio = AudioSegment.from_file(file_path)
-        if len(audio) > 200:
-            audio = audio[200:]
-
+        if len(audio) > 200: audio = audio[200:]
         audio = effects.normalize(audio)
-
         silence_start = AudioSegment.silent(duration=200, frame_rate=audio.frame_rate).set_channels(audio.channels)
         silence_end = AudioSegment.silent(duration=500, frame_rate=audio.frame_rate).set_channels(audio.channels)
-
         final = silence_start + audio + silence_end
         final.export(file_path, format="wav")
         return True, len(final) / 1000.0
-    except Exception as e:
-        print(f"⚠️ Audio trim failed: {e}")
-        return False, 0.0
+    except: return False, 0.0
 
 def sanitize_for_tts(text):
     clean_text = re.sub(r'[^\w\s.,!?\'"-]', '', text)
-    clean_text = re.sub(r'\s+', ' ', clean_text).strip()
-    return clean_text
+    return re.sub(r'\s+', ' ', clean_text).strip()
 
 def generate_fallback_srt(text, duration, srt_path):
     try:
         words = [w.strip().upper() for w in text.split() if w.strip()]
-        if not words:
-            return False
-
-        total = len(words)
-        time_per_word = max(duration / total, 0.1)
+        if not words: return False
+        time_per_word = max(duration / len(words), 0.1)
         srt_lines = []
         idx = 1
-
-        for i in range(0, total, 3):
+        for i in range(0, len(words), 3):
             chunk = words[i:i + 3]
             start = i * time_per_word
             end = min((i + len(chunk)) * time_per_word, duration)
-            srt_lines.append(
-                f"{idx}\n{format_time(start)} --> {format_time(end)}\n{' '.join(chunk)}\n"
-            )
+            srt_lines.append(f"{idx}\n{format_time(start)} --> {format_time(end)}\n{' '.join(chunk)}\n")
             idx += 1
-
-        with open(srt_path, "w", encoding="utf-8") as f:
-            f.write("\n".join(srt_lines))
-
-        print(f"   ✅ [VOICE] Fallback SRT generated: {idx - 1} caption chunks.")
+        with open(srt_path, "w", encoding="utf-8") as f: f.write("\n".join(srt_lines))
         return True
-    except Exception as e:
-        print(f"⚠️ [VOICE] Fallback SRT generation failed: {e}")
-        return False
+    except: return False
 
-def generate_audio(text, output_base="temp_audio"):
+def generate_audio(text, output_base="temp_audio", target_voice=None):
     global _KOKORO_PIPELINE
     final_wav = f"{output_base}.wav"
     srt_path = f"{output_base}.srt"
-
-    success = False
-    provider = "Unknown"
+    success, provider = False, "Unknown"
 
     sanitized_text = sanitize_for_tts(text)
     buffered_text = f", {sanitized_text}"
 
-    print("🎙️ [VOICE] Attempting Primary: Kokoro (Ultra-Realistic Human)...")
+    print(f"🎙️ [VOICE] Requesting AI Director's choice: {target_voice}...")
     try:
-        # Load voices dynamically from settings.yaml
         settings = config_manager.get_settings()
         kokoro_voices = settings.get("voice_actors", {}).get("kokoro", ['am_adam'])
-        chosen_voice = random.choice(kokoro_voices)
         
-        print(f"🎙️ [VOICE] Selected actor: {chosen_voice.upper()}")
+        # Verify the AI picked a valid voice, otherwise fallback to random
+        chosen_voice = target_voice if target_voice in kokoro_voices else random.choice(kokoro_voices)
+        print(f"🎙️ [VOICE] Executing Kokoro with: {chosen_voice.upper()}")
 
         pipeline = get_kokoro_pipeline()
         gen = pipeline(buffered_text, voice=chosen_voice, speed=1.1, split_pattern=r'\n+')
         audio_chunks = [audio for _, _, audio in gen if audio is not None]
         if audio_chunks:
             sf.write(final_wav, np.concatenate(audio_chunks), 24000)
-            success = True
-            provider = f"Kokoro ({chosen_voice})"
+            success, provider = True, f"Kokoro ({chosen_voice})"
     except Exception as e:
-        print(f"⚠️ Kokoro failed (resetting pipeline state): {e}")
+        print(f"⚠️ Kokoro failed: {e}")
         _KOKORO_PIPELINE = None
-        success = False
 
     if not success:
         print("🎙️ [VOICE] Kokoro failed. Booting Groq Fallback...")
         if groq_client.generate_audio(buffered_text, final_wav):
-            success = True
-            provider = "Groq Orpheus API"
+            success, provider = True, "Groq Orpheus API"
 
-    if not success:
-        return False, provider, 0.0
+    if not success: return False, provider, 0.0
 
     trim_success, duration = trim_audio_precision(final_wav)
-    if not trim_success:
-        return False, provider, 0.0
+    if not trim_success: return False, provider, 0.0
 
     try:
-        print("📝 [VOICE] Transcribing and Chunking Captions (Max 3 words)...")
         model = get_whisper_model()
         segments, _ = model.transcribe(final_wav, word_timestamps=True)
-
-        srt_lines = []
-        idx = 1
+        srt_lines, idx = [], 1
         for segment in segments:
-            chunk = []
-            chunk_start = None
+            chunk, chunk_start = [], None
             for word in segment.words:
-                if chunk_start is None:
-                    chunk_start = word.start
+                if chunk_start is None: chunk_start = word.start
                 chunk.append(word.word.strip().upper())
-
                 if len(chunk) >= 3:
-                    end = word.end
-                    srt_lines.append(f"{idx}\n{format_time(chunk_start)} --> {format_time(end)}\n{' '.join(chunk)}\n")
-                    idx += 1
-                    chunk = []
-                    chunk_start = None
-
+                    srt_lines.append(f"{idx}\n{format_time(chunk_start)} --> {format_time(word.end)}\n{' '.join(chunk)}\n")
+                    idx, chunk, chunk_start = idx + 1, [], None
             if chunk:
                 srt_lines.append(f"{idx}\n{format_time(chunk_start)} --> {format_time(segment.words[-1].end)}\n{' '.join(chunk)}\n")
                 idx += 1
-
-        with open(srt_path, "w", encoding="utf-8") as f:
-            f.write("\n".join(srt_lines))
-
-    except Exception as e:
-        print(f"⚠️ Whisper transcription failed: {e}. Deploying proportional SRT fallback...")
-        if not generate_fallback_srt(sanitized_text, duration, srt_path):
-            return False, provider, 0.0
+        with open(srt_path, "w", encoding="utf-8") as f: f.write("\n".join(srt_lines))
+    except:
+        if not generate_fallback_srt(sanitized_text, duration, srt_path): return False, provider, 0.0
 
     return True, provider, duration
