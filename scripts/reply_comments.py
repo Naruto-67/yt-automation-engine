@@ -1,9 +1,11 @@
+# scripts/reply_comments.py
 import os
 import time
 import random
 from scripts.quota_manager import quota_manager
 from scripts.youtube_manager import get_youtube_client
 from scripts.discord_notifier import notify_summary
+from engine.config_manager import config_manager
 
 
 def generate_ai_reply(video_title, comment_text, attempt_num):
@@ -33,78 +35,76 @@ def generate_ai_reply(video_title, comment_text, attempt_num):
 
 
 def run_engagement_protocol():
-    youtube = get_youtube_client()
-    if not youtube: return
+    for channel in config_manager.get_active_channels():
+        print(f"💬 [ENGAGEMENT] Scanning for top unanswered fan interactions on {channel.channel_name}...")
+        
+        youtube = get_youtube_client(channel.youtube_refresh_token_env)
+        if not youtube: 
+            continue
 
-    print("💬 [ENGAGEMENT] Scanning for top unanswered fan interactions...")
-    try:
-        # 🚨 PERFORMANCE FIX: Previously made TWO separate channels().list() calls:
-        #   1. part="id"             → to get channel_id
-        #   2. part="contentDetails" → to get uploads playlist ID
-        # Each call costs 1 YouTube quota point. Merging into one call with
-        # part="id,contentDetails" halves the cost of this step — saves 1 point per run.
-        channel_response = youtube.channels().list(
-            part="id,contentDetails", mine=True
-        ).execute()
-        quota_manager.consume_points("youtube", 1)
+        try:
+            channel_response = youtube.channels().list(
+                part="id,contentDetails", mine=True
+            ).execute()
+            quota_manager.consume_points("youtube", 1)
 
-        channel_item = channel_response["items"][0]
-        channel_id = channel_item["id"]
-        uploads = channel_item["contentDetails"]["relatedPlaylists"]["uploads"]
+            channel_item = channel_response["items"][0]
+            channel_id = channel_item["id"]
+            uploads = channel_item["contentDetails"]["relatedPlaylists"]["uploads"]
 
-        vids = youtube.playlistItems().list(part="snippet", playlistId=uploads, maxResults=5).execute()
-        quota_manager.consume_points("youtube", 1)
+            vids = youtube.playlistItems().list(part="snippet", playlistId=uploads, maxResults=5).execute()
+            quota_manager.consume_points("youtube", 1)
 
-        replies_count = 0
-        target_replies = random.randint(10, 15)
+            replies_count = 0
+            target_replies = random.randint(10, 15)
 
-        for vid in vids.get("items", []):
-            vid_id = vid["snippet"]["resourceId"]["videoId"]
-            try:
-                comments = youtube.commentThreads().list(part="snippet", videoId=vid_id, maxResults=15, order="relevance").execute()
-                quota_manager.consume_points("youtube", 1)
+            for vid in vids.get("items", []):
+                vid_id = vid["snippet"]["resourceId"]["videoId"]
+                try:
+                    comments = youtube.commentThreads().list(part="snippet", videoId=vid_id, maxResults=15, order="relevance").execute()
+                    quota_manager.consume_points("youtube", 1)
 
-                for thread in comments.get("items", []):
-                    top = thread["snippet"]["topLevelComment"]["snippet"]
-                    if top.get("authorChannelId", {}).get("value") != channel_id and thread["snippet"]["totalReplyCount"] == 0:
+                    for thread in comments.get("items", []):
+                        top = thread["snippet"]["topLevelComment"]["snippet"]
+                        if top.get("authorChannelId", {}).get("value") != channel_id and thread["snippet"]["totalReplyCount"] == 0:
 
-                        if not quota_manager.can_afford_youtube(50):
-                            print("🛑 [QUOTA GUARDIAN] YouTube Quota limit reached. Halting comments.")
-                            break
+                            if not quota_manager.can_afford_youtube(50):
+                                print("🛑 [QUOTA GUARDIAN] YouTube Quota limit reached. Halting comments.")
+                                break
 
-                        try:
-                            reply_text = generate_ai_reply(vid["snippet"]["title"], top["textDisplay"], replies_count + 1)
+                            try:
+                                reply_text = generate_ai_reply(vid["snippet"]["title"], top["textDisplay"], replies_count + 1)
 
-                            if not reply_text:
-                                print(f"🛡️ [SECURITY] Ignored inappropriate/troll comment from {top.get('authorDisplayName')}")
+                                if not reply_text:
+                                    print(f"🛡️ [SECURITY] Ignored inappropriate/troll comment from {top.get('authorDisplayName')}")
+                                    continue
+
+                                youtube.comments().insert(
+                                    part="snippet",
+                                    body={"snippet": {"parentId": thread["id"], "textOriginal": reply_text}}
+                                ).execute()
+
+                                replies_count += 1
+                                quota_manager.consume_points("youtube", 50)
+                                time.sleep(4)
+
+                            except Exception as comment_err:
+                                print(f"⚠️ [ENGAGEMENT] Failed to reply to specific comment (might be deleted/disabled): {comment_err}")
                                 continue
 
-                            youtube.comments().insert(
-                                part="snippet",
-                                body={"snippet": {"parentId": thread["id"], "textOriginal": reply_text}}
-                            ).execute()
+                            if replies_count >= target_replies: break
+                except Exception as video_err:
+                    print(f"⚠️ [ENGAGEMENT] Failed to fetch threads for video {vid_id}: {video_err}")
+                    continue
 
-                            replies_count += 1
-                            quota_manager.consume_points("youtube", 50)
-                            time.sleep(4)
+                if replies_count >= target_replies or not quota_manager.can_afford_youtube(50):
+                    break
 
-                        except Exception as comment_err:
-                            print(f"⚠️ [ENGAGEMENT] Failed to reply to specific comment (might be deleted/disabled): {comment_err}")
-                            continue
-
-                        if replies_count >= target_replies: break
-            except Exception as video_err:
-                print(f"⚠️ [ENGAGEMENT] Failed to fetch threads for video {vid_id}: {video_err}")
-                continue
-
-            if replies_count >= target_replies or not quota_manager.can_afford_youtube(50):
-                break
-
-        gemini_count = min(replies_count, 3)
-        groq_count = max(0, replies_count - 3)
-        notify_summary(True, f"Successfully engaged with {replies_count} top comments safely. ({gemini_count} Gemini / {groq_count} Groq)")
-    except Exception as e:
-        quota_manager.diagnose_fatal_error("reply_comments.py", e)
+            gemini_count = min(replies_count, 3)
+            groq_count = max(0, replies_count - 3)
+            notify_summary(True, f"Successfully engaged with {replies_count} top comments safely on {channel.channel_name}. ({gemini_count} Gemini / {groq_count} Groq)")
+        except Exception as e:
+            quota_manager.diagnose_fatal_error(f"reply_comments.py ({channel.channel_name})", e)
 
 
 if __name__ == "__main__":
