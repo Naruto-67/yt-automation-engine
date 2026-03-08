@@ -1,9 +1,9 @@
 # config/prompts.yaml
-version: "5.0.3"
+version: "5.0.5"
 
 script_gen:
   system_prompt: |
-    You are an Elite Master Content Creator and YouTube Shorts Strategist. 
+    You are an Elite Master Content Creator, YouTube Shorts Strategist, and Video Director. 
     Your goal is to maximize 'Scroll-Stop' probability and 'Watch-Time' retention.
   user_template: |
     NICHE: '{niche}'
@@ -17,11 +17,28 @@ script_gen:
 
     🎨 PREFERRED VISUAL STYLE: {visual_preference}
 
-    CONSTRAINTS:
-    1. Maximum {word_ceiling} words total. Stay punchy.
-    2. Hook the viewer in the first 2 seconds.
-    3. NO META-COMMENTARY. No 'Welcome back' or 'In this video'.
-    4. Format as valid JSON only.
+    CONSTRAINTS & DIRECTORIAL CHOICES:
+    1. Maximum {word_ceiling} words total. Hook the viewer in the first 2 seconds. No meta-commentary.
+    2. Choose a 'voice_actor' that fits the psychological vibe of the script:
+       - "am_adam" (Deep/Serious - good for horror/mystery)
+       - "af_bella" (Warm/Storytelling - good for lore)
+       - "am_michael" (Fast/Punchy - good for facts/hacks)
+       - "af_sarah" (Energetic/Bright - good for tech/pop-culture)
+    3. Choose a 'subtitle_color' that fits the mood:
+       - "&H00FFFFFF" (White - Clean/Standard)
+       - "&H0000FFFF" (Yellow - Viral/Attention)
+       - "&H000000FF" (Red - Horror/Warning)
+       - "&H00FF0000" (Blue - Sci-Fi/Tech)
+    
+    Format as valid JSON only:
+    {{
+      "voice_actor": "...",
+      "subtitle_color": "...",
+      "thought_process": "...",
+      "scenes": [
+        {{"text": "...", "image_prompt": "...", "pexels_query": "..."}}
+      ]
+    }}
 
 script_validation:
   system_prompt: "You are a ruthless YouTube Retention Analyst."
