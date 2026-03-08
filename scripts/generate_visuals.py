@@ -1,3 +1,4 @@
+# scripts/generate_visuals.py
 import os
 import requests
 import urllib.parse
@@ -11,7 +12,6 @@ from scripts.quota_manager import quota_manager
 SIMULATE_CASCADE_TEST = False
 
 def _regenerate_safe_prompt(bad_prompt):
-    """🚨 V5 FEATURE: Self-Healing Prompt Protocol. If an image API rejects a prompt, the LLM rewrites it."""
     prompt = f"""
     The following image generation prompt was rejected by an AI safety filter (likely due to violence, gore, NSFW, or restricted terms):
     "{bad_prompt}"
@@ -19,9 +19,13 @@ def _regenerate_safe_prompt(bad_prompt):
     Rewrite this prompt so it conveys a similar visual concept but is 100% safe, family-friendly, and complies with strict AI content filters. Make it highly cinematic.
     Return ONLY the new prompt string, nothing else. No intro or markdown.
     """
-    clean_text, _ = quota_manager.generate_text(prompt, task_type="creative")
-    if clean_text:
-        return clean_text.strip().replace('"', '').replace('\n', ' ')
+    try:
+        clean_text, _ = quota_manager.generate_text(prompt, task_type="creative")
+        if clean_text:
+            return clean_text.strip().replace('"', '').replace('\n', ' ')
+    except Exception as e:
+        print(f"      ⚠️ Prompt rewrite failed: {e}")
+        
     return "Cinematic 3D animation of a mysterious glowing artifact in space, highly detailed"
 
 def generate_cloudflare_image(prompt, output_path):
@@ -199,7 +203,6 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
     tier1_disabled_notified = False
     tier2_disabled_notified = False
     
-    # 🚨 SOLVED: Explicit integer limit on prompt regeneration to mathematically prevent infinite loops
     MAX_SAFETY_RETRIES = 1
 
     for i, original_prompt in enumerate(prompts_list):
@@ -210,7 +213,6 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
         current_prompt = original_prompt
         safety_retries = 0
 
-        # Self-Healing Loop: Try API -> If 400 Error -> Sanitize Prompt -> Try Again (Up to MAX_SAFETY_RETRIES)
         while True:
             if tier1_active:
                 success, err = generate_cloudflare_image(current_prompt, output_path)
@@ -221,4 +223,70 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
                     if "400" in err and safety_retries < MAX_SAFETY_RETRIES:
                         print(f"      ⚠️ [VISUALS] Tier 1 Safety Filter triggered. Asking AI to sanitize prompt ({safety_retries + 1}/{MAX_SAFETY_RETRIES})...")
                         current_prompt = _regenerate_safe_prompt(current_prompt)
-                        safety
+                        safety_retries += 1
+                        continue
+                    
+                    if any(x in err for x in ["401", "402", "403"]):
+                        print(f"      🚨 [VISUALS] Tier 1 Fatal Quota/Auth Error ({err}). Disabling for remainder of run.")
+                        tier1_active = False
+                        if not tier1_disabled_notified:
+                            try:
+                                from scripts.discord_notifier import notify_step
+                                notify_step("Visual Pipeline", "⚠️ Cloudflare FLUX Disabled", f"Auth/quota error: `{err}`. Falling back to HuggingFace.", 0xe67e22)
+                            except: pass
+                            tier1_disabled_notified = True
+                    else:
+                        print(f"      ⚠️ [VISUALS] Tier 1 localized/network failure ({err}).")
+
+            if not success and tier2_active:
+                success, err = generate_huggingface_cascade(current_prompt, output_path)
+                if success:
+                    final_provider = err
+                    break
+                else:
+                    if "400" in err and safety_retries < MAX_SAFETY_RETRIES:
+                        print(f"      ⚠️ [VISUALS] Tier 2 Safety Filter triggered. Asking AI to sanitize prompt ({safety_retries + 1}/{MAX_SAFETY_RETRIES})...")
+                        current_prompt = _regenerate_safe_prompt(current_prompt)
+                        safety_retries += 1
+                        continue
+
+                    if any(x in err for x in ["401", "402", "403"]):
+                        print(f"      🚨 [VISUALS] Tier 2 Fatal Quota/Auth Error ({err}). Disabling for remainder of run.")
+                        tier2_active = False
+                        if not tier2_disabled_notified:
+                            try:
+                                from scripts.discord_notifier import notify_step
+                                notify_step("Visual Pipeline", "⚠️ HuggingFace Disabled", f"Auth/quota error: `{err}`. Falling back to Pexels.", 0xe67e22)
+                            except: pass
+                            tier2_disabled_notified = True
+                    else:
+                        print(f"      ⚠️ [VISUALS] Tier 2 localized/network failure ({err}).")
+
+            break
+
+        if not success:
+            success, err = fallback_pexels_image(pexels_queries[i], output_path)
+            if success:
+                final_provider = "Pexels Stock Fallback"
+
+        if not success:
+            success, err = generate_offline_gradient(output_path)
+            if success:
+                final_provider = "Python Offline Generator"
+                if not offline_gradient_used:
+                    offline_gradient_used = True
+                    try:
+                        from scripts.discord_notifier import notify_step
+                        notify_step("Visual Pipeline", "🚨 Offline Gradient Activated", f"Scene {i+1}: ALL image APIs exhausted. Using local math gradient.", 0xe74c3c)
+                    except: pass
+
+        if success:
+            successful_images.append(output_path)
+            print(f"   ✅ Scene {i+1} saved successfully.")
+        else:
+            print(f"   ❌ Scene {i+1} failed completely.")
+
+        print("   ⏳ Pacing generation engines (Sleeping 3s)...")
+        time.sleep(3)
+
+    return successful_images, final_provider
