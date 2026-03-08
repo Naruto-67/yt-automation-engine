@@ -1,0 +1,12 @@
+generation_chains:
+  script:
+    - "gemini"
+    - "groq"
+  voice:
+    - "kokoro"
+    - "groq_orpheus"
+  visuals:
+    - "cloudflare_flux"
+    - "huggingface_cascade"
+    - "pexels"
+    - "offline_gradient"
