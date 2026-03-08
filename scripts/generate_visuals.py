@@ -6,209 +6,138 @@ import time
 import random
 import base64
 import re
+import yaml
 from PIL import Image, ImageDraw
 from scripts.quota_manager import quota_manager
 
 SIMULATE_CASCADE_TEST = False
 
+def load_config_prompts():
+    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    path = os.path.join(root_dir, "config", "prompts.yaml")
+    with open(path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
 def _regenerate_safe_prompt(bad_prompt):
-    prompt = f"""
-    The following image generation prompt was rejected by an AI safety filter (likely due to violence, gore, NSFW, or restricted terms):
-    "{bad_prompt}"
+    prompts_cfg = load_config_prompts()
+    sys_msg = prompts_cfg['visual_safety']['system_prompt']
+    user_msg = prompts_cfg['visual_safety']['user_template'].format(bad_prompt=bad_prompt)
     
-    Rewrite this prompt so it conveys a similar visual concept but is 100% safe, family-friendly, and complies with strict AI content filters. Make it highly cinematic.
-    Return ONLY the new prompt string, nothing else. No intro or markdown.
-    """
     try:
-        clean_text, _ = quota_manager.generate_text(prompt, task_type="creative")
-        if clean_text:
-            return clean_text.strip().replace('"', '').replace('\n', ' ')
+        clean_text, _ = quota_manager.generate_text(user_msg, task_type="creative", system_prompt=sys_msg)
+        if clean_text: return clean_text.strip().replace('"', '').replace('\n', ' ')
     except Exception as e:
         print(f"      ⚠️ Prompt rewrite failed: {e}")
-        
-    return "Cinematic 3D animation of a mysterious glowing artifact in space, highly detailed"
+    return "Cinematic 3D animation of a mysterious artifact, highly detailed"
 
 def generate_cloudflare_image(prompt, output_path):
-    print("      [Tier 1: Cloudflare AI] Attempting Official FLUX generation...")
+    print("      [Tier 1: Cloudflare AI] Attempting Official FLUX...")
+    if SIMULATE_CASCADE_TEST or quota_manager.is_provider_exhausted("cloudflare"): return False, "Quota Reached"
 
-    if SIMULATE_CASCADE_TEST or quota_manager.is_provider_exhausted("cloudflare"):
-        return False, "Simulated Test Failure / Quota Reached"
-
-    account_id = os.environ.get("CF_ACCOUNT_ID")
-    api_token = os.environ.get("CF_API_TOKEN")
-
-    if not account_id or not api_token:
-        return False, "Missing CF Credentials"
+    account_id, api_token = os.environ.get("CF_ACCOUNT_ID"), os.environ.get("CF_API_TOKEN")
+    if not account_id or not api_token: return False, "Missing CF Credentials"
 
     url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/@cf/black-forest-labs/flux-1-schnell"
     headers = {"Authorization": f"Bearer {api_token}", "Content-Type": "application/json"}
-
-    safe_prompt = prompt[:200].replace('"', '').replace('\n', ' ')
-    payload = {"prompt": f"{safe_prompt}, vertical 9:16 format, masterpiece"}
+    payload = {"prompt": f"{prompt[:200].replace('\"', '').replace(chr(10), ' ')}, vertical 9:16 format, masterpiece"}
 
     for retry in range(2):
         try:
             response = requests.post(url, headers=headers, json=payload, timeout=(15, 60))
             if response.status_code == 200:
-                content_type = response.headers.get("Content-Type", "")
-                if "application/json" in content_type:
-                    data = response.json()
-                    if "result" in data and "image" in data["result"]:
-                        img_data = base64.b64decode(data["result"]["image"])
-                        with open(output_path, 'wb') as f: f.write(img_data)
-                        quota_manager.consume_points("cloudflare", 1)
-                        return True, ""
-                with open(output_path, 'wb') as f: f.write(response.content)
+                data = response.json() if "application/json" in response.headers.get("Content-Type", "") else None
+                if data and "result" in data and "image" in data["result"]:
+                    with open(output_path, 'wb') as f: f.write(base64.b64decode(data["result"]["image"]))
+                else:
+                    with open(output_path, 'wb') as f: f.write(response.content)
                 quota_manager.consume_points("cloudflare", 1)
                 return True, ""
             elif response.status_code >= 500 and retry == 0:
-                print(f"      💤 Cloudflare Transient Error ({response.status_code}). Waiting 5s and retrying...")
                 time.sleep(5)
                 continue
-            elif response.status_code == 400:
-                return False, "HTTP 400 (Safety Filter / Prompt Rejected)"
-            else:
-                return False, f"HTTP {response.status_code}"
-        except Exception as e:
-            if retry == 0:
-                print(f"      💤 Cloudflare connection timeout. Retrying once...")
-                time.sleep(5)
-                continue
-            return False, "Timeout/Connection Error"
-
+            elif response.status_code == 400: return False, "HTTP 400 (Safety Filter)"
+            else: return False, f"HTTP {response.status_code}"
+        except Exception:
+            if retry == 0: time.sleep(5); continue
+            return False, "Timeout Error"
     return False, "Exhausted Retries"
 
 def generate_huggingface_cascade(prompt, output_path):
-    print("      [Tier 2: HuggingFace] Attempting AI generation...")
-
-    if quota_manager.is_provider_exhausted("huggingface"):
-        return False, "HF Quota Reached"
-
+    print("      [Tier 2: HuggingFace] Attempting AI cascade...")
+    if quota_manager.is_provider_exhausted("huggingface"): return False, "HF Quota Reached"
     hf_token = os.environ.get("HF_TOKEN")
     if not hf_token: return False, "No Token"
 
-    models = [
-        "black-forest-labs/FLUX.1-schnell",
-        "stabilityai/stable-diffusion-xl-base-1.0"
-    ]
-
+    models = ["black-forest-labs/FLUX.1-schnell", "stabilityai/stable-diffusion-xl-base-1.0"]
     headers = {"Authorization": f"Bearer {hf_token}", "Content-Type": "application/json"}
-    safe_prompt = prompt[:200].replace('"', '').replace('\n', ' ')
-    payload = {"inputs": f"{safe_prompt}, vertical 9:16 format, masterpiece"}
+    payload = {"inputs": f"{prompt[:200].replace('\"', '').replace(chr(10), ' ')}, vertical 9:16 format"}
 
     for model in models:
         short_name = model.split('/')[-1]
-        print(f"      -> Routing to {short_name}...")
-
-        if SIMULATE_CASCADE_TEST and "FLUX" in model:
-            print(f"      ⚠️ {short_name} out of free quota (Simulated). Switching models...")
-            continue
-
+        if SIMULATE_CASCADE_TEST and "FLUX" in model: continue
         url = f"https://api-inference.huggingface.co/models/{model}"
-
         try:
             response = requests.post(url, headers=headers, json=payload, timeout=(15, 60))
             if response.status_code == 200:
-                with open(output_path, 'wb') as f:
-                    f.write(response.content)
+                with open(output_path, 'wb') as f: f.write(response.content)
                 quota_manager.consume_points("huggingface", 1)
                 return True, f"HF ({short_name})"
-            elif response.status_code == 400:
-                return False, "HTTP 400 (Safety Filter / Prompt Rejected)"
-            elif response.status_code in [401, 402, 403]:
-                print(f"      ⚠️ {short_name} out of free quota or unauthorized. Switching models...")
-                continue
+            elif response.status_code in [401, 402, 403]: continue
             elif response.status_code >= 500:
-                wait_time = 15
-                try:
-                    err_json = response.json()
-                    if "estimated_time" in err_json:
-                        wait_time = min(int(err_json["estimated_time"]) + 2, 60)
-                except: pass
-
-                print(f"      💤 {short_name} loading into VRAM. Sleeping adaptively for {wait_time}s...")
+                wait_time = min(int(response.json().get("estimated_time", 13)) + 2, 60) if "json" in dir(response) else 15
                 time.sleep(wait_time)
-
                 response = requests.post(url, headers=headers, json=payload, timeout=(15, 60))
                 if response.status_code == 200:
                     with open(output_path, 'wb') as f: f.write(response.content)
                     quota_manager.consume_points("huggingface", 1)
                     return True, f"HF ({short_name})"
         except: pass
-
-    return False, "HF Models Exhausted/Blocked"
+    return False, "HF Exhausted"
 
 def fallback_pexels_image(search_query, output_path, is_retry=False):
-    clean_query = re.sub(r'[^a-zA-Z0-9\s]', '', search_query).strip()
-    words = [w for w in clean_query.split() if len(w) >= 2]
-    safe_query = " ".join(words[:3]) if words else "cinematic background"
-
-    print(f"      [Tier 3: Pexels] AI Blocked. Searching strictly for: '{safe_query}'...")
-
+    safe_query = " ".join([w for w in re.sub(r'[^a-zA-Z0-9\s]', '', search_query).split() if len(w) >= 2][:3]) or "cinematic"
+    print(f"      [Tier 3: Pexels] Searching: '{safe_query}'...")
     api_key = os.environ.get("PEXELS_API_KEY")
     if not api_key: return False, "No Key"
 
     try:
-        query = urllib.parse.quote(safe_query)
-        url = f"https://api.pexels.com/v1/search?query={query}&orientation=portrait&per_page=15"
-        headers = {"Authorization": api_key}
-        res = requests.get(url, headers=headers, timeout=(10, 30)).json()
-
-        if res.get('photos') and len(res['photos']) > 0:
-            photo = random.choice(res['photos'])
-            img_url = photo['src']['large2x']
-            img_data = requests.get(img_url, timeout=(10, 30)).content
+        url = f"https://api.pexels.com/v1/search?query={urllib.parse.quote(safe_query)}&orientation=portrait&per_page=15"
+        res = requests.get(url, headers={"Authorization": api_key}, timeout=(10, 30)).json()
+        if res.get('photos'):
+            img_data = requests.get(random.choice(res['photos'])['src']['large2x'], timeout=(10, 30)).content
             with open(output_path, 'wb') as f: f.write(img_data)
             return True, ""
-
         elif not is_retry:
-            print(f"      ⚠️ [Tier 3: Pexels] 0 results for '{safe_query}'. Deploying Universal Fallback...")
-            return fallback_pexels_image("cinematic aesthetic background", output_path, is_retry=True)
-
-    except Exception as e:
-        return False, "API Error"
-
+            return fallback_pexels_image("cinematic aesthetic", output_path, is_retry=True)
+    except: return False, "API Error"
     return False, "No images found"
 
 def generate_offline_gradient(output_path):
-    print(f"      🛡️ [Tier 4: Offline Failsafe] Total API Exhaustion. Generating Mathematical Gradient...")
+    print(f"      🛡️ [Tier 4] Local Gradient Render...")
     try:
-        width, height = 1080, 1920
-        image = Image.new("RGB", (width, height), "#000000")
+        image = Image.new("RGB", (1080, 1920), "#000000")
         draw = ImageDraw.Draw(image)
-
         r1, g1, b1 = random.randint(10, 50), random.randint(10, 50), random.randint(50, 100)
         r2, g2, b2 = random.randint(0, 20), random.randint(0, 20), random.randint(0, 20)
-
-        for y in range(height):
-            r = int(r1 + (r2 - r1) * (y / height))
-            g = int(g1 + (g2 - g1) * (y / height))
-            b = int(b1 + (b2 - b1) * (y / height))
-            draw.line([(0, y), (width, y)], fill=(r, g, b))
-
+        for y in range(1920):
+            draw.line([(0, y), (1080, y)], fill=(int(r1+(r2-r1)*(y/1920)), int(g1+(g2-g1)*(y/1920)), int(b1+(b2-b1)*(y/1920))))
         image.save(output_path, "JPEG", quality=90)
-        return True, "Python Local Render"
-    except:
-        return False, "Fatal Local Render Failure"
+        return True, "Local Render"
+    except: return False, "Fatal Render"
 
 def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene"):
-    print(f"🖼️ [VISUALS] Sourcing {len(prompts_list)} scene images via Decoupled 4-Tier System...")
+    print(f"🖼️ [VISUALS] Sourcing {len(prompts_list)} scenes...")
     successful_images = []
-
-    tier1_active = True
-    tier2_active = True
-    final_provider = "Unknown"
-
-    offline_gradient_used = False
-    tier1_disabled_notified = False
-    tier2_disabled_notified = False
     
-    MAX_SAFETY_RETRIES = 1
+    # POINT 10: SAFE MODE CHECK
+    safe_mode = os.environ.get("GHOST_SAFE_MODE", "false").lower() == "true"
+    tier1_active = not safe_mode
+    tier2_active = not safe_mode
+    if safe_mode: print("🛡️ [SAFE MODE] AI Imagery bypassed. Forcing Stock/Local.")
 
+    final_provider = "Unknown"
     for i, original_prompt in enumerate(prompts_list):
         output_path = f"{base_filename}_{i}.jpg"
-        print(f"\n   -> Scene {i+1} Prompt: {original_prompt[:40]}...")
-
         success = False
         current_prompt = original_prompt
         safety_retries = 0
@@ -219,74 +148,33 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
                 if success:
                     final_provider = "Cloudflare FLUX API"
                     break
-                else:
-                    if "400" in err and safety_retries < MAX_SAFETY_RETRIES:
-                        print(f"      ⚠️ [VISUALS] Tier 1 Safety Filter triggered. Asking AI to sanitize prompt ({safety_retries + 1}/{MAX_SAFETY_RETRIES})...")
-                        current_prompt = _regenerate_safe_prompt(current_prompt)
-                        safety_retries += 1
-                        continue
-                    
-                    if any(x in err for x in ["401", "402", "403"]):
-                        print(f"      🚨 [VISUALS] Tier 1 Fatal Quota/Auth Error ({err}). Disabling for remainder of run.")
-                        tier1_active = False
-                        if not tier1_disabled_notified:
-                            try:
-                                from scripts.discord_notifier import notify_step
-                                notify_step("Visual Pipeline", "⚠️ Cloudflare FLUX Disabled", f"Auth/quota error: `{err}`. Falling back to HuggingFace.", 0xe67e22)
-                            except: pass
-                            tier1_disabled_notified = True
-                    else:
-                        print(f"      ⚠️ [VISUALS] Tier 1 localized/network failure ({err}).")
+                elif "400" in err and safety_retries < 1:
+                    current_prompt = _regenerate_safe_prompt(current_prompt)
+                    safety_retries += 1
+                    continue
+                elif any(x in err for x in ["401", "402", "403"]): tier1_active = False
 
             if not success and tier2_active:
                 success, err = generate_huggingface_cascade(current_prompt, output_path)
                 if success:
                     final_provider = err
                     break
-                else:
-                    if "400" in err and safety_retries < MAX_SAFETY_RETRIES:
-                        print(f"      ⚠️ [VISUALS] Tier 2 Safety Filter triggered. Asking AI to sanitize prompt ({safety_retries + 1}/{MAX_SAFETY_RETRIES})...")
-                        current_prompt = _regenerate_safe_prompt(current_prompt)
-                        safety_retries += 1
-                        continue
-
-                    if any(x in err for x in ["401", "402", "403"]):
-                        print(f"      🚨 [VISUALS] Tier 2 Fatal Quota/Auth Error ({err}). Disabling for remainder of run.")
-                        tier2_active = False
-                        if not tier2_disabled_notified:
-                            try:
-                                from scripts.discord_notifier import notify_step
-                                notify_step("Visual Pipeline", "⚠️ HuggingFace Disabled", f"Auth/quota error: `{err}`. Falling back to Pexels.", 0xe67e22)
-                            except: pass
-                            tier2_disabled_notified = True
-                    else:
-                        print(f"      ⚠️ [VISUALS] Tier 2 localized/network failure ({err}).")
-
+                elif "400" in err and safety_retries < 1:
+                    current_prompt = _regenerate_safe_prompt(current_prompt)
+                    safety_retries += 1
+                    continue
+                elif any(x in err for x in ["401", "402", "403"]): tier2_active = False
             break
 
         if not success:
             success, err = fallback_pexels_image(pexels_queries[i], output_path)
-            if success:
-                final_provider = "Pexels Stock Fallback"
+            if success: final_provider = "Pexels Stock"
 
         if not success:
             success, err = generate_offline_gradient(output_path)
-            if success:
-                final_provider = "Python Offline Generator"
-                if not offline_gradient_used:
-                    offline_gradient_used = True
-                    try:
-                        from scripts.discord_notifier import notify_step
-                        notify_step("Visual Pipeline", "🚨 Offline Gradient Activated", f"Scene {i+1}: ALL image APIs exhausted. Using local math gradient.", 0xe74c3c)
-                    except: pass
+            if success: final_provider = "Offline Generator"
 
-        if success:
-            successful_images.append(output_path)
-            print(f"   ✅ Scene {i+1} saved successfully.")
-        else:
-            print(f"   ❌ Scene {i+1} failed completely.")
-
-        print("   ⏳ Pacing generation engines (Sleeping 3s)...")
-        time.sleep(3)
+        if success: successful_images.append(output_path)
+        time.sleep(2)
 
     return successful_images, final_provider
