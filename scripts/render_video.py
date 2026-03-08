@@ -1,9 +1,11 @@
+# scripts/render_video.py
 import os
 import subprocess
 import json
 import re
 import requests
 from pydub import AudioSegment
+from engine.config_manager import config_manager
 
 def download_cinematic_font():
     font_path = "/tmp/Montserrat-Bold.ttf"
@@ -33,11 +35,15 @@ def download_cinematic_font():
     return "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
 
 def get_style_config(style_name="default"):
-    return {
+    # Load dynamic style configuration from settings.yaml
+    settings = config_manager.get_settings()
+    
+    # Fallback to defaults if missing
+    return settings.get("subtitle_style", {
         "FontName": "Arial", "FontSize": "75", "PrimaryColour": "&H00FFFFFF",
         "OutlineColour": "&H00000000", "BackColour": "&H00000000", "Outline": "10",
         "Shadow": "0", "BorderStyle": "1", "Alignment": "2", "MarginV": "500"
-    }
+    })
 
 def time_to_seconds(time_str):
     h, m, s_ms = time_str.split(':')
@@ -76,16 +82,11 @@ def srt_to_ass(srt_path, ass_path, style):
         print(f"⚠️ [RENDERER] Subtitle generation failed: {e}")
         return False
 
-
-# 🚨 PERFORMANCE FIX: fps 60 → 30.
-# zoompan is O(frames) — it processes every single frame through the most expensive
-# filter chain in FFmpeg. At fps=60, a 7-scene video averages ~2,940 frames.
-# At fps=30, that drops to ~1,470 — roughly 2x speedup on the clip generation step
-# with zero perceptible quality difference on a phone screen viewing a slow pan/zoom.
-# The output container still encodes at 30fps which is the YouTube Shorts standard.
 def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=30):
+    # GUARANTEED HARDCODING: 30 FPS
     frames = int(duration * fps)
 
+    # GUARANTEED HARDCODING: 1080x1920 Aspect Ratio Math
     prep_filter = "scale=2160:3840:force_original_aspect_ratio=increase,crop=2160:3840"
 
     effects = [
@@ -114,6 +115,7 @@ def render_video(image_paths, audio_path, output_path, scene_weights=None, water
 
     try:
         audio = AudioSegment.from_file(audio_path)
+        # GUARANTEED HARDCODING: 59.0 Seconds Absolute Maximum Duration
         total_dur = min(len(audio) / 1000.0, 59.0)
         if len(audio) / 1000.0 > 59.0:
             audio[:59000].fade_out(1500).export(audio_path, format="wav")
