@@ -3,22 +3,29 @@ import os
 from scripts.quota_manager import quota_manager
 from scripts.discord_notifier import notify_error, notify_summary
 from engine.logger import logger
+from engine.config_manager import config_manager
 
 class GhostGuardian:
     def __init__(self):
+        # Load costs dynamically from settings.yaml
+        settings = config_manager.get_settings()
+        costs = settings.get("guardian_costs", {})
+        
         self.COST_PER_VIDEO = {
-            "youtube_points": 1850,
-            "gemini_calls": 3,
-            "image_calls": 7
+            "youtube_points": costs.get("youtube_points", 1850),
+            "gemini_calls": costs.get("gemini_calls", 3),
+            "image_calls": costs.get("image_calls", 7)
         }
-        self.SAFE_MODE_THRESHOLD = 0.85
-        self.channel_health = {} # Maps channel_id to health state
+        self.SAFE_MODE_THRESHOLD = costs.get("safe_mode_threshold", 0.85)
+        self.channel_health = {} 
 
     def get_run_forecast(self):
         state = quota_manager._get_active_state()
-        yt_rem = 10000 - state.get("youtube_points", 0)
-        gem_rem = 40 - state.get("gemini_calls", 0)
-        img_rem = 95 - state.get("cf_images", 0)
+        
+        # Base calculations off dynamic limits
+        yt_rem = quota_manager.LIMITS["youtube"] - state.get("youtube_points", 0)
+        gem_rem = quota_manager.LIMITS["gemini"] - state.get("gemini_calls", 0)
+        img_rem = quota_manager.LIMITS["cloudflare"] - state.get("cf_images", 0)
 
         limit_yt = yt_rem // self.COST_PER_VIDEO["youtube_points"]
         limit_gem = gem_rem // self.COST_PER_VIDEO["gemini_calls"]
@@ -29,7 +36,6 @@ class GhostGuardian:
         return int(forecast)
 
     def is_safe_mode(self):
-        """Checks if the currently processing channel is forced into Safe Mode."""
         channel_id = os.environ.get("CURRENT_CHANNEL_ID", "default")
         return self.channel_health.get(channel_id, {}).get("safe_mode", False)
 
@@ -41,7 +47,9 @@ class GhostGuardian:
             return False
 
         state = quota_manager._get_active_state()
-        if (state.get("cf_images", 0) / 95) > self.SAFE_MODE_THRESHOLD:
+        img_usage_ratio = state.get("cf_images", 0) / quota_manager.LIMITS.get("cloudflare", 95)
+        
+        if img_usage_ratio > self.SAFE_MODE_THRESHOLD:
             channel_id = os.environ.get("CURRENT_CHANNEL_ID", "default")
             self._trigger_safe_mode(channel_id, "High Global Image Usage")
         
