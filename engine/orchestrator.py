@@ -45,7 +45,13 @@ class Orchestrator:
 
         self.global_garbage_collector()
 
+        global_videos_processed = 0  # 🚨 SOLVED: Global counter to stop after 1 total video across all channels
+
         for channel in self.channels:
+            if TEST_MODE and global_videos_processed >= 1:
+                logger.engine("🧪 [TEST MODE] Global 1-video limit reached. Halting pipeline.")
+                break
+
             logger.engine(f"--- 🚀 Commencing Production Cycle for {channel.channel_name} ---")
             
             yt_client = get_youtube_client(channel.youtube_refresh_token_env)
@@ -79,7 +85,6 @@ class Orchestrator:
             
             pending_jobs.sort(key=lambda x: x.created_at)
             
-            # 🚨 FIX: Limit production to 1 video per channel if TEST_MODE is active
             if TEST_MODE:
                 batch = pending_jobs[:1]
             else:
@@ -98,6 +103,7 @@ class Orchestrator:
                 runner.job.channel_id = yt_channel_display_name 
                 
                 runner.process()
+                global_videos_processed += 1  # Increment global counter
                 
                 if runner.job.state == JobState.VAULTED and runner.job.video_path and not runner.job.youtube_id:
                     if not TEST_MODE:
