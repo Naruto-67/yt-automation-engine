@@ -1,7 +1,7 @@
 # engine/orchestrator.py
 import os
 import glob
-import time
+import yaml
 from engine.logger import logger
 from engine.config_manager import config_manager
 from engine.database import db
@@ -10,136 +10,92 @@ from engine.job_runner import JobRunner
 from engine.guardian import guardian
 from scripts.dynamic_researcher import run_dynamic_research
 from scripts.youtube_manager import get_youtube_client, get_actual_vault_count, get_channel_name, upload_to_youtube_vault
-from scripts.discord_notifier import notify_summary, notify_step
+from scripts.discord_notifier import notify_summary
 
-# 🧙‍♀️ POINT 10: THE TEST SWITCH
-# Set via environment variable in GitHub Actions
+# POINT 10: Enforce test mode limits
 TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
 
 class Orchestrator:
     def __init__(self):
         self.channels = config_manager.get_active_channels()
-        os.environ["TEST_MODE"] = str(TEST_MODE)
 
-    def global_garbage_collector(self):
-        """POINT 20: Standardized cleanup to prevent disk bloat and desync."""
-        logger.engine("🧹 Initializing Global Garbage Collection...")
-        extensions = [
-            "*.wav", "*.srt", "*.ass", "*.jpg", "*.jpeg", "*.png", 
-            "temp_*", "concat_list.txt", "temp_anim_*.mp4", "temp_merged*.mp4"
-        ]
-        for pattern in extensions:
-            for file in glob.glob(pattern):
-                try: 
-                    os.remove(file)
-                except: 
-                    pass
+    def sync_channel_identity(self, channel_config, live_name):
+        """Auto-updates config/channels.yaml if the name was changed on the YouTube Dashboard."""
+        if not live_name or live_name == channel_config.channel_name:
+            return
+
+        logger.engine(f"🔄 Identity Sync: YAML '{channel_config.channel_name}' -> Live '{live_name}'")
+        
+        path = config_manager.channels_path
+        with open(path, 'r') as f:
+            data = yaml.safe_load(f)
+
+        for ch in data.get('channels', []):
+            if ch['id'] == channel_config.channel_id:
+                ch['name'] = live_name
+        
+        with open(path, 'w') as f:
+            yaml.dump(data, f, default_flow_style=False)
+        
+        channel_config.channel_name = live_name
+
+    def cleanup(self):
+        logger.engine("🧹 Global Workspace Cleanup...")
+        patterns = ["*.wav", "*.srt", "*.ass", "*.jpg", "*.png", "temp_*", "final_job_*.mp4"]
+        for p in patterns:
+            for f in glob.glob(p):
+                try: os.remove(f)
+                except: pass
 
     def run_pipeline(self):
-        """The Multi-Channel Dispatcher Loop."""
         if TEST_MODE:
-            logger.engine("🧪 TEST MODE ACTIVE: 1-video global limit enforced. No uploads.")
-            notify_summary(True, "🧪 **TEST MODE ACTIVE**\nVideos will render but YouTube uploads are disabled.")
+            notify_summary(True, "🧪 **TEST MODE ACTIVE**\nGlobal 1-video limit per run enabled.")
 
-        self.global_garbage_collector()
-        global_videos_processed = 0
-
+        global_processed = 0
         for channel in self.channels:
-            # POINT 10: Test Mode Global Limit
-            if TEST_MODE and global_videos_processed >= 1:
-                logger.engine("🧪 [TEST MODE] Global 1-video limit reached. Halting.")
+            if TEST_MODE and global_processed >= 1:
                 break
 
-            logger.engine(f"🚀 Commencing Production: {channel.channel_name}")
-            
-            # 1. Auth & Vault Check (Point 16)
+            # 🚨 Context Switching: This isolates webhooks and database queries
+            os.environ["CURRENT_CHANNEL_ID"] = channel.channel_id
+            os.environ["CURRENT_DISCORD_WEBHOOK_ENV"] = channel.discord_webhook_env
+
             yt_client = get_youtube_client(channel.youtube_refresh_token_env)
             if not yt_client and not TEST_MODE:
-                logger.error(f"Auth failed for {channel.channel_name}. Skipping.")
+                logger.error(f"Auth failed for {channel.channel_id}. Skipping.")
                 continue
-                
+
+            # Auto-Sync Identity (Dashboard -> Local Code)
+            if yt_client and not TEST_MODE:
+                live_name = get_channel_name(yt_client).replace("@", "")
+                self.sync_channel_identity(channel, live_name)
+
+            logger.engine(f"🚀 Processing: {channel.channel_name}")
+            
+            # Vault Check
             vault_count = get_actual_vault_count(yt_client) if not TEST_MODE else 5
-            logger.engine(f"🏦 Vault Status: {vault_count}/14")
-            
             if vault_count >= 14:
-                logger.engine(f"🛑 Vault full for {channel.channel_name}. Skipping.")
+                logger.engine(f"🛑 Vault Full ({vault_count}/14). Skipping.")
                 continue
 
-            # 2. Queue Management & Research (Point 11)
-            queued_jobs = db.get_jobs_by_state(channel.channel_id, JobState.QUEUED, limit=20)
-            if len(queued_jobs) < 4:
-                logger.research(f"⚠️ Queue low ({len(queued_jobs)}). Triggering Research...")
+            # Research if low
+            queued = db.get_jobs_by_state(channel.channel_id, JobState.QUEUED)
+            if len(queued) < 3:
                 run_dynamic_research(channel, yt_client)
-            
-            # 3. Fetch IDEMPOTENT batch (Point 5)
-            # Prioritize jobs already in progress (e.g. Rendering or Voice)
-            pending_jobs = []
-            states_to_resume = [
-                JobState.RENDERING, 
-                JobState.VISUAL_GENERATION, 
-                JobState.VOICE_GENERATION, 
-                JobState.SCRIPT_GENERATION,
-                JobState.QUEUED
-            ]
-            
-            for state in states_to_resume:
-                pending_jobs.extend(db.get_jobs_by_state(channel.channel_id, state, limit=4))
-            
-            # Remove duplicates while maintaining order
-            seen_ids = set()
+
+            # Build Batch
             batch = []
-            for j in pending_jobs:
-                if j.id not in seen_ids:
-                    batch.append(j)
-                    seen_ids.add(j.id)
+            for state in [JobState.RENDERING, JobState.VOICE_GENERATION, JobState.QUEUED]:
+                batch.extend(db.get_jobs_by_state(channel.channel_id, state, limit=2))
+            
+            for job in batch[:1 if TEST_MODE else 4]:
+                self.cleanup()
+                try:
+                    runner = JobRunner(job)
+                    runner.process()
+                    global_processed += 1
+                except Exception as e:
+                    guardian.report_incident(job.state.name, e)
 
-            if TEST_MODE:
-                batch = batch[:1]
-            else:
-                batch = batch[:4] # Standard 4-video daily burst
-
-            # 4. Process Batch
-            yt_display_name = get_channel_name(yt_client).replace("@", "") if not TEST_MODE else channel.channel_name
-
-            for job in batch:
-                self.global_garbage_collector()
-                
-                runner = JobRunner(job)
-                # Map actual YouTube name for watermarking
-                runner.job.channel_id = yt_display_name 
-                
-                runner.process()
-                global_videos_processed += 1
-                
-                # 5. Vaulting Logic (Point 16)
-                if runner.job.state == JobState.VAULTED and runner.job.video_path:
-                    if not TEST_MODE:
-                        logger.publish(f"Vaulting Video {runner.job.id}...")
-                        
-                        # Load metadata for upload
-                        metadata = {}
-                        if runner.job.metadata:
-                            try: metadata = json.loads(runner.job.metadata)
-                            except: pass
-
-                        success, video_id = upload_to_youtube_vault(
-                            yt_client,
-                            runner.job.video_path,
-                            runner.job.topic,
-                            metadata,
-                            runner.job.niche
-                        )
-                        
-                        if success:
-                            runner.job.youtube_id = video_id
-                            db.upsert_job(runner.job)
-                            notify_step(runner.job.topic, "Vaulted", f"Success to **{channel.channel_name}**.", 0x2ecc71)
-                    else:
-                        logger.publish(f"🧪 [TEST] Flagging '{runner.job.topic}' as vaulted.")
-                        runner.job.youtube_id = "test_mode_dummy_id"
-                        db.upsert_job(runner.job)
-                
-                if TEST_MODE: break # Stop after 1 job in test mode
-
-        self.global_garbage_collector()
-        notify_summary(True, f"📊 **Cycle Complete**\nProcessed {global_videos_processed} video(s). System standing down.")
+        self.cleanup()
+        notify_summary(True, f"🌙 Pipeline cycle complete. Processed {global_processed} video(s).")
