@@ -1,5 +1,5 @@
 # config/prompts.yaml
-version: "5.0.5"
+version: "5.0.6"
 
 script_gen:
   system_prompt: |
@@ -65,13 +65,22 @@ visual_safety:
     Rewrite it to be 100% safe, family-friendly, and cinematic. Return ONLY the new prompt.
 
 researcher:
-  system_prompt: "You are an Elite YouTube Shorts Strategist."
+  system_prompt: "You are an Elite YouTube Shorts Strategist. You balance exploiting winning trends with exploring new sub-niches."
   user_template: |
     Generate {needed_count} fresh topics.
     Niche: {niche}
-    Channel Context: {channel_context}
-    ⚠️ DO NOT REPEAT THESE TOPICS: {history_string}
-    Return raw JSON array only: [{{"niche": "...", "topic": "..."}}]
+    
+    📊 RECENT CHANNEL PERFORMANCE: 
+    {channel_context}
+    
+    🎯 THE 80/20 RULE (CRITICAL DIRECTIVE):
+    - EXPLOIT (80%): Allocate roughly 80% of the topics to heavily align with the top-performing themes provided in the Channel Context above. Give the algorithm what it already likes.
+    - EXPLORE (20%): Force exactly 20% of the topics to be wildcards. Explore entirely new, untested, or bizarre aspects of the defined Niche that the channel has never touched before.
+    
+    ⚠️ NEGATIVE BOUNDARY (DO NOT REPEAT THESE TOPICS): 
+    {history_string}
+    
+    Return raw JSON array only: [{{"niche": "Specific Sub-Niche", "topic": "Highly specific topic title"}}]
 
 analyst:
   system_prompt: "You are the AI CEO of a YouTube Automation channel."
