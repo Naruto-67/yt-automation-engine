@@ -1,8 +1,8 @@
-name: 03_Ghost_Daily_Pulse
+name: 04_Ghost_Audience_Engagement
 
 on:
   schedule:
-    - cron: '30 17 * * *'
+    - cron: '0 14 * * *'
   workflow_dispatch:
     inputs:
       force_run:
@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  channel_health_pulse:
+  engage_fans:
     runs-on: ubuntu-latest
     if: vars.GHOST_ENGINE_ENABLED != 'false' || github.event.inputs.force_run == 'true'
 
@@ -35,7 +35,7 @@ jobs:
           pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib \
                       google-genai requests pydantic pyyaml pytz
 
-      - name: Run Analyst
+      - name: Run Engagement
         env:
           GHOST_ENGINE_ENABLED: ${{ vars.GHOST_ENGINE_ENABLED }}
           GEMINI_API_KEY:        ${{ secrets.GEMINI_API_KEY }}
@@ -46,7 +46,7 @@ jobs:
           YOUTUBE_REFRESH_TOKEN_MAIN:   ${{ secrets.YOUTUBE_REFRESH_TOKEN_MAIN }}
           DISCORD_WEBHOOK_MAIN:         ${{ secrets.DISCORD_WEBHOOK_MAIN }}
 
-        run: python -m scripts.performance_analyst
+        run: python -m scripts.reply_comments
 
       - name: Commit State & Memory
         run: |
@@ -66,7 +66,7 @@ jobs:
             for i in {1..5}; do
               git push && break || {
                 echo "└ ⚠️ Git push conflict detected. Rebasing (Attempt $i/5)..."
-                git pull --rebase origin main
+                git pull --rebase -X ours origin main
                 sleep $(( i * 5 ))
               }
             done
