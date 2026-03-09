@@ -1,4 +1,4 @@
-# scripts/reply_comments.py — Ghost Engine V7.2
+# scripts/reply_comments.py — Ghost Engine V12.0
 import os
 import json
 import time
@@ -87,19 +87,36 @@ def run_engagement_protocol():
             channel_yt_id = ch_res["items"][0]["id"]
             uploads_id = ch_res["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
 
-            vids = youtube.playlistItems().list(part="snippet", playlistId=uploads_id, maxResults=max_vids).execute()
+            vids = youtube.playlistItems().list(part="snippet", playlistId=uploads_id, maxResults=50).execute()
             quota_manager.consume_points("youtube", 1)
+
+            vid_ids = [v["snippet"]["resourceId"]["videoId"] for v in vids.get("items", [])]
+            if not vid_ids:
+                continue
+
+            stats = youtube.videos().list(part="snippet,status", id=",".join(vid_ids)).execute()
+            quota_manager.consume_points("youtube", 1)
+
+            public_vids = []
+            for i in stats.get("items", []):
+                if i.get("status", {}).get("privacyStatus") == "public":
+                    public_vids.append({
+                        "videoId": i["id"],
+                        "title": i["snippet"]["title"]
+                    })
+            
+            public_vids = public_vids[:max_vids]
 
             replies_sent = 0
             flagged_count = 0
             quota_busted = False
 
-            for vid in vids.get("items", []):
+            for vid in public_vids:
                 if replies_sent >= max_replies or quota_busted:
                     break
 
-                vid_id = vid["snippet"]["resourceId"]["videoId"]
-                vid_title = vid["snippet"].get("title", "our video")
+                vid_id = vid["videoId"]
+                vid_title = vid["title"]
                 
                 comments = youtube.commentThreads().list(part="snippet", videoId=vid_id, maxResults=max_cmts, order="time").execute()
                 quota_manager.consume_points("youtube", 1)
@@ -140,7 +157,6 @@ def run_engagement_protocol():
                         ).execute()
                         quota_manager.consume_points("youtube", 50)
                         
-                        # GOD-TIER FIX: Commit state per-transaction to prevent VM timeout amnesia
                         replied_ids.append(thread_id)
                         _save_replied(channel.channel_id, replied_ids)
                         
