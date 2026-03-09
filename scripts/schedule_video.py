@@ -1,4 +1,4 @@
-# scripts/schedule_video.py — Ghost Engine V6
+# scripts/schedule_video.py — Ghost Engine V6.2
 import os
 import json
 import time
@@ -16,15 +16,12 @@ from engine.models import JobState
 from engine.config_manager import config_manager
 from engine.logger import logger
 
-
 def load_config_prompts():
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     with open(os.path.join(root_dir, "config", "prompts.yaml"), "r") as f:
         return yaml.safe_load(f)
 
-
 def get_historical_time_data(youtube) -> str:
-    # Cost: ~2 YT pts (channels.list + videos.list)
     try:
         uploads_id = youtube.channels().list(
             part="contentDetails", mine=True
@@ -55,10 +52,7 @@ def get_historical_time_data(youtube) -> str:
     except Exception:
         return "No data."
 
-
 def get_optimal_publish_times(youtube, prompts_cfg) -> list:
-    """Ask AI for best 2 publish times based on historical data. Falls back safely."""
-    # Quota cost: 1 Gemini call
     sys_msg  = prompts_cfg["scheduler"]["system_prompt"]
     user_msg = prompts_cfg["scheduler"]["user_template"].format(
         historical_data=get_historical_time_data(youtube)
@@ -66,33 +60,25 @@ def get_optimal_publish_times(youtube, prompts_cfg) -> list:
     response, _ = quota_manager.generate_text(user_msg, task_type="analysis",
                                                system_prompt=sys_msg)
     try:
-        import re
-        match = re.search(
-            r'\[.*?\]',
-            (response or "").replace("```json", "").replace("```", "").strip(),
-            re.DOTALL
-        )
-        if match:
-            times = json.loads(match.group(0))
-            if isinstance(times, list) and len(times) >= 1:
-                return times[:2]
+        # God-Tier Array Extraction
+        if response:
+            start = response.find('[')
+            end = response.rfind(']')
+            if start != -1 and end != -1 and end > start:
+                times = json.loads(response[start:end+1])
+                if isinstance(times, list) and len(times) >= 1:
+                    return times[:2]
     except Exception:
         pass
     return ["15:00", "23:00"]
 
-
 def publish_vault_videos():
-    """
-    FIX #2: Queries jobs by channel_id (not display name).
-    FIX: Per-channel Discord routing via set_channel_context().
-    """
     if os.environ.get("GHOST_ENGINE_ENABLED", "true").lower() == "false":
         print("🔴 [KILL SWITCH] Publisher halted.")
         return
 
-    # Budget check before doing anything
     settings      = config_manager.get_settings()
-    publish_cost  = settings.get("vault", {}).get("publish_per_run", 2) * 150  # ~150pt per publish
+    publish_cost  = settings.get("vault", {}).get("publish_per_run", 2) * 150  
     if not quota_manager.can_afford_youtube(publish_cost + 10):
         print("⚠️ [PUBLISHER] Insufficient YT quota for publishing. Skipping.")
         return
@@ -101,14 +87,11 @@ def publish_vault_videos():
     published_total = 0
 
     for channel in config_manager.get_active_channels():
-        # Set Discord context for this channel
         set_channel_context(channel)
-
         youtube = get_youtube_client(channel)
         if not youtube:
             continue
 
-        # FIX: Query by channel_id (stable), NOT by display name (can change)
         jobs = db.get_jobs_by_state(channel.channel_id, JobState.VAULTED, limit=2)
         if not jobs:
             logger.engine(f"No vaulted videos for {channel.channel_id}.")
@@ -133,17 +116,12 @@ def publish_vault_videos():
         for idx, job in enumerate(jobs):
             vid_id = job.youtube_id
 
-            # Skip jobs without a YouTube ID (shouldn't happen after V6 upload fix)
             if not vid_id or vid_id == "test_mode_dummy_id":
-                logger.error(
-                    f"Job {job.id} has no youtube_id — was upload step skipped? "
-                    f"Marking FAILED to prevent infinite retry."
-                )
+                logger.error(f"Job {job.id} has no youtube_id. Marking FAILED.")
                 job.state = JobState.FAILED
                 db.upsert_job(job)
                 continue
 
-            # Calculate target publish time
             try:
                 hr, mn = map(int, ai_times[idx].split(":"))
             except (IndexError, ValueError):
@@ -154,7 +132,6 @@ def publish_vault_videos():
                 target_dt += timedelta(days=1)
             publish_time_str = target_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
-            # Quota check before each video
             if not quota_manager.can_afford_youtube(150):
                 logger.error("YT quota insufficient for publish. Stopping.")
                 break
@@ -173,7 +150,6 @@ def publish_vault_videos():
                 ).execute()
                 quota_manager.consume_points("youtube", 50)
 
-                # Add to public playlist
                 pub_pl = get_or_create_playlist(youtube, "All Uploads | Viral Shorts", "public")
                 if pub_pl:
                     youtube.playlistItems().insert(
@@ -185,11 +161,8 @@ def publish_vault_videos():
                     ).execute()
                     quota_manager.consume_points("youtube", 50)
 
-                # Remove from vault playlist
                 if vid_id in vid_to_item:
-                    youtube.playlistItems().delete(
-                        id=vid_to_item[vid_id]
-                    ).execute()
+                    youtube.playlistItems().delete(id=vid_to_item[vid_id]).execute()
                     quota_manager.consume_points("youtube", 50)
 
                 job.state      = JobState.PUBLISHED
@@ -197,8 +170,7 @@ def publish_vault_videos():
                 db.upsert_job(job)
                 published_total += 1
 
-                notify_published(job.topic, vid_id,
-                                  target_dt.strftime("%Y-%m-%d %H:%M"))
+                notify_published(job.topic, vid_id, target_dt.strftime("%Y-%m-%d %H:%M"))
 
             except Exception as e:
                 err_str = str(e)
@@ -208,14 +180,12 @@ def publish_vault_videos():
                     db.upsert_job(job)
                 else:
                     notify_error("Publisher", "PublishError", err_str)
-
         time.sleep(2)
 
     if published_total > 0:
         notify_summary(True, f"🚀 Scheduled **{published_total}** video(s) for release.")
     else:
         notify_summary(True, "└ No videos published this run — vault may be empty.")
-
 
 if __name__ == "__main__":
     publish_vault_videos()
