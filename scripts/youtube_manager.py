@@ -1,4 +1,4 @@
-# scripts/youtube_manager.py — Ghost Engine V6.9
+# scripts/youtube_manager.py — Ghost Engine V9.0
 import os
 import shutil
 from google.oauth2.credentials import Credentials
@@ -47,7 +47,26 @@ def get_youtube_client(channel_config):
             client_id=client_id,
             client_secret=client_secret
         )
-        return build("youtube", "v3", credentials=creds, static_discovery=False)
+        client = build("youtube", "v3", credentials=creds, static_discovery=False)
+        
+        # GOD-TIER FIX: Pre-flight active validation ping. 
+        # Fails fast if token is revoked or quota is already busted, 
+        # saving thousands of AI quota points from being wasted on a doomed render.
+        try:
+            _quota_manager().consume_youtube_and_call(
+                lambda: client.channels().list(part="id", mine=True).execute(),
+                cost=1
+            )
+        except Exception as ping_err:
+            err_str = str(ping_err).lower()
+            if "quota" in err_str or "403" in err_str:
+                _notify_error("YouTube Validation", "Quota Exceeded", f"Channel {label} hit 403 Quota limit during validation ping.")
+            else:
+                _notify_error("YouTube Validation", "Auth Revoked/Expired", f"Channel {label} token invalid: {ping_err}")
+            return None
+            
+        return client
+
     except Exception as e:
         _notify_error("YouTube Auth", "Auth Failure", f"{label}: {e}")
         return None
@@ -164,5 +183,4 @@ def upload_to_youtube_vault(youtube, video_path: str, topic: str, metadata: dict
 
     except Exception as e:
         qm.diagnose_fatal_error("YouTube Upload", e)
-        # GOD-TIER FIX: Return the actual stringified exception so Guardian can parse the "403"
         return False, str(e)
