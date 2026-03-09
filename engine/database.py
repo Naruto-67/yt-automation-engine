@@ -1,8 +1,9 @@
-# engine/database.py — Ghost Engine V7.2
+# engine/database.py — Ghost Engine V8.0
 import sqlite3
 import os
 import json
 import uuid
+import contextlib
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 from engine.models import VideoJob, JobState, FailureLog
@@ -19,126 +20,127 @@ class SQLiteDB:
         return sqlite3.connect(self.db_path)
 
     def _initialize_tables(self):
-        with self._connect() as conn:
-            c = conn.cursor()
+        # GOD-TIER FIX: contextlib.closing ensures OS-level file descriptors are freed instantly.
+        with contextlib.closing(self._connect()) as conn:
+            with conn:
+                c = conn.cursor()
 
-            c.execute('''
-                CREATE TABLE IF NOT EXISTS jobs (
-                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-                    channel_id    TEXT NOT NULL,
-                    topic         TEXT NOT NULL,
-                    niche         TEXT NOT NULL,
-                    state         TEXT NOT NULL,
-                    script        TEXT,
-                    metadata      TEXT,
-                    audio_path    TEXT,
-                    image_paths   TEXT,
-                    video_path    TEXT,
-                    youtube_id    TEXT,
-                    attempts      INTEGER DEFAULT 0,
-                    created_at    TEXT,
-                    updated_at    TEXT,
-                    UNIQUE(channel_id, topic)
-                )
-            ''')
+                c.execute('''
+                    CREATE TABLE IF NOT EXISTS jobs (
+                        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                        channel_id    TEXT NOT NULL,
+                        topic         TEXT NOT NULL,
+                        niche         TEXT NOT NULL,
+                        state         TEXT NOT NULL,
+                        script        TEXT,
+                        metadata      TEXT,
+                        audio_path    TEXT,
+                        image_paths   TEXT,
+                        video_path    TEXT,
+                        youtube_id    TEXT,
+                        attempts      INTEGER DEFAULT 0,
+                        created_at    TEXT,
+                        updated_at    TEXT,
+                        UNIQUE(channel_id, topic)
+                    )
+                ''')
 
-            c.execute('''
-                CREATE TABLE IF NOT EXISTS failures (
-                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-                    job_id        INTEGER,
-                    channel_id    TEXT,
-                    module        TEXT NOT NULL,
-                    error_message TEXT NOT NULL,
-                    traceback     TEXT,
-                    timestamp     TEXT NOT NULL
-                )
-            ''')
+                c.execute('''
+                    CREATE TABLE IF NOT EXISTS failures (
+                        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                        job_id        INTEGER,
+                        channel_id    TEXT,
+                        module        TEXT NOT NULL,
+                        error_message TEXT NOT NULL,
+                        traceback     TEXT,
+                        timestamp     TEXT NOT NULL
+                    )
+                ''')
 
-            c.execute('''
-                CREATE TABLE IF NOT EXISTS api_quotas (
-                    date           TEXT NOT NULL,
-                    channel_id     TEXT NOT NULL,
-                    youtube_points INTEGER DEFAULT 0,
-                    gemini_calls   INTEGER DEFAULT 0,
-                    cf_images      INTEGER DEFAULT 0,
-                    hf_images      INTEGER DEFAULT 0,
-                    yt_last_used   TEXT,
-                    PRIMARY KEY (date, channel_id)
-                )
-            ''')
+                c.execute('''
+                    CREATE TABLE IF NOT EXISTS api_quotas (
+                        date           TEXT NOT NULL,
+                        channel_id     TEXT NOT NULL,
+                        youtube_points INTEGER DEFAULT 0,
+                        gemini_calls   INTEGER DEFAULT 0,
+                        cf_images      INTEGER DEFAULT 0,
+                        hf_images      INTEGER DEFAULT 0,
+                        yt_last_used   TEXT,
+                        PRIMARY KEY (date, channel_id)
+                    )
+                ''')
 
-            c.execute('''
-                CREATE TABLE IF NOT EXISTS topic_archive (
-                    topic_id       TEXT PRIMARY KEY,
-                    channel_id     TEXT NOT NULL,
-                    title          TEXT NOT NULL,
-                    niche          TEXT NOT NULL,
-                    created_at     TEXT NOT NULL
-                )
-            ''')
+                c.execute('''
+                    CREATE TABLE IF NOT EXISTS topic_archive (
+                        topic_id       TEXT PRIMARY KEY,
+                        channel_id     TEXT NOT NULL,
+                        title          TEXT NOT NULL,
+                        niche          TEXT NOT NULL,
+                        created_at     TEXT NOT NULL
+                    )
+                ''')
 
-            c.execute('''
-                CREATE TABLE IF NOT EXISTS channel_intelligence (
-                    channel_id        TEXT PRIMARY KEY,
-                    emphasize         TEXT,
-                    avoid             TEXT,
-                    recent_tags       TEXT,
-                    preferred_visuals TEXT,
-                    hook_patterns     TEXT,
-                    title_templates   TEXT,
-                    competitor_tags   TEXT,
-                    evolved_niche     TEXT,
-                    rule_timestamps   TEXT,
-                    updated_at        TEXT
-                )
-            ''')
+                c.execute('''
+                    CREATE TABLE IF NOT EXISTS channel_intelligence (
+                        channel_id        TEXT PRIMARY KEY,
+                        emphasize         TEXT,
+                        avoid             TEXT,
+                        recent_tags       TEXT,
+                        preferred_visuals TEXT,
+                        hook_patterns     TEXT,
+                        title_templates   TEXT,
+                        competitor_tags   TEXT,
+                        evolved_niche     TEXT,
+                        rule_timestamps   TEXT,
+                        updated_at        TEXT
+                    )
+                ''')
 
-            c.execute('''
-                CREATE TABLE IF NOT EXISTS video_performance (
-                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                    channel_id  TEXT NOT NULL,
-                    youtube_id  TEXT UNIQUE,
-                    title       TEXT,
-                    views       INTEGER DEFAULT 0,
-                    likes       INTEGER DEFAULT 0,
-                    comments    INTEGER DEFAULT 0,
-                    published_at TEXT,
-                    fetched_at   TEXT
-                )
-            ''')
-            conn.commit()
+                c.execute('''
+                    CREATE TABLE IF NOT EXISTS video_performance (
+                        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                        channel_id  TEXT NOT NULL,
+                        youtube_id  TEXT UNIQUE,
+                        title       TEXT,
+                        views       INTEGER DEFAULT 0,
+                        likes       INTEGER DEFAULT 0,
+                        comments    INTEGER DEFAULT 0,
+                        published_at TEXT,
+                        fetched_at   TEXT
+                    )
+                ''')
 
     def upsert_job(self, job: VideoJob) -> int:
-        with self._connect() as conn:
-            c = conn.cursor()
-            c.execute('''
-                INSERT INTO jobs
-                    (channel_id, topic, niche, state, script, metadata,
-                     audio_path, image_paths, video_path, youtube_id,
-                     attempts, created_at, updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-                ON CONFLICT(channel_id, topic) DO UPDATE SET
-                    state=excluded.state, script=excluded.script,
-                    metadata=excluded.metadata, audio_path=excluded.audio_path,
-                    image_paths=excluded.image_paths, video_path=excluded.video_path,
-                    youtube_id=excluded.youtube_id, attempts=excluded.attempts,
-                    updated_at=excluded.updated_at
-            ''', (
-                job.channel_id, job.topic, job.niche, job.state.value,
-                job.script, job.metadata, job.audio_path, job.image_paths,
-                job.video_path, job.youtube_id, job.attempts,
-                job.created_at, job.updated_at
-            ))
-            if not job.id:
-                c.execute('SELECT id FROM jobs WHERE channel_id=? AND topic=?', (job.channel_id, job.topic))
-                row = c.fetchone()
-                if row:
-                    job.id = row[0]
-            conn.commit()
+        with contextlib.closing(self._connect()) as conn:
+            with conn:
+                c = conn.cursor()
+                c.execute('''
+                    INSERT INTO jobs
+                        (channel_id, topic, niche, state, script, metadata,
+                         audio_path, image_paths, video_path, youtube_id,
+                         attempts, created_at, updated_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    ON CONFLICT(channel_id, topic) DO UPDATE SET
+                        state=excluded.state, script=excluded.script,
+                        metadata=excluded.metadata, audio_path=excluded.audio_path,
+                        image_paths=excluded.image_paths, video_path=excluded.video_path,
+                        youtube_id=excluded.youtube_id, attempts=excluded.attempts,
+                        updated_at=excluded.updated_at
+                ''', (
+                    job.channel_id, job.topic, job.niche, job.state.value,
+                    job.script, job.metadata, job.audio_path, job.image_paths,
+                    job.video_path, job.youtube_id, job.attempts,
+                    job.created_at, job.updated_at
+                ))
+                if not job.id:
+                    c.execute('SELECT id FROM jobs WHERE channel_id=? AND topic=?', (job.channel_id, job.topic))
+                    row = c.fetchone()
+                    if row:
+                        job.id = row[0]
         return job.id
 
     def get_jobs_by_state(self, channel_id: str, state: JobState, limit: int = 5) -> List[VideoJob]:
-        with self._connect() as conn:
+        with contextlib.closing(self._connect()) as conn:
             c = conn.cursor()
             c.execute(
                 'SELECT * FROM jobs WHERE channel_id=? AND state=? ORDER BY created_at ASC LIMIT ?',
@@ -148,7 +150,7 @@ class SQLiteDB:
 
     def get_unprocessed_count(self, channel_id: str) -> int:
         terminal = (JobState.PUBLISHED.value, JobState.FAILED.value, JobState.VAULTED.value)
-        with self._connect() as conn:
+        with contextlib.closing(self._connect()) as conn:
             c = conn.cursor()
             c.execute(
                 'SELECT COUNT(*) FROM jobs WHERE channel_id=? AND state NOT IN (?,?,?)',
@@ -157,41 +159,40 @@ class SQLiteDB:
             return c.fetchone()[0]
 
     def archive_topic(self, channel_id: str, title: str, niche: str):
-        with self._connect() as conn:
-            c = conn.cursor()
-            # GOD-TIER FIX: Integrate UUID to prevent UNIQUE constraint collisions on rapid batch inserts
-            topic_id = f"{channel_id}_{datetime.utcnow().timestamp()}_{uuid.uuid4().hex[:8]}"
-            c.execute('''
-                INSERT INTO topic_archive (topic_id, channel_id, title, niche, created_at)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (topic_id, channel_id, title, niche, datetime.utcnow().isoformat()))
-            conn.commit()
+        with contextlib.closing(self._connect()) as conn:
+            with conn:
+                c = conn.cursor()
+                topic_id = f"{channel_id}_{datetime.utcnow().timestamp()}_{uuid.uuid4().hex[:8]}"
+                c.execute('''
+                    INSERT INTO topic_archive (topic_id, channel_id, title, niche, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (topic_id, channel_id, title, niche, datetime.utcnow().isoformat()))
 
     def get_all_historical_topics(self, channel_id: str) -> List[str]:
-        with self._connect() as conn:
+        with contextlib.closing(self._connect()) as conn:
             c = conn.cursor()
             c.execute('SELECT title FROM topic_archive WHERE channel_id=?', (channel_id,))
             return [r[0].lower().strip() for r in c.fetchall()]
 
     def log_failure(self, failure: FailureLog):
-        with self._connect() as conn:
-            c = conn.cursor()
-            c.execute(
-                'INSERT INTO failures (job_id, channel_id, module, error_message, traceback, timestamp) '
-                'VALUES (?,?,?,?,?,?)',
-                (failure.job_id, failure.channel_id, failure.module,
-                 failure.error_message, failure.traceback, failure.timestamp)
-            )
-            conn.commit()
+        with contextlib.closing(self._connect()) as conn:
+            with conn:
+                c = conn.cursor()
+                c.execute(
+                    'INSERT INTO failures (job_id, channel_id, module, error_message, traceback, timestamp) '
+                    'VALUES (?,?,?,?,?,?)',
+                    (failure.job_id, failure.channel_id, failure.module,
+                     failure.error_message, failure.traceback, failure.timestamp)
+                )
 
     def prune_old_jobs(self, days: int = 30):
         cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
         terminal = (JobState.PUBLISHED.value, JobState.FAILED.value)
-        with self._connect() as conn:
-            c = conn.cursor()
-            c.execute('DELETE FROM jobs WHERE state IN (?,?) AND updated_at < ?', (*terminal, cutoff))
-            deleted = c.rowcount
-            conn.commit()
+        with contextlib.closing(self._connect()) as conn:
+            with conn:
+                c = conn.cursor()
+                c.execute('DELETE FROM jobs WHERE state IN (?,?) AND updated_at < ?', (*terminal, cutoff))
+                deleted = c.rowcount
         return deleted
 
     @staticmethod
@@ -204,7 +205,7 @@ class SQLiteDB:
         )
 
     def get_quota_state(self, date_str: str, channel_id: str) -> Optional[Dict]:
-        with self._connect() as conn:
+        with contextlib.closing(self._connect()) as conn:
             c = conn.cursor()
             c.execute('SELECT * FROM api_quotas WHERE date=? AND channel_id=?', (date_str, channel_id))
             row = c.fetchone()
@@ -215,30 +216,30 @@ class SQLiteDB:
         return None
 
     def init_quota_state(self, date_str: str, channel_id: str, yt_last_used: str):
-        with self._connect() as conn:
-            c = conn.cursor()
-            c.execute(
-                'INSERT OR IGNORE INTO api_quotas (date, channel_id, yt_last_used) VALUES (?,?,?)',
-                (date_str, channel_id, yt_last_used)
-            )
-            conn.commit()
+        with contextlib.closing(self._connect()) as conn:
+            with conn:
+                c = conn.cursor()
+                c.execute(
+                    'INSERT OR IGNORE INTO api_quotas (date, channel_id, yt_last_used) VALUES (?,?,?)',
+                    (date_str, channel_id, yt_last_used)
+                )
 
     def update_quota(self, date_str: str, channel_id: str, provider_col: str, amount: int, yt_last_used: str = None):
-        with self._connect() as conn:
-            c = conn.cursor()
-            c.execute(
-                f'UPDATE api_quotas SET {provider_col} = {provider_col} + ? WHERE date=? AND channel_id=?',
-                (amount, date_str, channel_id)
-            )
-            if yt_last_used:
+        with contextlib.closing(self._connect()) as conn:
+            with conn:
+                c = conn.cursor()
                 c.execute(
-                    'UPDATE api_quotas SET yt_last_used=? WHERE date=? AND channel_id=?',
-                    (yt_last_used, date_str, channel_id)
+                    f'UPDATE api_quotas SET {provider_col} = {provider_col} + ? WHERE date=? AND channel_id=?',
+                    (amount, date_str, channel_id)
                 )
-            conn.commit()
+                if yt_last_used:
+                    c.execute(
+                        'UPDATE api_quotas SET yt_last_used=? WHERE date=? AND channel_id=?',
+                        (yt_last_used, date_str, channel_id)
+                    )
 
     def get_channel_intelligence(self, channel_id: str) -> Dict[str, Any]:
-        with self._connect() as conn:
+        with contextlib.closing(self._connect()) as conn:
             c = conn.cursor()
             c.execute(
                 'SELECT emphasize, avoid, recent_tags, preferred_visuals, '
@@ -267,55 +268,55 @@ class SQLiteDB:
         }
 
     def upsert_channel_intelligence(self, channel_id: str, data: Dict):
-        with self._connect() as conn:
-            c = conn.cursor()
-            c.execute('''
-                INSERT INTO channel_intelligence
-                    (channel_id, emphasize, avoid, recent_tags, preferred_visuals,
-                     hook_patterns, title_templates, competitor_tags, evolved_niche,
-                     rule_timestamps, updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?)
-                ON CONFLICT(channel_id) DO UPDATE SET
-                    emphasize=excluded.emphasize, avoid=excluded.avoid,
-                    recent_tags=excluded.recent_tags,
-                    preferred_visuals=excluded.preferred_visuals,
-                    hook_patterns=excluded.hook_patterns,
-                    title_templates=excluded.title_templates,
-                    competitor_tags=excluded.competitor_tags,
-                    evolved_niche=excluded.evolved_niche,
-                    rule_timestamps=excluded.rule_timestamps,
-                    updated_at=excluded.updated_at
-            ''', (
-                channel_id,
-                json.dumps(data.get("emphasize", [])),
-                json.dumps(data.get("avoid", [])),
-                json.dumps(data.get("recent_tags", [])),
-                json.dumps(data.get("preferred_visuals", ["Cinematic"])),
-                json.dumps(data.get("hook_patterns", [])),
-                json.dumps(data.get("title_templates", [])),
-                json.dumps(data.get("competitor_tags", [])),
-                data.get("evolved_niche"),
-                json.dumps(data.get("rule_timestamps", {})),
-                datetime.utcnow().isoformat()
-            ))
-            conn.commit()
+        with contextlib.closing(self._connect()) as conn:
+            with conn:
+                c = conn.cursor()
+                c.execute('''
+                    INSERT INTO channel_intelligence
+                        (channel_id, emphasize, avoid, recent_tags, preferred_visuals,
+                         hook_patterns, title_templates, competitor_tags, evolved_niche,
+                         rule_timestamps, updated_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                    ON CONFLICT(channel_id) DO UPDATE SET
+                        emphasize=excluded.emphasize, avoid=excluded.avoid,
+                        recent_tags=excluded.recent_tags,
+                        preferred_visuals=excluded.preferred_visuals,
+                        hook_patterns=excluded.hook_patterns,
+                        title_templates=excluded.title_templates,
+                        competitor_tags=excluded.competitor_tags,
+                        evolved_niche=excluded.evolved_niche,
+                        rule_timestamps=excluded.rule_timestamps,
+                        updated_at=excluded.updated_at
+                ''', (
+                    channel_id,
+                    json.dumps(data.get("emphasize", [])),
+                    json.dumps(data.get("avoid", [])),
+                    json.dumps(data.get("recent_tags", [])),
+                    json.dumps(data.get("preferred_visuals", ["Cinematic"])),
+                    json.dumps(data.get("hook_patterns", [])),
+                    json.dumps(data.get("title_templates", [])),
+                    json.dumps(data.get("competitor_tags", [])),
+                    data.get("evolved_niche"),
+                    json.dumps(data.get("rule_timestamps", {})),
+                    datetime.utcnow().isoformat()
+                ))
 
     def upsert_video_performance(self, channel_id: str, youtube_id: str, title: str, views: int, likes: int, comments: int, published_at: str):
-        with self._connect() as conn:
-            c = conn.cursor()
-            c.execute('''
-                INSERT INTO video_performance
-                    (channel_id, youtube_id, title, views, likes, comments, published_at, fetched_at)
-                VALUES (?,?,?,?,?,?,?,?)
-                ON CONFLICT(youtube_id) DO UPDATE SET
-                    views=excluded.views, likes=excluded.likes,
-                    comments=excluded.comments, fetched_at=excluded.fetched_at
-            ''', (channel_id, youtube_id, title, views, likes, comments, published_at, datetime.utcnow().isoformat()))
-            conn.commit()
+        with contextlib.closing(self._connect()) as conn:
+            with conn:
+                c = conn.cursor()
+                c.execute('''
+                    INSERT INTO video_performance
+                        (channel_id, youtube_id, title, views, likes, comments, published_at, fetched_at)
+                    VALUES (?,?,?,?,?,?,?,?)
+                    ON CONFLICT(youtube_id) DO UPDATE SET
+                        views=excluded.views, likes=excluded.likes,
+                        comments=excluded.comments, fetched_at=excluded.fetched_at
+                ''', (channel_id, youtube_id, title, views, likes, comments, published_at, datetime.utcnow().isoformat()))
 
     def get_recent_performance(self, channel_id: str, days: int = 30) -> List[Dict]:
         cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
-        with self._connect() as conn:
+        with contextlib.closing(self._connect()) as conn:
             c = conn.cursor()
             c.execute(
                 'SELECT youtube_id, title, views, likes, comments, published_at '
