@@ -1,180 +1,206 @@
-# scripts/reply_comments.py
-# ═══════════════════════════════════════════════════════════════════════════════
-# FIX #5 — Comment reply deduplication
-#
-# BUG: The engagement workflow runs daily. It fetched the most-relevant comments
-# on recent videos and replied to unreplied ones. But there was no memory of
-# which comment IDs had already been replied to. Old, unresolved comments (e.g.
-# comments on older videos that didn't get a reply that day) could be replied to
-# again on subsequent days, making the channel look spammy.
-#
-# FIX: memory/replied_comments.json stores a set of comment thread IDs that
-# have already received a reply. Before inserting any reply, we check this set.
-# After inserting, we add the ID to the set and persist it.
-#
-# PRUNING: The set is capped at 5,000 IDs and old entries are pruned when
-# the cap is exceeded. Comments older than ~30 days are unlikely to resurface
-# in the 'most relevant' results anyway.
-#
-# FIX #8 (PARTIAL) — Kill switch Python-level guard added here.
-# ═══════════════════════════════════════════════════════════════════════════════
-
+# scripts/reply_comments.py — Ghost Engine V6
 import os
 import json
 import time
 import random
-import sys
 import yaml
 from scripts.quota_manager import quota_manager
 from scripts.youtube_manager import get_youtube_client
-from scripts.discord_notifier import notify_summary
+from scripts.discord_notifier import (
+    set_channel_context, notify_engagement_report,
+    notify_security_flag, notify_summary
+)
 from engine.config_manager import config_manager
+from engine.logger import logger
 
-
-# ── Kill switch (Fix #8 defence-in-depth) ────────────────────────────────────
-_ENABLED = os.environ.get("GHOST_ENGINE_ENABLED", "true").strip().lower()
-if _ENABLED == "false":
-    print("🔴 [KILL SWITCH] GHOST_ENGINE_ENABLED=false. Engagement halted.")
-    sys.exit(0)
-
-
-# ── Deduplication store ───────────────────────────────────────────────────────
-REPLIED_FILE = os.path.join(os.path.dirname(__file__), "..", "memory", "replied_comments.json")
-MAX_STORED   = 5000  # Prune when we exceed this to keep the file small
+# Path to the deduplication store (committed to repo)
+_REPLIED_PATH = os.path.join(
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "..")),
+    "memory", "replied_comments.json"
+)
+_MAX_STORED_IDS = 5000   # Cap to prevent unbounded growth
 
 
 def _load_replied() -> set:
-    """Load the set of already-replied comment thread IDs from disk."""
-    if os.path.exists(REPLIED_FILE):
-        try:
-            with open(REPLIED_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return set(data.get("replied_ids", []))
-        except Exception:
-            pass
+    try:
+        if os.path.exists(_REPLIED_PATH):
+            with open(_REPLIED_PATH, "r") as f:
+                return set(json.load(f))
+    except Exception:
+        pass
     return set()
 
 
-def _save_replied(replied_ids: set):
-    """Persist the deduplication set. Prunes oldest entries beyond MAX_STORED."""
-    os.makedirs(os.path.dirname(REPLIED_FILE), exist_ok=True)
-    ids_list = list(replied_ids)
-    if len(ids_list) > MAX_STORED:
-        # Prune: keep the most recent MAX_STORED entries
-        # Sets are unordered, so we just slice — any pruning is acceptable
-        ids_list = ids_list[-MAX_STORED:]
-    with open(REPLIED_FILE, "w", encoding="utf-8") as f:
-        json.dump({"replied_ids": ids_list}, f)
+def _save_replied(replied: set):
+    try:
+        ids = list(replied)
+        if len(ids) > _MAX_STORED_IDS:
+            ids = ids[-_MAX_STORED_IDS:]   # Keep most recent
+        os.makedirs(os.path.dirname(_REPLIED_PATH), exist_ok=True)
+        with open(_REPLIED_PATH, "w") as f:
+            json.dump(ids, f)
+    except Exception as e:
+        print(f"⚠️ [REPLY] Failed to save replied_comments.json: {e}")
 
 
 def load_config_prompts():
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    with open(os.path.join(root_dir, "config", "prompts.yaml"), "r", encoding="utf-8") as f:
+    with open(os.path.join(root_dir, "config", "prompts.yaml"), "r") as f:
         return yaml.safe_load(f)
 
 
-def generate_ai_reply(video_title, comment_text, attempt_num, prompts_cfg):
+def generate_ai_reply(video_title: str, comment_text: str,
+                       attempt_num: int, prompts_cfg: dict):
     sys_msg  = prompts_cfg["replier"]["system_prompt"]
     user_msg = prompts_cfg["replier"]["user_template"].format(
         comment=str(comment_text)[:500].replace('"', "'"),
-        title=video_title,
+        title=video_title
     )
-    raw_reply, _ = quota_manager.generate_text(
-        user_msg,
-        task_type="comment_reply_groq" if attempt_num > 3 else "creative",
-        system_prompt=sys_msg,
-    )
-    if raw_reply:
-        clean = raw_reply.strip().replace('"', "")
+    task = "comment_reply_groq" if attempt_num > 3 else "creative"
+    raw, _ = quota_manager.generate_text(user_msg, task_type=task, system_prompt=sys_msg)
+    if raw:
+        clean = raw.strip().replace('"', "")
         return None if "FLAGGED_COMMENT" in clean else clean
     return None
 
 
 def run_engagement_protocol():
-    prompts_cfg = load_config_prompts()
+    """
+    Replies to unreplied fan comments.
 
-    # ── FIX #5: Load deduplication set once before the channel loop ──────────
+    Quota budget:
+      - commentThreads.list: 1pt per video (max 5 videos = 5pts)
+      - comments.insert:    50pt per reply (max 10 replies = 500pts)
+      - Total max: ~505 YT pts per channel per day
+
+    FIX: Per-channel Discord routing via set_channel_context().
+    FIX: Deduplication via replied_comments.json.
+    FIX: Hard budget cap from settings.yaml engagement.max_replies_per_channel_per_day.
+    """
+    if os.environ.get("GHOST_ENGINE_ENABLED", "true").lower() == "false":
+        print("🔴 [KILL SWITCH] Engagement halted.")
+        return
+
+    settings    = config_manager.get_settings()
+    eng         = settings.get("engagement", {})
+    max_replies = eng.get("max_replies_per_channel_per_day", 10)
+    max_vids    = eng.get("max_videos_to_scan", 5)
+    max_cmts    = eng.get("max_comments_per_video", 10)
+
+    prompts_cfg = load_config_prompts()
     replied_ids = _load_replied()
-    new_replies = 0  # Track how many new replies we added this run
-    # ─────────────────────────────────────────────────────────────────────────
 
     for channel in config_manager.get_active_channels():
-        youtube = get_youtube_client(channel.youtube_refresh_token_env)
+        # Set Discord context
+        set_channel_context(channel)
+
+        # Budget check: need enough for at least 1 comment insert (50pt)
+        if not quota_manager.can_afford_youtube(55):
+            logger.engine(f"YT quota too low for engagement on {channel.channel_id}.")
+            continue
+
+        youtube = get_youtube_client(channel)
         if not youtube:
             continue
 
         try:
-            channel_info = youtube.channels().list(
+            ch_res = youtube.channels().list(
                 part="id,contentDetails", mine=True
             ).execute()
-            channel_yt_id = channel_info["items"][0]["id"]
-            uploads_pl    = channel_info["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
+            quota_manager.consume_points("youtube", 1)
+
+            channel_yt_id = ch_res["items"][0]["id"]
+            uploads_id    = ch_res["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
 
             vids = youtube.playlistItems().list(
-                part="snippet", playlistId=uploads_pl, maxResults=5
+                part="snippet", playlistId=uploads_id, maxResults=max_vids
             ).execute()
+            quota_manager.consume_points("youtube", 1)
 
-            replies_count = 0
+            replies_sent = 0
+            flagged_count = 0
 
             for vid in vids.get("items", []):
-                vid_id    = vid["snippet"]["resourceId"]["videoId"]
-                vid_title = vid["snippet"]["title"]
-
-                comments = youtube.commentThreads().list(
-                    part="snippet", videoId=vid_id, maxResults=15, order="relevance"
-                ).execute()
-
-                for thread in comments.get("items", []):
-                    top       = thread["snippet"]["topLevelComment"]["snippet"]
-                    thread_id = thread["id"]
-
-                    # Skip our own comments
-                    if top.get("authorChannelId", {}).get("value") == channel_yt_id:
-                        continue
-
-                    # Skip already-replied threads
-                    if thread["snippet"]["totalReplyCount"] > 0:
-                        continue
-
-                    # ── FIX #5: Skip if we already replied to this thread ─────
-                    if thread_id in replied_ids:
-                        print(f"⏭️  [ENGAGE] Skipping already-replied thread: {thread_id}")
-                        continue
-                    # ─────────────────────────────────────────────────────────
-
-                    if not quota_manager.can_afford_youtube(50):
-                        break
-
-                    reply_text = generate_ai_reply(vid_title, top["textDisplay"], replies_count + 1, prompts_cfg)
-                    if reply_text:
-                        youtube.comments().insert(
-                            part="snippet",
-                            body={"snippet": {"parentId": thread_id, "textOriginal": reply_text}},
-                        ).execute()
-
-                        # ── FIX #5: Mark as replied immediately after insert ──
-                        replied_ids.add(thread_id)
-                        new_replies += 1
-                        # ─────────────────────────────────────────────────────
-
-                        replies_count += 1
-                        quota_manager.consume_points("youtube", 50)
-                        time.sleep(4)
-
-                if replies_count >= random.randint(10, 15):
+                if replies_sent >= max_replies:
                     break
 
-            if replies_count > 0:
-                notify_summary(True, f"💬 Engaged {replies_count} comments on {channel.channel_name}.")
+                vid_id    = vid["snippet"]["resourceId"]["videoId"]
+                vid_title = vid["snippet"].get("title", "our video")
+
+                comments = youtube.commentThreads().list(
+                    part="snippet", videoId=vid_id,
+                    maxResults=max_cmts, order="relevance"
+                ).execute()
+                quota_manager.consume_points("youtube", 1)
+
+                for thread in comments.get("items", []):
+                    if replies_sent >= max_replies:
+                        break
+
+                    thread_id = thread["id"]
+                    # Skip already-replied threads
+                    if thread_id in replied_ids:
+                        continue
+
+                    top    = thread["snippet"]["topLevelComment"]["snippet"]
+                    author = top.get("authorChannelId", {}).get("value", "")
+
+                    # Skip own comments and already-replied threads
+                    if author == channel_yt_id:
+                        continue
+                    if thread["snippet"]["totalReplyCount"] > 0:
+                        # Thread already has replies — check if it was us
+                        replied_ids.add(thread_id)
+                        continue
+
+                    # Quota check before each reply
+                    if not quota_manager.can_afford_youtube(50):
+                        logger.engine("YT quota insufficient for more replies. Stopping.")
+                        break
+
+                    reply_text = generate_ai_reply(
+                        vid_title,
+                        top["textDisplay"],
+                        replies_sent + 1,
+                        prompts_cfg
+                    )
+
+                    if reply_text is None:
+                        flagged_count += 1
+                        notify_security_flag(
+                            top.get("authorDisplayName", "unknown"),
+                            top["textDisplay"][:200],
+                            vid_title
+                        )
+                        replied_ids.add(thread_id)
+                        continue
+
+                    try:
+                        youtube.comments().insert(
+                            part="snippet",
+                            body={"snippet": {
+                                "parentId":     thread_id,
+                                "textOriginal": reply_text
+                            }}
+                        ).execute()
+                        quota_manager.consume_points("youtube", 50)
+                        replied_ids.add(thread_id)
+                        replies_sent += 1
+                        time.sleep(random.uniform(3, 6))   # Human pacing
+                    except Exception as e:
+                        logger.error(f"Reply failed: {e}")
+
+            _save_replied(replied_ids)
+            notify_engagement_report(replies_sent, flagged_count)
+            logger.success(
+                f"Engaged {replies_sent} comments on {channel.channel_name}. "
+                f"Flagged: {flagged_count}."
+            )
 
         except Exception as e:
-            print(f"⚠️ [ENGAGE] Error on {channel.channel_name}: {e}")
+            logger.error(f"Engagement failed for {channel.channel_id}: {e}")
 
-    # ── FIX #5: Persist the updated deduplication set after all channels ──────
-    if new_replies > 0:
-        _save_replied(replied_ids)
-        print(f"✅ [ENGAGE] Saved {len(replied_ids)} total replied IDs to {REPLIED_FILE}")
-    # ─────────────────────────────────────────────────────────────────────────
+    _save_replied(replied_ids)
 
 
 if __name__ == "__main__":
