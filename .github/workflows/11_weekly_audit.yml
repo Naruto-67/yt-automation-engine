@@ -1,28 +1,105 @@
 # .github/workflows/11_weekly_audit.yml
+#
+# FIX #1 CHANGE LOG:
+#   Added "Run Token Health Check" step that calls scripts/token_health.py.
+#
+#   WHY A SEPARATE STEP (not merged into api_monitor.py):
+#     api_monitor.py uses Gemini to *intelligently analyse* API changelog pages.
+#     token_health.py does a completely different job: it makes real live HTTP
+#     calls to Google OAuth and the YouTube API. Keeping them separate means:
+#       - token_health runs even if Gemini quota is exhausted.
+#       - A crash in one doesn't prevent the other from running.
+#       - Each has a single, clear responsibility.
+#
+#   SECRETS NEEDED (must already exist as GitHub Secrets):
+#     YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET — same ones used by the engine.
+#     YOUTUBE_REFRESH_TOKEN, YOUTUBE_REFRESH_TOKEN_TECH — one per channel, same
+#       names as in channels.yaml → youtube_refresh_token_env fields.
+#     DISCORD_WEBHOOK_URL — for audit alerts (uses the main webhook).
+#
+#   MEMORY FILE:
+#     memory/token_health.json is committed back to the repo after each audit
+#     so the "days since last success" counter persists across weekly runs.
+#     The commit only happens if the file actually changed (diff check).
+
 name: "11_Weekly_API_Audit"
 
 on:
   schedule:
-    - cron: "0 20 * * 0" # 20:00 UTC every Sunday
-  workflow_dispatch: # Manual trigger
+    - cron: "0 20 * * 0"   # 20:00 UTC every Sunday — same as 05_weekly_research
+  workflow_dispatch:         # Manual trigger available at any time
+
+# Prevent overlap with the weekly research workflow that runs at the same time
+concurrency:
+  group: ghost-engine-lock
+  cancel-in-progress: false
 
 jobs:
   audit:
     runs-on: ubuntu-latest
+
+    # The token health step needs write access to commit memory/token_health.json
+    permissions:
+      contents: write
+
     steps:
+      # ── 1. Checkout ──────────────────────────────────────────────────────
       - name: Checkout Repo
         uses: actions/checkout@v4
+        with:
+          # fetch-depth: 0 ensures git can push the commit back cleanly
+          fetch-depth: 0
 
+      # ── 2. Python setup ───────────────────────────────────────────────────
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
+      # ── 3. Install dependencies ───────────────────────────────────────────
+      # token_health.py only needs: requests, pyyaml
+      # api_monitor.py needs:       requests, google-genai, pyyaml, pytz, pydantic
+      # Installing the superset covers both.
       - name: Install Dependencies
         run: pip install requests google-genai pyyaml pytz pydantic
 
-      - name: Run Audit Agent
+      # ── 4. TOKEN HEALTH CHECK (Fix #1) ────────────────────────────────────
+      # Tests live YouTube OAuth auth for every active channel.
+      # Fires tiered Discord alerts: HEALTHY / WARNING / CRITICAL / DEAD.
+      # Writes results to memory/token_health.json.
+      - name: Run Token Health Check
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_MAIN }} # Default to main channel
+          # OAuth credentials — same secrets used by the main engine
+          YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          # One env var per channel — must match youtube_refresh_token_env in channels.yaml
+          YOUTUBE_REFRESH_TOKEN:      ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          YOUTUBE_REFRESH_TOKEN_TECH: ${{ secrets.YOUTUBE_REFRESH_TOKEN_TECH }}
+          # Discord webhook for audit alerts
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: python scripts/token_health.py
+
+      # ── 5. Persist token_health.json ──────────────────────────────────────
+      # Commits the updated tracking file so the "days since last success"
+      # counter survives from one Sunday to the next.
+      # The diff-check ensures we don't create empty commits.
+      - name: Commit Token Health Data
+        run: |
+          git config user.name  "Ghost Engine Bot"
+          git config user.email "ghost-engine@noreply.github.com"
+          git add memory/token_health.json
+          if git diff --staged --quiet; then
+            echo "ℹ️ No changes to token_health.json — skipping commit."
+          else
+            git commit -m "chore: update token_health.json [$(date -u +'%Y-%m-%d')]"
+            git push origin main
+          fi
+
+      # ── 6. API / Deprecation Monitor (original step, unchanged) ───────────
+      # Uses Gemini to scan provider changelogs for deprecation notices,
+      # new model releases, and quota changes.
+      - name: Run API Deprecation Audit
+        env:
+          GEMINI_API_KEY:      ${{ secrets.GEMINI_API_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: python scripts/api_monitor.py
