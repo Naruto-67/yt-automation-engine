@@ -1,4 +1,4 @@
-# scripts/generate_metadata.py — Ghost Engine V9.0
+# scripts/generate_metadata.py — Ghost Engine V11.0
 import json
 import os
 import yaml
@@ -34,8 +34,6 @@ def generate_seo_metadata(niche, script):
                 elif isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
                     data = data[0]
                     
-                # GOD-TIER FIX: Coerce hallucinated raw string arrays into empty dict 
-                # preventing fatal AttributeError: 'list' object has no attribute 'get'
                 if not isinstance(data, dict):
                     data = {}
                 
@@ -59,10 +57,21 @@ def generate_seo_metadata(niche, script):
                 else:
                     safe_tags = ["shorts", niche]
                 
+                # GOD-TIER FIX: Validate strict YouTube 500 character limit on total tags array.
+                valid_tags = []
+                total_len = 0
+                for t in safe_tags:
+                    # +1 accounts for the comma used by YouTube to separate tags
+                    if total_len + len(t) + 1 <= 400:
+                        valid_tags.append(t)
+                        total_len += len(t) + 1
+                    else:
+                        break
+                
                 return {
                     "title": final_title, 
                     "description": str(data.get("description", "Facts! #shorts")).replace("<", "").replace(">", "")[:4900], 
-                    "tags": safe_tags[:15]
+                    "tags": valid_tags
                 }, provider
     except: pass
     
