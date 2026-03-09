@@ -1,7 +1,8 @@
-# engine/database.py — Ghost Engine V6
+# engine/database.py — Ghost Engine V7.2
 import sqlite3
 import os
 import json
+import uuid
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 from engine.models import VideoJob, JobState, FailureLog
@@ -15,7 +16,6 @@ class SQLiteDB:
         self._initialize_tables()
 
     def _connect(self):
-        # BUG-08 Fix: Removed isolation_level=None to prevent dirty reads in GitHub Actions
         return sqlite3.connect(self.db_path)
 
     def _initialize_tables(self):
@@ -54,7 +54,6 @@ class SQLiteDB:
                 )
             ''')
 
-            # BUG-01 Fix: Composite PK (date, channel_id) for dynamic multi-channel tracking
             c.execute('''
                 CREATE TABLE IF NOT EXISTS api_quotas (
                     date           TEXT NOT NULL,
@@ -68,7 +67,6 @@ class SQLiteDB:
                 )
             ''')
 
-            # BUG-20 Fix: Permanent topic archive to prevent Jaccard duplicates over time
             c.execute('''
                 CREATE TABLE IF NOT EXISTS topic_archive (
                     topic_id       TEXT PRIMARY KEY,
@@ -149,7 +147,6 @@ class SQLiteDB:
             return [self._row_to_job(r) for r in c.fetchall()]
 
     def get_unprocessed_count(self, channel_id: str) -> int:
-        # BUG-12 Fix: Exclude VAULTED from unprocessed count
         terminal = (JobState.PUBLISHED.value, JobState.FAILED.value, JobState.VAULTED.value)
         with self._connect() as conn:
             c = conn.cursor()
@@ -162,7 +159,8 @@ class SQLiteDB:
     def archive_topic(self, channel_id: str, title: str, niche: str):
         with self._connect() as conn:
             c = conn.cursor()
-            topic_id = f"{channel_id}_{datetime.utcnow().timestamp()}"
+            # GOD-TIER FIX: Integrate UUID to prevent UNIQUE constraint collisions on rapid batch inserts
+            topic_id = f"{channel_id}_{datetime.utcnow().timestamp()}_{uuid.uuid4().hex[:8]}"
             c.execute('''
                 INSERT INTO topic_archive (topic_id, channel_id, title, niche, created_at)
                 VALUES (?, ?, ?, ?, ?)
