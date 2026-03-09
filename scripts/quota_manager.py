@@ -1,4 +1,4 @@
-# scripts/quota_manager.py — Ghost Engine V6.2
+# scripts/quota_manager.py — Ghost Engine V9.1 (RPM Protected)
 import os
 import json
 import time
@@ -23,6 +23,9 @@ class MasterQuotaManager:
         self._gemini_model_chain: list = []
         self._gemini_models_discovered = False
         self._groq = None
+        
+        # GOD-TIER FIX: Track timestamp of the last LLM call to enforce RPM limits
+        self._last_llm_call_time = 0.0
 
     def _groq_client(self):
         if self._groq is None:
@@ -37,20 +40,14 @@ class MasterQuotaManager:
         return os.environ.get("CURRENT_CHANNEL_ID", "default_channel")
 
     def _get_active_state(self) -> dict:
-        """
-        GOD-TIER FIX: YouTube is tracked per-channel.
-        Gemini, Cloudflare, and HF are tracked GLOBALLY.
-        """
         today = self._today()
         ch_id = self._get_channel_id()
 
-        # Initialize and fetch Channel-Specific State (YouTube)
         ch_state = db.get_quota_state(today, ch_id)
         if not ch_state:
             db.init_quota_state(today, ch_id, today)
             ch_state = db.get_quota_state(today, ch_id) or {}
 
-        # Initialize and fetch Global State (AI Providers)
         gl_state = db.get_quota_state(today, "GLOBAL")
         if not gl_state:
             db.init_quota_state(today, "GLOBAL", today)
@@ -68,7 +65,6 @@ class MasterQuotaManager:
     def consume_points(self, provider: str, amount: int):
         today = self._today()
         
-        # Route the cost to the correct pool
         if provider == "youtube":
             target_id = self._get_channel_id()
             col = "youtube_points"
@@ -84,13 +80,11 @@ class MasterQuotaManager:
             col = col_map.get(provider)
 
         if col:
-            # Ensure the row exists before updating
             if not db.get_quota_state(today, target_id):
                 db.init_quota_state(today, target_id, today)
                 
             db.update_quota(today, target_id, col, amount, yt_update)
             
-            # Flush a snapshot to JSON for debug logs
             try:
                 state = self._get_active_state()
                 os.makedirs(os.path.dirname(_QUOTA_JSON_PATH), exist_ok=True)
@@ -169,6 +163,13 @@ class MasterQuotaManager:
         self._gemini_models_discovered = True
         return self._gemini_model_chain
 
+    def _enforce_rpm_throttle(self):
+        """GOD-TIER FIX: Guarantees a minimum spacing between LLM calls to prevent Burst 429 limits"""
+        elapsed = time.time() - self._last_llm_call_time
+        if elapsed < 2.5:  # Force at least 2.5 seconds between ANY LLM call (max ~24 RPM)
+            time.sleep(2.5 - elapsed)
+        self._last_llm_call_time = time.time()
+
     def generate_text(self, prompt: str, task_type: str = "creative", system_prompt: str = None) -> tuple:
         state  = self._get_active_state()
         chains = config_manager.get_providers().get("generation_chains", {})
@@ -183,37 +184,55 @@ class MasterQuotaManager:
 
                 model_chain = self._discover_gemini_models()
                 for model in model_chain:
-                    try:
-                        from google import genai
-                        client = genai.Client(api_key=self.gemini_key)
-                        cfg = {"system_instruction": system_prompt} if system_prompt else {}
-                        response = client.models.generate_content(
-                            model=model, contents=prompt, config=cfg or None
-                        )
-                        self.consume_points("gemini", 1)
-                        print(f"✅ [GEMINI] Generated via {model}")
-                        return response.text, f"Gemini ({model})"
-                    except Exception as e:
-                        err = str(e).lower()
-                        if any(x in err for x in ["quota", "429", "limit"]):
-                            print(f"⚠️ [GEMINI] Quota hit on {model}: {e}")
-                            break 
-                        elif any(x in err for x in ["404", "not found", "deprecated"]):
-                            print(f"⚠️ [GEMINI] Model deprecated: {model}")
-                            self._gemini_models_discovered = False
-                            continue
-                        else:
-                            print(f"⚠️ [GEMINI] Error on {model}: {e}")
-                            continue
+                    # RPM Burst Protection Loop
+                    for attempt in range(2): 
+                        self._enforce_rpm_throttle()
+                        try:
+                            from google import genai
+                            client = genai.Client(api_key=self.gemini_key)
+                            cfg = {"system_instruction": system_prompt} if system_prompt else {}
+                            response = client.models.generate_content(
+                                model=model, contents=prompt, config=cfg or None
+                            )
+                            self.consume_points("gemini", 1)
+                            print(f"✅ [GEMINI] Generated via {model}")
+                            return response.text, f"Gemini ({model})"
+                        except Exception as e:
+                            err = str(e).lower()
+                            # GOD-TIER FIX: If it's an RPM limit (429), pause for 10 seconds before retrying or failing over.
+                            if any(x in err for x in ["429", "too many requests"]):
+                                if attempt == 0:
+                                    print(f"⚠️ [GEMINI RPM] Burst limit hit on {model}. Cooling down for 10s...")
+                                    time.sleep(10)
+                                    continue
+                                else:
+                                    print(f"⚠️ [GEMINI QUOTA] Account limit hit on {model}. Failing over.")
+                                    break 
+                            elif any(x in err for x in ["404", "not found", "deprecated"]):
+                                print(f"⚠️ [GEMINI] Model deprecated: {model}")
+                                self._gemini_models_discovered = False
+                                break
+                            else:
+                                print(f"⚠️ [GEMINI] Error on {model}: {e}")
+                                break # Move to next model
 
             elif provider in ("groq", "groq_orpheus"):
-                try:
-                    groq = self._groq_client()
-                    res = groq.generate_text(prompt, system_prompt=system_prompt)
-                    if res:
-                        return res, f"Groq ({groq.TEXT_MODEL})"
-                except Exception as e:
-                    print(f"⚠️ [GROQ] Text generation failed: {e}")
+                for attempt in range(2):
+                    self._enforce_rpm_throttle()
+                    try:
+                        groq = self._groq_client()
+                        res = groq.generate_text(prompt, system_prompt=system_prompt)
+                        if res:
+                            return res, f"Groq ({groq.TEXT_MODEL})"
+                    except Exception as e:
+                        err = str(e).lower()
+                        if any(x in err for x in ["429", "too many requests"]):
+                            if attempt == 0:
+                                print("⚠️ [GROQ RPM] Burst limit hit. Cooling down for 10s...")
+                                time.sleep(10)
+                                continue
+                        print(f"⚠️ [GROQ] Text generation failed: {e}")
+                        break
 
         return None, "All Providers Exhausted"
 
