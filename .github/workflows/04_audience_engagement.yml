@@ -1,8 +1,8 @@
-name: 04_Ghost_Audience_Engagement
+name: 03_Ghost_Daily_Pulse
 
 on:
   schedule:
-    - cron: '0 14 * * *'
+    - cron: '30 17 * * *'
   workflow_dispatch:
     inputs:
       force_run:
@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  engage_fans:
+  channel_health_pulse:
     runs-on: ubuntu-latest
     if: vars.GHOST_ENGINE_ENABLED != 'false' || github.event.inputs.force_run == 'true'
 
@@ -35,7 +35,7 @@ jobs:
           pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib \
                       google-genai requests pydantic pyyaml pytz
 
-      - name: Run Engagement
+      - name: Run Analyst
         env:
           GHOST_ENGINE_ENABLED: ${{ vars.GHOST_ENGINE_ENABLED }}
           GEMINI_API_KEY:        ${{ secrets.GEMINI_API_KEY }}
@@ -46,13 +46,19 @@ jobs:
           YOUTUBE_REFRESH_TOKEN_MAIN:   ${{ secrets.YOUTUBE_REFRESH_TOKEN_MAIN }}
           DISCORD_WEBHOOK_MAIN:         ${{ secrets.DISCORD_WEBHOOK_MAIN }}
 
-        run: python -m scripts.reply_comments
+        run: python -m scripts.performance_analyst
 
       - name: Commit State & Memory
         run: |
           git config --global user.name  "Ghost-Engine-Bot"
           git config --global user.email "bot@ghostengine.ai"
-          git add memory/ghost_engine.db memory/quota_state.json memory/replied_comments_*.json memory/token_health.json config/channels.yaml assets/lessons_learned.json || true
+          
+          git add memory/ghost_engine.db || true
+          git add memory/quota_state.json || true
+          git add memory/replied_comments_*.json || true
+          git add memory/token_health.json || true
+          git add config/channels.yaml || true
+          git add assets/lessons_learned.json || true
           
           if ! git diff --staged --quiet; then
             git commit -m "Auto-state update: Pipeline synchronization [skip ci]"
