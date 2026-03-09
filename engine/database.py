@@ -6,9 +6,7 @@ from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 from engine.models import VideoJob, JobState, FailureLog
 
-# DB lives in memory/ so it can be committed with `git add memory/`
 _DB_PATH = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")), "memory", "ghost_engine.db")
-
 
 class SQLiteDB:
     def __init__(self, db_path: str = _DB_PATH):
@@ -17,7 +15,8 @@ class SQLiteDB:
         self._initialize_tables()
 
     def _connect(self):
-        return sqlite3.connect(self.db_path, isolation_level=None)
+        # BUG-08 Fix: Removed isolation_level=None to prevent dirty reads in GitHub Actions
+        return sqlite3.connect(self.db_path)
 
     def _initialize_tables(self):
         with self._connect() as conn:
@@ -55,37 +54,47 @@ class SQLiteDB:
                 )
             ''')
 
-            # Quota tracking — now persisted in DB AND mirrored to memory/quota_state.json
-            # for cross-workflow awareness
+            # BUG-01 Fix: Composite PK (date, channel_id) for dynamic multi-channel tracking
             c.execute('''
                 CREATE TABLE IF NOT EXISTS api_quotas (
-                    date          TEXT PRIMARY KEY,
+                    date           TEXT NOT NULL,
+                    channel_id     TEXT NOT NULL,
                     youtube_points INTEGER DEFAULT 0,
                     gemini_calls   INTEGER DEFAULT 0,
                     cf_images      INTEGER DEFAULT 0,
                     hf_images      INTEGER DEFAULT 0,
-                    yt_last_used   TEXT
+                    yt_last_used   TEXT,
+                    PRIMARY KEY (date, channel_id)
                 )
             ''')
 
-            # Per-channel content strategy (replaces lessons_learned.json)
+            # BUG-20 Fix: Permanent topic archive to prevent Jaccard duplicates over time
+            c.execute('''
+                CREATE TABLE IF NOT EXISTS topic_archive (
+                    topic_id       TEXT PRIMARY KEY,
+                    channel_id     TEXT NOT NULL,
+                    title          TEXT NOT NULL,
+                    niche          TEXT NOT NULL,
+                    created_at     TEXT NOT NULL
+                )
+            ''')
+
             c.execute('''
                 CREATE TABLE IF NOT EXISTS channel_intelligence (
                     channel_id        TEXT PRIMARY KEY,
-                    emphasize         TEXT,    -- JSON list, time-decayed
-                    avoid             TEXT,    -- JSON list, time-decayed
-                    recent_tags       TEXT,    -- JSON list
-                    preferred_visuals TEXT,    -- JSON list
-                    hook_patterns     TEXT,    -- JSON list from competitor research
-                    title_templates   TEXT,    -- JSON list from competitor research
-                    competitor_tags   TEXT,    -- JSON list from competitor research
-                    evolved_niche     TEXT,    -- AI-discovered niche evolution
-                    rule_timestamps   TEXT,    -- JSON: {rule_index: iso_timestamp}
+                    emphasize         TEXT,
+                    avoid             TEXT,
+                    recent_tags       TEXT,
+                    preferred_visuals TEXT,
+                    hook_patterns     TEXT,
+                    title_templates   TEXT,
+                    competitor_tags   TEXT,
+                    evolved_niche     TEXT,
+                    rule_timestamps   TEXT,
                     updated_at        TEXT
                 )
             ''')
 
-            # Video performance tracking for recency-weighted analysis
             c.execute('''
                 CREATE TABLE IF NOT EXISTS video_performance (
                     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -99,8 +108,7 @@ class SQLiteDB:
                     fetched_at   TEXT
                 )
             ''')
-
-    # ── JOB METHODS ──────────────────────────────────────────────────────────
+            conn.commit()
 
     def upsert_job(self, job: VideoJob) -> int:
         with self._connect() as conn:
@@ -124,15 +132,14 @@ class SQLiteDB:
                 job.created_at, job.updated_at
             ))
             if not job.id:
-                c.execute('SELECT id FROM jobs WHERE channel_id=? AND topic=?',
-                          (job.channel_id, job.topic))
+                c.execute('SELECT id FROM jobs WHERE channel_id=? AND topic=?', (job.channel_id, job.topic))
                 row = c.fetchone()
                 if row:
                     job.id = row[0]
+            conn.commit()
         return job.id
 
-    def get_jobs_by_state(self, channel_id: str, state: JobState,
-                          limit: int = 5) -> List[VideoJob]:
+    def get_jobs_by_state(self, channel_id: str, state: JobState, limit: int = 5) -> List[VideoJob]:
         with self._connect() as conn:
             c = conn.cursor()
             c.execute(
@@ -142,19 +149,30 @@ class SQLiteDB:
             return [self._row_to_job(r) for r in c.fetchall()]
 
     def get_unprocessed_count(self, channel_id: str) -> int:
-        terminal = (JobState.PUBLISHED.value, JobState.FAILED.value)
+        # BUG-12 Fix: Exclude VAULTED from unprocessed count
+        terminal = (JobState.PUBLISHED.value, JobState.FAILED.value, JobState.VAULTED.value)
         with self._connect() as conn:
             c = conn.cursor()
             c.execute(
-                'SELECT COUNT(*) FROM jobs WHERE channel_id=? AND state NOT IN (?,?)',
+                'SELECT COUNT(*) FROM jobs WHERE channel_id=? AND state NOT IN (?,?,?)',
                 (channel_id, *terminal)
             )
             return c.fetchone()[0]
 
-    def get_all_topics(self, channel_id: str) -> List[str]:
+    def archive_topic(self, channel_id: str, title: str, niche: str):
         with self._connect() as conn:
             c = conn.cursor()
-            c.execute('SELECT topic FROM jobs WHERE channel_id=?', (channel_id,))
+            topic_id = f"{channel_id}_{datetime.utcnow().timestamp()}"
+            c.execute('''
+                INSERT INTO topic_archive (topic_id, channel_id, title, niche, created_at)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (topic_id, channel_id, title, niche, datetime.utcnow().isoformat()))
+            conn.commit()
+
+    def get_all_historical_topics(self, channel_id: str) -> List[str]:
+        with self._connect() as conn:
+            c = conn.cursor()
+            c.execute('SELECT title FROM topic_archive WHERE channel_id=?', (channel_id,))
             return [r[0].lower().strip() for r in c.fetchall()]
 
     def log_failure(self, failure: FailureLog):
@@ -166,18 +184,16 @@ class SQLiteDB:
                 (failure.job_id, failure.channel_id, failure.module,
                  failure.error_message, failure.traceback, failure.timestamp)
             )
+            conn.commit()
 
     def prune_old_jobs(self, days: int = 30):
-        """Remove PUBLISHED and FAILED jobs older than N days to keep DB small."""
         cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
         terminal = (JobState.PUBLISHED.value, JobState.FAILED.value)
         with self._connect() as conn:
             c = conn.cursor()
-            c.execute(
-                'DELETE FROM jobs WHERE state IN (?,?) AND updated_at < ?',
-                (*terminal, cutoff)
-            )
+            c.execute('DELETE FROM jobs WHERE state IN (?,?) AND updated_at < ?', (*terminal, cutoff))
             deleted = c.rowcount
+            conn.commit()
         return deleted
 
     @staticmethod
@@ -189,42 +205,39 @@ class SQLiteDB:
             youtube_id=r[10], attempts=r[11], created_at=r[12], updated_at=r[13]
         )
 
-    # ── QUOTA METHODS ────────────────────────────────────────────────────────
-
-    def get_quota_state(self, date_str: str) -> Optional[Dict]:
+    def get_quota_state(self, date_str: str, channel_id: str) -> Optional[Dict]:
         with self._connect() as conn:
             c = conn.cursor()
-            c.execute('SELECT * FROM api_quotas WHERE date=?', (date_str,))
+            c.execute('SELECT * FROM api_quotas WHERE date=? AND channel_id=?', (date_str, channel_id))
             row = c.fetchone()
             if row:
-                return {"date": row[0], "youtube_points": row[1],
-                        "gemini_calls": row[2], "cf_images": row[3],
-                        "hf_images": row[4], "yt_last_used": row[5]}
+                return {"date": row[0], "channel_id": row[1], "youtube_points": row[2],
+                        "gemini_calls": row[3], "cf_images": row[4],
+                        "hf_images": row[5], "yt_last_used": row[6]}
         return None
 
-    def init_quota_state(self, date_str: str, yt_last_used: str):
+    def init_quota_state(self, date_str: str, channel_id: str, yt_last_used: str):
         with self._connect() as conn:
             c = conn.cursor()
             c.execute(
-                'INSERT OR IGNORE INTO api_quotas (date, yt_last_used) VALUES (?,?)',
-                (date_str, yt_last_used)
+                'INSERT OR IGNORE INTO api_quotas (date, channel_id, yt_last_used) VALUES (?,?,?)',
+                (date_str, channel_id, yt_last_used)
             )
+            conn.commit()
 
-    def update_quota(self, date_str: str, provider_col: str, amount: int,
-                     yt_last_used: str = None):
+    def update_quota(self, date_str: str, channel_id: str, provider_col: str, amount: int, yt_last_used: str = None):
         with self._connect() as conn:
             c = conn.cursor()
             c.execute(
-                f'UPDATE api_quotas SET {provider_col} = {provider_col} + ? WHERE date=?',
-                (amount, date_str)
+                f'UPDATE api_quotas SET {provider_col} = {provider_col} + ? WHERE date=? AND channel_id=?',
+                (amount, date_str, channel_id)
             )
             if yt_last_used:
                 c.execute(
-                    'UPDATE api_quotas SET yt_last_used=? WHERE date=?',
-                    (yt_last_used, date_str)
+                    'UPDATE api_quotas SET yt_last_used=? WHERE date=? AND channel_id=?',
+                    (yt_last_used, date_str, channel_id)
                 )
-
-    # ── CHANNEL INTELLIGENCE METHODS ─────────────────────────────────────────
+            conn.commit()
 
     def get_channel_intelligence(self, channel_id: str) -> Dict[str, Any]:
         with self._connect() as conn:
@@ -287,24 +300,20 @@ class SQLiteDB:
                 json.dumps(data.get("rule_timestamps", {})),
                 datetime.utcnow().isoformat()
             ))
+            conn.commit()
 
-    # ── VIDEO PERFORMANCE METHODS ─────────────────────────────────────────────
-
-    def upsert_video_performance(self, channel_id: str, youtube_id: str,
-                                  title: str, views: int, likes: int,
-                                  comments: int, published_at: str):
+    def upsert_video_performance(self, channel_id: str, youtube_id: str, title: str, views: int, likes: int, comments: int, published_at: str):
         with self._connect() as conn:
             c = conn.cursor()
             c.execute('''
                 INSERT INTO video_performance
-                    (channel_id, youtube_id, title, views, likes, comments,
-                     published_at, fetched_at)
+                    (channel_id, youtube_id, title, views, likes, comments, published_at, fetched_at)
                 VALUES (?,?,?,?,?,?,?,?)
                 ON CONFLICT(youtube_id) DO UPDATE SET
                     views=excluded.views, likes=excluded.likes,
                     comments=excluded.comments, fetched_at=excluded.fetched_at
-            ''', (channel_id, youtube_id, title, views, likes, comments,
-                  published_at, datetime.utcnow().isoformat()))
+            ''', (channel_id, youtube_id, title, views, likes, comments, published_at, datetime.utcnow().isoformat()))
+            conn.commit()
 
     def get_recent_performance(self, channel_id: str, days: int = 30) -> List[Dict]:
         cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
@@ -318,6 +327,5 @@ class SQLiteDB:
             )
             cols = ["youtube_id", "title", "views", "likes", "comments", "published_at"]
             return [dict(zip(cols, r)) for r in c.fetchall()]
-
 
 db = SQLiteDB()
