@@ -1,4 +1,4 @@
-# scripts/generate_metadata.py — Ghost Engine V7.1
+# scripts/generate_metadata.py — Ghost Engine V9.0
 import json
 import os
 import yaml
@@ -29,6 +29,12 @@ def generate_seo_metadata(niche, script):
             if start != -1 and end != -1 and end > start:
                 data = json.loads(raw_text[start:end+1])
                 
+                # GOD-TIER FIX: Dynamically un-nest hallucinatory LLM structures
+                if "metadata" in data and isinstance(data["metadata"], dict):
+                    data = data["metadata"]
+                elif isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
+                    data = data[0]
+                
                 safe_title_raw = data.get("title", f"Amazing {niche} Facts #shorts")
                 if isinstance(safe_title_raw, list): 
                     safe_title_raw = safe_title_raw[0] if safe_title_raw else f"Amazing {niche} Facts #shorts"
@@ -41,7 +47,6 @@ def generate_seo_metadata(niche, script):
                 
                 final_title = safe_title[:100] if len(safe_title) > 0 else "Amazing Video #shorts"
                 
-                # GOD-TIER FIX: Bulletproof Tag coercion. Protects against LLM string hallucination 400 Bad Requests.
                 raw_tags = data.get("tags", ["shorts", niche])
                 if isinstance(raw_tags, str):
                     safe_tags = [t.strip().replace("#", "") for t in raw_tags.split(",") if t.strip()]
