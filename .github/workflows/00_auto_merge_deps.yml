@@ -1,3 +1,17 @@
+# .github/workflows/00_auto_merge_deps.yml
+# ═══════════════════════════════════════════════════════════════════════════════
+# FIX #9 — Defence-in-depth: also block auto-merge for fragile packages here
+#
+# dependabot.yml ignore rules stop auto-open but they don't prevent auto-merge
+# if a PR somehow arrives from another source (e.g. manual Dependabot re-run,
+# a PR opened on an older Dependabot config before this fix). This workflow adds
+# a second layer: explicitly checks the package name and blocks auto-merge for
+# the ML/audio stack regardless of semver type.
+#
+# All other patch/minor PRs continue to auto-merge as before.
+# Major bumps continue to require manual review as before.
+# ═══════════════════════════════════════════════════════════════════════════════
+
 name: 00_Auto_Merge_Dependabot
 
 on:
@@ -5,13 +19,14 @@ on:
     types: [opened, synchronize, reopened]
 
 permissions:
-  contents: write
+  contents:      write
   pull-requests: write
 
 jobs:
   auto-merge:
     runs-on: ubuntu-latest
     if: github.actor == 'dependabot[bot]'
+
     steps:
       - name: Fetch Dependabot metadata
         id: meta
@@ -19,21 +34,48 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      # Auto-approve and merge patch + minor updates.
-      # Major version bumps are left for manual review — could break API contracts.
+      # ── FIX #9: Block auto-merge for fragile ML/audio packages ───────────
+      # Even if the dependabot.yml ignore rules are bypassed (e.g. manual
+      # Dependabot re-run on old config), this step prevents auto-merge.
+      # The PR is still opened — it just gets a comment asking for manual review.
+      - name: Block auto-merge for fragile ML packages
+        if: |
+          contains(fromJSON('["torch", "kokoro", "faster-whisper"]'),
+                   steps.meta.outputs.dependency-names)
+        run: |
+          gh pr comment "$PR_URL" --body \
+            "⚠️ **Manual review required for ML/audio dependency.**
+            \`${{ steps.meta.outputs.dependency-names }}\` is in the protected package list.
+            These packages share native C++ extension compatibility constraints.
+            Please test locally before merging:
+            1. Run \`pip install -r requirements.txt\` with the bumped version
+            2. Run a \`TEST_MODE=true\` pipeline to confirm Kokoro still produces audio
+            3. Merge manually only if successful."
+          echo "🛑 Auto-merge blocked for protected package. Manual review required."
+          exit 0
+        env:
+          PR_URL:   ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # ──────────────────────────────────────────────────────────────────────
+
+      # Auto-approve and merge patch + minor updates for all OTHER packages.
       - name: Auto-merge patch and minor updates
         if: |
-          steps.meta.outputs.update-type == 'version-update:semver-patch' ||
-          steps.meta.outputs.update-type == 'version-update:semver-minor'
+          (steps.meta.outputs.update-type == 'version-update:semver-patch' ||
+           steps.meta.outputs.update-type == 'version-update:semver-minor') &&
+          !contains(fromJSON('["torch", "kokoro", "faster-whisper"]'),
+                    steps.meta.outputs.dependency-names)
         run: gh pr merge --auto --squash "$PR_URL"
         env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_URL:   ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # Flag major version bumps for manual review (unchanged from original).
       - name: Label major updates for manual review
         if: steps.meta.outputs.update-type == 'version-update:semver-major'
         run: |
-          gh pr comment "$PR_URL" --body "⚠️ **Major version bump.** Manual review required before merging."
+          gh pr comment "$PR_URL" --body \
+            "⚠️ **Major version bump.** Manual review required before merging."
         env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_URL:   ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
