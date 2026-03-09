@@ -1,4 +1,4 @@
-# scripts/performance_analyst.py — Ghost Engine V6.7
+# scripts/performance_analyst.py — Ghost Engine V7.0
 import os
 import json
 import yaml
@@ -61,7 +61,6 @@ def _fetch_recent_video_stats(youtube, channel_id: str) -> list:
         uploads_id = youtube.channels().list(part="contentDetails", mine=True).execute()["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
         quota_manager.consume_points("youtube", 1)
 
-        # GOD-TIER FIX: Fetch 50 videos instead of 20 to ensure we bypass the 14 private Vault videos
         vids = youtube.playlistItems().list(part="snippet", playlistId=uploads_id, maxResults=50).execute()
         quota_manager.consume_points("youtube", 1)
 
@@ -69,13 +68,11 @@ def _fetch_recent_video_stats(youtube, channel_id: str) -> list:
         if not vid_ids:
             return []
 
-        # GOD-TIER FIX: Add "status" part to strictly check the privacyStatus of the videos
         stats = youtube.videos().list(part="statistics,snippet,status", id=",".join(vid_ids)).execute()
         quota_manager.consume_points("youtube", 1)
 
         results = []
         for item in stats.get("items", []):
-            # Block private/unreleased vault videos from polluting the AI's intelligence with 0 views
             if item.get("status", {}).get("privacyStatus") == "private":
                 continue
                 
@@ -143,8 +140,12 @@ def run_daily_analysis():
                         new_rules = json.loads(raw[start:end+1])
                         now_iso   = datetime.utcnow().isoformat()
 
-                        new_emp = new_rules.get("new_emphasize", "").strip()
-                        new_avo = new_rules.get("new_avoid", "").strip()
+                        # GOD-TIER FIX: Ruthlessly coerce types in case LLM hallucinates an array instead of a string
+                        new_emp_raw = new_rules.get("new_emphasize", "")
+                        new_emp = str(new_emp_raw[0] if isinstance(new_emp_raw, list) and new_emp_raw else new_emp_raw).strip()
+
+                        new_avo_raw = new_rules.get("new_avoid", "")
+                        new_avo = str(new_avo_raw[0] if isinstance(new_avo_raw, list) and new_avo_raw else new_avo_raw).strip()
 
                         if new_emp:
                             intel["emphasize"].append(new_emp)
