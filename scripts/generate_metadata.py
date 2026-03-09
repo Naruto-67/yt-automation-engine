@@ -1,7 +1,6 @@
 # scripts/generate_metadata.py
 import json
 import os
-import re
 import yaml
 from scripts.quota_manager import quota_manager
 from engine.database import db
@@ -25,9 +24,11 @@ def generate_seo_metadata(niche, script):
     try:
         raw_text, provider = quota_manager.generate_text(user_msg, task_type="seo", system_prompt=prompts_cfg['seo_gen']['system_prompt'])
         if raw_text:
-            match = re.search(r'\{.*\}', raw_text.replace("```json", "").replace("```", ""), re.DOTALL)
-            if match:
-                data = json.loads(match.group(0))
+            # God-Tier JSON Extraction (defeats LLM markdown wrappers safely)
+            start = raw_text.find('{')
+            end = raw_text.rfind('}')
+            if start != -1 and end != -1 and end > start:
+                data = json.loads(raw_text[start:end+1])
                 raw_title = data.get("title", f"Amazing {niche} Facts #shorts").replace("<", "").replace(">", "")
                 safe_title = raw_title[:85].rsplit(' ', 1)[0] if len(raw_title) > 85 else raw_title
                 if "#shorts" not in safe_title.lower(): safe_title = f"{safe_title.strip()} #shorts"
