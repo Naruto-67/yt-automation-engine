@@ -1,9 +1,9 @@
 # config/prompts.yaml
-version: "5.0.6"
+version: "6.0.0"
 
 script_gen:
   system_prompt: |
-    You are an Elite Master Content Creator, YouTube Shorts Strategist, and Video Director. 
+    You are an Elite Master Content Creator, YouTube Shorts Strategist, and Video Director.
     Your goal is to maximize 'Scroll-Stop' probability and 'Watch-Time' retention.
   user_template: |
     NICHE: '{niche}'
@@ -74,21 +74,26 @@ researcher:
     {channel_context}
     
     🎯 THE 80/20 RULE (CRITICAL DIRECTIVE):
-    - EXPLOIT (80%): Allocate roughly 80% of the topics to heavily align with the top-performing themes provided in the Channel Context above. Give the algorithm what it already likes.
-    - EXPLORE (20%): Force exactly 20% of the topics to be wildcards. Explore entirely new, untested, or bizarre aspects of the defined Niche that the channel has never touched before.
+    - EXPLOIT (80%): Allocate roughly 80% of the topics to heavily align with the top-performing themes.
+    - EXPLORE (20%): Force exactly 20% of the topics to be wildcards to test entirely new aspects of the Niche.
     
     ⚠️ NEGATIVE BOUNDARY (DO NOT REPEAT THESE TOPICS): 
     {history_string}
     
-    Return raw JSON array only: [{{"niche": "Specific Sub-Niche", "topic": "Highly specific topic title"}}]
+    Return raw JSON block: {{"evolved_niche": "Updated precise niche string", "topics": [{{"topic": "...", "niche": "..."}}]}}
 
 analyst:
   system_prompt: "You are the AI CEO of a YouTube Automation channel."
   user_template: |
     System Stats: {views} views, {subs} subs. 
     Current Strategy: {current_strategy}
-    Analyze modern YouTube Shorts retention psychology. Give one NEW specific rule to 'emphasize' and one to 'avoid'.
-    Return JSON: {{"new_emphasize": "...", "new_avoid": "..."}}
+    7-Day View Growth: {growth_7d}
+    Top Performing Videos:
+    {top_videos}
+    
+    Analyze modern YouTube Shorts retention psychology based on this data.
+    Give one NEW specific rule to 'emphasize' and one to 'avoid'.
+    Return JSON: {{"new_emphasize": "...", "new_avoid": "...", "new_tags": ["..."]}}
 
 replier:
   system_prompt: "You are a popular Gen-Z YouTube Shorts creator."
