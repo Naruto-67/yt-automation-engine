@@ -1,4 +1,4 @@
-# engine/orchestrator.py — Ghost Engine V6.1
+# engine/orchestrator.py — Ghost Engine V6.3
 import os
 import glob
 import yaml
@@ -33,7 +33,6 @@ class Orchestrator:
             if ch.get("id") == channel_config.channel_id:
                 ch["name"] = live_name
                 
-        # BUG-19 Fix: Atomic write to prevent YAML corruption
         with open(temp_path, "w") as f:
             yaml.dump(data, f, default_flow_style=False)
             
@@ -91,13 +90,21 @@ class Orchestrator:
             if unprocessed < 3:
                 run_dynamic_research(channel, yt_client)
 
-            # BUG-16 Fix: Correct Batch Ordering. 
-            # We sort by attempts ascending first, so fresh jobs run before stuck (attempts > 0) jobs.
+            # GOD-TIER FIX: Priority Inversion. 
+            # Process jobs closest to completion first. Do NOT start new QUEUED jobs 
+            # if we have half-finished RENDERING or VISUAL generation jobs stuck.
             batch = []
-            for state in [JobState.QUEUED, JobState.SCRIPT_GENERATION, JobState.VISUAL_GENERATION, JobState.VOICE_GENERATION, JobState.RENDERING]:
+            priority_states = [
+                JobState.RENDERING, 
+                JobState.VISUAL_GENERATION, 
+                JobState.VOICE_GENERATION, 
+                JobState.SCRIPT_GENERATION, 
+                JobState.QUEUED
+            ]
+            
+            for state in priority_states:
                 jobs_in_state = db.get_jobs_by_state(channel.channel_id, state, limit=4)
-                # Sort to ensure clean jobs run before retries
-                jobs_in_state.sort(key=lambda j: j.attempts)
+                jobs_in_state.sort(key=lambda j: j.attempts) # Retries handled after fresh runs inside that state
                 batch.extend(jobs_in_state)
 
             max_videos = 1 if TEST_MODE else 4
