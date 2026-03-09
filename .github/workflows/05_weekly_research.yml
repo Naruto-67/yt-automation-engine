@@ -53,7 +53,13 @@ jobs:
         run: |
           git config --global user.name  "Ghost-Engine-Bot"
           git config --global user.email "bot@ghostengine.ai"
-          git add memory/ghost_engine.db memory/quota_state.json memory/replied_comments_*.json memory/token_health.json config/channels.yaml assets/lessons_learned.json || true
+          
+          git add memory/ghost_engine.db || true
+          git add memory/quota_state.json || true
+          git add memory/replied_comments_*.json || true
+          git add memory/token_health.json || true
+          git add config/channels.yaml || true
+          git add assets/lessons_learned.json || true
           
           if ! git diff --staged --quiet; then
             git commit -m "Auto-state update: Pipeline synchronization [skip ci]"
