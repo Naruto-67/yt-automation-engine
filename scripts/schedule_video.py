@@ -1,4 +1,4 @@
-# scripts/schedule_video.py — Ghost Engine V6.2
+# scripts/schedule_video.py — Ghost Engine V6.7
 import os
 import json
 import time
@@ -60,7 +60,6 @@ def get_optimal_publish_times(youtube, prompts_cfg) -> list:
     response, _ = quota_manager.generate_text(user_msg, task_type="analysis",
                                                system_prompt=sys_msg)
     try:
-        # God-Tier Array Extraction
         if response:
             start = response.find('[')
             end = response.rfind(']')
@@ -78,7 +77,11 @@ def publish_vault_videos():
         return
 
     settings      = config_manager.get_settings()
-    publish_cost  = settings.get("vault", {}).get("publish_per_run", 2) * 150  
+    
+    # GOD-TIER FIX: Dynamically assign the vault limit from settings instead of hardcoding 2
+    publish_limit = settings.get("vault", {}).get("publish_per_run", 2)
+    publish_cost  = publish_limit * 150  
+    
     if not quota_manager.can_afford_youtube(publish_cost + 10):
         print("⚠️ [PUBLISHER] Insufficient YT quota for publishing. Skipping.")
         return
@@ -92,7 +95,8 @@ def publish_vault_videos():
         if not youtube:
             continue
 
-        jobs = db.get_jobs_by_state(channel.channel_id, JobState.VAULTED, limit=2)
+        # Passes the dynamic publish_limit safely into the database layer
+        jobs = db.get_jobs_by_state(channel.channel_id, JobState.VAULTED, limit=publish_limit)
         if not jobs:
             logger.engine(f"No vaulted videos for {channel.channel_id}.")
             continue
