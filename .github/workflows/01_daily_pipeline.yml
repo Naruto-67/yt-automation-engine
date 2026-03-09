@@ -64,7 +64,6 @@ jobs:
           git config --global user.name  "Ghost-Engine-Bot"
           git config --global user.email "bot@ghostengine.ai"
           
-          # GOD-TIER FIX: Isolated staging guarantees DB persistence even if engagement hasn't created json files yet
           git add memory/ghost_engine.db || true
           git add memory/quota_state.json || true
           git add memory/replied_comments_*.json || true
@@ -75,10 +74,11 @@ jobs:
           if ! git diff --staged --quiet; then
             git commit -m "Pipeline: Update state, quota & memory [skip ci]"
             
+            # GOD-TIER FIX: -X ours forces the bot's local database to win all merge conflicts
             for i in {1..5}; do
               git push && break || {
                 echo "└ ⚠️ Git push conflict detected. Rebasing (Attempt $i/5)..."
-                git pull --rebase origin main
+                git pull --rebase -X ours origin main
                 sleep $(( i * 5 ))
               }
             done
