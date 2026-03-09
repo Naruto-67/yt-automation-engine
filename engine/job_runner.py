@@ -1,4 +1,4 @@
-# engine/job_runner.py — Ghost Engine V6
+# engine/job_runner.py — Ghost Engine V6.1
 import os
 import time
 import shutil
@@ -16,7 +16,6 @@ from scripts.render_video      import render_video
 from scripts.generate_metadata import generate_seo_metadata
 from scripts.discord_notifier  import notify_step, notify_production_success, notify_vault_secure
 
-
 class JobRunner:
     def __init__(self, job: VideoJob, youtube_client=None, channel_name: str = ""):
         self.job          = job
@@ -24,13 +23,14 @@ class JobRunner:
         self.channel_name = channel_name or job.channel_id
         self.max_attempts = 3
         self.base_filename = f"job_{job.id}_{job.channel_id.replace(' ', '_')}"
+        
+        # Instance variables to hold metrics for the Discord webhook
+        self.final_duration = 0.0
+        self.final_size_mb  = 0.0
 
     def process(self):
         os.environ["CURRENT_CHANNEL_ID"] = self.job.channel_id
-        logger.engine(
-            f"Processing Job {self.job.id} | Topic: {self.job.topic} | "
-            f"State: {self.job.state.name}"
-        )
+        logger.engine(f"Processing Job {self.job.id} | Topic: {self.job.topic} | State: {self.job.state.name}")
 
         try:
             if self.job.state == JobState.QUEUED:
@@ -57,16 +57,12 @@ class JobRunner:
 
             if self.job.state == JobState.RENDERING:
                 if self.job.video_path and os.path.exists(self.job.video_path):
-                    # Video rendered but not yet uploaded
                     self._execute_upload()
                 else:
                     self._execute_rendering()
 
             if self.job.state == JobState.VAULTED:
-                logger.success(
-                    f"Job {self.job.id} vaulted and ready for scheduling. "
-                    f"YouTube ID: {self.job.youtube_id}"
-                )
+                logger.success(f"Job {self.job.id} vaulted. YouTube ID: {self.job.youtube_id}")
 
         except Exception as e:
             self._handle_failure(str(e), traceback.format_exc())
@@ -85,13 +81,10 @@ class JobRunner:
         ))
         if self.job.attempts >= self.max_attempts:
             self._transition_to(JobState.FAILED)
-            notify_step(self.job.topic, "FAILED",
-                        f"Critical crash after {self.max_attempts} attempts.", 0xe74c3c)
+            notify_step(self.job.topic, "FAILED", f"Critical crash after {self.max_attempts} attempts.", 0xe74c3c)
         else:
             db.upsert_job(self.job)
             time.sleep(5)
-
-    # ── STAGE 1: SCRIPT GENERATION ────────────────────────────────────────────
 
     def _execute_script_generation(self):
         logger.generation("Drafting script...")
@@ -101,7 +94,12 @@ class JobRunner:
         if not script_text:
             raise ValueError("Empty script returned from generator.")
 
-        meta_data, _ = generate_seo_metadata(self.job.niche, script_text)
+        # BUG-06 Fix: SEO Generation is now fully atomic. If it fails, we do not drop the script.
+        try:
+            meta_data, _ = generate_seo_metadata(self.job.niche, script_text)
+        except Exception as e:
+            logger.error(f"SEO Generation failed: {e}. Using fallback metadata.")
+            meta_data = {"title": f"{self.job.niche} #shorts"[:95], "description": "Mind blowing facts!", "tags": ["shorts", self.job.niche]}
 
         self.job.script = json.dumps({
             "text": script_text, "prompts": prompts, "pexels": pexels,
@@ -111,8 +109,6 @@ class JobRunner:
         self.job.metadata = json.dumps(meta_data)
         self._transition_to(JobState.VOICE_GENERATION)
 
-    # ── STAGE 2: VOICE GENERATION ─────────────────────────────────────────────
-
     def _execute_voice_generation(self):
         logger.generation("Synthesizing audio...")
         script_data  = json.loads(self.job.script)
@@ -120,17 +116,13 @@ class JobRunner:
         target_voice = script_data.get("target_voice", "am_adam")
 
         success, prov, duration = generate_audio(
-            script_data["text"],
-            output_base=audio_base,
-            target_voice=target_voice
+            script_data["text"], output_base=audio_base, target_voice=target_voice
         )
         if not success:
             raise RuntimeError("TTS pipeline collapsed — all providers failed.")
 
         self.job.audio_path = f"{audio_base}.wav"
         self._transition_to(JobState.VISUAL_GENERATION)
-
-    # ── STAGE 3: VISUAL GENERATION ────────────────────────────────────────────
 
     def _execute_visual_generation(self):
         logger.generation("Sourcing scene images...")
@@ -141,111 +133,75 @@ class JobRunner:
         if not prompts:
             raise ValueError("No image prompts available in script data.")
 
-        images, provider = fetch_scene_images(
-            prompts, pexels,
-            base_filename=f"temp_scene_{self.base_filename}"
-        )
-
-        # FIX: Accept ≥50% success — pad missing scenes with last successful image
+        images, provider = fetch_scene_images(prompts, pexels, base_filename=f"temp_scene_{self.base_filename}")
         min_acceptable = max(1, len(prompts) // 2)
+        
         if len(images) < min_acceptable:
-            raise RuntimeError(
-                f"Visual generation critically failed: {len(images)}/{len(prompts)} images."
-            )
+            raise RuntimeError(f"Visual generation critically failed: {len(images)}/{len(prompts)} images.")
 
         while len(images) < len(prompts):
-            images.append(images[-1])  # Duplicate last successful image
+            images.append(images[-1]) 
 
         self.job.image_paths = json.dumps(images)
         self._transition_to(JobState.RENDERING)
 
-    # ── STAGE 4: RENDERING ───────────────────────────────────────────────────
-
     def _execute_rendering(self):
         logger.generation("Rendering final video...")
         script_data = json.loads(self.job.script)
-        metadata    = json.loads(self.job.metadata) if self.job.metadata else {}
         images      = json.loads(self.job.image_paths)
         weights     = script_data.get("weights", [])
         color       = script_data.get("target_color")
 
-        # Disk space pre-check: estimate 300 MB × scene_count + 500 MB safety buffer
         scene_count = len(images)
         required_gb = max(2.0, (scene_count * 0.3) + 0.5)
         free_gb     = shutil.disk_usage("/").free / (1024 ** 3)
         if free_gb < required_gb:
-            raise RuntimeError(
-                f"Disk space too low: {free_gb:.1f} GB free, need {required_gb:.1f} GB."
-            )
+            raise RuntimeError(f"Disk space too low: {free_gb:.1f} GB free, need {required_gb:.1f} GB.")
 
         output_path = f"final_{self.base_filename}.mp4"
         watermark   = self.channel_name or self.job.channel_id
 
         success, duration, size_mb = render_video(
-            image_paths=images,
-            audio_path=self.job.audio_path,
-            output_path=output_path,
-            scene_weights=weights,
-            watermark_text=watermark,
-            subtitle_color=color
+            image_paths=images, audio_path=self.job.audio_path, output_path=output_path,
+            scene_weights=weights, watermark_text=watermark, subtitle_color=color
         )
+        
         if not success:
             raise RuntimeError("FFmpeg render failed — output not produced.")
 
+        # Store metrics securely on the class instance
+        self.final_duration = duration
+        self.final_size_mb  = size_mb
         self.job.video_path = output_path
+        
         logger.success(f"Rendered: {output_path} ({size_mb:.1f} MB, {duration:.1f}s)")
-
-        # Notify before upload attempt
-        notify_step(
-            self.job.topic, "RENDERED",
-            f"└ Size: {size_mb:.1f} MB | Duration: {duration:.1f}s | "
-            f"Channel: {self.channel_name}",
-            0x9b59b6
-        )
-
-        # Immediately attempt upload after successful render
+        notify_step(self.job.topic, "RENDERED", f"└ Size: {size_mb:.1f} MB | Duration: {duration:.1f}s | Channel: {self.channel_name}", 0x9b59b6)
+        
         self._execute_upload()
 
-    # ── STAGE 5: YOUTUBE UPLOAD ──────────────────────────────────────────────
-
     def _execute_upload(self):
-        """
-        FIX: upload_to_youtube_vault() was never called in V5 job_runner.
-        Videos were rendered but never reached YouTube.
-        """
         if not self.youtube:
-            raise RuntimeError(
-                "No YouTube client available for upload. "
-                "Ensure get_youtube_client(channel_config) succeeded."
-            )
+            raise RuntimeError("No YouTube client available for upload.")
+            
         if not self.job.video_path or not os.path.exists(self.job.video_path):
-            raise RuntimeError(
-                f"Video file not found at: {self.job.video_path}"
-            )
+            raise RuntimeError(f"Video file not found at: {self.job.video_path}")
 
         logger.generation("Uploading to YouTube vault...")
         from scripts.youtube_manager import upload_to_youtube_vault, get_or_create_playlist
         metadata = json.loads(self.job.metadata) if self.job.metadata else {}
 
-        success, video_id = upload_to_youtube_vault(
-            self.youtube,
-            self.job.video_path,
-            self.job.topic,
-            metadata,
-            self.job.niche
-        )
+        success, video_id = upload_to_youtube_vault(self.youtube, self.job.video_path, self.job.topic, metadata, self.job.niche)
+        
         if not success or not video_id:
             raise RuntimeError("YouTube vault upload failed — no video_id returned.")
 
         self.job.youtube_id = video_id
-
-        # Get vault playlist ID for the notification
         vault_id = get_or_create_playlist(self.youtube, "Vault Backup")
 
         self._transition_to(JobState.VAULTED)
         notify_vault_secure(self.job.topic, video_id, vault_id or "unknown")
 
-        # Notify full production success
+        # BUG-10 Fix: Utilize the correctly scoped class instance variables
         script_data = json.loads(self.job.script) if self.job.script else {}
         notify_production_success(
             niche=self.job.niche,
@@ -256,6 +212,6 @@ class JobRunner:
             voice_ai=script_data.get("target_voice", "am_adam"),
             visual_ai="4-Tier Cascade",
             metadata=metadata,
-            duration=0.0,
-            size=0.0
+            duration=self.final_duration,
+            size=self.final_size_mb
         )
