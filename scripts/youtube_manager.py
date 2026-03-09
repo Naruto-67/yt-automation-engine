@@ -1,4 +1,4 @@
-# scripts/youtube_manager.py — Ghost Engine V6
+# scripts/youtube_manager.py — Ghost Engine V6.6
 import os
 import shutil
 from google.oauth2.credentials import Credentials
@@ -17,15 +17,12 @@ def _notify_error(module, etype, msg):
     except Exception:
         print(f"🚨 [NOTIFY] {module} | {etype}: {msg}")
 
-
 def get_youtube_client(channel_config):
     """
     Build a YouTube API client for the given channel.
-
     Accepts either:
-      - A ChannelConfig object (preferred — uses per-channel credentials)
-      - A string (legacy: env var name for the refresh token — uses shared client creds)
-
+    - A ChannelConfig object (preferred — uses per-channel credentials)
+    - A string (legacy: env var name for the refresh token — uses shared client creds)
     Per-channel GCP project = separate 10,000pt/day quota per channel.
     """
     from engine.models import ChannelConfig
@@ -44,7 +41,8 @@ def get_youtube_client(channel_config):
 
     if not all([client_id, client_secret, refresh_token]):
         missing = [k for k, v in [
-            ("client_id", client_id), ("client_secret", client_secret),
+            ("client_id", client_id),
+            ("client_secret", client_secret),
             ("refresh_token", refresh_token)
         ] if not v]
         print(f"⚠️ [YT AUTH] Missing credentials for {label}: {missing}")
@@ -63,7 +61,6 @@ def get_youtube_client(channel_config):
         _notify_error("YouTube Auth", "Auth Failure", f"{label}: {e}")
         return None
 
-
 def get_channel_name(youtube) -> str:
     try:
         res = _quota_manager().consume_youtube_and_call(
@@ -74,8 +71,19 @@ def get_channel_name(youtube) -> str:
     except Exception:
         return ""
 
+def get_actual_vault_count(youtube) -> int:
+    v_id = get_or_create_playlist(youtube, "Vault Backup")
+    if not v_id: return 0
+    try:
+        res = _quota_manager().consume_youtube_and_call(
+            lambda: youtube.playlistItems().list(part="id", playlistId=v_id, maxResults=50).execute(),
+            cost=1
+        )
+        return len(res.get("items", []))
+    except Exception:
+        return 0
 
-def get_or_create_playlist(youtube, title: str, privacy: str = "private") -> str:
+def get_or_create_playlist(youtube, title: str, privacy: str = "private"):
     try:
         res = _quota_manager().consume_youtube_and_call(
             lambda: youtube.playlists().list(part="snippet", mine=True, maxResults=50).execute(),
@@ -85,51 +93,34 @@ def get_or_create_playlist(youtube, title: str, privacy: str = "private") -> str
             if item["snippet"]["title"].lower() == title.lower():
                 return item["id"]
 
-        new_pl = _quota_manager().consume_youtube_and_call(
-            lambda: youtube.playlists().insert(
-                part="snippet,status",
-                body={
-                    "snippet": {"title": title},
-                    "status": {"privacyStatus": privacy}
-                }
-            ).execute(),
-            cost=50
-        )
-        return new_pl["id"]
-    except Exception:
+        create_res = youtube.playlists().insert(
+            part="snippet,status",
+            body={
+                "snippet": {"title": title},
+                "status": {"privacyStatus": privacy}
+            }
+        ).execute()
+        _quota_manager().consume_points("youtube", 50)
+        return create_res["id"]
+    except Exception as e:
+        print(f"⚠️ [PLAYLIST] Could not get/create '{title}': {e}")
         return None
 
-
-def get_actual_vault_count(youtube) -> int:
-    v_id = get_or_create_playlist(youtube, "Vault Backup")
-    if not v_id:
-        return 0
+def upload_to_youtube_vault(youtube, video_path: str, topic: str, metadata: dict, niche: str):
     try:
-        res = _quota_manager().consume_youtube_and_call(
-            lambda: youtube.playlists().list(part="contentDetails", id=v_id).execute(),
-            cost=1
-        )
-        return res["items"][0]["contentDetails"]["itemCount"]
-    except Exception:
-        return 0
+        if not os.path.exists(video_path):
+            print(f"❌ [UPLOAD] File not found: {video_path}")
+            return False, None
 
-
-def upload_to_youtube_vault(youtube, video_path: str, topic: str,
-                             metadata: dict, niche: str):
-    """
-    Uploads rendered MP4 to YouTube as private, adds to Vault Backup playlist.
-    Returns (success: bool, video_id: str | None)
-    """
-    # Pre-flight: ensure enough disk space (500 MB minimum for upload buffer)
-    try:
-        if shutil.disk_usage("/").free < (500 * 1024 * 1024):
+        free_bytes = shutil.disk_usage("/").free
+        if free_bytes < (500 * 1024 * 1024):
             print("❌ [UPLOAD] Insufficient disk space for upload buffer.")
             return False, None
     except Exception:
         pass
 
     qm = _quota_manager()
-
+    
     # Abort early if we can't afford the upload (1600pts + 50pts playlist)
     if not qm.can_afford_youtube(1650):
         print("❌ [UPLOAD] Quota insufficient for upload. Skipping.")
@@ -137,22 +128,20 @@ def upload_to_youtube_vault(youtube, video_path: str, topic: str,
 
     try:
         media = MediaFileUpload(
-            video_path,
-            chunksize=1024 * 1024 * 5,
-            resumable=True,
-            mimetype="video/mp4"
+            video_path, chunksize=1024 * 1024 * 5, resumable=True, mimetype="video/mp4"
         )
+
         request = youtube.videos().insert(
             part="snippet,status",
             body={
                 "snippet": {
-                    "title":       metadata.get("title", f"{topic} #shorts")[:100],
+                    "title": metadata.get("title", f"{topic} #shorts")[:100],
                     "description": metadata.get("description", "")[:4900],
-                    "tags":        metadata.get("tags", ["shorts"])[:15],
-                    "categoryId":  "22"
+                    "tags": metadata.get("tags", ["shorts"])[:15],
+                    "categoryId": "22"
                 },
                 "status": {
-                    "privacyStatus":          "private",
+                    "privacyStatus": "private",
                     "selfDeclaredMadeForKids": False
                 }
             },
@@ -166,16 +155,20 @@ def upload_to_youtube_vault(youtube, video_path: str, topic: str,
         video_id = response["id"]
         qm.consume_points("youtube", 1600)
 
-        vault_id = get_or_create_playlist(youtube, "Vault Backup")
-        if vault_id:
-            youtube.playlistItems().insert(
-                part="snippet",
-                body={"snippet": {
-                    "playlistId": vault_id,
-                    "resourceId": {"kind": "youtube#video", "videoId": video_id}
-                }}
-            ).execute()
-            qm.consume_points("youtube", 50)
+        # GOD-TIER FIX: Isolate playlist insertion. If this fails, DO NOT drop the successfully uploaded video_id.
+        try:
+            vault_id = get_or_create_playlist(youtube, "Vault Backup")
+            if vault_id:
+                youtube.playlistItems().insert(
+                    part="snippet",
+                    body={"snippet": {
+                        "playlistId": vault_id,
+                        "resourceId": {"kind": "youtube#video", "videoId": video_id}
+                    }}
+                ).execute()
+                qm.consume_points("youtube", 50)
+        except Exception as pl_error:
+            print(f"⚠️ [UPLOAD] Playlist insertion failed, but video was successfully uploaded: {pl_error}")
 
         print(f"✅ [UPLOAD] Vaulted successfully. Video ID: {video_id}")
         return True, video_id
