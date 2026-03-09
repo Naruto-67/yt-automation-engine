@@ -1,4 +1,4 @@
-# engine/database.py — Ghost Engine V8.0
+# engine/database.py — Ghost Engine V11.0
 import sqlite3
 import os
 import json
@@ -17,10 +17,10 @@ class SQLiteDB:
         self._initialize_tables()
 
     def _connect(self):
-        return sqlite3.connect(self.db_path)
+        # GOD-TIER FIX: Timeout buffer extended to 30.0s to survive VM disk I/O latency spikes.
+        return sqlite3.connect(self.db_path, timeout=30.0)
 
     def _initialize_tables(self):
-        # GOD-TIER FIX: contextlib.closing ensures OS-level file descriptors are freed instantly.
         with contextlib.closing(self._connect()) as conn:
             with conn:
                 c = conn.cursor()
