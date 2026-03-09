@@ -1,4 +1,4 @@
-# scripts/performance_analyst.py — Ghost Engine V6.2
+# scripts/performance_analyst.py — Ghost Engine V6.6
 import os
 import json
 import yaml
@@ -39,10 +39,11 @@ def _apply_time_decay(rules: list, timestamps: dict, prefix: str, decay_days: in
     fresh = [r for i, r in enumerate(rules) if i not in aged_indices]
     merged = aged + fresh
     
+    # GOD-TIER FIX: Use positional mapping to completely prevent identical-string index collisions.
     new_ts = {}
-    for i, rule in enumerate(merged):
-        old_index = rules.index(rule)
-        new_ts[f"{prefix}_{i}"] = timestamps.get(f"{prefix}_{old_index}", now.isoformat())
+    old_indices = aged_indices + [i for i in range(len(rules)) if i not in aged_indices]
+    for new_i, old_i in enumerate(old_indices):
+        new_ts[f"{prefix}_{new_i}"] = timestamps.get(f"{prefix}_{old_i}", now.isoformat())
         
     return merged, new_ts
 
@@ -130,7 +131,6 @@ def run_daily_analysis():
 
             raw, _ = quota_manager.generate_text(user_msg, task_type="analysis", system_prompt=sys_msg)
             if raw:
-                # God-Tier JSON Extraction (bypasses greedy regex issues entirely)
                 start = raw.find('{')
                 end = raw.rfind('}')
                 if start != -1 and end != -1 and end > start:
@@ -148,7 +148,6 @@ def run_daily_analysis():
                             intel["avoid"].append(new_avo)
                             ts[f"avo_{len(intel['avoid']) - 1}"] = now_iso
 
-                        # God-Tier Fix: Safe, prefix-isolated timestamp mapping
                         for prefix, key in [("emp", "emphasize"), ("avo", "avoid")]:
                             if len(intel[key]) > max_rules:
                                 cut_count = len(intel[key]) - max_rules
@@ -159,7 +158,6 @@ def run_daily_analysis():
                                     old_key = f"{prefix}_{i + cut_count}"
                                     new_ts[f"{prefix}_{i}"] = ts.get(old_key, now_iso)
                                     
-                                # Purge old keys for this prefix, update with fresh mapping
                                 ts = {k: v for k, v in ts.items() if not k.startswith(f"{prefix}_")}
                                 ts.update(new_ts)
 
