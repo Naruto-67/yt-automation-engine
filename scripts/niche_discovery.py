@@ -1,4 +1,4 @@
-# scripts/niche_discovery.py
+# scripts/niche_discovery.py — Ghost Engine V7.1
 import os
 import yaml
 from scripts.quota_manager import quota_manager
@@ -9,7 +9,6 @@ def discover_channel_niche(channel_id, yt_client):
     print(f"🕵️ [NICHE DISCOVERY] Identifying niche for {channel_id}...")
     
     try:
-        # 1. Fetch metadata from last 10 uploads
         uploads_id = yt_client.channels().list(part="contentDetails", mine=True).execute()["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
         vids = yt_client.playlistItems().list(part="snippet", playlistId=uploads_id, maxResults=10).execute()
         
@@ -20,9 +19,8 @@ def discover_channel_niche(channel_id, yt_client):
             sample_data += f"Title: {title} | Desc: {desc}\n"
 
         if not sample_data:
-            return "General Viral Trends" # Failsafe for empty channels
+            return "General Viral Trends" 
 
-        # 2. Ask Gemini to classify
         prompt = f"""
         Analyze these YouTube video titles and descriptions:
         {sample_data}
@@ -43,16 +41,31 @@ def discover_channel_niche(channel_id, yt_client):
         return "General Viral Content"
 
 def update_yaml_niche(channel_id, discovered_niche):
-    """Updates the channels.yaml file with the new niche."""
+    """
+    GOD-TIER FIX: Updates the channels.yaml file safely.
+    Replaces the destructive yaml.dump() to prevent stripping instructional comments.
+    """
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     path = os.path.join(root_dir, "config", "channels.yaml")
+    temp_path = f"{path}.tmp"
     
-    with open(path, 'r') as f:
-        data = yaml.safe_load(f)
-
-    for ch in data.get('channels', []):
-        if ch['id'] == channel_id:
-            ch['niche'] = discovered_niche
-    
-    with open(path, 'w') as f:
-        yaml.dump(data, f, default_flow_style=False)
+    try:
+        with open(path, 'r', encoding="utf-8") as f:
+            lines = f.readlines()
+            
+        in_target_channel = False
+        for i, line in enumerate(lines):
+            if f'id: "{channel_id}"' in line or f"id: '{channel_id}'" in line:
+                in_target_channel = True
+            
+            if in_target_channel and "niche:" in line:
+                indent = len(line) - len(line.lstrip())
+                lines[i] = f"{' ' * indent}niche: \"{discovered_niche}\"\n"
+                break
+                
+        with open(temp_path, 'w', encoding="utf-8") as f:
+            f.writelines(lines)
+            
+        os.replace(temp_path, path)
+    except Exception as e:
+        print(f"⚠️ [NICHE DISCOVERY] YAML update failed: {e}")
