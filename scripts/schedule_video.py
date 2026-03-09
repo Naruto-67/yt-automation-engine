@@ -1,4 +1,4 @@
-# scripts/schedule_video.py — Ghost Engine V6.8
+# scripts/schedule_video.py — Ghost Engine V7.2
 import os
 import json
 import time
@@ -28,7 +28,6 @@ def get_historical_time_data(youtube) -> str:
         ).execute()["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
         quota_manager.consume_points("youtube", 1)
 
-        # GOD-TIER FIX: Fetch 50 items to bypass the 14-video private Vault buffer
         vids = youtube.playlistItems().list(
             part="snippet", playlistId=uploads_id, maxResults=50
         ).execute()
@@ -39,7 +38,6 @@ def get_historical_time_data(youtube) -> str:
         if not vid_ids:
             return "No data."
 
-        # GOD-TIER FIX: Query the 'status' part to check privacyStatus
         stats = youtube.videos().list(
             part="statistics,snippet,status", id=",".join(vid_ids)
         ).execute()
@@ -47,7 +45,6 @@ def get_historical_time_data(youtube) -> str:
 
         rows = []
         for i in stats.get("items", []):
-            # Filter out 0-view private Vault videos
             if i.get("status", {}).get("privacyStatus") == "private":
                 continue
             if int(i["statistics"].get("viewCount", "0")) > 0:
@@ -134,7 +131,9 @@ def publish_vault_videos():
                 hr, mn = (15 + idx * 8) % 24, 0
 
             target_dt = now.replace(hour=hr, minute=mn, second=0, microsecond=0)
-            if target_dt <= now + timedelta(minutes=15):
+            
+            # GOD-TIER FIX: Expanded 15m buffer to 30m to safely absorb API transmission latencies
+            if target_dt <= now + timedelta(minutes=30):
                 target_dt += timedelta(days=1)
             publish_time_str = target_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
