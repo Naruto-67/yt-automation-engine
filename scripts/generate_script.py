@@ -1,4 +1,4 @@
-# scripts/generate_script.py — Ghost Engine V6.5
+# scripts/generate_script.py — Ghost Engine V6.9
 import os
 import json
 import yaml
@@ -36,7 +36,6 @@ def validate_script_quality(script_text: str, prompts_cfg: dict) -> bool:
     )
     raw, _ = quota_manager.generate_text(user_msg, task_type="analysis", system_prompt=sys_msg)
     try:
-        # GOD-TIER FIX: Extract all numbers. Account for "8/10" by checking if the last number is 10.
         numbers = [int(n) for n in re.findall(r'\b\d+\b', raw or "")]
         if numbers:
             if len(numbers) >= 2 and numbers[-1] == 10 and numbers[-2] <= 10:
@@ -83,7 +82,7 @@ def generate_script(niche: str, topic: str):
     if hook_context:
         user_prompt += hook_context
 
-    _FAIL = (None, [], [], [], "Error", "am_adam", "&H00FFFFFF")
+    last_error = "Unknown Error"
 
     for attempt in range(3):
         try:
@@ -93,11 +92,13 @@ def generate_script(niche: str, topic: str):
                 system_prompt=prompts_cfg["script_gen"]["system_prompt"]
             )
             if not raw:
+                last_error = "API returned empty response."
                 continue
 
             start = raw.find('{')
             end = raw.rfind('}')
             if start == -1 or end == -1 or end <= start:
+                last_error = "Malformed JSON boundary returned by AI."
                 continue
                 
             json_payload = raw[start:end+1]
@@ -114,13 +115,16 @@ def generate_script(niche: str, topic: str):
             word_count = len(full_text.split())
             if word_count > word_ceiling:
                 print(f"⚠️ [SCRIPT] Too long ({word_count} words, limit {word_ceiling}). Retrying...")
+                last_error = "Script exceeded maximum word count."
                 continue
             if word_count < 10:
                 print("⚠️ [SCRIPT] Script too short. Retrying...")
+                last_error = "Script generated below minimum word threshold."
                 continue
 
             if not validate_script_quality(full_text, prompts_cfg):
                 print("⚠️ [SCRIPT] Quality validation failed. Retrying...")
+                last_error = "Failed ruthless retention quality check."
                 continue
 
             total_chars  = sum(len(s[0]) for s in parsed_scenes)
@@ -136,7 +140,9 @@ def generate_script(niche: str, topic: str):
             return full_text, img_prompts, pexels_queries, scene_weights, provider, chosen_voice, chosen_color
 
         except Exception as e:
+            last_error = str(e)
             print(f"⚠️ [SCRIPT] Attempt {attempt+1} failed: {e}")
             continue
 
-    return _FAIL
+    # GOD-TIER FIX: Raise the actual error instead of returning a dummy tuple so Guardian can trigger Safe Mode
+    raise RuntimeError(f"Script Generation Fatal Exhaustion. Last error: {last_error}")
