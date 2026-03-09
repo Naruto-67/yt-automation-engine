@@ -1,4 +1,4 @@
-# engine/orchestrator.py — Ghost Engine V8.1
+# engine/orchestrator.py — Ghost Engine V11.0
 import os
 import glob
 import yaml
@@ -52,7 +52,8 @@ class Orchestrator:
 
     def cleanup(self):
         logger.engine("🧹 Workspace cleanup...")
-        patterns = ["*.wav", "*.srt", "*.ass", "*.jpg", "*.png", "temp_*", "concat_list.txt", "temp_merged_*.mp4"]
+        # GOD-TIER FIX: Include final_*.mp4 to wipe orphaned artifacts from failed uploads
+        patterns = ["*.wav", "*.srt", "*.ass", "*.jpg", "*.png", "temp_*", "concat_list.txt", "temp_merged_*.mp4", "final_*.mp4"]
         for p in patterns:
             for f in glob.glob(p):
                 try:
@@ -132,8 +133,6 @@ class Orchestrator:
                     global_produced += 1
                     processed_this_run += 1
                 except Exception as e:
-                    
-                    # FULL TRANSPARENCY FIX: Do not silence the terminal logs.
                     trace = traceback.format_exc()
                     print(f"\n🚨 [ORCHESTRATOR ERROR] Job Runner failed:")
                     print(f"└ Exact Exception: {type(e).__name__}: {e}")
