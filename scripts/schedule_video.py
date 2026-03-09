@@ -1,4 +1,4 @@
-# scripts/schedule_video.py — Ghost Engine V6.7
+# scripts/schedule_video.py — Ghost Engine V6.8
 import os
 import json
 import time
@@ -28,8 +28,9 @@ def get_historical_time_data(youtube) -> str:
         ).execute()["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
         quota_manager.consume_points("youtube", 1)
 
+        # GOD-TIER FIX: Fetch 50 items to bypass the 14-video private Vault buffer
         vids = youtube.playlistItems().list(
-            part="snippet", playlistId=uploads_id, maxResults=15
+            part="snippet", playlistId=uploads_id, maxResults=50
         ).execute()
         quota_manager.consume_points("youtube", 1)
 
@@ -38,17 +39,21 @@ def get_historical_time_data(youtube) -> str:
         if not vid_ids:
             return "No data."
 
+        # GOD-TIER FIX: Query the 'status' part to check privacyStatus
         stats = youtube.videos().list(
-            part="statistics,snippet", id=",".join(vid_ids)
+            part="statistics,snippet,status", id=",".join(vid_ids)
         ).execute()
         quota_manager.consume_points("youtube", 1)
 
-        rows = [
-            f"- {i['snippet']['publishedAt']}: {i['statistics'].get('viewCount', '0')} views"
-            for i in stats.get("items", [])
-            if int(i["statistics"].get("viewCount", "0")) > 0
-        ]
-        return "📊 DATA:\n" + "\n".join(rows) if rows else "No data."
+        rows = []
+        for i in stats.get("items", []):
+            # Filter out 0-view private Vault videos
+            if i.get("status", {}).get("privacyStatus") == "private":
+                continue
+            if int(i["statistics"].get("viewCount", "0")) > 0:
+                rows.append(f"- {i['snippet']['publishedAt']}: {i['statistics'].get('viewCount', '0')} views")
+                
+        return "📊 DATA:\n" + "\n".join(rows[:15]) if rows else "No data."
     except Exception:
         return "No data."
 
@@ -77,8 +82,6 @@ def publish_vault_videos():
         return
 
     settings      = config_manager.get_settings()
-    
-    # GOD-TIER FIX: Dynamically assign the vault limit from settings instead of hardcoding 2
     publish_limit = settings.get("vault", {}).get("publish_per_run", 2)
     publish_cost  = publish_limit * 150  
     
@@ -95,7 +98,6 @@ def publish_vault_videos():
         if not youtube:
             continue
 
-        # Passes the dynamic publish_limit safely into the database layer
         jobs = db.get_jobs_by_state(channel.channel_id, JobState.VAULTED, limit=publish_limit)
         if not jobs:
             logger.engine(f"No vaulted videos for {channel.channel_id}.")
