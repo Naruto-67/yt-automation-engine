@@ -1,4 +1,4 @@
-# scripts/performance_analyst.py — Ghost Engine V6
+# scripts/performance_analyst.py — Ghost Engine V6.2
 import os
 import json
 import yaml
@@ -17,11 +17,6 @@ def load_config_prompts():
         return yaml.safe_load(f)
 
 def _apply_time_decay(rules: list, timestamps: dict, prefix: str, decay_days: int = 30) -> tuple:
-    """
-    Down-weight old rules by moving them to the end of the list.
-    BUG-07 & 08 Fix: Rebuilds timestamps mapping correctly with prefix segregation.
-    Returns (new_rules, new_timestamps)
-    """
     if not timestamps or not rules:
         return rules, timestamps
     now = datetime.utcnow()
@@ -135,35 +130,48 @@ def run_daily_analysis():
 
             raw, _ = quota_manager.generate_text(user_msg, task_type="analysis", system_prompt=sys_msg)
             if raw:
-                match = re.search(r'\{.*\}', raw, re.DOTALL)
-                if match:
-                    new_rules = json.loads(match.group(0))
-                    now_iso   = datetime.utcnow().isoformat()
+                # God-Tier JSON Extraction (bypasses greedy regex issues entirely)
+                start = raw.find('{')
+                end = raw.rfind('}')
+                if start != -1 and end != -1 and end > start:
+                    try:
+                        new_rules = json.loads(raw[start:end+1])
+                        now_iso   = datetime.utcnow().isoformat()
 
-                    new_emp = new_rules.get("new_emphasize", "").strip()
-                    new_avo = new_rules.get("new_avoid", "").strip()
+                        new_emp = new_rules.get("new_emphasize", "").strip()
+                        new_avo = new_rules.get("new_avoid", "").strip()
 
-                    if new_emp:
-                        intel["emphasize"].append(new_emp)
-                        ts[f"emp_{len(intel['emphasize']) - 1}"] = now_iso
-                    if new_avo:
-                        intel["avoid"].append(new_avo)
-                        ts[f"avo_{len(intel['avoid']) - 1}"] = now_iso
+                        if new_emp:
+                            intel["emphasize"].append(new_emp)
+                            ts[f"emp_{len(intel['emphasize']) - 1}"] = now_iso
+                        if new_avo:
+                            intel["avoid"].append(new_avo)
+                            ts[f"avo_{len(intel['avoid']) - 1}"] = now_iso
 
-                    # Cap lists and rebuild timestamps for safety
-                    if len(intel["emphasize"]) > max_rules:
-                        intel["emphasize"] = intel["emphasize"][-max_rules:]
-                        ts = {k:v for k,v in ts.items() if k.startswith("avo_") or (k.startswith("emp_") and int(k.split("_")[1]) >= len(intel["emphasize"]) - max_rules)}
-                        # Re-index
-                        ts = {f"{k.split('_')[0]}_{i}": v for i, (k,v) in enumerate(ts.items())}
+                        # God-Tier Fix: Safe, prefix-isolated timestamp mapping
+                        for prefix, key in [("emp", "emphasize"), ("avo", "avoid")]:
+                            if len(intel[key]) > max_rules:
+                                cut_count = len(intel[key]) - max_rules
+                                intel[key] = intel[key][-max_rules:]
+                                
+                                new_ts = {}
+                                for i in range(len(intel[key])):
+                                    old_key = f"{prefix}_{i + cut_count}"
+                                    new_ts[f"{prefix}_{i}"] = ts.get(old_key, now_iso)
+                                    
+                                # Purge old keys for this prefix, update with fresh mapping
+                                ts = {k: v for k, v in ts.items() if not k.startswith(f"{prefix}_")}
+                                ts.update(new_ts)
 
-                    intel["rule_timestamps"] = ts
+                        intel["rule_timestamps"] = ts
 
-                    if recent_vids:
-                        new_tags = new_rules.get("new_tags", [])
-                        if new_tags:
-                            combined = intel.get("recent_tags", []) + new_tags
-                            intel["recent_tags"] = list(dict.fromkeys(combined))[-20:]
+                        if recent_vids:
+                            new_tags = new_rules.get("new_tags", [])
+                            if new_tags:
+                                combined = intel.get("recent_tags", []) + new_tags
+                                intel["recent_tags"] = list(dict.fromkeys(combined))[-20:]
+                    except Exception as e:
+                        logger.error(f"Failed to parse Analyst JSON: {e}")
 
             db.upsert_channel_intelligence(channel.channel_id, intel)
             notify_daily_pulse(views, subs, growth_7d, intel)
