@@ -29,11 +29,15 @@ def generate_seo_metadata(niche, script):
             if start != -1 and end != -1 and end > start:
                 data = json.loads(raw_text[start:end+1])
                 
-                # GOD-TIER FIX: Dynamically un-nest hallucinatory LLM structures
                 if "metadata" in data and isinstance(data["metadata"], dict):
                     data = data["metadata"]
                 elif isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
                     data = data[0]
+                    
+                # GOD-TIER FIX: Coerce hallucinated raw string arrays into empty dict 
+                # preventing fatal AttributeError: 'list' object has no attribute 'get'
+                if not isinstance(data, dict):
+                    data = {}
                 
                 safe_title_raw = data.get("title", f"Amazing {niche} Facts #shorts")
                 if isinstance(safe_title_raw, list): 
