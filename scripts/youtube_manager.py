@@ -1,11 +1,10 @@
-# scripts/youtube_manager.py — Ghost Engine V6.6
+# scripts/youtube_manager.py — Ghost Engine V6.9
 import os
 import shutil
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-# Lazy imports to avoid circular dependency
 def _quota_manager():
     from scripts.quota_manager import quota_manager
     return quota_manager
@@ -18,13 +17,6 @@ def _notify_error(module, etype, msg):
         print(f"🚨 [NOTIFY] {module} | {etype}: {msg}")
 
 def get_youtube_client(channel_config):
-    """
-    Build a YouTube API client for the given channel.
-    Accepts either:
-    - A ChannelConfig object (preferred — uses per-channel credentials)
-    - A string (legacy: env var name for the refresh token — uses shared client creds)
-    Per-channel GCP project = separate 10,000pt/day quota per channel.
-    """
     from engine.models import ChannelConfig
 
     if isinstance(channel_config, ChannelConfig):
@@ -33,7 +25,6 @@ def get_youtube_client(channel_config):
         refresh_token = os.environ.get(channel_config.youtube_refresh_token_env)
         label         = channel_config.channel_id
     else:
-        # Legacy string path — uses shared YOUTUBE_CLIENT_ID / YOUTUBE_CLIENT_SECRET
         client_id     = os.environ.get("YOUTUBE_CLIENT_ID")
         client_secret = os.environ.get("YOUTUBE_CLIENT_SECRET")
         refresh_token = os.environ.get(str(channel_config))
@@ -110,21 +101,20 @@ def upload_to_youtube_vault(youtube, video_path: str, topic: str, metadata: dict
     try:
         if not os.path.exists(video_path):
             print(f"❌ [UPLOAD] File not found: {video_path}")
-            return False, None
+            return False, "File not found on disk"
 
         free_bytes = shutil.disk_usage("/").free
         if free_bytes < (500 * 1024 * 1024):
             print("❌ [UPLOAD] Insufficient disk space for upload buffer.")
-            return False, None
+            return False, "Insufficient disk space"
     except Exception:
         pass
 
     qm = _quota_manager()
     
-    # Abort early if we can't afford the upload (1600pts + 50pts playlist)
     if not qm.can_afford_youtube(1650):
         print("❌ [UPLOAD] Quota insufficient for upload. Skipping.")
-        return False, None
+        return False, "403 Quota Exceeded (Internal Engine Estimate)"
 
     try:
         media = MediaFileUpload(
@@ -155,7 +145,6 @@ def upload_to_youtube_vault(youtube, video_path: str, topic: str, metadata: dict
         video_id = response["id"]
         qm.consume_points("youtube", 1600)
 
-        # GOD-TIER FIX: Isolate playlist insertion. If this fails, DO NOT drop the successfully uploaded video_id.
         try:
             vault_id = get_or_create_playlist(youtube, "Vault Backup")
             if vault_id:
@@ -175,4 +164,5 @@ def upload_to_youtube_vault(youtube, video_path: str, topic: str, metadata: dict
 
     except Exception as e:
         qm.diagnose_fatal_error("YouTube Upload", e)
-        return False, None
+        # GOD-TIER FIX: Return the actual stringified exception so Guardian can parse the "403"
+        return False, str(e)
