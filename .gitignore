@@ -1,12 +1,28 @@
-# .gitignore
-memory/ghost_engine.db
-memory/error_log.txt
-memory/*.json
-assets/lessons_learned.json
-*.wav
+# Environment & secrets
+.env
+*.env
+.env.*
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Local temp files
 *.mp4
+*.wav
+*.mp3
 *.srt
 *.ass
-*.jpg
 temp_*
-.env
+final_*
+concat_list.txt
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
