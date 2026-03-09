@@ -1,7 +1,8 @@
-# engine/orchestrator.py — Ghost Engine V6.3
+# engine/orchestrator.py — Ghost Engine V7.1
 import os
 import glob
 import yaml
+import re
 from engine.logger import logger
 from engine.config_manager import config_manager
 from engine.database import db
@@ -26,19 +27,28 @@ class Orchestrator:
         path = config_manager.channels_path
         temp_path = f"{path}.tmp"
         
-        with open(path, "r") as f:
-            data = yaml.safe_load(f)
-            
-        for ch in data.get("channels", []):
-            if ch.get("id") == channel_config.channel_id:
-                ch["name"] = live_name
+        try:
+            # GOD-TIER FIX: Safe string replacement prevents PyYAML from deleting documentation comments.
+            with open(path, "r", encoding="utf-8") as f:
+                content = f.read()
                 
-        with open(temp_path, "w") as f:
-            yaml.dump(data, f, default_flow_style=False)
+            old_line = f'name: "{channel_config.channel_name}"'
+            new_line = f'name: "{live_name}"'
             
-        os.replace(temp_path, path)
-        channel_config.channel_name = live_name
-        config_manager.reload_channels()
+            if old_line in content:
+                content = content.replace(old_line, new_line)
+            else:
+                content = re.sub(rf'name:\s*[\'"]?{re.escape(channel_config.channel_name)}[\'"]?', 
+                                 f'name: "{live_name}"', content)
+                                 
+            with open(temp_path, "w", encoding="utf-8") as f:
+                f.write(content)
+                
+            os.replace(temp_path, path)
+            channel_config.channel_name = live_name
+            config_manager.reload_channels()
+        except Exception as e:
+            logger.error(f"Identity sync failed safely: {e}")
 
     def cleanup(self):
         logger.engine("🧹 Workspace cleanup...")
@@ -90,9 +100,6 @@ class Orchestrator:
             if unprocessed < 3:
                 run_dynamic_research(channel, yt_client)
 
-            # GOD-TIER FIX: Priority Inversion. 
-            # Process jobs closest to completion first. Do NOT start new QUEUED jobs 
-            # if we have half-finished RENDERING or VISUAL generation jobs stuck.
             batch = []
             priority_states = [
                 JobState.RENDERING, 
@@ -104,7 +111,7 @@ class Orchestrator:
             
             for state in priority_states:
                 jobs_in_state = db.get_jobs_by_state(channel.channel_id, state, limit=4)
-                jobs_in_state.sort(key=lambda j: j.attempts) # Retries handled after fresh runs inside that state
+                jobs_in_state.sort(key=lambda j: j.attempts) 
                 batch.extend(jobs_in_state)
 
             max_videos = 1 if TEST_MODE else 4
@@ -113,6 +120,13 @@ class Orchestrator:
             for job in batch:
                 if processed_this_run >= max_videos:
                     break
+                
+                # GOD-TIER FIX: Intra-loop Quota Check.
+                # Prevents generating an entire video only to fail at the upload stage due to depleted API limits.
+                if guardian.get_run_forecast() < 1:
+                    logger.engine("🛑 [GUARDIAN] Quota depleted mid-run. Halting batch to protect AI resources.")
+                    break
+                    
                 self.cleanup()
                 try:
                     runner = JobRunner(job, youtube_client=yt_client, channel_name=channel.channel_name)
