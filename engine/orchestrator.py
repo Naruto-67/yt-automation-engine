@@ -1,4 +1,4 @@
-# engine/orchestrator.py — Ghost Engine V7.1
+# engine/orchestrator.py — Ghost Engine V9.0
 import os
 import glob
 import yaml
@@ -28,7 +28,6 @@ class Orchestrator:
         temp_path = f"{path}.tmp"
         
         try:
-            # GOD-TIER FIX: Safe string replacement prevents PyYAML from deleting documentation comments.
             with open(path, "r", encoding="utf-8") as f:
                 content = f.read()
                 
@@ -121,8 +120,6 @@ class Orchestrator:
                 if processed_this_run >= max_videos:
                     break
                 
-                # GOD-TIER FIX: Intra-loop Quota Check.
-                # Prevents generating an entire video only to fail at the upload stage due to depleted API limits.
                 if guardian.get_run_forecast() < 1:
                     logger.engine("🛑 [GUARDIAN] Quota depleted mid-run. Halting batch to protect AI resources.")
                     break
@@ -134,7 +131,12 @@ class Orchestrator:
                     global_produced += 1
                     processed_this_run += 1
                 except Exception as e:
-                    guardian.report_incident(job.state.name, e)
+                    # GOD-TIER FIX: Actually read the Guardian's response and break the loop on FATAL errors
+                    # to prevent burning through the queue when APIs are globally banned.
+                    action = guardian.report_incident(job.state.name, e)
+                    if action == "FATAL":
+                        logger.error(f"🛑 [ORCHESTRATOR] Fatal incident reported. Halting batch for {channel.channel_id}.")
+                        break
 
         self.cleanup()
         notify_summary(True, f"🌙 Pipeline cycle complete. Produced **{global_produced}** video(s) this run.")
