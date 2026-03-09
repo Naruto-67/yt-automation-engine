@@ -1,4 +1,4 @@
-# scripts/performance_analyst.py — Ghost Engine V7.2
+# scripts/performance_analyst.py — Ghost Engine V8.0
 import os
 import json
 import yaml
@@ -168,12 +168,12 @@ def run_daily_analysis():
 
                         intel["rule_timestamps"] = ts
 
-                        # GOD-TIER FIX: Coerce hallucinated strings into lists to prevent TypeError crashes
                         new_tags_raw = new_rules.get("new_tags", [])
                         if isinstance(new_tags_raw, str):
                             new_tags = [t.strip() for t in new_tags_raw.split(",") if t.strip()]
                         elif isinstance(new_tags_raw, list):
-                            new_tags = new_tags_raw
+                            # GOD-TIER FIX: Coerce all elements to strings to prevent TypeError crashes during .join()
+                            new_tags = [str(t).strip() for t in new_tags_raw if str(t).strip()]
                         else:
                             new_tags = []
 
