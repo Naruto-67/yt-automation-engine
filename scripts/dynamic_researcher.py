@@ -1,4 +1,4 @@
-# scripts/dynamic_researcher.py — Ghost Engine V6.3
+# scripts/dynamic_researcher.py — Ghost Engine V6.9
 import re
 import json
 import yaml
@@ -139,11 +139,12 @@ def _generate_topics_and_evolve_niche(channel_config: ChannelConfig, needed: int
     competitor_section = f"\n\n🏆 COMPETITOR INSIGHTS:\n{competitor_context}" if competitor_context else ""
 
     sys_msg  = prompts_cfg["researcher"]["system_prompt"]
+    # GOD-TIER FIX: Provide a 300-topic exclusion window so the AI doesn't cycle back and cause Jaccard starvation.
     user_msg = prompts_cfg["researcher"]["user_template"].format(
         needed_count=max(5, needed + 5),
         niche=active_niche,
         channel_context=channel_context + competitor_section,
-        history_string=", ".join(historical_topics[-50:]) if historical_topics else "None"
+        history_string=", ".join(historical_topics[-300:]) if historical_topics else "None"
     )
 
     raw, _ = quota_manager.generate_text(user_msg, task_type="research", system_prompt=sys_msg)
@@ -153,22 +154,38 @@ def _generate_topics_and_evolve_niche(channel_config: ChannelConfig, needed: int
     evolved_niche = None
     topics = []
     
+    # GOD-TIER FIX: Bulletproof JSON array extraction logic.
+    # We check if the JSON is an array first, preventing silent dictionary dict.get() misses.
     try:
-        start = raw.find('{')
-        end = raw.rfind('}')
-        if start != -1 and end != -1 and end > start:
-            parsed = json.loads(raw[start:end+1])
-            if isinstance(parsed, dict):
-                evolved_niche = parsed.get("evolved_niche")
-                topics        = parsed.get("topics", [])
-    except Exception:
-        start_arr = raw.find('[')
-        end_arr = raw.rfind(']')
-        if start_arr != -1 and end_arr != -1 and end_arr > start_arr:
-            try:
+        clean_raw = raw.strip().replace("```json", "").replace("```", "").strip()
+        
+        # If the response explicitly starts as a list, bypass dictionary parsing entirely
+        if clean_raw.startswith("["):
+            start_arr = raw.find('[')
+            end_arr = raw.rfind(']')
+            if start_arr != -1 and end_arr != -1 and end_arr > start_arr:
                 topics = json.loads(raw[start_arr:end_arr+1])
-            except Exception:
-                pass
+        else:
+            # Fallback to standard dictionary extraction
+            start = raw.find('{')
+            end = raw.rfind('}')
+            if start != -1 and end != -1 and end > start:
+                parsed = json.loads(raw[start:end+1])
+                if isinstance(parsed, dict):
+                    evolved_niche = parsed.get("evolved_niche")
+                    topics        = parsed.get("topics", [])
+                    
+            # Absolute Failsafe: if dict extraction succeeded but yielded 0 topics, 
+            # attempt to salvage any array lurking in the markdown.
+            if not topics:
+                start_arr = raw.find('[')
+                end_arr = raw.rfind(']')
+                if start_arr != -1 and end_arr != -1 and end_arr > start_arr:
+                    salvaged = json.loads(raw[start_arr:end_arr+1])
+                    if isinstance(salvaged, list): 
+                        topics = salvaged
+    except Exception as e:
+        logger.error(f"Failed to parse AI research JSON: {e}")
 
     return topics, evolved_niche
 
