@@ -1,4 +1,4 @@
-# scripts/quota_manager.py — Ghost Engine V6.1
+# scripts/quota_manager.py — Ghost Engine V6.2
 import os
 import json
 import time
@@ -37,71 +37,67 @@ class MasterQuotaManager:
         return os.environ.get("CURRENT_CHANNEL_ID", "default_channel")
 
     def _get_active_state(self) -> dict:
+        """
+        GOD-TIER FIX: YouTube is tracked per-channel.
+        Gemini, Cloudflare, and HF are tracked GLOBALLY.
+        """
         today = self._today()
-        channel_id = self._get_channel_id()
+        ch_id = self._get_channel_id()
 
-        # Fix: Pass channel_id to match new DB schema
-        state = db.get_quota_state(today, channel_id)
-        if state:
-            return state
+        # Initialize and fetch Channel-Specific State (YouTube)
+        ch_state = db.get_quota_state(today, ch_id)
+        if not ch_state:
+            db.init_quota_state(today, ch_id, today)
+            ch_state = db.get_quota_state(today, ch_id) or {}
 
-        try:
-            if os.path.exists(_QUOTA_JSON_PATH):
-                with open(_QUOTA_JSON_PATH, "r") as f:
-                    saved = json.load(f)
-                
-                # Ensure the JSON state matches both the date AND the channel
-                if saved.get("date") == today and saved.get("channel_id") == channel_id:
-                    db.init_quota_state(today, channel_id, today)
-                    for col, val in [
-                        ("youtube_points", saved.get("youtube_points", 0)),
-                        ("gemini_calls",   saved.get("gemini_calls", 0)),
-                        ("cf_images",      saved.get("cf_images", 0)),
-                        ("hf_images",      saved.get("hf_images", 0)),
-                    ]:
-                        if val:
-                            db.update_quota(today, channel_id, col, val)
-                    return db.get_quota_state(today, channel_id)
-        except Exception:
-            pass
+        # Initialize and fetch Global State (AI Providers)
+        gl_state = db.get_quota_state(today, "GLOBAL")
+        if not gl_state:
+            db.init_quota_state(today, "GLOBAL", today)
+            gl_state = db.get_quota_state(today, "GLOBAL") or {}
 
-        db.init_quota_state(today, channel_id, today)
-        return db.get_quota_state(today, channel_id)
-
-    def _flush_quota_json(self):
-        try:
-            today = self._today()
-            channel_id = self._get_channel_id()
-            state = db.get_quota_state(today, channel_id) or {}
-            
-            os.makedirs(os.path.dirname(_QUOTA_JSON_PATH), exist_ok=True)
-            with open(_QUOTA_JSON_PATH, "w") as f:
-                json.dump({
-                    "date":           today,
-                    "channel_id":     channel_id,
-                    "youtube_points": state.get("youtube_points", 0),
-                    "gemini_calls":   state.get("gemini_calls", 0),
-                    "cf_images":      state.get("cf_images", 0),
-                    "hf_images":      state.get("hf_images", 0),
-                    "updated_at":     datetime.utcnow().isoformat()
-                }, f, indent=2)
-        except Exception as e:
-            print(f"⚠️ [QUOTA] Failed to flush quota_state.json: {e}")
+        return {
+            "date":           today,
+            "channel_id":     ch_id,
+            "youtube_points": ch_state.get("youtube_points", 0),
+            "gemini_calls":   gl_state.get("gemini_calls", 0),
+            "cf_images":      gl_state.get("cf_images", 0),
+            "hf_images":      gl_state.get("hf_images", 0)
+        }
 
     def consume_points(self, provider: str, amount: int):
         today = self._today()
-        channel_id = self._get_channel_id()
-        col_map = {
-            "youtube":     "youtube_points",
-            "gemini":      "gemini_calls",
-            "cloudflare":  "cf_images",
-            "huggingface": "hf_images",
-        }
-        col = col_map.get(provider)
+        
+        # Route the cost to the correct pool
+        if provider == "youtube":
+            target_id = self._get_channel_id()
+            col = "youtube_points"
+            yt_update = today
+        else:
+            target_id = "GLOBAL"
+            yt_update = None
+            col_map = {
+                "gemini":      "gemini_calls",
+                "cloudflare":  "cf_images",
+                "huggingface": "hf_images"
+            }
+            col = col_map.get(provider)
+
         if col:
-            yt_update = today if provider == "youtube" else None
-            db.update_quota(today, channel_id, col, amount, yt_update)
-            self._flush_quota_json()
+            # Ensure the row exists before updating
+            if not db.get_quota_state(today, target_id):
+                db.init_quota_state(today, target_id, today)
+                
+            db.update_quota(today, target_id, col, amount, yt_update)
+            
+            # Flush a snapshot to JSON for debug logs
+            try:
+                state = self._get_active_state()
+                os.makedirs(os.path.dirname(_QUOTA_JSON_PATH), exist_ok=True)
+                with open(_QUOTA_JSON_PATH, "w") as f:
+                    json.dump(state, f, indent=2)
+            except Exception:
+                pass
 
     def consume_youtube_and_call(self, api_call, cost: int):
         if not self.can_afford_youtube(cost):
