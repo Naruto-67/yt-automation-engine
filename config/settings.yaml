@@ -1,22 +1,69 @@
-# config/settings.yaml
-version: "5.0.4"
+# config/settings.yaml — Ghost Engine V6
+version: "6.0.0"
 
+# ─── API LIMITS ───────────────────────────────────────────────────────────────
+# YouTube: 10,000pts/day PER GCP PROJECT (separate project = separate quota)
+# These are conservative safe limits — not the theoretical max
 api_limits:
-  gemini: 40
-  cloudflare: 95
-  huggingface: 50
-  youtube: 9500
+  gemini: 38        # Gemini free-tier: ~50 RPD. Keep 12 buffer for audit/research.
+  cloudflare: 90    # CF Workers AI: ~100 free/day. Keep 5 buffer.
+  huggingface: 45   # HF Inference API: ~50 free/day. Keep 5 buffer.
+  youtube: 9200     # YouTube Data API: 10,000pts/day. Keep 800 emergency buffer.
+  groq_tpm: 6000    # Groq free tier: ~6,000 TPM on free models
 
+# ─── GUARDIAN COSTS (per-video estimated quota consumption) ───────────────────
 guardian_costs:
+  # YouTube points breakdown per video:
+  # upload=1600, playlist_add=50, vault_check=1, channel_list=1 → ~1652 pts
+  # Plus publishing: schedule_update=50, add_to_public_playlist=50, remove_vault=50 → 150 pts
+  # Per-video total: ~1802 pts → use 1850 as safe ceiling
   youtube_points: 1850
-  gemini_calls: 3
-  image_calls: 7
-  safe_mode_threshold: 0.85
+  gemini_calls: 3         # script + validation + seo = 3 calls per video
+  image_calls: 7          # 7 scenes per video
+  safe_mode_threshold: 0.85  # Trigger safe mode at 85% quota consumption
 
+# ─── COMMENT ENGAGEMENT QUOTA BUDGET ─────────────────────────────────────────
+# YouTube cost: commentThreads.list=1pt, comments.insert=50pts per reply
+# Budget: max 10 replies/day × 50pts = 500pts maximum spend on engagement
+engagement:
+  max_replies_per_channel_per_day: 10
+  max_videos_to_scan: 5      # Only scan last 5 videos for comments
+  max_comments_per_video: 10 # Fetch max 10 comments per video (costs 1pt each)
+
+# ─── TTS CALIBRATION ─────────────────────────────────────────────────────────
+# Kokoro is called with speed=1.1 — actual WPM ≈ 130 × 1.1 = 143 WPM
+# Word ceiling for ≤59s: floor(59 × (143/60)) = 140 words
+tts:
+  base_wpm: 130
+  kokoro_speed_multiplier: 1.1
+  max_duration_seconds: 59   # HARDCODED — do not change
+
+# ─── VIDEO PRODUCTION ─────────────────────────────────────────────────────────
+# Only 3 values are hardcoded per spec: resolution, fps, max duration
+video:
+  width: 1080      # HARDCODED
+  height: 1920     # HARDCODED
+  fps: 30          # HARDCODED
+  max_duration: 59 # HARDCODED
+  min_disk_gb: 2.5 # Minimum free disk before rendering (GB). Auto-scales with scene count.
+
+# ─── VAULT MANAGEMENT ─────────────────────────────────────────────────────────
+vault:
+  max_videos: 14      # Max private vault size before pausing production
+  publish_per_run: 2  # Videos to publish per 02_publisher run
+
+# ─── VOICE ACTORS ─────────────────────────────────────────────────────────────
 voice_actors:
   kokoro: ["am_adam", "af_bella", "am_michael", "af_sarah"]
   groq: ["autumn", "diana", "hannah", "austin", "daniel", "troy"]
+  # Mapping: kokoro voice → most similar groq voice for fallback
+  kokoro_to_groq_map:
+    am_adam: "daniel"      # Deep/Serious
+    af_bella: "diana"      # Warm/Storytelling
+    am_michael: "austin"   # Fast/Punchy
+    af_sarah: "hannah"     # Energetic/Bright
 
+# ─── SUBTITLE STYLE ──────────────────────────────────────────────────────────
 subtitle_style:
   FontName: "Arial"
   FontSize: "75"
@@ -28,3 +75,36 @@ subtitle_style:
   BorderStyle: "1"
   Alignment: "2"
   MarginV: "500"
+
+# ─── STORAGE MANAGEMENT ──────────────────────────────────────────────────────
+storage:
+  db_prune_after_days: 30        # Delete PUBLISHED/FAILED jobs older than N days
+  topic_archive_max_entries: 500 # Max topics to keep in archive
+  error_log_max_mb: 1            # Trim error_log.txt at this size
+  token_health_warn_days: 7      # Warn if token health check hasn't succeeded in N days
+  token_health_critical_days: 150 # Critical alert (30-day buffer before 180-day expiry)
+
+# ─── CHANNEL INTELLIGENCE ────────────────────────────────────────────────────
+intelligence:
+  max_rules: 5                   # Max emphasize/avoid rules to keep
+  rule_decay_days: 30            # Rules older than N days are down-weighted
+  competitor_channels_to_analyze: 3  # How many competitor channels to analyze weekly
+  competitor_top_videos: 5       # How many top videos to pull from each competitor
+
+# ─── GEMINI MODEL PRIORITY (stable free-tier first) ─────────────────────────
+# System will auto-discover available models at runtime.
+# This list is the FALLBACK if discovery fails.
+# Priority: stable > experimental > preview. Free-tier always preferred.
+gemini_model_fallback_chain:
+  - "gemini-2.0-flash"           # Stable, latest, free tier
+  - "gemini-2.0-flash-lite"      # Stable, faster/cheaper, free tier
+  - "gemini-1.5-flash-8b"        # Stable, very fast, free tier
+  - "gemini-1.5-flash"           # Stable fallback
+  - "gemini-1.0-pro"             # Last resort
+
+# ─── GROQ MODEL PRIORITY (stable free-tier first) ───────────────────────────
+groq_model_fallback_chain:
+  - "llama-3.3-70b-versatile"    # Stable, high quality
+  - "llama-3.1-70b-versatile"    # Stable fallback
+  - "llama3-70b-8192"            # Older but reliable
+  - "mixtral-8x7b-32768"         # Last resort
