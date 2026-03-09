@@ -1,4 +1,4 @@
-# scripts/dynamic_researcher.py — Ghost Engine V6
+# scripts/dynamic_researcher.py — Ghost Engine V6.3
 import re
 import json
 import yaml
@@ -151,19 +151,22 @@ def _generate_topics_and_evolve_niche(channel_config: ChannelConfig, needed: int
         return [], None
 
     evolved_niche = None
+    topics = []
+    
     try:
-        parsed = json.loads(raw.replace("```json", "").replace("```", "").strip())
-        if isinstance(parsed, dict):
-            evolved_niche = parsed.get("evolved_niche")
-            topics        = parsed.get("topics", [])
-        else:
-            topics = parsed
+        start = raw.find('{')
+        end = raw.rfind('}')
+        if start != -1 and end != -1 and end > start:
+            parsed = json.loads(raw[start:end+1])
+            if isinstance(parsed, dict):
+                evolved_niche = parsed.get("evolved_niche")
+                topics        = parsed.get("topics", [])
     except Exception:
-        topics = []
-        match = re.search(r'\[.*\]', raw, re.DOTALL)
-        if match:
+        start_arr = raw.find('[')
+        end_arr = raw.rfind(']')
+        if start_arr != -1 and end_arr != -1 and end_arr > start_arr:
             try:
-                topics = json.loads(match.group(0))
+                topics = json.loads(raw[start_arr:end_arr+1])
             except Exception:
                 pass
 
@@ -194,11 +197,9 @@ def run_dynamic_research(channel_config: ChannelConfig, yt_client):
 
     channel_context = get_deep_channel_context(yt_client)
 
-    # Use evolved niche if present, falling back to original niche
     intel = db.get_channel_intelligence(channel_config.channel_id)
     active_niche_string = intel.get("evolved_niche") or channel_config.niche
     
-    # BUG-02 Fix: Split multi-niches dynamically
     sub_niches = [n.strip() for n in active_niche_string.split(', ')] if ',' in active_niche_string else [active_niche_string]
     added_count = 0
     overall_evolved = None
@@ -232,14 +233,19 @@ def run_dynamic_research(channel_config: ChannelConfig, yt_client):
         for item in new_topics:
             if added_count >= needed:
                 break
-            topic_clean = item.get("topic", "").strip()
+            
+            topic_clean = ""
+            if isinstance(item, dict):
+                topic_clean = item.get("topic", "").strip()
+            elif isinstance(item, str):
+                topic_clean = item.strip()
+                
             if not topic_clean:
                 continue
                 
             if any(_jaccard_similarity(topic_clean, h) > 0.6 for h in historical_topics):
                 continue
 
-            # BUG-17 Fix: Validate assigned niche to prevent cross-pollution
             validated_niche = active_niche
             db.upsert_job(VideoJob(
                 channel_id=channel_config.channel_id,
