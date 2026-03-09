@@ -1,4 +1,4 @@
-# scripts/performance_analyst.py — Ghost Engine V6.6
+# scripts/performance_analyst.py — Ghost Engine V6.7
 import os
 import json
 import yaml
@@ -39,7 +39,6 @@ def _apply_time_decay(rules: list, timestamps: dict, prefix: str, decay_days: in
     fresh = [r for i, r in enumerate(rules) if i not in aged_indices]
     merged = aged + fresh
     
-    # GOD-TIER FIX: Use positional mapping to completely prevent identical-string index collisions.
     new_ts = {}
     old_indices = aged_indices + [i for i in range(len(rules)) if i not in aged_indices]
     for new_i, old_i in enumerate(old_indices):
@@ -62,18 +61,24 @@ def _fetch_recent_video_stats(youtube, channel_id: str) -> list:
         uploads_id = youtube.channels().list(part="contentDetails", mine=True).execute()["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
         quota_manager.consume_points("youtube", 1)
 
-        vids = youtube.playlistItems().list(part="snippet", playlistId=uploads_id, maxResults=20).execute()
+        # GOD-TIER FIX: Fetch 50 videos instead of 20 to ensure we bypass the 14 private Vault videos
+        vids = youtube.playlistItems().list(part="snippet", playlistId=uploads_id, maxResults=50).execute()
         quota_manager.consume_points("youtube", 1)
 
         vid_ids = [v["snippet"]["resourceId"]["videoId"] for v in vids.get("items", [])]
         if not vid_ids:
             return []
 
-        stats = youtube.videos().list(part="statistics,snippet", id=",".join(vid_ids)).execute()
+        # GOD-TIER FIX: Add "status" part to strictly check the privacyStatus of the videos
+        stats = youtube.videos().list(part="statistics,snippet,status", id=",".join(vid_ids)).execute()
         quota_manager.consume_points("youtube", 1)
 
         results = []
         for item in stats.get("items", []):
+            # Block private/unreleased vault videos from polluting the AI's intelligence with 0 views
+            if item.get("status", {}).get("privacyStatus") == "private":
+                continue
+                
             published = item["snippet"].get("publishedAt", "")
             db.upsert_video_performance(
                 channel_id=channel_id, youtube_id=item["id"], title=item["snippet"]["title"],
