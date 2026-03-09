@@ -1,4 +1,4 @@
-# scripts/generate_visuals.py
+# scripts/generate_visuals.py — Ghost Engine V7.0
 import os
 import requests
 import urllib.parse
@@ -29,7 +29,6 @@ def _regenerate_safe_prompt(bad_prompt):
     return "Cinematic 3D animation of a mysterious artifact, highly detailed"
 
 def discover_hf_image_models():
-    """Auto-discovers and caches top trending Text-to-Image models on HuggingFace."""
     global _HF_MODELS_CACHE
     if _HF_MODELS_CACHE:
         return _HF_MODELS_CACHE
@@ -45,13 +44,10 @@ def discover_hf_image_models():
             def _score_hf(name):
                 s = 0
                 n = name.lower()
-                # Prioritize speed and quality architectures
                 if 'flux' in n: s += 50
                 if 'schnell' in n: s += 30
                 if 'stable-diffusion' in n: s += 20
                 if 'turbo' in n or 'lightning' in n: s += 15
-                
-                # Exclude plugins, adapters, and massive base weights that fail serverless
                 if 'lora' in n or 'controlnet' in n or 'adapter' in n or 'ip-adapter' in n: s -= 100
                 return s
             
@@ -59,13 +55,12 @@ def discover_hf_image_models():
             valid_models.sort(key=_score_hf, reverse=True)
             
             if valid_models:
-                _HF_MODELS_CACHE = valid_models[:4] # Keep top 4 for the cascade
+                _HF_MODELS_CACHE = valid_models[:4] 
                 print(f"✅ [HF] Model cascade dynamically updated: {_HF_MODELS_CACHE}")
                 return _HF_MODELS_CACHE
     except Exception as e:
         print(f"⚠️ [HF] Discovery failed: {e}")
 
-    # Ultimate Failsafe
     _HF_MODELS_CACHE = ["black-forest-labs/FLUX.1-schnell", "stabilityai/stable-diffusion-xl-base-1.0"]
     return _HF_MODELS_CACHE
 
@@ -124,10 +119,16 @@ def generate_huggingface_cascade(prompt, output_path):
                 quota_manager.consume_points("huggingface", 1)
                 return True, f"HF ({short_name})"
             elif response.status_code in [401, 402, 403, 404]: 
-                # 404 indicates the trending model was deleted or made private
                 continue
             elif response.status_code >= 500:
-                wait_time = min(int(response.json().get("estimated_time", 13)) + 2, 60) if "json" in dir(response) else 15
+                # GOD-TIER FIX: Bulletproof JSON parsing against HTML Gateway Errors
+                wait_time = 15
+                try:
+                    data = response.json()
+                    wait_time = min(int(data.get("estimated_time", 13)) + 2, 60)
+                except Exception:
+                    pass
+                    
                 time.sleep(wait_time)
                 response = requests.post(url, headers=headers, json=payload, timeout=(15, 60))
                 if response.status_code == 200:
