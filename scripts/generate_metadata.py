@@ -1,4 +1,4 @@
-# scripts/generate_metadata.py
+# scripts/generate_metadata.py — Ghost Engine V7.0
 import json
 import os
 import yaml
@@ -24,15 +24,35 @@ def generate_seo_metadata(niche, script):
     try:
         raw_text, provider = quota_manager.generate_text(user_msg, task_type="seo", system_prompt=prompts_cfg['seo_gen']['system_prompt'])
         if raw_text:
-            # God-Tier JSON Extraction (defeats LLM markdown wrappers safely)
             start = raw_text.find('{')
             end = raw_text.rfind('}')
             if start != -1 and end != -1 and end > start:
                 data = json.loads(raw_text[start:end+1])
-                raw_title = data.get("title", f"Amazing {niche} Facts #shorts").replace("<", "").replace(">", "")
-                safe_title = raw_title[:85].rsplit(' ', 1)[0] if len(raw_title) > 85 else raw_title
-                if "#shorts" not in safe_title.lower(): safe_title = f"{safe_title.strip()} #shorts"
                 
-                return {"title": safe_title[:100], "description": data.get("description", "Facts! #shorts").replace("<", "").replace(">", "")[:4900], "tags": data.get("tags", ["shorts", niche])}, provider
+                # GOD-TIER FIX: Coerce lists into strings to prevent AttributeError on .replace()
+                safe_title_raw = data.get("title", f"Amazing {niche} Facts #shorts")
+                if isinstance(safe_title_raw, list): 
+                    safe_title_raw = safe_title_raw[0] if safe_title_raw else f"Amazing {niche} Facts #shorts"
+                
+                raw_title = str(safe_title_raw).replace("<", "").replace(">", "").strip()
+                
+                # Safely truncate to avoid cutting words in half, leaving room for #shorts
+                safe_title = raw_title[:85].rsplit(' ', 1)[0] if len(raw_title) > 85 else raw_title
+                if "#shorts" not in safe_title.lower(): 
+                    safe_title = f"{safe_title.strip()} #shorts"
+                
+                # Guarantee title is at least 1 char and max 100 chars
+                final_title = safe_title[:100] if len(safe_title) > 0 else "Amazing Video #shorts"
+                
+                return {
+                    "title": final_title, 
+                    "description": str(data.get("description", "Facts! #shorts")).replace("<", "").replace(">", "")[:4900], 
+                    "tags": data.get("tags", ["shorts", niche])
+                }, provider
     except: pass
-    return {"title": f"{niche} #shorts"[:95], "description": "Mind blowing facts! #shorts", "tags": ["shorts", niche]}, "Fallback"
+    
+    return {
+        "title": f"{niche} #shorts"[:95], 
+        "description": "Mind blowing facts! #shorts", 
+        "tags": ["shorts", niche]
+    }, "Fallback"
