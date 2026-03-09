@@ -1,4 +1,4 @@
-# scripts/discord_notifier.py — Ghost Engine V8.1
+# scripts/discord_notifier.py — Ghost Engine V9.0
 import os
 import requests
 
@@ -17,6 +17,11 @@ def set_channel_context(channel_config):
 def _send(content: str):
     if not _ACTIVE_WEBHOOK:
         return
+        
+    # GOD-TIER FIX: Enforce 2000 character limit to prevent Discord HTTP 400 rejection
+    if len(content) > 1990:
+        content = content[:1985] + "\n..."
+        
     try:
         requests.post(_ACTIVE_WEBHOOK, json={"content": content}, timeout=10)
     except Exception as e:
