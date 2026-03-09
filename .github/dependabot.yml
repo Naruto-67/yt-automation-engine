@@ -1,14 +1,56 @@
+# .github/dependabot.yml
+# ═══════════════════════════════════════════════════════════════════════════════
+# FIX #9 — Protect fragile audio/ML packages from auto-merged minor bumps
+#
+# BUG: 00_auto_merge_deps.yml auto-merged ALL patch and minor Dependabot PRs.
+# But kokoro, torch, and faster-whisper are highly version-sensitive:
+#   - A torch minor bump (e.g. 2.2 → 2.3) can break Kokoro's C++ extensions.
+#   - A faster-whisper minor bump can break the WhisperModel("tiny.en") call.
+#   - kokoro itself pins torch internally — a mismatch causes silent TTS failure.
+# These failures are hard to detect because Kokoro falls back to Groq silently.
+#
+# FIX: Added ignore rules for the three fragile packages. Dependabot will still
+# OPEN PRs for them (so you know updates exist), but will never auto-merge them.
+# You review and merge manually after testing.
+#
+# All other packages (requests, Pillow, google-api, etc.) continue to
+# auto-merge on patch/minor — only the ML stack is protected.
+# ═══════════════════════════════════════════════════════════════════════════════
+
 version: 2
 updates:
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
       interval: "weekly"
-      day: "monday"
+      day:      "monday"
     open-pull-requests-limit: 5
-  
+
+    # ── FIX #9: Protect fragile ML/audio packages from auto-merge ────────────
+    # These packages share native C++ extension compatibility constraints.
+    # Any version change must be tested locally before merging.
+    # Dependabot will still open PRs — they just won't auto-merge.
+    ignore:
+      - dependency-name: "torch"
+        # Block all automatic updates — torch minor versions frequently break
+        # Kokoro's C++ extensions and CUDA compatibility.
+        update-types: ["version-update:semver-minor", "version-update:semver-patch"]
+
+      - dependency-name: "kokoro"
+        # kokoro pins its own torch version internally.
+        # A kokoro minor update can pull in an incompatible torch.
+        update-types: ["version-update:semver-minor", "version-update:semver-patch"]
+
+      - dependency-name: "faster-whisper"
+        # faster-whisper wraps CTranslate2 native binaries.
+        # Minor bumps change model-loading APIs and compute_type options.
+        update-types: ["version-update:semver-minor", "version-update:semver-patch"]
+    # ─────────────────────────────────────────────────────────────────────────
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
-      day: "monday"
+      day:      "monday"
+    # No ignores needed for actions — they use SHA pinning via Dependabot
+    # and major bumps are already flagged for manual review by 00_auto_merge.
