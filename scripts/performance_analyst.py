@@ -1,4 +1,4 @@
-# scripts/performance_analyst.py — Ghost Engine V7.0
+# scripts/performance_analyst.py — Ghost Engine V7.2
 import os
 import json
 import yaml
@@ -140,7 +140,6 @@ def run_daily_analysis():
                         new_rules = json.loads(raw[start:end+1])
                         now_iso   = datetime.utcnow().isoformat()
 
-                        # GOD-TIER FIX: Ruthlessly coerce types in case LLM hallucinates an array instead of a string
                         new_emp_raw = new_rules.get("new_emphasize", "")
                         new_emp = str(new_emp_raw[0] if isinstance(new_emp_raw, list) and new_emp_raw else new_emp_raw).strip()
 
@@ -169,11 +168,18 @@ def run_daily_analysis():
 
                         intel["rule_timestamps"] = ts
 
-                        if recent_vids:
-                            new_tags = new_rules.get("new_tags", [])
-                            if new_tags:
-                                combined = intel.get("recent_tags", []) + new_tags
-                                intel["recent_tags"] = list(dict.fromkeys(combined))[-20:]
+                        # GOD-TIER FIX: Coerce hallucinated strings into lists to prevent TypeError crashes
+                        new_tags_raw = new_rules.get("new_tags", [])
+                        if isinstance(new_tags_raw, str):
+                            new_tags = [t.strip() for t in new_tags_raw.split(",") if t.strip()]
+                        elif isinstance(new_tags_raw, list):
+                            new_tags = new_tags_raw
+                        else:
+                            new_tags = []
+
+                        if new_tags:
+                            combined = intel.get("recent_tags", []) + new_tags
+                            intel["recent_tags"] = list(dict.fromkeys(combined))[-20:]
                     except Exception as e:
                         logger.error(f"Failed to parse Analyst JSON: {e}")
 
