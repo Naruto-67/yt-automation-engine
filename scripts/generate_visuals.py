@@ -1,4 +1,4 @@
-# scripts/generate_visuals.py — Ghost Engine V7.0
+# scripts/generate_visuals.py — Ghost Engine V8.1
 import os
 import requests
 import urllib.parse
@@ -7,6 +7,7 @@ import random
 import base64
 import re
 import yaml
+import traceback
 from PIL import Image, ImageDraw
 from scripts.quota_manager import quota_manager
 from engine.guardian import guardian
@@ -91,7 +92,10 @@ def generate_cloudflare_image(prompt, output_path):
                 continue
             elif response.status_code == 400: return False, "HTTP 400 (Safety Filter)"
             else: return False, f"HTTP {response.status_code}"
-        except Exception:
+        except Exception as e:
+            # FULL TRANSPARENCY FIX
+            trace = traceback.format_exc()
+            print(f"🚨 [CF AI ERROR] {type(e).__name__}: {e}\n{trace}")
             if retry == 0: time.sleep(5); continue
             return False, "Timeout Error"
     return False, "Exhausted Retries"
@@ -121,7 +125,6 @@ def generate_huggingface_cascade(prompt, output_path):
             elif response.status_code in [401, 402, 403, 404]: 
                 continue
             elif response.status_code >= 500:
-                # GOD-TIER FIX: Bulletproof JSON parsing against HTML Gateway Errors
                 wait_time = 15
                 try:
                     data = response.json()
@@ -135,7 +138,11 @@ def generate_huggingface_cascade(prompt, output_path):
                     with open(output_path, 'wb') as f: f.write(response.content)
                     quota_manager.consume_points("huggingface", 1)
                     return True, f"HF ({short_name})"
-        except: pass
+        except Exception as e:
+            # FULL TRANSPARENCY FIX
+            trace = traceback.format_exc()
+            print(f"🚨 [HF AI ERROR] {type(e).__name__}: {e}\n{trace}")
+            pass
     return False, "HF Exhausted"
 
 def fallback_pexels_image(search_query, output_path, is_retry=False):
@@ -153,7 +160,11 @@ def fallback_pexels_image(search_query, output_path, is_retry=False):
             return True, ""
         elif not is_retry:
             return fallback_pexels_image("cinematic aesthetic", output_path, is_retry=True)
-    except: return False, "API Error"
+    except Exception as e:
+        # FULL TRANSPARENCY FIX
+        trace = traceback.format_exc()
+        print(f"🚨 [PEXELS ERROR] {type(e).__name__}: {e}\n{trace}")
+        return False, "API Error"
     return False, "No images found"
 
 def generate_offline_gradient(output_path):
@@ -167,7 +178,11 @@ def generate_offline_gradient(output_path):
             draw.line([(0, y), (1080, y)], fill=(int(r1+(r2-r1)*(y/1920)), int(g1+(g2-g1)*(y/1920)), int(b1+(b2-b1)*(y/1920))))
         image.save(output_path, "JPEG", quality=90)
         return True, "Local Render"
-    except: return False, "Fatal Render"
+    except Exception as e:
+        # FULL TRANSPARENCY FIX
+        trace = traceback.format_exc()
+        print(f"🚨 [LOCAL RENDER ERROR] {type(e).__name__}: {e}\n{trace}")
+        return False, "Fatal Render"
 
 def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene"):
     print(f"🖼️ [VISUALS] Sourcing {len(prompts_list)} scenes...")
