@@ -1,4 +1,4 @@
-# engine/guardian.py — Ghost Engine V9.0
+# engine/guardian.py — Ghost Engine V12.0
 import os
 import json
 from scripts.quota_manager import quota_manager
@@ -50,16 +50,11 @@ class GhostGuardian:
     def get_run_forecast(self):
         state = quota_manager._get_active_state()
         yt_rem = quota_manager.LIMITS["youtube"] - state.get("youtube_points", 0)
-        gem_rem = quota_manager.LIMITS["gemini"] - state.get("gemini_calls", 0)
-        img_rem = quota_manager.LIMITS["cloudflare"] - state.get("cf_images", 0)
-
+        
         limit_yt = yt_rem // self.COST_PER_VIDEO["youtube_points"]
-        limit_gem = gem_rem // self.COST_PER_VIDEO["gemini_calls"]
-        limit_img = img_rem // self.COST_PER_VIDEO["image_calls"]
 
-        forecast = min(limit_yt, limit_gem, limit_img)
-        logger.engine(f"🔮 FORECAST: System can support ~{forecast} more videos today.")
-        return int(forecast)
+        logger.engine(f"🔮 FORECAST: System can support ~{limit_yt} more videos today based on YouTube quota.")
+        return int(limit_yt)
 
     def is_safe_mode(self):
         channel_id = os.environ.get("CURRENT_CHANNEL_ID", "default")
@@ -108,8 +103,6 @@ class GhostGuardian:
             notify_error(module, "AUTH_FAILURE", f"The token for {channel_id} has expired or been revoked.")
             return "FATAL"
 
-        # GOD-TIER FIX: Differentiate between YouTube hard-quota and AI soft-quota limits.
-        # Forces local SQLite DB to max out its YouTube counter so the Orchestrator loop correctly hard-stops.
         if "youtube" in str(error).lower() or "upload" in module.lower():
             if any(x in err_msg for x in ["403", "quota", "exceeded"]):
                 logger.error(f"🚨 [GUARDIAN] YouTube Quota Exceeded for {channel_id}. Syncing remote ban to local DB.")
