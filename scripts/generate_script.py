@@ -1,4 +1,4 @@
-# scripts/generate_script.py — Ghost Engine V6.3
+# scripts/generate_script.py — Ghost Engine V6.5
 import os
 import json
 import yaml
@@ -36,8 +36,15 @@ def validate_script_quality(script_text: str, prompts_cfg: dict) -> bool:
     )
     raw, _ = quota_manager.generate_text(user_msg, task_type="analysis", system_prompt=sys_msg)
     try:
-        score = int(re.search(r'\d+', raw or "").group())
-        return score >= 6
+        # GOD-TIER FIX: Extract all numbers. Account for "8/10" by checking if the last number is 10.
+        numbers = [int(n) for n in re.findall(r'\b\d+\b', raw or "")]
+        if numbers:
+            if len(numbers) >= 2 and numbers[-1] == 10 and numbers[-2] <= 10:
+                score = numbers[-2]
+            else:
+                score = numbers[-1]
+            return score >= 6
+        return True 
     except Exception:
         return True 
 
