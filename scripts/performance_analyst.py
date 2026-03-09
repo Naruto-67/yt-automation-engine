@@ -1,4 +1,4 @@
-# scripts/performance_analyst.py — Ghost Engine V8.0
+# scripts/performance_analyst.py — Ghost Engine V12.0
 import os
 import json
 import yaml
@@ -141,15 +141,20 @@ def run_daily_analysis():
                         now_iso   = datetime.utcnow().isoformat()
 
                         new_emp_raw = new_rules.get("new_emphasize", "")
-                        new_emp = str(new_emp_raw[0] if isinstance(new_emp_raw, list) and new_emp_raw else new_emp_raw).strip()
+                        if isinstance(new_emp_raw, list):
+                            new_emp_raw = new_emp_raw[0] if new_emp_raw else ""
+                        new_emp = str(new_emp_raw).strip() if new_emp_raw else ""
 
                         new_avo_raw = new_rules.get("new_avoid", "")
-                        new_avo = str(new_avo_raw[0] if isinstance(new_avo_raw, list) and new_avo_raw else new_avo_raw).strip()
+                        if isinstance(new_avo_raw, list):
+                            new_avo_raw = new_avo_raw[0] if new_avo_raw else ""
+                        new_avo = str(new_avo_raw).strip() if new_avo_raw else ""
 
-                        if new_emp:
+                        if new_emp and new_emp not in ["[]", "{}", "['']", "[\"\"]", "None", "null"]:
                             intel["emphasize"].append(new_emp)
                             ts[f"emp_{len(intel['emphasize']) - 1}"] = now_iso
-                        if new_avo:
+                            
+                        if new_avo and new_avo not in ["[]", "{}", "['']", "[\"\"]", "None", "null"]:
                             intel["avoid"].append(new_avo)
                             ts[f"avo_{len(intel['avoid']) - 1}"] = now_iso
 
@@ -172,7 +177,6 @@ def run_daily_analysis():
                         if isinstance(new_tags_raw, str):
                             new_tags = [t.strip() for t in new_tags_raw.split(",") if t.strip()]
                         elif isinstance(new_tags_raw, list):
-                            # GOD-TIER FIX: Coerce all elements to strings to prevent TypeError crashes during .join()
                             new_tags = [str(t).strip() for t in new_tags_raw if str(t).strip()]
                         else:
                             new_tags = []
