@@ -63,13 +63,18 @@ jobs:
         run: |
           git config --global user.name  "Ghost-Engine-Bot"
           git config --global user.email "bot@ghostengine.ai"
-          git add memory/ghost_engine.db memory/quota_state.json memory/replied_comments_*.json || true
-          git add assets/lessons_learned.json config/channels.yaml || true
+          
+          # GOD-TIER FIX: Isolated staging guarantees DB persistence even if engagement hasn't created json files yet
+          git add memory/ghost_engine.db || true
+          git add memory/quota_state.json || true
+          git add memory/replied_comments_*.json || true
+          git add memory/token_health.json || true
+          git add config/channels.yaml || true
+          git add assets/lessons_learned.json || true
           
           if ! git diff --staged --quiet; then
             git commit -m "Pipeline: Update state, quota & memory [skip ci]"
             
-            # BUG-13 Fix: Robust Retry Loop to defeat Git Push Race Conditions
             for i in {1..5}; do
               git push && break || {
                 echo "└ ⚠️ Git push conflict detected. Rebasing (Attempt $i/5)..."
