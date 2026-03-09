@@ -1,4 +1,4 @@
-# engine/orchestrator.py — Ghost Engine V6
+# engine/orchestrator.py — Ghost Engine V6.1
 import os
 import glob
 import yaml
@@ -9,39 +9,41 @@ from engine.models import JobState
 from engine.job_runner import JobRunner
 from engine.guardian import guardian
 from scripts.discord_notifier import set_channel_context, notify_summary
-from scripts.youtube_manager import (
-    get_youtube_client, get_actual_vault_count, get_channel_name
-)
+from scripts.youtube_manager import get_youtube_client, get_actual_vault_count, get_channel_name
 from scripts.dynamic_researcher import run_dynamic_research
 
 TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
-
 
 class Orchestrator:
     def __init__(self):
         self.channels = config_manager.get_active_channels()
 
     def sync_channel_identity(self, channel_config, live_name: str):
-        """Auto-updates channels.yaml if the display name changed on YouTube."""
         if not live_name or live_name == channel_config.channel_name:
             return
-        logger.engine(
-            f"🔄 Identity Sync: '{channel_config.channel_name}' → '{live_name}'"
-        )
+            
+        logger.engine(f"🔄 Identity Sync: '{channel_config.channel_name}' → '{live_name}'")
         path = config_manager.channels_path
+        temp_path = f"{path}.tmp"
+        
         with open(path, "r") as f:
             data = yaml.safe_load(f)
+            
         for ch in data.get("channels", []):
             if ch.get("id") == channel_config.channel_id:
                 ch["name"] = live_name
-        with open(path, "w") as f:
+                
+        # BUG-19 Fix: Atomic write to prevent YAML corruption
+        with open(temp_path, "w") as f:
             yaml.dump(data, f, default_flow_style=False)
+            
+        os.replace(temp_path, path)
         channel_config.channel_name = live_name
+        config_manager.reload_channels()
 
     def cleanup(self):
         logger.engine("🧹 Workspace cleanup...")
-        patterns = ["*.wav", "*.srt", "*.ass", "*.jpg", "*.png",
-                    "temp_*", "concat_list.txt", "temp_merged_*.mp4"]
+        patterns = ["*.wav", "*.srt", "*.ass", "*.jpg", "*.png", "temp_*", "concat_list.txt", "temp_merged_*.mp4"]
         for p in patterns:
             for f in glob.glob(p):
                 try:
@@ -59,20 +61,15 @@ class Orchestrator:
             if TEST_MODE and global_produced >= 1:
                 break
 
-            # Set Discord context for this channel's webhook
             set_channel_context(channel)
             os.environ["CURRENT_CHANNEL_ID"] = channel.channel_id
 
-            # ── Auth ──────────────────────────────────────────────────────────
             yt_client = get_youtube_client(channel)
             if not yt_client and not TEST_MODE:
                 logger.error(f"Auth failed for {channel.channel_id}. Skipping.")
-                notify_summary(False,
-                    f"🔴 Auth failure for `{channel.channel_id}` — "
-                    f"check `{channel.youtube_refresh_token_env}` secret.")
+                notify_summary(False, f"🔴 Auth failure for `{channel.channel_id}` — check `{channel.youtube_refresh_token_env}` secret.")
                 continue
 
-            # ── Identity sync ─────────────────────────────────────────────────
             if yt_client and not TEST_MODE:
                 live_name = get_channel_name(yt_client)
                 if live_name:
@@ -80,47 +77,43 @@ class Orchestrator:
 
             logger.engine(f"🚀 Processing: {channel.channel_name}")
 
-            # ── Vault gate ───────────────────────────────────────────────────
             vault_count = get_actual_vault_count(yt_client) if not TEST_MODE else 5
-            from engine.config_manager import config_manager as cm
-            vault_max = cm.get_settings().get("vault", {}).get("max_videos", 14)
+            vault_max = config_manager.get_settings().get("vault", {}).get("max_videos", 14)
             if vault_count >= vault_max:
                 logger.engine(f"🛑 Vault full ({vault_count}/{vault_max}). Skipping.")
                 continue
 
-            # ── Pre-flight guardian check ────────────────────────────────────
             if not guardian.pre_flight_check():
                 logger.error(f"Guardian halted run for {channel.channel_id}.")
                 break
 
-            # ── Research if topic queue is low ───────────────────────────────
             unprocessed = db.get_unprocessed_count(channel.channel_id)
             if unprocessed < 3:
                 run_dynamic_research(channel, yt_client)
 
-            # ── Build production batch ───────────────────────────────────────
+            # BUG-16 Fix: Correct Batch Ordering. 
+            # We sort by attempts ascending first, so fresh jobs run before stuck (attempts > 0) jobs.
             batch = []
-            for state in [JobState.RENDERING, JobState.VOICE_GENERATION,
-                          JobState.VISUAL_GENERATION, JobState.QUEUED]:
-                batch.extend(db.get_jobs_by_state(channel.channel_id, state, limit=2))
+            for state in [JobState.QUEUED, JobState.SCRIPT_GENERATION, JobState.VISUAL_GENERATION, JobState.VOICE_GENERATION, JobState.RENDERING]:
+                jobs_in_state = db.get_jobs_by_state(channel.channel_id, state, limit=4)
+                # Sort to ensure clean jobs run before retries
+                jobs_in_state.sort(key=lambda j: j.attempts)
+                batch.extend(jobs_in_state)
 
             max_videos = 1 if TEST_MODE else 4
-            for job in batch[:max_videos]:
+            processed_this_run = 0
+
+            for job in batch:
+                if processed_this_run >= max_videos:
+                    break
                 self.cleanup()
                 try:
-                    runner = JobRunner(
-                        job,
-                        youtube_client=yt_client,
-                        channel_name=channel.channel_name
-                    )
+                    runner = JobRunner(job, youtube_client=yt_client, channel_name=channel.channel_name)
                     runner.process()
                     global_produced += 1
+                    processed_this_run += 1
                 except Exception as e:
                     guardian.report_incident(job.state.name, e)
 
         self.cleanup()
-        notify_summary(
-            True,
-            f"🌙 Pipeline cycle complete. "
-            f"Produced **{global_produced}** video(s) this run."
-        )
+        notify_summary(True, f"🌙 Pipeline cycle complete. Produced **{global_produced}** video(s) this run.")
