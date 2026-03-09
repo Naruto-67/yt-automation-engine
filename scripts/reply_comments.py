@@ -1,4 +1,4 @@
-# scripts/reply_comments.py — Ghost Engine V6.3
+# scripts/reply_comments.py — Ghost Engine V6.8
 import os
 import json
 import time
@@ -19,7 +19,6 @@ def _get_replied_path(channel_id: str) -> str:
     )
 
 def _load_replied(channel_id: str) -> list:
-    """GOD-TIER FIX: Returns a LIST to strictly preserve chronological order."""
     path = _get_replied_path(channel_id)
     try:
         if os.path.exists(path):
@@ -33,7 +32,6 @@ def _load_replied(channel_id: str) -> list:
 def _save_replied(channel_id: str, replied_list: list):
     path = _get_replied_path(channel_id)
     try:
-        # Chronological trim: keeps the newest entries at the end of the list
         if len(replied_list) > _MAX_STORED_IDS:
             replied_list = replied_list[-_MAX_STORED_IDS:]
             
@@ -94,14 +92,17 @@ def run_engagement_protocol():
 
             replies_sent = 0
             flagged_count = 0
+            quota_busted = False
 
             for vid in vids.get("items", []):
-                if replies_sent >= max_replies:
+                if replies_sent >= max_replies or quota_busted:
                     break
 
                 vid_id = vid["snippet"]["resourceId"]["videoId"]
                 vid_title = vid["snippet"].get("title", "our video")
-                comments = youtube.commentThreads().list(part="snippet", videoId=vid_id, maxResults=max_cmts, order="relevance").execute()
+                
+                # GOD-TIER FIX: order="time" forces chronological scan. Breaks the "relevance" loop trap.
+                comments = youtube.commentThreads().list(part="snippet", videoId=vid_id, maxResults=max_cmts, order="time").execute()
                 quota_manager.consume_points("youtube", 1)
 
                 for thread in comments.get("items", []):
@@ -118,10 +119,11 @@ def run_engagement_protocol():
                     if author == channel_yt_id:
                         continue
                     if thread["snippet"]["totalReplyCount"] > 0:
-                        replied_ids.append(thread_id) # Using append to keep chronological order
+                        replied_ids.append(thread_id) 
                         continue
 
                     if not quota_manager.can_afford_youtube(50):
+                        quota_busted = True
                         break
 
                     reply_text = generate_ai_reply(vid_title, top["textDisplay"], replies_sent + 1, prompts_cfg)
@@ -142,7 +144,13 @@ def run_engagement_protocol():
                         replies_sent += 1
                         time.sleep(random.uniform(3, 6))
                     except Exception as e:
+                        err_msg = str(e).lower()
                         logger.error(f"Reply failed: {e}")
+                        # GOD-TIER FIX: Hard break on API quotas to prevent loop spamming 403 errors
+                        if any(x in err_msg for x in ["403", "quota", "exceeded"]):
+                            logger.error("🛑 Hard quota abort triggered in engagement loop.")
+                            quota_busted = True
+                            break
 
             _save_replied(channel.channel_id, replied_ids)
             notify_engagement_report(replies_sent, flagged_count)
