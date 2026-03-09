@@ -1,7 +1,8 @@
-# scripts/quota_manager.py — Ghost Engine V9.1 (RPM Protected)
+# scripts/quota_manager.py — Ghost Engine V10.0 (God-Tier Backoff)
 import os
 import json
 import time
+import random
 import traceback
 from datetime import datetime, timezone
 from engine.database import db
@@ -23,8 +24,6 @@ class MasterQuotaManager:
         self._gemini_model_chain: list = []
         self._gemini_models_discovered = False
         self._groq = None
-        
-        # GOD-TIER FIX: Track timestamp of the last LLM call to enforce RPM limits
         self._last_llm_call_time = 0.0
 
     def _groq_client(self):
@@ -164,11 +163,25 @@ class MasterQuotaManager:
         return self._gemini_model_chain
 
     def _enforce_rpm_throttle(self):
-        """GOD-TIER FIX: Guarantees a minimum spacing between LLM calls to prevent Burst 429 limits"""
         elapsed = time.time() - self._last_llm_call_time
-        if elapsed < 2.5:  # Force at least 2.5 seconds between ANY LLM call (max ~24 RPM)
+        if elapsed < 2.5:
             time.sleep(2.5 - elapsed)
         self._last_llm_call_time = time.time()
+
+    def _execute_jitter_backoff(self, attempt: int, api_name: str):
+        """God-Tier implementation of Exponential Backoff with Jitter"""
+        if attempt == 0:
+            wait_time = random.uniform(5.0, 10.0)
+            tier = "Low"
+        elif attempt == 1:
+            wait_time = random.uniform(20.0, 40.0)
+            tier = "Mid"
+        else:
+            wait_time = random.uniform(40.0, 60.0)
+            tier = "High"
+            
+        print(f"⏳ [{api_name} RPM] Tier {tier} backoff. Cooling down for {wait_time:.1f}s...")
+        time.sleep(wait_time)
 
     def generate_text(self, prompt: str, task_type: str = "creative", system_prompt: str = None) -> tuple:
         state  = self._get_active_state()
@@ -184,8 +197,8 @@ class MasterQuotaManager:
 
                 model_chain = self._discover_gemini_models()
                 for model in model_chain:
-                    # RPM Burst Protection Loop
-                    for attempt in range(2): 
+                    # Expanded to 3 loop attempts to utilize the full backoff spectrum
+                    for attempt in range(3): 
                         self._enforce_rpm_throttle()
                         try:
                             from google import genai
@@ -199,14 +212,12 @@ class MasterQuotaManager:
                             return response.text, f"Gemini ({model})"
                         except Exception as e:
                             err = str(e).lower()
-                            # GOD-TIER FIX: If it's an RPM limit (429), pause for 10 seconds before retrying or failing over.
                             if any(x in err for x in ["429", "too many requests"]):
-                                if attempt == 0:
-                                    print(f"⚠️ [GEMINI RPM] Burst limit hit on {model}. Cooling down for 10s...")
-                                    time.sleep(10)
+                                if attempt < 2:
+                                    self._execute_jitter_backoff(attempt, "GEMINI")
                                     continue
                                 else:
-                                    print(f"⚠️ [GEMINI QUOTA] Account limit hit on {model}. Failing over.")
+                                    print(f"⚠️ [GEMINI QUOTA] Account limit hard-locked on {model}. Failing over.")
                                     break 
                             elif any(x in err for x in ["404", "not found", "deprecated"]):
                                 print(f"⚠️ [GEMINI] Model deprecated: {model}")
@@ -214,10 +225,10 @@ class MasterQuotaManager:
                                 break
                             else:
                                 print(f"⚠️ [GEMINI] Error on {model}: {e}")
-                                break # Move to next model
+                                break 
 
             elif provider in ("groq", "groq_orpheus"):
-                for attempt in range(2):
+                for attempt in range(3):
                     self._enforce_rpm_throttle()
                     try:
                         groq = self._groq_client()
@@ -227,9 +238,8 @@ class MasterQuotaManager:
                     except Exception as e:
                         err = str(e).lower()
                         if any(x in err for x in ["429", "too many requests"]):
-                            if attempt == 0:
-                                print("⚠️ [GROQ RPM] Burst limit hit. Cooling down for 10s...")
-                                time.sleep(10)
+                            if attempt < 2:
+                                self._execute_jitter_backoff(attempt, "GROQ")
                                 continue
                         print(f"⚠️ [GROQ] Text generation failed: {e}")
                         break
