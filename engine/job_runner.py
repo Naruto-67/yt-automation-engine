@@ -1,4 +1,4 @@
-# engine/job_runner.py — Ghost Engine V6.4
+# engine/job_runner.py — Ghost Engine V6.7
 import os
 import time
 import shutil
@@ -24,7 +24,6 @@ class JobRunner:
         self.max_attempts = 3
         self.base_filename = f"job_{job.id}_{job.channel_id.replace(' ', '_')}"
         
-        # Instance variables to hold metrics for the Discord webhook
         self.final_duration = 0.0
         self.final_size_mb  = 0.0
 
@@ -33,10 +32,6 @@ class JobRunner:
         logger.engine(f"Processing Job {self.job.id} | Topic: {self.job.topic} | State: {self.job.state.name}")
 
         try:
-            # ── GOD-TIER FIX: Ephemeral VM State Rewind ────────────────────────────────
-            # GitHub Actions wipes intermediate files (.wav, .jpg) between runs.
-            # If the DB state resumed an interrupted job, we must verify physical files exist.
-            # If missing, smoothly rewind the state machine to regenerate them from the DB script.
             if self.job.state in [JobState.VISUAL_GENERATION, JobState.RENDERING]:
                 if not self.job.audio_path or not os.path.exists(self.job.audio_path):
                     logger.engine(f"⚠️ [RECOVERY] Job {self.job.id} physical audio missing. Rewinding to VOICE_GENERATION...")
@@ -47,7 +42,6 @@ class JobRunner:
                 if not paths or not all(os.path.exists(p) for p in paths):
                     logger.engine(f"⚠️ [RECOVERY] Job {self.job.id} physical images missing. Rewinding to VISUAL_GENERATION...")
                     self._transition_to(JobState.VISUAL_GENERATION)
-            # ─────────────────────────────────────────────────────────────────────────
 
             if self.job.state == JobState.QUEUED:
                 self._transition_to(JobState.SCRIPT_GENERATION)
@@ -95,6 +89,12 @@ class JobRunner:
             job_id=self.job.id, channel_id=self.job.channel_id,
             module=self.job.state.name, error_message=error_msg, traceback=trace
         ))
+        
+        # GOD-TIER FIX: Forward swallowed exceptions directly to Guardian
+        # Ensures that mid-run API Quota bans immediately trigger Safe Mode.
+        from engine.guardian import guardian
+        guardian.report_incident(self.job.state.name, error_msg)
+
         if self.job.attempts >= self.max_attempts:
             self._transition_to(JobState.FAILED)
             notify_step(self.job.topic, "FAILED", f"Critical crash after {self.max_attempts} attempts.", 0xe74c3c)
