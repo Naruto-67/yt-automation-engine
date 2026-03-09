@@ -1,9 +1,10 @@
-# scripts/quota_manager.py — Ghost Engine V10.0 (God-Tier Backoff)
+# scripts/quota_manager.py — Ghost Engine V11.0
 import os
 import json
 import time
 import random
 import traceback
+import pytz
 from datetime import datetime, timezone
 from engine.database import db
 from engine.config_manager import config_manager
@@ -32,28 +33,34 @@ class MasterQuotaManager:
             self._groq = groq_client
         return self._groq
 
-    def _today(self) -> str:
+    def _today_utc(self) -> str:
         return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    def _today_pt(self) -> str:
+        # GOD-TIER FIX: YouTube Data API Quotas reset at Midnight Pacific Time. 
+        # This aligns the local engine perfectly with Google's backend servers.
+        return datetime.now(pytz.timezone('America/Los_Angeles')).strftime("%Y-%m-%d")
 
     def _get_channel_id(self) -> str:
         return os.environ.get("CURRENT_CHANNEL_ID", "default_channel")
 
     def _get_active_state(self) -> dict:
-        today = self._today()
+        today_utc = self._today_utc()
+        today_pt = self._today_pt()
         ch_id = self._get_channel_id()
 
-        ch_state = db.get_quota_state(today, ch_id)
+        ch_state = db.get_quota_state(today_pt, ch_id)
         if not ch_state:
-            db.init_quota_state(today, ch_id, today)
-            ch_state = db.get_quota_state(today, ch_id) or {}
+            db.init_quota_state(today_pt, ch_id, today_pt)
+            ch_state = db.get_quota_state(today_pt, ch_id) or {}
 
-        gl_state = db.get_quota_state(today, "GLOBAL")
+        gl_state = db.get_quota_state(today_utc, "GLOBAL")
         if not gl_state:
-            db.init_quota_state(today, "GLOBAL", today)
-            gl_state = db.get_quota_state(today, "GLOBAL") or {}
+            db.init_quota_state(today_utc, "GLOBAL", today_utc)
+            gl_state = db.get_quota_state(today_utc, "GLOBAL") or {}
 
         return {
-            "date":           today,
+            "date":           today_utc,
             "channel_id":     ch_id,
             "youtube_points": ch_state.get("youtube_points", 0),
             "gemini_calls":   gl_state.get("gemini_calls", 0),
@@ -62,21 +69,21 @@ class MasterQuotaManager:
         }
 
     def consume_points(self, provider: str, amount: int):
-        today = self._today()
-        
         if provider == "youtube":
             target_id = self._get_channel_id()
             col = "youtube_points"
+            today = self._today_pt()
             yt_update = today
         else:
             target_id = "GLOBAL"
-            yt_update = None
             col_map = {
                 "gemini":      "gemini_calls",
                 "cloudflare":  "cf_images",
                 "huggingface": "hf_images"
             }
             col = col_map.get(provider)
+            today = self._today_utc()
+            yt_update = None
 
         if col:
             if not db.get_quota_state(today, target_id):
@@ -169,7 +176,6 @@ class MasterQuotaManager:
         self._last_llm_call_time = time.time()
 
     def _execute_jitter_backoff(self, attempt: int, api_name: str):
-        """God-Tier implementation of Exponential Backoff with Jitter"""
         if attempt == 0:
             wait_time = random.uniform(5.0, 10.0)
             tier = "Low"
@@ -197,7 +203,6 @@ class MasterQuotaManager:
 
                 model_chain = self._discover_gemini_models()
                 for model in model_chain:
-                    # Expanded to 3 loop attempts to utilize the full backoff spectrum
                     for attempt in range(3): 
                         self._enforce_rpm_throttle()
                         try:
