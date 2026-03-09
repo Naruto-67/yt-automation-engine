@@ -1,4 +1,4 @@
-# engine/job_runner.py — Ghost Engine V8.0
+# engine/job_runner.py — Ghost Engine V8.1
 import os
 import time
 import shutil
@@ -75,7 +75,14 @@ class JobRunner:
                 logger.success(f"Job {self.job.id} vaulted. YouTube ID: {self.job.youtube_id}")
 
         except Exception as e:
-            self._handle_failure(str(e), traceback.format_exc())
+            trace = traceback.format_exc()
+            
+            # FULL TRANSPARENCY FIX: Do not silence the terminal logs.
+            print(f"\n🚨 [CRITICAL ERROR] JobRunner crashed on topic '{self.job.topic}':")
+            print(f"└ Exact Exception: {type(e).__name__}: {e}")
+            print(f"└ Traceback:\n{trace}\n")
+            
+            self._handle_failure(str(e), trace)
 
     def _transition_to(self, new_state: JobState):
         self.job.state      = new_state
@@ -187,7 +194,9 @@ class JobRunner:
         self.job.video_path = output_path
         
         logger.success(f"Rendered: {output_path} ({size_mb:.1f} MB, {duration:.1f}s)")
-        notify_step(self.job.topic, "RENDERED", f"└ Size: {size_mb:.1f} MB | Duration: {duration:.1f}s | Channel: {self.channel_name}", 0x9b59b6)
+        
+        # DOUBLE-PRINT FIX: Cleaned up the details argument so Discord format is perfect
+        notify_step(self.job.topic, "RENDERED", f"Size: {size_mb:.1f} MB | Duration: {duration:.1f}s", 0x9b59b6)
         
         self._execute_upload()
 
@@ -213,7 +222,6 @@ class JobRunner:
         self._transition_to(JobState.VAULTED)
         notify_vault_secure(self.job.topic, self.job.youtube_id, vault_id or "unknown")
         
-        # GOD-TIER FIX: Immediately wipe the heavy MP4 file after verified upload to prevent terminal VPS disk exhaustion.
         try:
             if os.path.exists(self.job.video_path):
                 os.remove(self.job.video_path)
