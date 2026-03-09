@@ -1,4 +1,4 @@
-# scripts/generate_visuals.py — Ghost Engine V8.1
+# scripts/generate_visuals.py — Ghost Engine V10.0 (God-Tier Backoff)
 import os
 import requests
 import urllib.parse
@@ -18,6 +18,21 @@ _HF_MODELS_CACHE = []
 def load_config_prompts():
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     with open(os.path.join(root_dir, "config", "prompts.yaml"), "r", encoding="utf-8") as f: return yaml.safe_load(f)
+
+def _execute_jitter_backoff(attempt: int, api_name: str):
+    """God-Tier Exponential Backoff with Jitter for Visual Generation"""
+    if attempt == 0:
+        wait_time = random.uniform(5.0, 10.0)
+        tier = "Low"
+    elif attempt == 1:
+        wait_time = random.uniform(20.0, 40.0)
+        tier = "Mid"
+    else:
+        wait_time = random.uniform(40.0, 60.0)
+        tier = "High"
+        
+    print(f"      ⏳ [{api_name} RPM] Tier {tier} backoff. Cooling down for {wait_time:.1f}s...")
+    time.sleep(wait_time)
 
 def _regenerate_safe_prompt(bad_prompt):
     prompts_cfg = load_config_prompts()
@@ -76,7 +91,7 @@ def generate_cloudflare_image(prompt, output_path):
     headers = {"Authorization": f"Bearer {api_token}", "Content-Type": "application/json"}
     payload = {"prompt": f"{prompt[:200].replace('\"', '').replace(chr(10), ' ')}, vertical 9:16 format, masterpiece"}
 
-    for retry in range(2):
+    for retry in range(3):
         try:
             response = requests.post(url, headers=headers, json=payload, timeout=(15, 60))
             if response.status_code == 200:
@@ -87,16 +102,17 @@ def generate_cloudflare_image(prompt, output_path):
                     with open(output_path, 'wb') as f: f.write(response.content)
                 quota_manager.consume_points("cloudflare", 1)
                 return True, ""
-            elif response.status_code >= 500 and retry == 0:
-                time.sleep(5)
+            elif response.status_code >= 500 and retry < 2:
+                _execute_jitter_backoff(retry, "CF AI")
                 continue
             elif response.status_code == 400: return False, "HTTP 400 (Safety Filter)"
             else: return False, f"HTTP {response.status_code}"
         except Exception as e:
-            # FULL TRANSPARENCY FIX
             trace = traceback.format_exc()
             print(f"🚨 [CF AI ERROR] {type(e).__name__}: {e}\n{trace}")
-            if retry == 0: time.sleep(5); continue
+            if retry < 2: 
+                _execute_jitter_backoff(retry, "CF AI")
+                continue
             return False, "Timeout Error"
     return False, "Exhausted Retries"
 
@@ -116,33 +132,35 @@ def generate_huggingface_cascade(prompt, output_path):
         if SIMULATE_CASCADE_TEST and "FLUX" in model: continue
         
         url = f"https://api-inference.huggingface.co/models/{model}"
-        try:
-            response = requests.post(url, headers=headers, json=payload, timeout=(15, 60))
-            if response.status_code == 200:
-                with open(output_path, 'wb') as f: f.write(response.content)
-                quota_manager.consume_points("huggingface", 1)
-                return True, f"HF ({short_name})"
-            elif response.status_code in [401, 402, 403, 404]: 
-                continue
-            elif response.status_code >= 500:
-                wait_time = 15
-                try:
-                    data = response.json()
-                    wait_time = min(int(data.get("estimated_time", 13)) + 2, 60)
-                except Exception:
-                    pass
-                    
-                time.sleep(wait_time)
+        
+        for retry in range(3):
+            try:
                 response = requests.post(url, headers=headers, json=payload, timeout=(15, 60))
                 if response.status_code == 200:
                     with open(output_path, 'wb') as f: f.write(response.content)
                     quota_manager.consume_points("huggingface", 1)
                     return True, f"HF ({short_name})"
-        except Exception as e:
-            # FULL TRANSPARENCY FIX
-            trace = traceback.format_exc()
-            print(f"🚨 [HF AI ERROR] {type(e).__name__}: {e}\n{trace}")
-            pass
+                elif response.status_code in [401, 402, 403, 404]: 
+                    break 
+                elif response.status_code >= 500:
+                    # Respect API estimated time, but fall back to jitter if it's a hard gateway error
+                    try:
+                        data = response.json()
+                        wait_time = min(int(data.get("estimated_time", 13)) + 2, 60)
+                        print(f"      ⏳ [HF LOAD] Model booting. Waiting {wait_time}s...")
+                        time.sleep(wait_time)
+                        continue
+                    except Exception:
+                        if retry < 2:
+                            _execute_jitter_backoff(retry, "HF AI")
+                            continue
+            except Exception as e:
+                trace = traceback.format_exc()
+                print(f"🚨 [HF AI ERROR] {type(e).__name__}: {e}\n{trace}")
+                if retry < 2:
+                    _execute_jitter_backoff(retry, "HF AI")
+                    continue
+                break
     return False, "HF Exhausted"
 
 def fallback_pexels_image(search_query, output_path, is_retry=False):
@@ -161,7 +179,6 @@ def fallback_pexels_image(search_query, output_path, is_retry=False):
         elif not is_retry:
             return fallback_pexels_image("cinematic aesthetic", output_path, is_retry=True)
     except Exception as e:
-        # FULL TRANSPARENCY FIX
         trace = traceback.format_exc()
         print(f"🚨 [PEXELS ERROR] {type(e).__name__}: {e}\n{trace}")
         return False, "API Error"
@@ -179,7 +196,6 @@ def generate_offline_gradient(output_path):
         image.save(output_path, "JPEG", quality=90)
         return True, "Local Render"
     except Exception as e:
-        # FULL TRANSPARENCY FIX
         trace = traceback.format_exc()
         print(f"🚨 [LOCAL RENDER ERROR] {type(e).__name__}: {e}\n{trace}")
         return False, "Fatal Render"
