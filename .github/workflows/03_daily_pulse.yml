@@ -66,7 +66,7 @@ jobs:
             for i in {1..5}; do
               git push && break || {
                 echo "└ ⚠️ Git push conflict detected. Rebasing (Attempt $i/5)..."
-                git pull --rebase origin main
+                git pull --rebase -X ours origin main
                 sleep $(( i * 5 ))
               }
             done
