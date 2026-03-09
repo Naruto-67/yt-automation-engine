@@ -1,4 +1,4 @@
-# scripts/reply_comments.py — Ghost Engine V6.8
+# scripts/reply_comments.py — Ghost Engine V7.2
 import os
 import json
 import time
@@ -101,7 +101,6 @@ def run_engagement_protocol():
                 vid_id = vid["snippet"]["resourceId"]["videoId"]
                 vid_title = vid["snippet"].get("title", "our video")
                 
-                # GOD-TIER FIX: order="time" forces chronological scan. Breaks the "relevance" loop trap.
                 comments = youtube.commentThreads().list(part="snippet", videoId=vid_id, maxResults=max_cmts, order="time").execute()
                 quota_manager.consume_points("youtube", 1)
 
@@ -140,19 +139,21 @@ def run_engagement_protocol():
                             body={"snippet": {"parentId": thread_id, "textOriginal": reply_text}}
                         ).execute()
                         quota_manager.consume_points("youtube", 50)
+                        
+                        # GOD-TIER FIX: Commit state per-transaction to prevent VM timeout amnesia
                         replied_ids.append(thread_id)
+                        _save_replied(channel.channel_id, replied_ids)
+                        
                         replies_sent += 1
                         time.sleep(random.uniform(3, 6))
                     except Exception as e:
                         err_msg = str(e).lower()
                         logger.error(f"Reply failed: {e}")
-                        # GOD-TIER FIX: Hard break on API quotas to prevent loop spamming 403 errors
                         if any(x in err_msg for x in ["403", "quota", "exceeded"]):
                             logger.error("🛑 Hard quota abort triggered in engagement loop.")
                             quota_busted = True
                             break
 
-            _save_replied(channel.channel_id, replied_ids)
             notify_engagement_report(replies_sent, flagged_count)
             logger.success(f"Engaged {replies_sent} comments on {channel.channel_name}. Flagged: {flagged_count}.")
 
