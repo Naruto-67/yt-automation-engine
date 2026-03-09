@@ -1,4 +1,4 @@
-# engine/guardian.py — Ghost Engine V6.3
+# engine/guardian.py — Ghost Engine V9.0
 import os
 import json
 from scripts.quota_manager import quota_manager
@@ -62,10 +62,6 @@ class GhostGuardian:
         return int(forecast)
 
     def is_safe_mode(self):
-        """
-        GOD-TIER FIX: Inherits GLOBAL safe mode state as well as per-channel state.
-        If Cloudflare dies for Channel A, it correctly shuts off for Channel B.
-        """
         channel_id = os.environ.get("CURRENT_CHANNEL_ID", "default")
         ch_safe = self.channel_health.get(channel_id, {}).get("safe_mode", False)
         gl_safe = self.channel_health.get("GLOBAL", {}).get("safe_mode", False)
@@ -89,7 +85,6 @@ class GhostGuardian:
             notify_quota_warning("Cloudflare", img_usage, img_limit)
 
         if (img_usage / img_limit) > self.SAFE_MODE_THRESHOLD:
-            # Trigger safe mode at the GLOBAL level, not just the channel level
             self._trigger_safe_mode("GLOBAL", "Global Resource Depletion")
         
         return True
@@ -112,6 +107,15 @@ class GhostGuardian:
             logger.error(f"🚨 [GUARDIAN] Auth Failure for {channel_id}.")
             notify_error(module, "AUTH_FAILURE", f"The token for {channel_id} has expired or been revoked.")
             return "FATAL"
+
+        # GOD-TIER FIX: Differentiate between YouTube hard-quota and AI soft-quota limits.
+        # Forces local SQLite DB to max out its YouTube counter so the Orchestrator loop correctly hard-stops.
+        if "youtube" in str(error).lower() or "upload" in module.lower():
+            if any(x in err_msg for x in ["403", "quota", "exceeded"]):
+                logger.error(f"🚨 [GUARDIAN] YouTube Quota Exceeded for {channel_id}. Syncing remote ban to local DB.")
+                quota_manager.consume_points("youtube", 99999)
+                notify_error(module, "YT_QUOTA_EXCEEDED", "YouTube 10,000pt limit reached. Halting channel for the day.")
+                return "FATAL"
 
         if any(x in err_msg for x in ["429", "quota", "limit reached"]):
             self._trigger_safe_mode("GLOBAL", "Mid-run API strike")
