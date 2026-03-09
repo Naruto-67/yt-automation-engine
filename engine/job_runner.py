@@ -1,4 +1,4 @@
-# engine/job_runner.py — Ghost Engine V6.7
+# engine/job_runner.py — Ghost Engine V6.9
 import os
 import time
 import shutil
@@ -90,8 +90,7 @@ class JobRunner:
             module=self.job.state.name, error_message=error_msg, traceback=trace
         ))
         
-        # GOD-TIER FIX: Forward swallowed exceptions directly to Guardian
-        # Ensures that mid-run API Quota bans immediately trigger Safe Mode.
+        # Guardian now successfully reads the unmasked API errors
         from engine.guardian import guardian
         guardian.report_incident(self.job.state.name, error_msg)
 
@@ -108,6 +107,7 @@ class JobRunner:
             self.job.niche, self.job.topic
         )
         if not script_text:
+            # generate_script now raises its own detailed RuntimeError, but we leave this as a final fallback
             raise ValueError("Empty script returned from generator.")
 
         try:
@@ -152,7 +152,7 @@ class JobRunner:
         min_acceptable = max(1, len(prompts) // 2)
         
         if len(images) < min_acceptable:
-            raise RuntimeError(f"Visual generation critically failed: {len(images)}/{len(prompts)} images.")
+            raise RuntimeError(f"Visual generation critically failed: {len(images)}/{len(prompts)} images. Last provider: {provider}")
 
         while len(images) < len(prompts):
             images.append(images[-1]) 
@@ -204,16 +204,24 @@ class JobRunner:
         from scripts.youtube_manager import upload_to_youtube_vault, get_or_create_playlist
         metadata = json.loads(self.job.metadata) if self.job.metadata else {}
 
-        success, video_id = upload_to_youtube_vault(self.youtube, self.job.video_path, self.job.topic, metadata, self.job.niche)
+        # GOD-TIER FIX: Unmask the true API error so Guardian triggers Safe Mode correctly
+        success, video_id_or_error = upload_to_youtube_vault(self.youtube, self.job.video_path, self.job.topic, metadata, self.job.niche)
         
-        if not success or not video_id:
-            raise RuntimeError("YouTube vault upload failed — no video_id returned.")
+        if not success:
+            raise RuntimeError(f"YouTube vault upload API failed: {video_id_or_error}")
 
-        self.job.youtube_id = video_id
+        self.job.youtube_id = video_id_or_error
         vault_id = get_or_create_playlist(self.youtube, "Vault Backup")
 
         self._transition_to(JobState.VAULTED)
-        notify_vault_secure(self.job.topic, video_id, vault_id or "unknown")
+        notify_vault_secure(self.job.topic, self.job.youtube_id, vault_id or "unknown")
+        
+        # GOD-TIER FIX: Connect the orphaned Google Sheets telemetry logger
+        try:
+            from scripts.logger import log_completed_video
+            log_completed_video(self.job.niche, self.job.topic, self.job.video_path)
+        except Exception:
+            pass
 
         script_data = json.loads(self.job.script) if self.job.script else {}
         notify_production_success(
