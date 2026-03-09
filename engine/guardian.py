@@ -1,4 +1,4 @@
-# engine/guardian.py — Ghost Engine V6.1
+# engine/guardian.py — Ghost Engine V6.3
 import os
 import json
 from scripts.quota_manager import quota_manager
@@ -23,8 +23,6 @@ class GhostGuardian:
             "image_calls": costs.get("image_calls", 7)
         }
         self.SAFE_MODE_THRESHOLD = costs.get("safe_mode_threshold", 0.85)
-        
-        # BUG-15 Fix: Load health from persistent memory file
         self.channel_health = self._load_health()
 
     def _load_health(self):
@@ -64,8 +62,14 @@ class GhostGuardian:
         return int(forecast)
 
     def is_safe_mode(self):
+        """
+        GOD-TIER FIX: Inherits GLOBAL safe mode state as well as per-channel state.
+        If Cloudflare dies for Channel A, it correctly shuts off for Channel B.
+        """
         channel_id = os.environ.get("CURRENT_CHANNEL_ID", "default")
-        return self.channel_health.get(channel_id, {}).get("safe_mode", False)
+        ch_safe = self.channel_health.get(channel_id, {}).get("safe_mode", False)
+        gl_safe = self.channel_health.get("GLOBAL", {}).get("safe_mode", False)
+        return ch_safe or gl_safe
 
     def pre_flight_check(self) -> bool:
         forecast = self.get_run_forecast()
@@ -85,19 +89,20 @@ class GhostGuardian:
             notify_quota_warning("Cloudflare", img_usage, img_limit)
 
         if (img_usage / img_limit) > self.SAFE_MODE_THRESHOLD:
-            self._trigger_safe_mode(channel_id, "Resource Depletion")
+            # Trigger safe mode at the GLOBAL level, not just the channel level
+            self._trigger_safe_mode("GLOBAL", "Global Resource Depletion")
         
         return True
         
-    def _trigger_safe_mode(self, channel_id, reason):
-        if channel_id not in self.channel_health: 
-            self.channel_health[channel_id] = {}
+    def _trigger_safe_mode(self, target_id, reason):
+        if target_id not in self.channel_health: 
+            self.channel_health[target_id] = {}
         
-        if not self.channel_health[channel_id].get("safe_mode"):
-            self.channel_health[channel_id]["safe_mode"] = True
+        if not self.channel_health[target_id].get("safe_mode"):
+            self.channel_health[target_id]["safe_mode"] = True
             self._save_health()
-            logger.engine(f"⚠️ [GUARDIAN] Safe Mode activated for {channel_id}: {reason}")
-            notify_summary(True, f"🛡️ **Safe Mode Engaged** for {channel_id}.\nBypassing custom AI imagery to conserve quota.")
+            logger.engine(f"⚠️ [GUARDIAN] Safe Mode activated for {target_id}: {reason}")
+            notify_summary(True, f"🛡️ **Safe Mode Engaged** for {target_id}.\nBypassing custom AI imagery to conserve quota.")
 
     def report_incident(self, module, error):
         err_msg = str(error).lower()
@@ -109,7 +114,7 @@ class GhostGuardian:
             return "FATAL"
 
         if any(x in err_msg for x in ["429", "quota", "limit reached"]):
-            self._trigger_safe_mode(channel_id, "Mid-run API strike")
+            self._trigger_safe_mode("GLOBAL", "Mid-run API strike")
             return "SWAP_PROVIDER"
 
         return "RETRY"
