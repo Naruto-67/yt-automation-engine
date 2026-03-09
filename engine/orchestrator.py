@@ -1,8 +1,9 @@
-# engine/orchestrator.py — Ghost Engine V9.0
+# engine/orchestrator.py — Ghost Engine V8.1
 import os
 import glob
 import yaml
 import re
+import traceback
 from engine.logger import logger
 from engine.config_manager import config_manager
 from engine.database import db
@@ -131,8 +132,13 @@ class Orchestrator:
                     global_produced += 1
                     processed_this_run += 1
                 except Exception as e:
-                    # GOD-TIER FIX: Actually read the Guardian's response and break the loop on FATAL errors
-                    # to prevent burning through the queue when APIs are globally banned.
+                    
+                    # FULL TRANSPARENCY FIX: Do not silence the terminal logs.
+                    trace = traceback.format_exc()
+                    print(f"\n🚨 [ORCHESTRATOR ERROR] Job Runner failed:")
+                    print(f"└ Exact Exception: {type(e).__name__}: {e}")
+                    print(f"└ Traceback:\n{trace}\n")
+                    
                     action = guardian.report_incident(job.state.name, e)
                     if action == "FATAL":
                         logger.error(f"🛑 [ORCHESTRATOR] Fatal incident reported. Halting batch for {channel.channel_id}.")
