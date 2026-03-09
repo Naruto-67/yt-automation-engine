@@ -1,4 +1,5 @@
 name: 03_Ghost_Daily_Pulse
+
 on:
   schedule:
     - cron: '30 17 * * *'
@@ -17,29 +18,47 @@ jobs:
   channel_health_pulse:
     runs-on: ubuntu-latest
     if: vars.GHOST_ENGINE_ENABLED != 'false' || github.event.inputs.force_run == 'true'
+
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: true
+          fetch-depth: 1
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: |
-          pip install -r requirements.txt
-          python -m spacy download en_core_web_sm
-      - env:
+
+      - name: Install Dependencies
+        run: |
+          pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib \
+                      google-genai requests pydantic pyyaml pytz
+
+      - name: Run Analyst
+        env:
           GHOST_ENGINE_ENABLED: ${{ vars.GHOST_ENGINE_ENABLED }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
-          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
-          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          GEMINI_API_KEY:        ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY:          ${{ secrets.GROQ_API_KEY }}
+
+          YOUTUBE_CLIENT_ID_MAIN:       ${{ secrets.YOUTUBE_CLIENT_ID_MAIN }}
+          YOUTUBE_CLIENT_SECRET_MAIN:   ${{ secrets.YOUTUBE_CLIENT_SECRET_MAIN }}
+          YOUTUBE_REFRESH_TOKEN_MAIN:   ${{ secrets.YOUTUBE_REFRESH_TOKEN_MAIN }}
+          DISCORD_WEBHOOK_MAIN:         ${{ secrets.DISCORD_WEBHOOK_MAIN }}
+
+          # YOUTUBE_CLIENT_ID_TECH:     ${{ secrets.YOUTUBE_CLIENT_ID_TECH }}
+          # YOUTUBE_CLIENT_SECRET_TECH: ${{ secrets.YOUTUBE_CLIENT_SECRET_TECH }}
+          # YOUTUBE_REFRESH_TOKEN_TECH: ${{ secrets.YOUTUBE_REFRESH_TOKEN_TECH }}
+          # DISCORD_WEBHOOK_TECH:       ${{ secrets.DISCORD_WEBHOOK_TECH }}
         run: python -m scripts.performance_analyst
-      - run: |
-          git config --global user.name "Ghost-Engine-Bot"
+
+      - name: Commit State
+        run: |
+          git config --global user.name  "Ghost-Engine-Bot"
           git config --global user.email "bot@ghostengine.ai"
-          git add assets/lessons_learned.json memory/*.json
+          git add memory/ghost_engine.db memory/quota_state.json || true
           if ! git diff --staged --quiet; then
-            git commit -m "Update AI Brain Strategy [skip ci]"
+            git commit -m "Pulse: Update strategy & quota state [skip ci]"
             git pull --rebase origin main
             git push origin main
           fi
