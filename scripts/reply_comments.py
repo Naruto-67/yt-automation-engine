@@ -1,4 +1,4 @@
-# scripts/reply_comments.py — Ghost Engine V6
+# scripts/reply_comments.py — Ghost Engine V6.3
 import os
 import json
 import time
@@ -10,7 +10,7 @@ from scripts.discord_notifier import set_channel_context, notify_engagement_repo
 from engine.config_manager import config_manager
 from engine.logger import logger
 
-_MAX_STORED_IDS = 15000  # BUG-09 Fix: Increased limit to prevent old reply resurfacing
+_MAX_STORED_IDS = 15000
 
 def _get_replied_path(channel_id: str) -> str:
     return os.path.join(
@@ -18,25 +18,28 @@ def _get_replied_path(channel_id: str) -> str:
         "memory", f"replied_comments_{channel_id}.json"
     )
 
-def _load_replied(channel_id: str) -> set:
+def _load_replied(channel_id: str) -> list:
+    """GOD-TIER FIX: Returns a LIST to strictly preserve chronological order."""
     path = _get_replied_path(channel_id)
     try:
         if os.path.exists(path):
             with open(path, "r") as f:
-                return set(json.load(f))
+                data = json.load(f)
+                return list(data) if isinstance(data, list) else list(set(data))
     except Exception:
         pass
-    return set()
+    return []
 
-def _save_replied(channel_id: str, replied: set):
+def _save_replied(channel_id: str, replied_list: list):
     path = _get_replied_path(channel_id)
     try:
-        ids = list(replied)
-        if len(ids) > _MAX_STORED_IDS:
-            ids = ids[-_MAX_STORED_IDS:]
+        # Chronological trim: keeps the newest entries at the end of the list
+        if len(replied_list) > _MAX_STORED_IDS:
+            replied_list = replied_list[-_MAX_STORED_IDS:]
+            
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
-            json.dump(ids, f)
+            json.dump(replied_list, f)
     except Exception as e:
         print(f"⚠️ [REPLY] Failed to save {path}: {e}")
 
@@ -115,7 +118,7 @@ def run_engagement_protocol():
                     if author == channel_yt_id:
                         continue
                     if thread["snippet"]["totalReplyCount"] > 0:
-                        replied_ids.add(thread_id)
+                        replied_ids.append(thread_id) # Using append to keep chronological order
                         continue
 
                     if not quota_manager.can_afford_youtube(50):
@@ -126,7 +129,7 @@ def run_engagement_protocol():
                     if reply_text is None:
                         flagged_count += 1
                         notify_security_flag(top.get("authorDisplayName", "unknown"), top["textDisplay"][:200], vid_title)
-                        replied_ids.add(thread_id)
+                        replied_ids.append(thread_id)
                         continue
 
                     try:
@@ -135,7 +138,7 @@ def run_engagement_protocol():
                             body={"snippet": {"parentId": thread_id, "textOriginal": reply_text}}
                         ).execute()
                         quota_manager.consume_points("youtube", 50)
-                        replied_ids.add(thread_id)
+                        replied_ids.append(thread_id)
                         replies_sent += 1
                         time.sleep(random.uniform(3, 6))
                     except Exception as e:
