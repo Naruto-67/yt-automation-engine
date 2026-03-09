@@ -1,4 +1,4 @@
-# engine/job_runner.py — Ghost Engine V6.1
+# engine/job_runner.py — Ghost Engine V6.4
 import os
 import time
 import shutil
@@ -33,6 +33,22 @@ class JobRunner:
         logger.engine(f"Processing Job {self.job.id} | Topic: {self.job.topic} | State: {self.job.state.name}")
 
         try:
+            # ── GOD-TIER FIX: Ephemeral VM State Rewind ────────────────────────────────
+            # GitHub Actions wipes intermediate files (.wav, .jpg) between runs.
+            # If the DB state resumed an interrupted job, we must verify physical files exist.
+            # If missing, smoothly rewind the state machine to regenerate them from the DB script.
+            if self.job.state in [JobState.VISUAL_GENERATION, JobState.RENDERING]:
+                if not self.job.audio_path or not os.path.exists(self.job.audio_path):
+                    logger.engine(f"⚠️ [RECOVERY] Job {self.job.id} physical audio missing. Rewinding to VOICE_GENERATION...")
+                    self._transition_to(JobState.VOICE_GENERATION)
+
+            if self.job.state == JobState.RENDERING:
+                paths = json.loads(self.job.image_paths) if self.job.image_paths else []
+                if not paths or not all(os.path.exists(p) for p in paths):
+                    logger.engine(f"⚠️ [RECOVERY] Job {self.job.id} physical images missing. Rewinding to VISUAL_GENERATION...")
+                    self._transition_to(JobState.VISUAL_GENERATION)
+            # ─────────────────────────────────────────────────────────────────────────
+
             if self.job.state == JobState.QUEUED:
                 self._transition_to(JobState.SCRIPT_GENERATION)
 
@@ -94,7 +110,6 @@ class JobRunner:
         if not script_text:
             raise ValueError("Empty script returned from generator.")
 
-        # BUG-06 Fix: SEO Generation is now fully atomic. If it fails, we do not drop the script.
         try:
             meta_data, _ = generate_seo_metadata(self.job.niche, script_text)
         except Exception as e:
@@ -169,7 +184,6 @@ class JobRunner:
         if not success:
             raise RuntimeError("FFmpeg render failed — output not produced.")
 
-        # Store metrics securely on the class instance
         self.final_duration = duration
         self.final_size_mb  = size_mb
         self.job.video_path = output_path
@@ -201,7 +215,6 @@ class JobRunner:
         self._transition_to(JobState.VAULTED)
         notify_vault_secure(self.job.topic, video_id, vault_id or "unknown")
 
-        # BUG-10 Fix: Utilize the correctly scoped class instance variables
         script_data = json.loads(self.job.script) if self.job.script else {}
         notify_production_success(
             niche=self.job.niche,
