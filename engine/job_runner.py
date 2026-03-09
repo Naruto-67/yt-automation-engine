@@ -1,4 +1,4 @@
-# engine/job_runner.py — Ghost Engine V6.9
+# engine/job_runner.py — Ghost Engine V8.0
 import os
 import time
 import shutil
@@ -90,7 +90,6 @@ class JobRunner:
             module=self.job.state.name, error_message=error_msg, traceback=trace
         ))
         
-        # Guardian now successfully reads the unmasked API errors
         from engine.guardian import guardian
         guardian.report_incident(self.job.state.name, error_msg)
 
@@ -107,7 +106,6 @@ class JobRunner:
             self.job.niche, self.job.topic
         )
         if not script_text:
-            # generate_script now raises its own detailed RuntimeError, but we leave this as a final fallback
             raise ValueError("Empty script returned from generator.")
 
         try:
@@ -204,7 +202,6 @@ class JobRunner:
         from scripts.youtube_manager import upload_to_youtube_vault, get_or_create_playlist
         metadata = json.loads(self.job.metadata) if self.job.metadata else {}
 
-        # GOD-TIER FIX: Unmask the true API error so Guardian triggers Safe Mode correctly
         success, video_id_or_error = upload_to_youtube_vault(self.youtube, self.job.video_path, self.job.topic, metadata, self.job.niche)
         
         if not success:
@@ -216,7 +213,14 @@ class JobRunner:
         self._transition_to(JobState.VAULTED)
         notify_vault_secure(self.job.topic, self.job.youtube_id, vault_id or "unknown")
         
-        # GOD-TIER FIX: Connect the orphaned Google Sheets telemetry logger
+        # GOD-TIER FIX: Immediately wipe the heavy MP4 file after verified upload to prevent terminal VPS disk exhaustion.
+        try:
+            if os.path.exists(self.job.video_path):
+                os.remove(self.job.video_path)
+                logger.engine("🧹 Cleaned up local video file to protect persistent server storage limits.")
+        except Exception:
+            pass
+
         try:
             from scripts.logger import log_completed_video
             log_completed_video(self.job.niche, self.job.topic, self.job.video_path)
