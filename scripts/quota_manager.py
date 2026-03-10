@@ -100,6 +100,13 @@ class MasterQuotaManager:
             except Exception:
                 pass
 
+    def consume_youtube_and_call(self, api_call, cost: int):
+        if not self.can_afford_youtube(cost):
+            raise RuntimeError(f"Quota insufficient for YouTube call (cost={cost})")
+        result = api_call()
+        self.consume_points("youtube", cost)
+        return result
+
     def can_afford_youtube(self, cost: int) -> bool:
         if TEST_MODE: return True
         state = self._get_active_state()
@@ -125,7 +132,7 @@ class MasterQuotaManager:
 
         settings  = config_manager.get_settings()
         fallbacks = settings.get("gemini_model_fallback_chain", [
-            "gemini-2.0-flash", "gemini-1.5-flash-8b", "gemini-1.5-flash"
+            "gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash-8b"
         ])
 
         if not self.gemini_key:
