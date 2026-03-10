@@ -1,4 +1,4 @@
-# scripts/quota_manager.py — Ghost Engine V11.0
+# scripts/quota_manager.py — Ghost Engine V13.0
 import os
 import json
 import time
@@ -8,6 +8,7 @@ import pytz
 from datetime import datetime, timezone
 from engine.database import db
 from engine.config_manager import config_manager
+from engine.context import ctx
 
 _QUOTA_JSON_PATH = os.path.join(
     os.path.abspath(os.path.join(os.path.dirname(__file__), "..")),
@@ -37,12 +38,10 @@ class MasterQuotaManager:
         return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     def _today_pt(self) -> str:
-        # GOD-TIER FIX: YouTube Data API Quotas reset at Midnight Pacific Time. 
-        # This aligns the local engine perfectly with Google's backend servers.
         return datetime.now(pytz.timezone('America/Los_Angeles')).strftime("%Y-%m-%d")
 
     def _get_channel_id(self) -> str:
-        return os.environ.get("CURRENT_CHANNEL_ID", "default_channel")
+        return ctx.get_channel_id()
 
     def _get_active_state(self) -> dict:
         today_utc = self._today_utc()
