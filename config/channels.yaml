@@ -2,13 +2,15 @@
 version: "6.0.0"
 
 channels:
-  - id: "CH_MAIN_01"
+  - id: "CH_01"
     name: "GhostEngine_Main"
     niche: "Faceless AI Animation, 3D/Pixar-Style Moral Storytelling"
     target_audience: "US"
+    youtube_client_id_env: "YOUTUBE_CLIENT_ID_CH1"
+    youtube_client_secret_env: "YOUTUBE_CLIENT_SECRET_CH1"
     youtube_refresh_token_env: "YOUTUBE_REFRESH_TOKEN_CH1"
+    discord_webhook_env: "DISCORD_WEBHOOK_CH1"
     active: true
-    # 🎨 The specific AI Hallucination Lenses for Channel 1
     creative_lenses:
       - "The secret, unseen lives of everyday inanimate objects"
       - "Unlikely and dangerous animal friendships in harsh environments"
@@ -19,13 +21,15 @@ channels:
       - "A massive, epic adventure undertaken by the smallest possible creature"
       - "A misunderstanding between a gentle monster and a terrified human"
 
-  - id: "CH_TECH_02"
-    name: "GhostEngine_Tech"
+  - id: "CH_02"
+    name: "GhostEngine_Second"
     niche: "Facts (fun, horror, tech), AI, Automation, Futuristic Tech, high-concept explainers, faceless documentaries"
     target_audience: "US"
+    youtube_client_id_env: "YOUTUBE_CLIENT_ID_CH2"
+    youtube_client_secret_env: "YOUTUBE_CLIENT_SECRET_CH2"
     youtube_refresh_token_env: "YOUTUBE_REFRESH_TOKEN_CH2"
+    discord_webhook_env: "DISCORD_WEBHOOK_CH2"
     active: true
-    # 🎨 The specific AI Hallucination Lenses for Channel 2
     creative_lenses:
       - "Glitches in the Matrix and Simulation Theory proofs"
       - "Terrifying, unintended consequences of future AI automation"
