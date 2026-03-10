@@ -1,4 +1,4 @@
-# scripts/schedule_video.py — Ghost Engine V16.0
+# scripts/schedule_video.py — Ghost Engine V20.0
 import os
 import json
 import time
@@ -24,6 +24,8 @@ def load_config_prompts():
         return yaml.safe_load(f)
 
 def get_historical_time_data(youtube) -> str:
+    if not youtube:
+        return "No data."
     try:
         uploads_id = youtube.channels().list(
             part="contentDetails", mine=True
@@ -80,10 +82,6 @@ def publish_vault_videos():
         print("🔴 [KILL SWITCH] Publisher halted.")
         return
 
-    if TEST_MODE:
-        print("🧪 [TEST MODE] Bypassing Scheduler API Calls.")
-        return
-
     settings      = config_manager.get_settings()
     publish_limit = settings.get("vault", {}).get("publish_per_run", 2)
     publish_cost  = publish_limit * 150  
@@ -97,8 +95,9 @@ def publish_vault_videos():
 
     for channel in config_manager.get_active_channels():
         set_channel_context(channel)
-        youtube = get_youtube_client(channel)
-        if not youtube:
+        
+        youtube = None if TEST_MODE else get_youtube_client(channel)
+        if not youtube and not TEST_MODE:
             continue
 
         jobs = db.get_jobs_by_state(channel.channel_id, JobState.VAULTED, limit=publish_limit)
@@ -106,18 +105,21 @@ def publish_vault_videos():
             logger.engine(f"No vaulted videos for {channel.channel_id}.")
             continue
 
-        vault_id = get_or_create_playlist(youtube, "Vault Backup")
-        if not vault_id:
-            continue
+        if TEST_MODE:
+            vid_to_item = {}
+        else:
+            vault_id = get_or_create_playlist(youtube, "Vault Backup")
+            if not vault_id:
+                continue
 
-        vault_items = youtube.playlistItems().list(
-            part="snippet", playlistId=vault_id, maxResults=50
-        ).execute()
-        quota_manager.consume_points("youtube", 1)
-        vid_to_item = {
-            i["snippet"]["resourceId"]["videoId"]: i["id"]
-            for i in vault_items.get("items", [])
-        }
+            vault_items = youtube.playlistItems().list(
+                part="snippet", playlistId=vault_id, maxResults=50
+            ).execute()
+            quota_manager.consume_points("youtube", 1)
+            vid_to_item = {
+                i["snippet"]["resourceId"]["videoId"]: i["id"]
+                for i in vault_items.get("items", [])
+            }
 
         ai_times = get_optimal_publish_times(youtube, prompts_cfg)
         now      = datetime.utcnow()
@@ -125,11 +127,12 @@ def publish_vault_videos():
         for idx, job in enumerate(jobs):
             vid_id = job.youtube_id
 
-            if not vid_id or vid_id == "test_mode_dummy_id":
-                logger.error(f"Job {job.id} has no youtube_id. Marking FAILED.")
-                job.state = JobState.FAILED
-                db.upsert_job(job)
-                continue
+            if not vid_id or vid_id in ["test_mode_dummy_id", "test_mode_dummy_video_id"]:
+                if not TEST_MODE:
+                    logger.error(f"Job {job.id} has no valid youtube_id. Marking FAILED.")
+                    job.state = JobState.FAILED
+                    db.upsert_job(job)
+                    continue
 
             try:
                 hr, mn = map(int, ai_times[idx].split(":"))
@@ -141,6 +144,14 @@ def publish_vault_videos():
             if target_dt <= now + timedelta(minutes=30):
                 target_dt += timedelta(days=1)
             publish_time_str = target_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+            if TEST_MODE:
+                job.state      = JobState.PUBLISHED
+                job.updated_at = datetime.utcnow().isoformat()
+                db.upsert_job(job)
+                published_total += 1
+                notify_published(job.topic, vid_id or "test_mode_dummy", target_dt.strftime("%Y-%m-%d %H:%M"))
+                continue
 
             if not quota_manager.can_afford_youtube(150):
                 logger.error("YT quota insufficient for publish. Stopping.")
