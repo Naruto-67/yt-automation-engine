@@ -1,4 +1,4 @@
-# engine/orchestrator.py — Ghost Engine V15.0
+# engine/orchestrator.py — Ghost Engine V16.0
 import os
 import glob
 import yaml
@@ -7,7 +7,7 @@ import traceback
 from engine.logger import logger
 from engine.config_manager import config_manager
 from engine.database import db
-from engine.models import JobState
+from engine.models import VideoJob, JobState
 from engine.job_runner import JobRunner
 from engine.guardian import guardian
 from engine.context import ctx
@@ -55,9 +55,8 @@ class Orchestrator:
         logger.engine("🧹 Workspace cleanup...")
         patterns = ["*.wav", "*.srt", "*.ass", "*.jpg", "*.png", "temp_*", "concat_list.txt", "temp_merged_*.mp4"]
         
-        # GOD-TIER FIX: Only delete final outputs proactively if NOT running on GitHub Actions.
-        # This allows the upload-artifact YAML step to successfully archive the video.
-        if not os.environ.get("GITHUB_ACTIONS"):
+        # GOD-TIER FIX: Guarantee the artifact is preserved during Test Mode so you can download the video
+        if not os.environ.get("GITHUB_ACTIONS") and not TEST_MODE:
             patterns.append("final_*.mp4")
             
         for p in patterns:
@@ -69,7 +68,7 @@ class Orchestrator:
 
     def run_pipeline(self):
         if TEST_MODE:
-            notify_summary(True, "🧪 **TEST MODE** — Global 1-video limit active.")
+            notify_summary(True, "🧪 **TEST MODE** — Global 1-video simulation initiated.")
 
         global_produced = 0
 
@@ -79,56 +78,68 @@ class Orchestrator:
 
             set_channel_context(channel)
             ctx.set_channel_id(channel.channel_id)
+            logger.engine(f"🚀 Processing: {channel.channel_name}")
 
-            yt_client = get_youtube_client(channel)
-            if not yt_client and not TEST_MODE:
-                logger.error(f"Auth failed for {channel.channel_id}. Skipping.")
-                notify_summary(False, f"🔴 Auth failure for `{channel.channel_id}` — check `{channel.youtube_refresh_token_env}` secret.")
-                continue
+            if TEST_MODE:
+                logger.engine(f"🧪 [TEST MODE] Simulating isolated run. Bypassing YouTube Auth.")
+                yt_client = None
+                dummy_job = VideoJob(
+                    channel_id=channel.channel_id,
+                    topic="Simulated God-Tier Test Artifact",
+                    niche=channel.niche or "Tech Innovation",
+                    state=JobState.QUEUED
+                )
+                db.upsert_job(dummy_job)
+                batch = [dummy_job]
+                max_videos = 1
+            else:
+                yt_client = get_youtube_client(channel)
+                if not yt_client:
+                    logger.error(f"Auth failed for {channel.channel_id}. Skipping.")
+                    notify_summary(False, f"🔴 Auth failure for `{channel.channel_id}` — check `{channel.youtube_refresh_token_env}` secret.")
+                    continue
 
-            if yt_client and not TEST_MODE:
                 live_name = get_channel_name(yt_client)
                 if live_name:
                     self.sync_channel_identity(channel, live_name.replace("@", ""))
 
-            logger.engine(f"🚀 Processing: {channel.channel_name}")
+                vault_count = get_actual_vault_count(yt_client)
+                vault_max = config_manager.get_settings().get("vault", {}).get("max_videos", 14)
+                if vault_count >= vault_max:
+                    logger.engine(f"🛑 Vault full ({vault_count}/{vault_max}). Skipping.")
+                    continue
 
-            vault_count = get_actual_vault_count(yt_client) if not TEST_MODE else 5
-            vault_max = config_manager.get_settings().get("vault", {}).get("max_videos", 14)
-            if vault_count >= vault_max:
-                logger.engine(f"🛑 Vault full ({vault_count}/{vault_max}). Skipping.")
-                continue
+                if not guardian.pre_flight_check():
+                    logger.error(f"Guardian halted run for {channel.channel_id}.")
+                    break
 
-            if not guardian.pre_flight_check():
-                logger.error(f"Guardian halted run for {channel.channel_id}.")
-                break
+                unprocessed = db.get_unprocessed_count(channel.channel_id)
+                if unprocessed < 3:
+                    run_dynamic_research(channel, yt_client)
 
-            unprocessed = db.get_unprocessed_count(channel.channel_id)
-            if unprocessed < 3:
-                run_dynamic_research(channel, yt_client)
+                batch = []
+                priority_states = [
+                    JobState.RENDERING, 
+                    JobState.VISUAL_GENERATION, 
+                    JobState.VOICE_GENERATION, 
+                    JobState.SCRIPT_GENERATION, 
+                    JobState.QUEUED
+                ]
+                
+                for state in priority_states:
+                    jobs_in_state = db.get_jobs_by_state(channel.channel_id, state, limit=4)
+                    jobs_in_state.sort(key=lambda j: j.attempts) 
+                    batch.extend(jobs_in_state)
 
-            batch = []
-            priority_states = [
-                JobState.RENDERING, 
-                JobState.VISUAL_GENERATION, 
-                JobState.VOICE_GENERATION, 
-                JobState.SCRIPT_GENERATION, 
-                JobState.QUEUED
-            ]
-            
-            for state in priority_states:
-                jobs_in_state = db.get_jobs_by_state(channel.channel_id, state, limit=4)
-                jobs_in_state.sort(key=lambda j: j.attempts) 
-                batch.extend(jobs_in_state)
+                max_videos = 4
 
-            max_videos = 1 if TEST_MODE else 4
             processed_this_run = 0
 
             for job in batch:
                 if processed_this_run >= max_videos:
                     break
                 
-                if guardian.get_run_forecast() < 1:
+                if not TEST_MODE and guardian.get_run_forecast() < 1:
                     logger.engine("🛑 [GUARDIAN] Quota depleted mid-run. Halting batch to protect AI resources.")
                     break
                     
@@ -145,7 +156,7 @@ class Orchestrator:
                     print(f"└ Traceback:\n{trace}\n")
                     
                     action = guardian.report_incident(job.state.name, e)
-                    if action == "FATAL":
+                    if action == "FATAL" and not TEST_MODE:
                         logger.error(f"🛑 [ORCHESTRATOR] Fatal incident reported. Halting batch for {channel.channel_id}.")
                         break
 
