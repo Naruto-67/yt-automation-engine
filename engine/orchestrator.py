@@ -1,4 +1,4 @@
-# engine/orchestrator.py — Ghost Engine V19.0
+# engine/orchestrator.py — Ghost Engine V20.0
 import os
 import sys
 import glob
@@ -68,7 +68,7 @@ class Orchestrator:
 
     def run_pipeline(self):
         if TEST_MODE:
-            notify_summary(True, "🧪 **TEST MODE** — Global 1-video simulation initiated.")
+            notify_summary(True, "🧪 **TEST MODE** — End-to-End system simulation initiated.")
 
         global_produced = 0
         global_failed = False
@@ -82,17 +82,8 @@ class Orchestrator:
             logger.engine(f"🚀 Processing: {channel.channel_name}")
 
             if TEST_MODE:
-                logger.engine(f"🧪 [TEST MODE] Simulating isolated run. Bypassing YouTube Auth.")
+                logger.engine(f"🧪 [TEST MODE] Bypassing YouTube Auth. Executing full logic simulation.")
                 yt_client = None
-                dummy_job = VideoJob(
-                    channel_id=channel.channel_id,
-                    topic="The dark side of AI automation and deepfakes", 
-                    niche=channel.niche or "Tech Innovation",
-                    state=JobState.QUEUED
-                )
-                db.upsert_job(dummy_job)
-                batch = [dummy_job]
-                max_videos = 1
             else:
                 yt_client = get_youtube_client(channel)
                 if not yt_client:
@@ -101,41 +92,40 @@ class Orchestrator:
                     global_failed = True
                     continue
 
-                live_name = get_channel_name(yt_client)
-                if live_name:
-                    self.sync_channel_identity(channel, live_name.replace("@", ""))
+            live_name = get_channel_name(yt_client) if yt_client else None
+            if live_name:
+                self.sync_channel_identity(channel, live_name.replace("@", ""))
 
-                vault_count = get_actual_vault_count(yt_client)
-                vault_max = config_manager.get_settings().get("vault", {}).get("max_videos", 14)
-                if vault_count >= vault_max:
-                    logger.engine(f"🛑 Vault full ({vault_count}/{vault_max}). Skipping.")
-                    continue
+            vault_count = get_actual_vault_count(yt_client) if yt_client else (0 if TEST_MODE else 0)
+            vault_max = config_manager.get_settings().get("vault", {}).get("max_videos", 14)
+            if vault_count >= vault_max:
+                logger.engine(f"🛑 Vault full ({vault_count}/{vault_max}). Skipping.")
+                continue
 
-                if not guardian.pre_flight_check():
-                    logger.error(f"Guardian halted run for {channel.channel_id}.")
-                    global_failed = True
-                    break
+            if not guardian.pre_flight_check():
+                logger.error(f"Guardian halted run for {channel.channel_id}.")
+                global_failed = True
+                break
 
-                unprocessed = db.get_unprocessed_count(channel.channel_id)
-                if unprocessed < 3:
-                    run_dynamic_research(channel, yt_client)
+            unprocessed = db.get_unprocessed_count(channel.channel_id)
+            if unprocessed < 3:
+                run_dynamic_research(channel, yt_client)
 
-                batch = []
-                priority_states = [
-                    JobState.RENDERING, 
-                    JobState.VISUAL_GENERATION, 
-                    JobState.VOICE_GENERATION, 
-                    JobState.SCRIPT_GENERATION, 
-                    JobState.QUEUED
-                ]
-                
-                for state in priority_states:
-                    jobs_in_state = db.get_jobs_by_state(channel.channel_id, state, limit=4)
-                    jobs_in_state.sort(key=lambda j: j.attempts) 
-                    batch.extend(jobs_in_state)
+            batch = []
+            priority_states = [
+                JobState.RENDERING, 
+                JobState.VISUAL_GENERATION, 
+                JobState.VOICE_GENERATION, 
+                JobState.SCRIPT_GENERATION, 
+                JobState.QUEUED
+            ]
+            
+            for state in priority_states:
+                jobs_in_state = db.get_jobs_by_state(channel.channel_id, state, limit=4)
+                jobs_in_state.sort(key=lambda j: j.attempts) 
+                batch.extend(jobs_in_state)
 
-                max_videos = 4
-
+            max_videos = 1 if TEST_MODE else 4
             processed_this_run = 0
 
             for job in batch:
