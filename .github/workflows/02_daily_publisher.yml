@@ -1,9 +1,9 @@
+# .github/workflows/02_daily_publisher.yml
 name: 02_Ghost_Daily_Publisher
 
 on:
-  # 🚨 PUBLISHER DISARMED: Cron schedule commented out so videos won't go live automatically.
-  # schedule:
-  #   - cron: '0 6 * * *'
+  schedule:
+    - cron: '0 6 * * *'
   workflow_dispatch:
     inputs:
       force_run:
