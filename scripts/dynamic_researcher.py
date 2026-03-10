@@ -1,8 +1,10 @@
-# scripts/dynamic_researcher.py — Ghost Engine V20.0
+# scripts/dynamic_researcher.py
 import re
 import json
 import yaml
 import os
+import random
+import traceback
 from scripts.quota_manager import quota_manager
 from scripts.discord_notifier import set_channel_context, notify_research_complete, notify_summary
 from engine.database import db
@@ -10,6 +12,18 @@ from engine.models import VideoJob, ChannelConfig
 from engine.logger import logger
 
 TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
+
+# 🚨 LEGACY RESTORE: Creative Lenses
+CREATIVE_LENSES = [
+    "Historical Anomalies and Unexplained Events",
+    "Glitches in the Matrix & Simulation Theory",
+    "Cosmic Horror and Deep Space Mysteries",
+    "Futuristic AI Dystopias & Cyberpunk Concepts",
+    "Deep Sea Terrors and Unexplored Abyss",
+    "Paradoxes and Mind-Bending Physics",
+    "Secret Societies and Hidden Architecture",
+    "Biological Marvels and Bizarre Evolution"
+]
 
 def load_config_prompts():
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -66,7 +80,8 @@ def get_deep_channel_context(youtube) -> str:
             f"- '{v['title']}' | {v['views']:,} views" for v in video_data[:5]
         ])
     except Exception as e:
-        logger.error(f"Channel context fetch failed: {e}")
+        trace = traceback.format_exc()
+        logger.error(f"Channel context fetch failed:\n{trace}")
         return "Generate broad niches."
 
 def research_competitors(youtube, niche: str, top_n: int = 3) -> str:
@@ -140,6 +155,9 @@ def _generate_topics_and_evolve_niche(channel_config: ChannelConfig, needed: int
     intel = db.get_channel_intelligence(channel_config.channel_id)
     competitor_section = f"\n\n🏆 COMPETITOR INSIGHTS:\n{competitor_context}" if competitor_context else ""
 
+    lens = random.choice(CREATIVE_LENSES)
+    print(f"      🎨 Injecting Creative Lens: {lens}")
+
     sys_msg  = prompts_cfg["researcher"]["system_prompt"]
     user_msg = prompts_cfg["researcher"]["user_template"].format(
         needed_count=max(5, needed + 5),
@@ -147,6 +165,9 @@ def _generate_topics_and_evolve_niche(channel_config: ChannelConfig, needed: int
         channel_context=channel_context + competitor_section,
         history_string=", ".join(historical_topics[-300:]) if historical_topics else "None"
     )
+    
+    # 🚨 LEGACY RESTORE: Force the AI to filter through the lens
+    user_msg += f"\n\nCRITICAL: You MUST filter all {needed} ideas through this specific Creative Lens: '{lens}'. Make them bizarre and fascinating."
 
     raw, _ = quota_manager.generate_text(user_msg, task_type="research", system_prompt=sys_msg)
     if not raw:
@@ -180,7 +201,8 @@ def _generate_topics_and_evolve_niche(channel_config: ChannelConfig, needed: int
                     if isinstance(salvaged, list): 
                         topics = salvaged
     except Exception as e:
-        logger.error(f"Failed to parse AI research JSON: {e}")
+        trace = traceback.format_exc()
+        logger.error(f"Failed to parse AI research JSON:\n{trace}")
 
     return topics, evolved_niche
 
