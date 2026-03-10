@@ -44,10 +44,17 @@ jobs:
           GEMINI_API_KEY:        ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY:          ${{ secrets.GROQ_API_KEY }}
 
-          YOUTUBE_CLIENT_ID_MAIN:       ${{ secrets.YOUTUBE_CLIENT_ID_MAIN }}
-          YOUTUBE_CLIENT_SECRET_MAIN:   ${{ secrets.YOUTUBE_CLIENT_SECRET_MAIN }}
-          YOUTUBE_REFRESH_TOKEN_MAIN:   ${{ secrets.YOUTUBE_REFRESH_TOKEN_MAIN }}
-          DISCORD_WEBHOOK_MAIN:         ${{ secrets.DISCORD_WEBHOOK_MAIN }}
+          # Channel 1 Infrastructure
+          YOUTUBE_CLIENT_ID_CH1:       ${{ secrets.YOUTUBE_CLIENT_ID_CH1 }}
+          YOUTUBE_CLIENT_SECRET_CH1:   ${{ secrets.YOUTUBE_CLIENT_SECRET_CH1 }}
+          YOUTUBE_REFRESH_TOKEN_CH1:   ${{ secrets.YOUTUBE_REFRESH_TOKEN_CH1 }}
+          DISCORD_WEBHOOK_CH1:         ${{ secrets.DISCORD_WEBHOOK_CH1 }}
+
+          # Channel 2 Infrastructure
+          YOUTUBE_CLIENT_ID_CH2:       ${{ secrets.YOUTUBE_CLIENT_ID_CH2 }}
+          YOUTUBE_CLIENT_SECRET_CH2:   ${{ secrets.YOUTUBE_CLIENT_SECRET_CH2 }}
+          YOUTUBE_REFRESH_TOKEN_CH2:   ${{ secrets.YOUTUBE_REFRESH_TOKEN_CH2 }}
+          DISCORD_WEBHOOK_CH2:         ${{ secrets.DISCORD_WEBHOOK_CH2 }}
 
         run: python -m scripts.reply_comments
 
