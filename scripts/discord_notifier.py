@@ -1,6 +1,9 @@
-# scripts/discord_notifier.py — Ghost Engine V18.0
+# scripts/discord_notifier.py
 import os
 import requests
+import time
+import random
+import traceback
 
 _ACTIVE_WEBHOOK = None
 _ACTIVE_CHANNEL = "Unknown Channel"
@@ -31,10 +34,25 @@ def _send_embed(title: str, description: str, color: int):
         ]
     }
     
+    # 🚨 LEGACY RESTORE: Chaotic Biological Pacing
+    time.sleep(random.uniform(2.5, 4.5))
+    
     try:
-        requests.post(_ACTIVE_WEBHOOK, json=payload, timeout=10)
+        response = requests.post(_ACTIVE_WEBHOOK, json=payload, timeout=10)
+        
+        # 🚨 LEGACY RESTORE: Respect HTTP 429 Rate Limit Headers
+        if response.status_code == 429:
+            try:
+                retry_after = response.json().get('retry_after', 5)
+                print(f"⚠️ [DISCORD] Rate limited. Pausing for {retry_after}s to ensure delivery...")
+                time.sleep(retry_after + 1)
+                requests.post(_ACTIVE_WEBHOOK, json=payload, timeout=10)
+            except Exception:
+                pass
+                
     except Exception as e:
-        print(f"⚠️ [DISCORD] Failed to send webhook: {e}")
+        trace = traceback.format_exc()
+        print(f"⚠️ [DISCORD] Failed to send webhook:\n{trace}")
 
 def notify_summary(success: bool, message: str):
     icon = "✅" if success else "🛑"
