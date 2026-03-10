@@ -34,13 +34,10 @@ def _send_embed(title: str, description: str, color: int):
         ]
     }
     
-    # 🚨 LEGACY RESTORE: Chaotic Biological Pacing
     time.sleep(random.uniform(2.5, 4.5))
     
     try:
         response = requests.post(_ACTIVE_WEBHOOK, json=payload, timeout=10)
-        
-        # 🚨 LEGACY RESTORE: Respect HTTP 429 Rate Limit Headers
         if response.status_code == 429:
             try:
                 retry_after = response.json().get('retry_after', 5)
