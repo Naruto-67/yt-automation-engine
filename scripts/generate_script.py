@@ -1,4 +1,4 @@
-# scripts/generate_script.py — Ghost Engine V13.0
+# scripts/generate_script.py — Ghost Engine V17.0
 import os
 import json
 import yaml
@@ -118,8 +118,10 @@ def generate_script(niche: str, topic: str):
                 print(f"⚠️ [SCRIPT] Too long ({word_count} words, limit {word_ceiling}). Retrying...")
                 last_error = "Script exceeded maximum word count."
                 continue
-            if word_count < 10:
-                print("⚠️ [SCRIPT] Script too short. Retrying...")
+            
+            # GOD-TIER FIX: Enforce minimum 50 words to prevent 5-second videos.
+            if word_count < 50:
+                print(f"⚠️ [SCRIPT] Script too short ({word_count} words). Retrying...")
                 last_error = "Script generated below minimum word threshold."
                 continue
 
