@@ -1,4 +1,4 @@
-# scripts/performance_analyst.py — Ghost Engine V16.0
+# scripts/performance_analyst.py — Ghost Engine V20.0
 import os
 import json
 import yaml
@@ -97,10 +97,6 @@ def run_daily_analysis():
         print("🔴 [KILL SWITCH] Analyst halted.")
         return
 
-    if TEST_MODE:
-        print("🧪 [TEST MODE] Bypassing Analyst API Calls.")
-        return
-
     prompts_cfg  = load_config_prompts()
     settings     = config_manager.get_settings()
     decay_days   = settings.get("intelligence", {}).get("rule_decay_days", 30)
@@ -108,15 +104,21 @@ def run_daily_analysis():
 
     for channel in config_manager.get_active_channels():
         set_channel_context(channel)
-        youtube = get_youtube_client(channel)
-        if not youtube:
+        
+        youtube = None if TEST_MODE else get_youtube_client(channel)
+        if not youtube and not TEST_MODE:
             continue
 
         try:
-            ch_stats    = _fetch_channel_stats(youtube)
+            if TEST_MODE:
+                ch_stats = {"views": 15000, "subs": 1200, "videos": 45}
+                recent_vids = [{"title": "Test Video Performance", "views": 5000, "published_at": datetime.utcnow().isoformat()}]
+            else:
+                ch_stats    = _fetch_channel_stats(youtube)
+                recent_vids = _fetch_recent_video_stats(youtube, channel.channel_id)
+
             views       = ch_stats["views"]
             subs        = ch_stats["subs"]
-            recent_vids = _fetch_recent_video_stats(youtube, channel.channel_id)
 
             recent_7d     = db.get_recent_performance(channel.channel_id, days=7)
             growth_7d     = sum(v["views"] for v in recent_7d)
