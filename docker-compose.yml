@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  ghost-engine:
+    build: .
+    container_name: ghost-engine-worker
+    restart: unless-stopped
+    volumes:
+      - ./memory:/app/memory
+      - ./config:/app/config
+      - ./assets:/app/assets
+    env_file:
+      - .env
+    environment:
+      - GHOST_ENGINE_ENABLED=true
+      - TEST_MODE=false
