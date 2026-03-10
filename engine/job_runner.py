@@ -1,4 +1,4 @@
-# engine/job_runner.py — Ghost Engine V15.0
+# engine/job_runner.py — Ghost Engine V16.0
 import os
 import time
 import shutil
@@ -16,6 +16,8 @@ from scripts.generate_visuals  import fetch_scene_images
 from scripts.render_video      import render_video
 from scripts.generate_metadata import generate_seo_metadata
 from scripts.discord_notifier  import notify_step, notify_production_success, notify_vault_secure
+
+TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
 
 class JobRunner:
     def __init__(self, job: VideoJob, youtube_client=None, channel_name: str = ""):
@@ -197,6 +199,29 @@ class JobRunner:
         self._execute_upload()
 
     def _execute_upload(self):
+        metadata = json.loads(self.job.metadata) if self.job.metadata else {}
+        script_data = json.loads(self.job.script) if self.job.script else {}
+
+        if TEST_MODE:
+            logger.success("🧪 [TEST MODE] Bypassing YouTube Upload. Simulating success.")
+            self.job.youtube_id = "test_mode_dummy_video_id"
+            self._transition_to(JobState.VAULTED)
+            notify_vault_secure(self.job.topic, self.job.youtube_id, "Test_Playlist_ID")
+            
+            notify_production_success(
+                niche=self.job.niche,
+                topic=self.job.topic,
+                script=script_data.get("text", ""),
+                script_ai=script_data.get("provider", "Unknown"),
+                seo_ai="Gemini/Groq",
+                voice_ai=script_data.get("target_voice", "am_adam"),
+                visual_ai="4-Tier Cascade",
+                metadata=metadata,
+                duration=self.final_duration,
+                size=self.final_size_mb
+            )
+            return
+
         if not self.youtube:
             raise RuntimeError("No YouTube client available for upload.")
             
@@ -205,7 +230,6 @@ class JobRunner:
 
         logger.generation("Uploading to YouTube vault...")
         from scripts.youtube_manager import upload_to_youtube_vault, get_or_create_playlist
-        metadata = json.loads(self.job.metadata) if self.job.metadata else {}
 
         success, video_id_or_error = upload_to_youtube_vault(self.youtube, self.job.video_path, self.job.topic, metadata, self.job.niche)
         
@@ -219,7 +243,6 @@ class JobRunner:
         notify_vault_secure(self.job.topic, self.job.youtube_id, vault_id or "unknown")
         
         try:
-            # GOD-TIER FIX: Bypass deletion on GitHub Actions to preserve the Artifact Upload
             if os.path.exists(self.job.video_path) and not os.environ.get("GITHUB_ACTIONS"):
                 os.remove(self.job.video_path)
                 logger.engine("🧹 Cleaned up local video file to protect persistent server storage limits.")
@@ -232,7 +255,6 @@ class JobRunner:
         except Exception:
             pass
 
-        script_data = json.loads(self.job.script) if self.job.script else {}
         notify_production_success(
             niche=self.job.niche,
             topic=self.job.topic,
