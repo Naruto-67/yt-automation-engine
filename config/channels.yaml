@@ -25,7 +25,7 @@ channels:
   - id: "CH_01"
     name: "GhostEngine_Main"
     # Baseline niche — system will evolve beyond this using research & analysis
-    niche: "Cosmic Horror and Space Mysteries"
+    niche: "Faceless AI Animation, 3D/Pixar-Style Moral Storytelling"
     target_audience: "US"
     # Maps to the GitHub Secrets for Channel 1
     youtube_client_id_env: "YOUTUBE_CLIENT_ID_CH1"
@@ -37,7 +37,7 @@ channels:
   - id: "CH_02"
     name: "GhostEngine_Second"
     # Update this to whatever baseline niche you want for the second channel
-    niche: "AI, Automation, and Futuristic Tech"
+    niche: "facts, AI, Automation, Futuristic Tech,storytelling, high-concept explainers, and faceless documentaries"
     target_audience: "US"
     # Maps to the GitHub Secrets for Channel 2
     youtube_client_id_env: "YOUTUBE_CLIENT_ID_CH2"
