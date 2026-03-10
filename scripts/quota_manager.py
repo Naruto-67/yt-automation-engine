@@ -1,4 +1,4 @@
-# scripts/quota_manager.py — Ghost Engine V16.0
+# scripts/quota_manager.py — Ghost Engine V17.0
 import os
 import json
 import time
@@ -68,7 +68,7 @@ class MasterQuotaManager:
 
     def consume_points(self, provider: str, amount: int):
         if TEST_MODE:
-            return # GOD-TIER FIX: Freeze quotas entirely during test simulations
+            return 
             
         if provider == "youtube":
             target_id = self._get_channel_id()
@@ -205,7 +205,12 @@ class MasterQuotaManager:
                     continue
 
                 model_chain = self._discover_gemini_models()
+                provider_exhausted = False
+                
                 for model in model_chain:
+                    if provider_exhausted:
+                        break
+                        
                     for attempt in range(3): 
                         self._enforce_rpm_throttle()
                         try:
@@ -220,12 +225,14 @@ class MasterQuotaManager:
                             return response.text, f"Gemini ({model})"
                         except Exception as e:
                             err = str(e).lower()
-                            if any(x in err for x in ["429", "too many requests"]):
+                            if any(x in err for x in ["429", "too many requests", "quota", "exhausted"]):
                                 if attempt < 2:
                                     self._execute_jitter_backoff(attempt, "GEMINI")
                                     continue
                                 else:
-                                    print(f"⚠️ [GEMINI QUOTA] Account limit hard-locked on {model}. Failing over.")
+                                    # GOD-TIER FIX: Account limits apply globally. Break the outer provider loop instantly.
+                                    print(f"⚠️ [GEMINI QUOTA] Account-wide limit hit on {model}. Failing over to Groq instantly.")
+                                    provider_exhausted = True
                                     break 
                             elif any(x in err for x in ["404", "not found", "deprecated"]):
                                 print(f"⚠️ [GEMINI] Model deprecated: {model}")
@@ -245,10 +252,13 @@ class MasterQuotaManager:
                             return res, f"Groq ({groq.TEXT_MODEL})"
                     except Exception as e:
                         err = str(e).lower()
-                        if any(x in err for x in ["429", "too many requests"]):
+                        if any(x in err for x in ["429", "too many requests", "quota", "exhausted"]):
                             if attempt < 2:
                                 self._execute_jitter_backoff(attempt, "GROQ")
                                 continue
+                            else:
+                                print(f"⚠️ [GROQ QUOTA] Account-wide limit hit. Failing over.")
+                                break
                         print(f"⚠️ [GROQ] Text generation failed: {e}")
                         break
 
