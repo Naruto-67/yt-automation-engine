@@ -11,10 +11,10 @@ from engine.config_manager import config_manager
 from engine.context import ctx
 from engine.logger import logger
 
-# 🚨 LEGACY RESTORE: Biologically-calibrated speech rate constants to stop TTS pipeline bleeding.
-_WORDS_PER_SECOND_TTS = 130 / 60.0
+# 🚨 LEGACY RESTORE: Biologically-calibrated speech rate constants
+_WORDS_PER_SECOND_TTS = 143 / 60.0  # ~2.38 WPS (Kokoro at 1.1x speed)
 _MAX_VIDEO_SECONDS = 59.0
-_ABSOLUTE_WORD_CEILING = int(_MAX_VIDEO_SECONDS * _WORDS_PER_SECOND_TTS)
+_ABSOLUTE_WORD_CEILING = int(_MAX_VIDEO_SECONDS * _WORDS_PER_SECOND_TTS) # ~140 words
 
 def load_config_prompts():
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -44,7 +44,9 @@ def validate_script_quality(script_text: str, prompts_cfg: dict) -> bool:
                 score = numbers[-1]
             return score >= 6
         return True 
-    except Exception:
+    except Exception as e:
+        trace = traceback.format_exc()
+        logger.error(f"Validation parsing error:\n{trace}")
         return True 
 
 def generate_script(niche: str, topic: str):
@@ -124,7 +126,7 @@ def generate_script(niche: str, topic: str):
             pexels_queries = [s[2] for s in parsed_scenes]
 
             word_count = len(full_text.split())
-            print(f"      -> [TEXT PRE-CHECK] Script generated: {word_count} words (limit: {_ABSOLUTE_WORD_CEILING}).")
+            print(f"      -> [TEXT PRE-CHECK] Script generated: {word_count} words (Mathematical Limit: {_ABSOLUTE_WORD_CEILING}).")
 
             if word_count > _ABSOLUTE_WORD_CEILING:
                 print(f"      ⚠️ [SCRIPT] Too long ({word_count} words, limit {_ABSOLUTE_WORD_CEILING}). Retrying...")
@@ -156,7 +158,7 @@ def generate_script(niche: str, topic: str):
         except Exception as e:
             last_error = str(e)
             trace = traceback.format_exc()
-            print(f"⚠️ [SCRIPT] Attempt {attempt+1} failed.\nException: {e}\nTraceback:\n{trace}")
+            print(f"⚠️ [SCRIPT] Attempt {attempt+1} failed:\n{trace}")
             continue
 
     logger.error("🚨 Script Generation Fatal Exhaustion. Injecting Emergency Fallback Script.")
