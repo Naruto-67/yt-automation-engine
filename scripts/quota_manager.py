@@ -148,13 +148,11 @@ class MasterQuotaManager:
 
             def _score(name: str) -> int:
                 n = name.lower()
-                # 🚨 LEGACY RESTORE: Explicitly ban non-text models from crashing the queue
                 if any(x in n for x in ["vision", "image", "embedding", "audio", "aqa", "learn", "tts", "customtools"]):
                     return -1
                 if "flash" not in n and "lite" not in n and "pro" not in n: return -1
                 
                 score = 0
-                # 🚨 LEGACY RESTORE: Mathematical scoring to auto-favor newest generational releases
                 if "3.1" in n: score += 150
                 elif "3.0" in n: score += 120
                 elif "2.5" in n: score += 100
@@ -166,7 +164,7 @@ class MasterQuotaManager:
                 elif "flash-lite" in n: score += 15
                 elif "flash" in n: score += 20
                 
-                if "pro" in n: score -= 50 # Deprioritize heavy models for free tier
+                if "pro" in n: score -= 50 
                 if "exp" in n or "preview" in n: score -= 5
                 return score
 
