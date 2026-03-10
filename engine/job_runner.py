@@ -1,4 +1,4 @@
-# engine/job_runner.py — Ghost Engine V16.0
+# engine/job_runner.py
 import os
 import time
 import shutil
@@ -30,7 +30,7 @@ class JobRunner:
         self.final_duration = 0.0
         self.final_size_mb  = 0.0
 
-    def process(self):
+    def process(self) -> bool:
         ctx.set_channel_id(self.job.channel_id)
         logger.engine(f"Processing Job {self.job.id} | Topic: {self.job.topic} | State: {self.job.state.name}")
 
@@ -83,6 +83,8 @@ class JobRunner:
             print(f"└ Exact Exception: {type(e).__name__}: {e}")
             print(f"└ Traceback:\n{trace}\n")
             self._handle_failure(str(e), trace)
+
+        return self.job.state == JobState.VAULTED
 
     def _transition_to(self, new_state: JobState):
         self.job.state      = new_state
