@@ -52,7 +52,7 @@ def trim_audio_precision(file_path: str):
         return True, len(final) / 1000.0
     except Exception as e:
         trace = traceback.format_exc()
-        print(f"⚠️ [VOICE] Audio trim failed: {e}\n{trace}")
+        print(f"⚠️ [VOICE] Audio trim failed:\n{trace}")
         return False, 0.0
 
 def sanitize_for_tts(text: str) -> str:
