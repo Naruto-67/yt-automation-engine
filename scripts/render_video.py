@@ -1,46 +1,18 @@
 # scripts/render_video.py
-# ═══════════════════════════════════════════════════════════════════════════════
-# FIX #10 — Disk space pre-check before FFmpeg rendering
-#
-# BUG: upload_to_youtube_vault() checked for 500MB free before uploading,
-# but render_video() had NO disk check before rendering. A 1080×1920 render
-# with Ken Burns animation across 7 scenes (each scaled to 2160×3840 before
-# crop) produces multi-GB intermediate files. With up to 4 concurrent jobs
-# running on a GitHub Actions runner (~14GB total disk), the runner could
-# silently run out of space mid-render, causing FFmpeg to produce a 0-byte
-# output file — which then fails the size check and retries, wasting even more.
-#
-# FIX: Added _check_disk_space() called at the top of render_video().
-# The required threshold is 2GB — enough for:
-#   - Per-scene Ken Burns clip: ~300MB × 7 scenes = ~2.1GB peak
-#   - Concatenated video before subtitles: ~500MB
-#   - Final output with subtitles: ~200MB
-# 2GB is conservative and leaves headroom for other jobs running in parallel.
-#
-# If the check fails, render_video() returns (False, 0.0, 0) immediately so
-# the job runner marks it as a failure and retries next run (after cleanup
-# has freed space), rather than running FFmpeg to failure.
-# ═══════════════════════════════════════════════════════════════════════════════
-
 import os
 import shutil
 import subprocess
 import json
 import re
 import requests
+import traceback
 from pydub import AudioSegment
 from engine.config_manager import config_manager
 
 
-# ── FIX #10: Minimum free disk space required before starting any render ─────
 MIN_RENDER_DISK_BYTES = 2 * 1024 * 1024 * 1024  # 2 GB
 
-
 def _check_disk_space(required_bytes: int = MIN_RENDER_DISK_BYTES) -> bool:
-    """
-    Returns True if enough free disk space is available to safely render.
-    Checks the working directory (/ on GitHub Actions runners).
-    """
     try:
         free = shutil.disk_usage("/").free
         if free < required_bytes:
@@ -55,9 +27,7 @@ def _check_disk_space(required_bytes: int = MIN_RENDER_DISK_BYTES) -> bool:
         return True
     except Exception as e:
         print(f"⚠️ [RENDERER] Disk check failed ({e}). Proceeding with caution.")
-        return True  # Don't block on check failure — let FFmpeg try
-# ─────────────────────────────────────────────────────────────────────────────
-
+        return True  
 
 def download_cinematic_font():
     font_path = "/tmp/Montserrat-Bold.ttf"
@@ -79,7 +49,6 @@ def download_cinematic_font():
             pass
     return "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
 
-
 def get_style_config(subtitle_color=None):
     settings   = config_manager.get_settings()
     base_style = settings.get("subtitle_style", {
@@ -92,12 +61,10 @@ def get_style_config(subtitle_color=None):
         print(f"🎨 [RENDERER] Applied AI Director color: {subtitle_color}")
     return base_style
 
-
 def time_to_seconds(time_str):
     h, m, s_ms = time_str.split(":")
     s, ms      = s_ms.split(",")
     return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000.0
-
 
 def srt_to_ass(srt_path, ass_path, style):
     header = (
@@ -132,9 +99,10 @@ def srt_to_ass(srt_path, ass_path, style):
         with open(ass_path, "w", encoding="utf-8") as f:
             f.write(header + "\n".join(events))
         return True
-    except Exception:
+    except Exception as e:
+        trace = traceback.format_exc()
+        print(f"⚠️ [RENDERER] SRT to ASS conversion failed: {e}\n{trace}")
         return False
-
 
 def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=30):
     frames      = int(duration * fps)
@@ -154,18 +122,17 @@ def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=30):
             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True, timeout=600,
         )
         return True
-    except Exception:
+    except Exception as e:
+        trace = traceback.format_exc()
+        print(f"⚠️ [RENDERER] Ken Burns generation failed: {e}\n{trace}")
         return False
-
 
 def render_video(image_paths, audio_path, output_path,
                  scene_weights=None, watermark_text="GhostEngine", subtitle_color=None):
     print("⚙️ [RENDERER] Executing Master Render Engine...")
 
-    # ── FIX #10: Disk space gate — fail fast before allocating any temp files ─
     if not _check_disk_space():
         return False, 0.0, 0
-    # ─────────────────────────────────────────────────────────────────────────
 
     srt_path    = audio_path.replace(".wav", ".srt")
     ass_path    = audio_path.replace(".wav", ".ass")
@@ -178,9 +145,15 @@ def render_video(image_paths, audio_path, output_path,
     try:
         audio    = AudioSegment.from_file(audio_path)
         total_dur = min(len(audio) / 1000.0, 59.0)
+        
+        # 🚨 LEGACY RESTORE: Cinematic Fade-out if script runs long
         if len(audio) / 1000.0 > 59.0:
+            print(f"⚠️ [RENDERER] Audio exceeds 59s ({len(audio)/1000.0}s). Applying cinematic fade-out.")
             audio[:59000].fade_out(1500).export(audio_path, format="wav")
-    except Exception:
+            
+    except Exception as e:
+        trace = traceback.format_exc()
+        print(f"⚠️ [RENDERER] Audio processing failed: {e}\n{trace}")
         return False, 0.0, 0
 
     clip_durs = (
@@ -211,7 +184,9 @@ def render_video(image_paths, audio_path, output_path,
              "-shortest", temp_merged],
             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True, timeout=600,
         )
-    except Exception:
+    except Exception as e:
+        trace = traceback.format_exc()
+        print(f"⚠️ [RENDERER] Concat phase failed: {e}\n{trace}")
         return False, total_dur, 0
 
     font_path      = download_cinematic_font()
@@ -232,7 +207,9 @@ def render_video(image_paths, audio_path, output_path,
              "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-c:a", "copy", output_path],
             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True, timeout=600,
         )
-    except Exception:
+    except Exception as e:
+        trace = traceback.format_exc()
+        print(f"⚠️ [RENDERER] Final subtitle overlay failed: {e}\n{trace}")
         return False, total_dur, 0
 
     if not os.path.exists(output_path):
