@@ -1,4 +1,4 @@
-# scripts/discord_notifier.py — Ghost Engine V9.0
+# scripts/discord_notifier.py — Ghost Engine V17.0
 import os
 import requests
 
@@ -14,118 +14,97 @@ def set_channel_context(channel_config):
         _ACTIVE_WEBHOOK = os.environ.get(getattr(channel_config, "discord_webhook_env", ""))
         _ACTIVE_CHANNEL = getattr(channel_config, "channel_name", "Unknown Channel")
 
-def _send(content: str):
+def _send_embed(title: str, description: str, color: int):
     if not _ACTIVE_WEBHOOK:
         return
         
-    # GOD-TIER FIX: Enforce 2000 character limit to prevent Discord HTTP 400 rejection
-    if len(content) > 1990:
-        content = content[:1985] + "\n..."
+    if len(description) > 3900:
+        description = description[:3900] + "\n..."
         
+    payload = {
+        "embeds": [
+            {
+                "title": f"{title} | {_ACTIVE_CHANNEL}",
+                "description": description,
+                "color": color
+            }
+        ]
+    }
+    
     try:
-        requests.post(_ACTIVE_WEBHOOK, json={"content": content}, timeout=10)
+        requests.post(_ACTIVE_WEBHOOK, json=payload, timeout=10)
     except Exception as e:
         print(f"⚠️ [DISCORD] Failed to send webhook: {e}")
 
 def notify_summary(success: bool, message: str):
     icon = "✅" if success else "🛑"
-    msg = f"{icon} **System Summary** | {_ACTIVE_CHANNEL}\n"
-    msg += f"└ 📝 **Message:** {message}"
-    _send(msg)
+    color = 0x2ecc71 if success else 0xe74c3c
+    _send_embed(f"{icon} System Summary", f"└ 📝 **Message:** {message}", color)
 
 def notify_error(module: str, error_type: str, details: str):
-    msg = f"🚨 **SYSTEM ERROR** | {_ACTIVE_CHANNEL}\n"
-    msg += f"└ 🧩 **Module:** {module}\n"
-    msg += f"└ ⚠️ **Type:** {error_type}\n"
-    msg += f"└ 📝 **Details:** {details}"
-    _send(msg)
+    desc = f"└ 🧩 **Module:** {module}\n└ ⚠️ **Type:** {error_type}\n└ 📝 **Details:** {details}"
+    _send_embed("🚨 SYSTEM ERROR", desc, 0xe74c3c)
 
 def notify_step(topic: str, step_name: str, details: str, color: int = 0x3498db):
-    msg = f"⚙️ **Step: {step_name}** | {_ACTIVE_CHANNEL}\n"
-    msg += f"└ 🎬 **Topic:** {topic}\n"
-    msg += f"└ 📝 **Details:** {details}"
-    _send(msg)
+    desc = f"└ 🎬 **Topic:** {topic}\n└ 📝 **Details:** {details}"
+    _send_embed(f"⚙️ Step: {step_name}", desc, color)
 
 def notify_production_success(niche, topic, script, script_ai, seo_ai, voice_ai, visual_ai, metadata, duration, size):
-    msg = f"✅ **Production Complete** | {_ACTIVE_CHANNEL}\n"
-    msg += f"└ 🎬 **Topic:** {topic}\n"
-    msg += f"└ 🧬 **Niche:** {niche}\n"
-    msg += f"└ 🤖 **Script AI:** {script_ai}\n"
-    msg += f"└ 🎙️ **Voice AI:** {voice_ai}\n"
-    msg += f"└ 🎨 **Visual AI:** {visual_ai}\n"
-    msg += f"└ 🔍 **SEO AI:** {seo_ai}\n"
-    msg += f"└ ⏱️ **Duration:** {duration:.2f}s\n"
-    msg += f"└ 💾 **Size:** {size:.2f} MB"
-    _send(msg)
+    desc = (f"└ 🎬 **Topic:** {topic}\n"
+            f"└ 🧬 **Niche:** {niche}\n"
+            f"└ 🤖 **Script AI:** {script_ai}\n"
+            f"└ 🎙️ **Voice AI:** {voice_ai}\n"
+            f"└ 🎨 **Visual AI:** {visual_ai}\n"
+            f"└ 🔍 **SEO AI:** {seo_ai}\n"
+            f"└ ⏱️ **Duration:** {duration:.2f}s\n"
+            f"└ 💾 **Size:** {size:.2f} MB")
+    _send_embed("✅ Production Complete", desc, 0x2ecc71)
 
 def notify_vault_secure(topic: str, video_id: str, vault_id: str):
-    msg = f"🔒 **Video Vaulted** | {_ACTIVE_CHANNEL}\n"
-    msg += f"└ 🎬 **Topic:** {topic}\n"
-    msg += f"└ 🔗 **Video ID:** {video_id}\n"
-    msg += f"└ 📁 **Playlist:** {vault_id}"
-    _send(msg)
+    desc = f"└ 🎬 **Topic:** {topic}\n└ 🔗 **Video ID:** {video_id}\n└ 📁 **Playlist:** {vault_id}"
+    _send_embed("🔒 Video Vaulted", desc, 0x9b59b6)
 
 def notify_published(topic: str, video_id: str, publish_time: str):
-    msg = f"🚀 **Video Scheduled/Published** | {_ACTIVE_CHANNEL}\n"
-    msg += f"└ 🎬 **Topic:** {topic}\n"
-    msg += f"└ 🔗 **Video ID:** {video_id}\n"
-    msg += f"└ ⏰ **Target Time:** {publish_time}"
-    _send(msg)
+    desc = f"└ 🎬 **Topic:** {topic}\n└ 🔗 **Video ID:** {video_id}\n└ ⏰ **Target Time:** {publish_time}"
+    _send_embed("🚀 Video Scheduled/Published", desc, 0x1abc9c)
 
 def notify_research_complete(channel_name: str, added_count: int, niche: str, comp_summary: str):
-    msg = f"🔬 **Research Complete** | {channel_name}\n"
-    msg += f"└ 🧬 **Niche:** {niche}\n"
-    msg += f"└ 📥 **Topics Added:** {added_count}\n"
+    desc = f"└ 🧬 **Niche:** {niche}\n└ 📥 **Topics Added:** {added_count}\n"
     if comp_summary:
-        msg += f"└ 🏆 **Competitor Insight:** {comp_summary[:150]}..."
-    _send(msg)
+        desc += f"└ 🏆 **Competitor Insight:** {comp_summary[:150]}..."
+    _send_embed("🔬 Research Complete", desc, 0x3498db)
 
 def notify_daily_pulse(views: int, subs: int, growth_7d: int, intel: dict):
-    msg = f"📈 **Daily Pulse Report** | {_ACTIVE_CHANNEL}\n"
-    msg += f"└ 👀 **Views:** {views:,}\n"
-    msg += f"└ 👥 **Subs:** {subs:,}\n"
-    msg += f"└ 🚀 **7D Growth:** {growth_7d:,} views\n"
-    msg += f"└ 🎯 **Active Niche:** {intel.get('evolved_niche') or 'Default'}"
-    _send(msg)
+    desc = (f"└ 👀 **Views:** {views:,}\n"
+            f"└ 👥 **Subs:** {subs:,}\n"
+            f"└ 🚀 **7D Growth:** {growth_7d:,} views\n"
+            f"└ 🎯 **Active Niche:** {intel.get('evolved_niche') or 'Default'}")
+    _send_embed("📈 Daily Pulse Report", desc, 0xf1c40f)
 
 def notify_engagement_report(replies_sent: int, flagged_count: int):
-    msg = f"💬 **Engagement Report** | {_ACTIVE_CHANNEL}\n"
-    msg += f"└ ✉️ **Replies Sent:** {replies_sent}\n"
-    msg += f"└ 🛡️ **Comments Flagged:** {flagged_count}"
-    _send(msg)
+    desc = f"└ ✉️ **Replies Sent:** {replies_sent}\n└ 🛡️ **Comments Flagged:** {flagged_count}"
+    _send_embed("💬 Engagement Report", desc, 0xe67e22)
 
 def notify_security_flag(author: str, comment: str, video_title: str):
-    msg = f"🛡️ **Security Flag Triggered** | {_ACTIVE_CHANNEL}\n"
-    msg += f"└ 👤 **Author:** {author}\n"
-    msg += f"└ 🎬 **Video:** {video_title}\n"
-    msg += f"└ 📝 **Comment:** {comment[:100]}..."
-    _send(msg)
+    desc = f"└ 👤 **Author:** {author}\n└ 🎬 **Video:** {video_title}\n└ 📝 **Comment:** {comment[:100]}..."
+    _send_embed("🛡️ Security Flag Triggered", desc, 0xe74c3c)
 
 def notify_storage_report(db_size: int, repo_size: float, pruned_jobs: int, topics_trimmed: int):
-    msg = f"🧹 **Storage Housekeeping** | {_ACTIVE_CHANNEL}\n"
-    msg += f"└ 🗄️ **DB Size:** {db_size} KB\n"
-    msg += f"└ 📦 **Repo Size:** {repo_size:.1f} MB\n"
-    msg += f"└ ✂️ **Jobs Pruned:** {pruned_jobs}"
-    _send(msg)
+    desc = f"└ 🗄️ **DB Size:** {db_size} KB\n└ 📦 **Repo Size:** {repo_size:.1f} MB\n└ ✂️ **Jobs Pruned:** {pruned_jobs}"
+    _send_embed("🧹 Storage Housekeeping", desc, 0x95a5a6)
 
 def notify_token_health(channel_id: str, status: str, days: int, action: str):
     icon = "✅" if status == "HEALTHY" else "⚠️" if status == "WARNING" else "🚨"
-    msg = f"{icon} **Token Health Report** | {channel_id}\n"
-    msg += f"└ 📊 **Status:** {status}\n"
-    msg += f"└ ⏳ **Days Unused:** {days}\n"
+    color = 0x2ecc71 if status == "HEALTHY" else 0xf1c40f if status == "WARNING" else 0xe74c3c
+    desc = f"└ 📊 **Status:** {status}\n└ ⏳ **Days Unused:** {days}\n"
     if action:
-        msg += f"└ 🛠️ **Action Req:** {action}"
-    _send(msg)
+        desc += f"└ 🛠️ **Action Req:** {action}"
+    _send_embed(f"{icon} Token Health Report", desc, color)
 
 def notify_quota_warning(provider: str, usage: int, limit: int):
-    msg = f"⚠️ **Quota Warning** | {_ACTIVE_CHANNEL}\n"
-    msg += f"└ 🔌 **Provider:** {provider}\n"
-    msg += f"└ 📊 **Usage:** {usage} / {limit}"
-    _send(msg)
+    desc = f"└ 🔌 **Provider:** {provider}\n└ 📊 **Usage:** {usage} / {limit}"
+    _send_embed("⚠️ Quota Warning", desc, 0xf1c40f)
 
 def notify_provider_swap(module: str, old_prov: str, new_prov: str):
-    msg = f"🔄 **Provider Failover** | {_ACTIVE_CHANNEL}\n"
-    msg += f"└ 🧩 **Module:** {module}\n"
-    msg += f"└ ❌ **Failed:** {old_prov}\n"
-    msg += f"└ ✅ **Swapped To:** {new_prov}"
-    _send(msg)
+    desc = f"└ 🧩 **Module:** {module}\n└ ❌ **Failed:** {old_prov}\n└ ✅ **Swapped To:** {new_prov}"
+    _send_embed("🔄 Provider Failover", desc, 0xe67e22)
