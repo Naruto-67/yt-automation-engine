@@ -1,10 +1,11 @@
-# engine/guardian.py — Ghost Engine V12.0
+# engine/guardian.py — Ghost Engine V13.0
 import os
 import json
 from scripts.quota_manager import quota_manager
 from scripts.discord_notifier import notify_error, notify_summary, notify_quota_warning, notify_provider_swap
 from engine.logger import logger
 from engine.config_manager import config_manager
+from engine.context import ctx
 from datetime import datetime, timezone
 
 _HEALTH_PATH = os.path.join(
@@ -57,7 +58,7 @@ class GhostGuardian:
         return int(limit_yt)
 
     def is_safe_mode(self):
-        channel_id = os.environ.get("CURRENT_CHANNEL_ID", "default")
+        channel_id = ctx.get_channel_id()
         ch_safe = self.channel_health.get(channel_id, {}).get("safe_mode", False)
         gl_safe = self.channel_health.get("GLOBAL", {}).get("safe_mode", False)
         return ch_safe or gl_safe
@@ -71,7 +72,6 @@ class GhostGuardian:
             return False
 
         state = quota_manager._get_active_state()
-        channel_id = os.environ.get("CURRENT_CHANNEL_ID", "default")
         
         img_usage = state.get("cf_images", 0)
         img_limit = quota_manager.LIMITS.get("cloudflare", 95)
@@ -96,7 +96,7 @@ class GhostGuardian:
 
     def report_incident(self, module, error):
         err_msg = str(error).lower()
-        channel_id = os.environ.get("CURRENT_CHANNEL_ID", "default")
+        channel_id = ctx.get_channel_id()
         
         if any(x in err_msg for x in ["401", "unauthorized", "invalid_grant"]):
             logger.error(f"🚨 [GUARDIAN] Auth Failure for {channel_id}.")
