@@ -146,7 +146,6 @@ def render_video(image_paths, audio_path, output_path,
         audio    = AudioSegment.from_file(audio_path)
         total_dur = min(len(audio) / 1000.0, 59.0)
         
-        # 🚨 LEGACY RESTORE: Cinematic Fade-out if script runs long
         if len(audio) / 1000.0 > 59.0:
             print(f"⚠️ [RENDERER] Audio exceeds 59s ({len(audio)/1000.0}s). Applying cinematic fade-out.")
             audio[:59000].fade_out(1500).export(audio_path, format="wav")
