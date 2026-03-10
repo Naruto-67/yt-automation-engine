@@ -1,7 +1,8 @@
-# scripts/generate_voice.py — Ghost Engine V14.0
+# scripts/generate_voice.py
 import os
 import re
 import random
+import traceback
 
 if os.environ.get("HF_TOKEN"):
     os.environ["HUGGING_FACE_HUB_TOKEN"] = os.environ["HF_TOKEN"]
@@ -33,18 +34,25 @@ def format_time(seconds: float) -> str:
     return f"{h:02}:{m:02}:{s:02},{ms:03}"
 
 def trim_audio_precision(file_path: str):
+    # 🚨 LEGACY RESTORE: Biological Padding & Normalization
     from pydub import AudioSegment, effects
     try:
         audio = AudioSegment.from_file(file_path)
         if len(audio) > 200:
             audio = audio[200:]
-        audio    = effects.normalize(audio)
+        
+        audio = effects.normalize(audio)
+        
+        # Exact 200ms start pad, 500ms end pad to prevent abrupt cutoffs
         sil_start = AudioSegment.silent(duration=200, frame_rate=audio.frame_rate).set_channels(audio.channels)
         sil_end   = AudioSegment.silent(duration=500, frame_rate=audio.frame_rate).set_channels(audio.channels)
-        final     = sil_start + audio + sil_end
+        
+        final = sil_start + audio + sil_end
         final.export(file_path, format="wav")
         return True, len(final) / 1000.0
-    except Exception:
+    except Exception as e:
+        trace = traceback.format_exc()
+        print(f"⚠️ [VOICE] Audio trim failed: {e}\n{trace}")
         return False, 0.0
 
 def sanitize_for_tts(text: str) -> str:
@@ -116,34 +124,49 @@ def generate_audio(text: str, output_base: str = "temp_audio", target_voice: str
             ok, duration = trim_audio_precision(wav_path)
             if ok and duration > 0:
                 try:
-                    whisper   = get_whisper_model()
+                    print("📝 [VOICE] Transcribing and Chunking Captions (Max 3 words)...")
+                    whisper = get_whisper_model()
                     segments, _ = whisper.transcribe(wav_path, language="en", word_timestamps=True)
+                    
+                    # 🚨 LEGACY RESTORE: Exact 3-Word Chunking logic
                     srt_lines = []
-                    idx       = 1
-                    for seg in segments:
-                        for word in (seg.words or []):
-                            srt_lines.append(
-                                f"{idx}\n"
-                                f"{format_time(word.start)} --> {format_time(word.end)}\n"
-                                f"{word.word.strip().upper()}\n"
-                            )
+                    idx = 1
+                    for segment in segments:
+                        chunk = []
+                        chunk_start = None
+                        for word in (segment.words or []):
+                            if chunk_start is None:
+                                chunk_start = word.start
+                            chunk.append(word.word.strip().upper())
+                            
+                            if len(chunk) >= 3:
+                                end = word.end
+                                srt_lines.append(f"{idx}\n{format_time(chunk_start)} --> {format_time(end)}\n{' '.join(chunk)}\n")
+                                idx += 1
+                                chunk = []
+                                chunk_start = None
+                                
+                        if chunk:
+                            srt_lines.append(f"{idx}\n{format_time(chunk_start)} --> {format_time(segment.words[-1].end)}\n{' '.join(chunk)}\n")
                             idx += 1
                             
-                    # GOD-TIER FIX: Safeguard against empty Whisper transcriptions
                     if srt_lines:
                         with open(srt_path, "w", encoding="utf-8") as f:
                             f.write("\n".join(srt_lines))
                     else:
                         generate_fallback_srt(clean_text, duration, srt_path)
                         
-                except Exception:
+                except Exception as e:
+                    trace = traceback.format_exc()
+                    print(f"⚠️ [VOICE] Whisper failed:\n{trace}")
                     generate_fallback_srt(clean_text, duration, srt_path)
 
                 print(f"✅ [TTS] Kokoro — {duration:.1f}s | Voice: {kokoro_voice}")
                 return True, "Kokoro", duration
 
     except Exception as e:
-        print(f"⚠️ [TTS] Kokoro failed: {e}")
+        trace = traceback.format_exc()
+        print(f"⚠️ [TTS] Kokoro failed:\n{trace}")
 
     try:
         voice_map     = _get_kokoro_to_groq_map()
@@ -159,6 +182,7 @@ def generate_audio(text: str, output_base: str = "temp_audio", target_voice: str
             return True, "Groq Orpheus", duration
 
     except Exception as e:
-        print(f"⚠️ [TTS] Groq Orpheus failed: {e}")
+        trace = traceback.format_exc()
+        print(f"⚠️ [TTS] Groq Orpheus failed:\n{trace}")
 
     return False, "All TTS Providers Failed", 0.0
