@@ -101,7 +101,7 @@ def srt_to_ass(srt_path, ass_path, style):
         return True
     except Exception as e:
         trace = traceback.format_exc()
-        print(f"⚠️ [RENDERER] SRT to ASS conversion failed: {e}\n{trace}")
+        print(f"⚠️ [RENDERER] SRT to ASS conversion failed:\n{trace}")
         return False
 
 def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=30):
@@ -124,7 +124,7 @@ def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=30):
         return True
     except Exception as e:
         trace = traceback.format_exc()
-        print(f"⚠️ [RENDERER] Ken Burns generation failed: {e}\n{trace}")
+        print(f"⚠️ [RENDERER] Ken Burns generation failed:\n{trace}")
         return False
 
 def render_video(image_paths, audio_path, output_path,
@@ -153,7 +153,7 @@ def render_video(image_paths, audio_path, output_path,
             
     except Exception as e:
         trace = traceback.format_exc()
-        print(f"⚠️ [RENDERER] Audio processing failed: {e}\n{trace}")
+        print(f"⚠️ [RENDERER] Audio processing failed:\n{trace}")
         return False, 0.0, 0
 
     clip_durs = (
@@ -186,7 +186,7 @@ def render_video(image_paths, audio_path, output_path,
         )
     except Exception as e:
         trace = traceback.format_exc()
-        print(f"⚠️ [RENDERER] Concat phase failed: {e}\n{trace}")
+        print(f"⚠️ [RENDERER] Concat phase failed:\n{trace}")
         return False, total_dur, 0
 
     font_path      = download_cinematic_font()
@@ -209,7 +209,7 @@ def render_video(image_paths, audio_path, output_path,
         )
     except Exception as e:
         trace = traceback.format_exc()
-        print(f"⚠️ [RENDERER] Final subtitle overlay failed: {e}\n{trace}")
+        print(f"⚠️ [RENDERER] Final subtitle overlay failed:\n{trace}")
         return False, total_dur, 0
 
     if not os.path.exists(output_path):
