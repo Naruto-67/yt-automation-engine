@@ -1,4 +1,4 @@
-# scripts/quota_manager.py — Ghost Engine V18.0
+# scripts/quota_manager.py — Ghost Engine V20.0
 import os
 import json
 import time
@@ -67,7 +67,8 @@ class MasterQuotaManager:
         }
 
     def consume_points(self, provider: str, amount: int):
-        if TEST_MODE:
+        # GOD-TIER FIX: Freeze YouTube points, but allow AI limits to be tested
+        if TEST_MODE and provider == "youtube":
             return 
             
         if provider == "youtube":
@@ -113,7 +114,6 @@ class MasterQuotaManager:
         return (state.get("youtube_points", 0) + cost) <= self.LIMITS["youtube"]
 
     def is_provider_exhausted(self, provider: str) -> bool:
-        if TEST_MODE: return False
         state = self._get_active_state()
         col_limit_map = {
             "cloudflare":  ("cf_images",    "cloudflare"),
@@ -198,7 +198,7 @@ class MasterQuotaManager:
 
         for provider in chains.get("script", ["gemini", "groq"]):
             if provider == "gemini":
-                if state.get("gemini_calls", 0) >= self.LIMITS["gemini"] and not TEST_MODE:
+                if state.get("gemini_calls", 0) >= self.LIMITS["gemini"]:
                     print("⚠️ [GEMINI] Daily limit reached — skipping.")
                     continue
                 if not self.gemini_key:
@@ -226,8 +226,6 @@ class MasterQuotaManager:
                         except Exception as e:
                             err = str(e).lower()
                             
-                            # GOD-TIER FIX: Implement requested Fallback Hierarchy
-                            # 1. SOFT LIMIT (RPM) -> Backoff and retry
                             if any(x in err for x in ["429", "too many requests"]):
                                 if attempt < 2:
                                     self._execute_jitter_backoff(attempt, "GEMINI")
@@ -237,19 +235,16 @@ class MasterQuotaManager:
                                     gemini_hard_failed = True
                                     break 
                                     
-                            # 2. HARD LIMIT (Quota/Billing) -> Instant failover to Groq
                             elif any(x in err for x in ["quota", "exhausted", "billing", "403"]):
                                 print(f"⚠️ [GEMINI QUOTA] Hard account limit hit. Failing over to Groq instantly.")
                                 gemini_hard_failed = True
                                 break
                                 
-                            # 3. MODEL ERROR (404/Deprecated) -> Try next Gemini Model
                             elif any(x in err for x in ["404", "not found", "deprecated"]):
                                 print(f"⚠️ [GEMINI] Model deprecated: {model}. Trying next Gemini model.")
                                 self._gemini_models_discovered = False
                                 break
                                 
-                            # 4. UNKNOWN ERROR -> Try next Gemini Model
                             else:
                                 print(f"⚠️ [GEMINI] Error on {model}: {e}")
                                 break 
@@ -264,7 +259,6 @@ class MasterQuotaManager:
                             return res, f"Groq ({groq.TEXT_MODEL})"
                     except Exception as e:
                         err = str(e).lower()
-                        # Soft Limit
                         if any(x in err for x in ["429", "too many requests"]):
                             if attempt < 2:
                                 self._execute_jitter_backoff(attempt, "GROQ")
@@ -272,11 +266,9 @@ class MasterQuotaManager:
                             else:
                                 print(f"⚠️ [GROQ QUOTA] Soft limit exhausted. Failing over.")
                                 break
-                        # Hard Limit
                         elif any(x in err for x in ["quota", "exhausted", "billing", "403"]):
                             print(f"⚠️ [GROQ QUOTA] Hard account limit hit. Failing over.")
                             break
-                        # Unknown Error
                         print(f"⚠️ [GROQ] Text generation failed: {e}")
                         break
 
