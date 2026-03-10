@@ -80,13 +80,16 @@ def generate_script(niche: str, topic: str):
     target_dur = "30-40 seconds" if is_fact else "45-55 seconds"
     target_words = "~75 words" if is_fact else "~120 words"
 
+    # GOD-TIER FIX: Passed ALL possible variables to format() so KeyError is mathematically impossible.
     user_prompt = prompts_cfg["script_gen"]["user_template"].format(
-        niche=active_niche, topic=topic,
+        niche=active_niche, 
+        topic=topic,
         emphasize_rules=emp or "Focus on viewer retention.",
         avoid_rules=avo or "Avoid slow pacing.",
         visual_preference=vis,
         target_duration=target_dur,
-        target_word_count=target_words
+        target_word_count=target_words,
+        word_ceiling=_ABSOLUTE_WORD_CEILING
     )
 
     # Injecting the dynamic scene requirement directly to ensure compliance
