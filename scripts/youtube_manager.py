@@ -81,7 +81,6 @@ def get_actual_vault_count(youtube):
         return response["items"][0]["contentDetails"]["itemCount"]
     except: return 0
 
-# 🚨 LEGACY RESTORE: Automatic Pinned Comment Engagement
 def _get_creator_comment(niche):
     niche_lower = niche.lower() if niche else ""
     if any(k in niche_lower for k in ['fact', 'hack', 'science', 'weird']):
@@ -165,7 +164,6 @@ def upload_to_youtube_vault(youtube, video_path, topic, metadata, niche=""):
             print(f"⚠️ [VAULT] Video uploaded, but playlist assignment failed:\n{trace}")
             vault_playlist_id = "Failed to Assign"
 
-        # 🚨 LEGACY RESTORE: Farm engagement immediately after uploading
         comment_text = _get_creator_comment(niche)
         if post_creator_comment(youtube, video_id, comment_text):
             quota_manager.consume_points("youtube", 50)
