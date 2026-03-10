@@ -1,4 +1,4 @@
-# scripts/dynamic_researcher.py — Ghost Engine V6.9
+# scripts/dynamic_researcher.py — Ghost Engine V16.0
 import re
 import json
 import yaml
@@ -8,6 +8,8 @@ from scripts.discord_notifier import set_channel_context, notify_research_comple
 from engine.database import db
 from engine.models import VideoJob, ChannelConfig
 from engine.logger import logger
+
+TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
 
 def load_config_prompts():
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -139,7 +141,6 @@ def _generate_topics_and_evolve_niche(channel_config: ChannelConfig, needed: int
     competitor_section = f"\n\n🏆 COMPETITOR INSIGHTS:\n{competitor_context}" if competitor_context else ""
 
     sys_msg  = prompts_cfg["researcher"]["system_prompt"]
-    # GOD-TIER FIX: Provide a 300-topic exclusion window so the AI doesn't cycle back and cause Jaccard starvation.
     user_msg = prompts_cfg["researcher"]["user_template"].format(
         needed_count=max(5, needed + 5),
         niche=active_niche,
@@ -154,19 +155,15 @@ def _generate_topics_and_evolve_niche(channel_config: ChannelConfig, needed: int
     evolved_niche = None
     topics = []
     
-    # GOD-TIER FIX: Bulletproof JSON array extraction logic.
-    # We check if the JSON is an array first, preventing silent dictionary dict.get() misses.
     try:
         clean_raw = raw.strip().replace("```json", "").replace("```", "").strip()
         
-        # If the response explicitly starts as a list, bypass dictionary parsing entirely
         if clean_raw.startswith("["):
             start_arr = raw.find('[')
             end_arr = raw.rfind(']')
             if start_arr != -1 and end_arr != -1 and end_arr > start_arr:
                 topics = json.loads(raw[start_arr:end_arr+1])
         else:
-            # Fallback to standard dictionary extraction
             start = raw.find('{')
             end = raw.rfind('}')
             if start != -1 and end != -1 and end > start:
@@ -175,8 +172,6 @@ def _generate_topics_and_evolve_niche(channel_config: ChannelConfig, needed: int
                     evolved_niche = parsed.get("evolved_niche")
                     topics        = parsed.get("topics", [])
                     
-            # Absolute Failsafe: if dict extraction succeeded but yielded 0 topics, 
-            # attempt to salvage any array lurking in the markdown.
             if not topics:
                 start_arr = raw.find('[')
                 end_arr = raw.rfind(']')
@@ -190,6 +185,10 @@ def _generate_topics_and_evolve_niche(channel_config: ChannelConfig, needed: int
     return topics, evolved_niche
 
 def run_dynamic_research(channel_config: ChannelConfig, yt_client):
+    if TEST_MODE:
+        logger.engine("🧪 [TEST MODE] Bypassing Dynamic Researcher.")
+        return
+
     if not quota_manager.can_afford_youtube(15):
         logger.engine("YT quota too low for research. Skipping.")
         return
