@@ -1,4 +1,4 @@
-# scripts/reply_comments.py — Ghost Engine V12.0
+# scripts/reply_comments.py — Ghost Engine V14.0
 import os
 import json
 import time
@@ -53,10 +53,14 @@ def generate_ai_reply(video_title: str, comment_text: str, attempt_num: int, pro
     )
     task = "comment_reply_groq" if attempt_num > 3 else "creative"
     raw, _ = quota_manager.generate_text(user_msg, task_type=task, system_prompt=sys_msg)
+    
+    # GOD-TIER FIX: Differentiate between Content Flags and API Failures
     if raw:
         clean = raw.strip().replace('"', "")
-        return None if "FLAGGED_COMMENT" in clean else clean
-    return None
+        if "FLAGGED_COMMENT" in clean:
+            return "FLAGGED"
+        return clean
+    return "API_FAIL"
 
 def run_engagement_protocol():
     if os.environ.get("GHOST_ENGINE_ENABLED", "true").lower() == "false":
@@ -144,31 +148,36 @@ def run_engagement_protocol():
 
                     reply_text = generate_ai_reply(vid_title, top["textDisplay"], replies_sent + 1, prompts_cfg)
 
-                    if reply_text is None:
+                    # GOD-TIER FIX: Handle the exact return types safely to prevent queue burning
+                    if reply_text == "FLAGGED":
                         flagged_count += 1
                         notify_security_flag(top.get("authorDisplayName", "unknown"), top["textDisplay"][:200], vid_title)
                         replied_ids.append(thread_id)
                         continue
-
-                    try:
-                        youtube.comments().insert(
-                            part="snippet",
-                            body={"snippet": {"parentId": thread_id, "textOriginal": reply_text}}
-                        ).execute()
-                        quota_manager.consume_points("youtube", 50)
-                        
-                        replied_ids.append(thread_id)
-                        _save_replied(channel.channel_id, replied_ids)
-                        
-                        replies_sent += 1
-                        time.sleep(random.uniform(3, 6))
-                    except Exception as e:
-                        err_msg = str(e).lower()
-                        logger.error(f"Reply failed: {e}")
-                        if any(x in err_msg for x in ["403", "quota", "exceeded"]):
-                            logger.error("🛑 Hard quota abort triggered in engagement loop.")
-                            quota_busted = True
-                            break
+                    elif reply_text == "API_FAIL":
+                        logger.error("🛑 API exhausted during reply generation. Halting to preserve engagement queue.")
+                        quota_busted = True
+                        break
+                    elif reply_text:
+                        try:
+                            youtube.comments().insert(
+                                part="snippet",
+                                body={"snippet": {"parentId": thread_id, "textOriginal": reply_text}}
+                            ).execute()
+                            quota_manager.consume_points("youtube", 50)
+                            
+                            replied_ids.append(thread_id)
+                            _save_replied(channel.channel_id, replied_ids)
+                            
+                            replies_sent += 1
+                            time.sleep(random.uniform(3, 6))
+                        except Exception as e:
+                            err_msg = str(e).lower()
+                            logger.error(f"Reply failed: {e}")
+                            if any(x in err_msg for x in ["403", "quota", "exceeded"]):
+                                logger.error("🛑 Hard quota abort triggered in engagement loop.")
+                                quota_busted = True
+                                break
 
             notify_engagement_report(replies_sent, flagged_count)
             logger.success(f"Engaged {replies_sent} comments on {channel.channel_name}. Flagged: {flagged_count}.")
