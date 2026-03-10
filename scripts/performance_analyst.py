@@ -1,4 +1,4 @@
-# scripts/performance_analyst.py — Ghost Engine V12.0
+# scripts/performance_analyst.py — Ghost Engine V16.0
 import os
 import json
 import yaml
@@ -10,6 +10,8 @@ from scripts.discord_notifier import set_channel_context, notify_daily_pulse, no
 from engine.config_manager import config_manager
 from engine.database import db
 from engine.logger import logger
+
+TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
 
 def load_config_prompts():
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -93,6 +95,10 @@ def _fetch_recent_video_stats(youtube, channel_id: str) -> list:
 def run_daily_analysis():
     if os.environ.get("GHOST_ENGINE_ENABLED", "true").lower() == "false":
         print("🔴 [KILL SWITCH] Analyst halted.")
+        return
+
+    if TEST_MODE:
+        print("🧪 [TEST MODE] Bypassing Analyst API Calls.")
         return
 
     prompts_cfg  = load_config_prompts()
