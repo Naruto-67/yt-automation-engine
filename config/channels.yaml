@@ -3,7 +3,7 @@ version: "6.0.0"
 
 channels:
   - id: "CH_01"
-    name: "GhostEngine_Main"
+    name: "AnimeRise"
     niche: "Faceless AI Animation, 3D/Pixar-Style Moral Storytelling"
     target_audience: "US"
     youtube_client_id_env: "YOUTUBE_CLIENT_ID_CH1"
@@ -22,7 +22,7 @@ channels:
       - "A misunderstanding between a gentle monster and a terrified human"
 
   - id: "CH_02"
-    name: "GhostEngine_Second"
+    name: "Topato"
     niche: "Facts (fun, horror, tech), AI, Automation, Futuristic Tech, high-concept explainers, faceless documentaries"
     target_audience: "US"
     youtube_client_id_env: "YOUTUBE_CLIENT_ID_CH2"
