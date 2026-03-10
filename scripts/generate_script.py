@@ -1,4 +1,4 @@
-# scripts/generate_script.py — Ghost Engine V6.9
+# scripts/generate_script.py — Ghost Engine V13.0
 import os
 import json
 import yaml
@@ -6,6 +6,7 @@ import re
 from scripts.quota_manager import quota_manager
 from engine.database import db
 from engine.config_manager import config_manager
+from engine.context import ctx
 
 def _compute_word_ceiling() -> int:
     settings        = config_manager.get_settings()
@@ -51,7 +52,7 @@ def generate_script(niche: str, topic: str):
     print(f"🎬 [SCRIPT] Drafting narrative for: {topic}")
 
     word_ceiling = _compute_word_ceiling()
-    channel_id   = os.environ.get("CURRENT_CHANNEL_ID", "default")
+    channel_id   = ctx.get_channel_id()
     intel        = db.get_channel_intelligence(channel_id)
     prompts_cfg  = load_config_prompts()
 
@@ -144,5 +145,4 @@ def generate_script(niche: str, topic: str):
             print(f"⚠️ [SCRIPT] Attempt {attempt+1} failed: {e}")
             continue
 
-    # GOD-TIER FIX: Raise the actual error instead of returning a dummy tuple so Guardian can trigger Safe Mode
     raise RuntimeError(f"Script Generation Fatal Exhaustion. Last error: {last_error}")
