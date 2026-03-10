@@ -1,86 +1,56 @@
-# engine/config_manager.py — Ghost Engine V6
+# engine/config_manager.py
 import os
 import yaml
-from functools import lru_cache
 from typing import List, Dict, Any
+from engine.logger import logger
 from engine.models import ChannelConfig
-
-def _get_logger():
-    from engine.logger import logger
-    return logger
+from functools import lru_cache
 
 class ConfigManager:
     def __init__(self):
         self.root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-        self.channels_path  = os.path.join(self.root_dir, "config", "channels.yaml")
+        self.channels_path = os.path.join(self.root_dir, "config", "channels.yaml")
         self.providers_path = os.path.join(self.root_dir, "config", "providers.yaml")
-        self.settings_path  = os.path.join(self.root_dir, "config", "settings.yaml")
-        self._channels: List[ChannelConfig] = []
-        self._channels_loaded = False
+        self.settings_path = os.path.join(self.root_dir, "config", "settings.yaml")
 
     def _load_yaml(self, path: str) -> Dict[str, Any]:
         if not os.path.exists(path):
-            _get_logger().error(f"Missing config file: {path}")
+            logger.error(f"Missing config file: {path}")
             return {}
         try:
             with open(path, "r", encoding="utf-8") as f:
                 return yaml.safe_load(f) or {}
         except Exception as e:
-            _get_logger().error(f"Failed to parse YAML {path}: {e}")
+            logger.error(f"Failed to parse YAML {path}: {e}")
             return {}
 
-    def _load_channels(self) -> List[ChannelConfig]:
+    def get_active_channels(self) -> List[ChannelConfig]:
         data = self._load_yaml(self.channels_path)
         raw_channels = data.get("channels", [])
-        active_channels: List[ChannelConfig] = []
-
+        active_channels = []
         for ch in raw_channels:
-            if not ch.get("active", False):
-                continue
-            try:
-                config = ChannelConfig.model_validate(ch)
-                if not config.niche:
-                    config = self._discover_niche(config)
-                active_channels.append(config)
-            except Exception as e:
-                _get_logger().error(f"Skipping channel '{ch.get('id', '?')}' due to schema error: {e}")
-
-        _get_logger().engine(f"Loaded {len(active_channels)} active channel(s).")
+            if ch.get("active", False):
+                active_channels.append(ChannelConfig(
+                    channel_id=ch.get("id", ""),
+                    channel_name=ch.get("name", ""),
+                    niche=ch.get("niche", ""),
+                    target_audience=ch.get("target_audience", "Global"),
+                    youtube_refresh_token_env=ch.get("youtube_refresh_token_env", ""),
+                    youtube_client_id_env=ch.get("youtube_client_id_env", ""),
+                    youtube_client_secret_env=ch.get("youtube_client_secret_env", ""),
+                    discord_webhook_env=ch.get("discord_webhook_env", ""),
+                    creative_lenses=ch.get("creative_lenses", [])
+                ))
         return active_channels
 
-    def _discover_niche(self, config: ChannelConfig) -> ChannelConfig:
-        try:
-            from scripts.youtube_manager import get_youtube_client
-            from scripts.niche_discovery import discover_channel_niche, update_yaml_niche
-            yt_client = get_youtube_client(config)
-            if yt_client:
-                discovered = discover_channel_niche(config.channel_id, yt_client)
-                update_yaml_niche(config.channel_id, discovered)
-                config.niche = discovered
-            else:
-                config.niche = "Trending Viral Shorts"
-        except Exception as e:
-            _get_logger().error(f"Niche discovery failed for {config.channel_id}: {e}")
-            config.niche = "Trending Viral Shorts"
-        return config
-
-    def get_active_channels(self) -> List[ChannelConfig]:
-        if not self._channels_loaded:
-            self._channels = self._load_channels()
-            self._channels_loaded = True
-        return self._channels
-
-    def reload_channels(self) -> List[ChannelConfig]:
-        self._channels_loaded = False
-        return self.get_active_channels()
-
-    @lru_cache(maxsize=1)
     def get_providers(self) -> Dict[str, Any]:
         return self._load_yaml(self.providers_path)
 
     @lru_cache(maxsize=1)
     def get_settings(self) -> Dict[str, Any]:
-        # BUG-14 Fix: Prevents continuous disk reading on every settings poll
         return self._load_yaml(self.settings_path)
+
+    def reload_channels(self):
+        pass
 
 config_manager = ConfigManager()
