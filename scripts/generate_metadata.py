@@ -1,9 +1,11 @@
-# scripts/generate_metadata.py — Ghost Engine V11.0
+# scripts/generate_metadata.py — Ghost Engine V13.0
 import json
 import os
 import yaml
 from scripts.quota_manager import quota_manager
 from engine.database import db
+from engine.context import ctx
+from engine.logger import logger
 
 def load_config_prompts():
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -12,7 +14,7 @@ def load_config_prompts():
 def generate_seo_metadata(niche, script):
     print("🔍 [SEO] Generating optimized metadata...")
     
-    channel_id = os.environ.get("CURRENT_CHANNEL_ID", "default")
+    channel_id = ctx.get_channel_id()
     intel = db.get_channel_intelligence(channel_id)
     prompts_cfg = load_config_prompts()
     
@@ -57,11 +59,9 @@ def generate_seo_metadata(niche, script):
                 else:
                     safe_tags = ["shorts", niche]
                 
-                # GOD-TIER FIX: Validate strict YouTube 500 character limit on total tags array.
                 valid_tags = []
                 total_len = 0
                 for t in safe_tags:
-                    # +1 accounts for the comma used by YouTube to separate tags
                     if total_len + len(t) + 1 <= 400:
                         valid_tags.append(t)
                         total_len += len(t) + 1
@@ -73,7 +73,9 @@ def generate_seo_metadata(niche, script):
                     "description": str(data.get("description", "Facts! #shorts")).replace("<", "").replace(">", "")[:4900], 
                     "tags": valid_tags
                 }, provider
-    except: pass
+    except Exception as e:
+        # GOD-TIER FIX: Do not silently pass on extraction errors. Log them before falling back.
+        logger.error(f"SEO Generation encountered an error: {e}. Executing fallback metadata.")
     
     return {
         "title": f"{niche} #shorts"[:95], 
