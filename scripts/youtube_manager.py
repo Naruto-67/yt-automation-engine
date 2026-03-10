@@ -1,186 +1,180 @@
-# scripts/youtube_manager.py — Ghost Engine V9.0
+# scripts/youtube_manager.py
 import os
+import json
+import time
 import shutil
+import traceback
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+from googleapiclient.errors import HttpError
+from scripts.quota_manager import quota_manager
+from scripts.discord_notifier import notify_vault_secure, notify_error
 
-def _quota_manager():
-    from scripts.quota_manager import quota_manager
-    return quota_manager
-
-def _notify_error(module, etype, msg):
-    try:
-        from scripts.discord_notifier import notify_error
-        notify_error(module, etype, msg)
-    except Exception:
-        print(f"🚨 [NOTIFY] {module} | {etype}: {msg}")
+TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
 
 def get_youtube_client(channel_config):
-    from engine.models import ChannelConfig
-
-    if isinstance(channel_config, ChannelConfig):
-        client_id     = os.environ.get(channel_config.youtube_client_id_env)
-        client_secret = os.environ.get(channel_config.youtube_client_secret_env)
-        refresh_token = os.environ.get(channel_config.youtube_refresh_token_env)
-        label         = channel_config.channel_id
+    if TEST_MODE: return None
+    if isinstance(channel_config, dict):
+        token_env = channel_config.get("youtube_refresh_token_env")
     else:
-        client_id     = os.environ.get("YOUTUBE_CLIENT_ID")
-        client_secret = os.environ.get("YOUTUBE_CLIENT_SECRET")
-        refresh_token = os.environ.get(str(channel_config))
-        label         = str(channel_config)
+        token_env = getattr(channel_config, "youtube_refresh_token_env", "YOUTUBE_REFRESH_TOKEN_MAIN")
+
+    client_id = os.environ.get(token_env.replace("REFRESH_TOKEN", "CLIENT_ID"))
+    client_secret = os.environ.get(token_env.replace("REFRESH_TOKEN", "CLIENT_SECRET"))
+    refresh_token = os.environ.get(token_env)
 
     if not all([client_id, client_secret, refresh_token]):
-        missing = [k for k, v in [
-            ("client_id", client_id),
-            ("client_secret", client_secret),
-            ("refresh_token", refresh_token)
-        ] if not v]
-        print(f"⚠️ [YT AUTH] Missing credentials for {label}: {missing}")
+        print(f"⚠️ [YOUTUBE AUTH] Missing credentials for {token_env}.")
         return None
 
     try:
-        creds = Credentials(
-            None,
-            refresh_token=refresh_token,
-            token_uri="https://oauth2.googleapis.com/token",
-            client_id=client_id,
-            client_secret=client_secret
-        )
-        client = build("youtube", "v3", credentials=creds, static_discovery=False)
-        
-        # GOD-TIER FIX: Pre-flight active validation ping. 
-        # Fails fast if token is revoked or quota is already busted, 
-        # saving thousands of AI quota points from being wasted on a doomed render.
-        try:
-            _quota_manager().consume_youtube_and_call(
-                lambda: client.channels().list(part="id", mine=True).execute(),
-                cost=1
-            )
-        except Exception as ping_err:
-            err_str = str(ping_err).lower()
-            if "quota" in err_str or "403" in err_str:
-                _notify_error("YouTube Validation", "Quota Exceeded", f"Channel {label} hit 403 Quota limit during validation ping.")
-            else:
-                _notify_error("YouTube Validation", "Auth Revoked/Expired", f"Channel {label} token invalid: {ping_err}")
-            return None
-            
-        return client
-
+        creds = Credentials(None, refresh_token=refresh_token, token_uri="https://oauth2.googleapis.com/token", client_id=client_id, client_secret=client_secret)
+        return build('youtube', 'v3', credentials=creds, static_discovery=False)
     except Exception as e:
-        _notify_error("YouTube Auth", "Auth Failure", f"{label}: {e}")
+        trace = traceback.format_exc()
+        print(f"⚠️ [YOUTUBE AUTH] Token rejected for {token_env}:\n{trace}")
         return None
 
-def get_channel_name(youtube) -> str:
+def get_channel_name(youtube):
+    if not youtube: return "Test_Channel"
     try:
-        res = _quota_manager().consume_youtube_and_call(
-            lambda: youtube.channels().list(part="snippet", mine=True).execute(),
-            cost=1
-        )
-        return res["items"][0]["snippet"]["title"]
-    except Exception:
-        return ""
+        name = youtube.channels().list(part="snippet", mine=True).execute()["items"][0]["snippet"]["title"]
+        quota_manager.consume_points("youtube", 1)
+        return name
+    except: return "GhostEngine_Channel"
 
-def get_actual_vault_count(youtube) -> int:
-    v_id = get_or_create_playlist(youtube, "Vault Backup")
-    if not v_id: return 0
+def get_or_create_playlist(youtube, title, privacy_status="private"):
+    if not youtube: return "test_playlist_id"
     try:
-        res = _quota_manager().consume_youtube_and_call(
-            lambda: youtube.playlistItems().list(part="id", playlistId=v_id, maxResults=50).execute(),
-            cost=1
-        )
-        return len(res.get("items", []))
-    except Exception:
-        return 0
+        playlists = []
+        request = youtube.playlists().list(part="snippet", mine=True, maxResults=50)
+        seen_tokens = set()
 
-def get_or_create_playlist(youtube, title: str, privacy: str = "private"):
-    try:
-        res = _quota_manager().consume_youtube_and_call(
-            lambda: youtube.playlists().list(part="snippet", mine=True, maxResults=50).execute(),
-            cost=1
-        )
-        for item in res.get("items", []):
-            if item["snippet"]["title"].lower() == title.lower():
-                return item["id"]
+        while request is not None:
+            response = request.execute()
+            quota_manager.consume_points("youtube", 1)
+            playlists.extend(response.get("items", []))
+            next_token = response.get("nextPageToken")
+            if not next_token or next_token in seen_tokens:
+                break
+            seen_tokens.add(next_token)
+            request = youtube.playlists().list_next(request, response)
 
-        create_res = youtube.playlists().insert(
-            part="snippet,status",
-            body={
-                "snippet": {"title": title},
-                "status": {"privacyStatus": privacy}
-            }
-        ).execute()
-        _quota_manager().consume_points("youtube", 50)
-        return create_res["id"]
+        for item in playlists:
+            if item["snippet"]["title"].lower() == title.lower(): return item["id"]
+
+        new_playlist = youtube.playlists().insert(part="snippet,status", body={"snippet": {"title": title}, "status": {"privacyStatus": privacy_status}}).execute()
+        quota_manager.consume_points("youtube", 50)
+        return new_playlist["id"]
     except Exception as e:
-        print(f"⚠️ [PLAYLIST] Could not get/create '{title}': {e}")
+        print(f"⚠️ Playlist fetch error: {e}")
         return None
 
-def upload_to_youtube_vault(youtube, video_path: str, topic: str, metadata: dict, niche: str):
+def get_actual_vault_count(youtube):
+    if not youtube: return 0
     try:
-        if not os.path.exists(video_path):
-            print(f"❌ [UPLOAD] File not found: {video_path}")
-            return False, "File not found on disk"
+        playlist_id = get_or_create_playlist(youtube, "Vault Backup")
+        if not playlist_id: return 0
+        response = youtube.playlists().list(part="contentDetails", id=playlist_id).execute()
+        quota_manager.consume_points("youtube", 1)
+        return response["items"][0]["contentDetails"]["itemCount"]
+    except: return 0
 
-        free_bytes = shutil.disk_usage("/").free
-        if free_bytes < (500 * 1024 * 1024):
-            print("❌ [UPLOAD] Insufficient disk space for upload buffer.")
-            return False, "Insufficient disk space"
-    except Exception:
-        pass
+# 🚨 LEGACY RESTORE: Automatic Pinned Comment Engagement
+def _get_creator_comment(niche):
+    niche_lower = niche.lower() if niche else ""
+    if any(k in niche_lower for k in ['fact', 'hack', 'science', 'weird']):
+        return "Which fact blew your mind the most? Drop it below and subscribe for more! 🧠✨"
+    elif any(k in niche_lower for k in ['horror', 'terror', 'eldritch', 'cosmic horror']):
+        return "What cosmic horror keeps YOU up at night? Tell us below! 😱 Subscribe for more existential dread."
+    elif any(k in niche_lower for k in ['alien', 'extraterrestrial', 'encounter']):
+        return "Do you think we're alone in the universe? Reply with your theory and subscribe! 👽🌌"
+    elif any(k in niche_lower for k in ['space', 'stellar', 'cosmic', 'galactic', 'planetary', 'nebula', 'pulsar']):
+        return "Which corner of the cosmos should we explore next? Comment below and subscribe! 🚀🌠"
+    elif any(k in niche_lower for k in ['dream', 'dimensional', 'quantum', 'simulation']):
+        return "Does reality feel stranger after this? Share your thoughts and subscribe for more mind-bending content! 🌀"
+    elif any(k in niche_lower for k in ['tech', 'ai', 'automation', 'future']):
+        return "How long until AI takes over this job entirely? Let me know below and subscribe! 🤖⚡"
+    else:
+        return "What should we explore next? Drop your idea below and subscribe for more! 🌟"
 
-    qm = _quota_manager()
-    
-    if not qm.can_afford_youtube(1650):
-        print("❌ [UPLOAD] Quota insufficient for upload. Skipping.")
-        return False, "403 Quota Exceeded (Internal Engine Estimate)"
+def post_creator_comment(youtube, video_id, text):
+    if not youtube: return True
+    try:
+        youtube.commentThreads().insert(part="snippet", body={"snippet": {"videoId": video_id, "topLevelComment": {"snippet": {"textOriginal": text}}}}).execute()
+        return True
+    except: return False
+
+def upload_to_youtube_vault(youtube, video_path, topic, metadata, niche=""):
+    if not youtube: return True, "test_mode_dummy_video_id"
+    if shutil.disk_usage("/").free < (500 * 1024 * 1024): return False, None
 
     try:
-        media = MediaFileUpload(
-            video_path, chunksize=1024 * 1024 * 5, resumable=True, mimetype="video/mp4"
-        )
+        media = MediaFileUpload(video_path, chunksize=1024*1024*5, resumable=True, mimetype="video/mp4")
+
+        safe_title = (metadata.get("title") or f"{topic} #shorts")[:100]
+        safe_desc = metadata.get("description") or ""
+        raw_tags = metadata.get("tags") or ["shorts"]
+
+        safe_tags = []
+        char_count = 0
+        for tag in raw_tags:
+            clean_tag = str(tag).replace("<", "").replace(">", "").strip()[:30]
+            if char_count + len(clean_tag) < 400 and len(safe_tags) < 15:
+                safe_tags.append(clean_tag)
+                char_count += len(clean_tag)
+
+        if not safe_tags: safe_tags = ["shorts"]
 
         request = youtube.videos().insert(
             part="snippet,status",
             body={
-                "snippet": {
-                    "title": metadata.get("title", f"{topic} #shorts")[:100],
-                    "description": metadata.get("description", "")[:4900],
-                    "tags": metadata.get("tags", ["shorts"])[:15],
-                    "categoryId": "22"
-                },
-                "status": {
-                    "privacyStatus": "private",
-                    "selfDeclaredMadeForKids": False
-                }
+                "snippet": {"title": safe_title, "description": safe_desc, "tags": safe_tags, "categoryId": "22"},
+                "status": {"privacyStatus": "private", "selfDeclaredMadeForKids": False}
             },
             media_body=media
         )
 
         response = None
+        error_count = 0
+
         while response is None:
-            _, response = request.next_chunk()
+            try:
+                status, response = request.next_chunk()
+                error_count = 0
+            except Exception as net_err:
+                if isinstance(net_err, HttpError) and net_err.resp.status == 403 and b"quota" in net_err.content.lower():
+                    raise net_err
+                error_count += 1
+                print(f"⚠️ [VAULT] Network drop during chunk upload (Attempt {error_count}/5): {net_err}")
+                if error_count >= 5:
+                    raise net_err
+                time.sleep(5)
 
         video_id = response["id"]
-        qm.consume_points("youtube", 1600)
+        quota_manager.consume_points("youtube", 1600)
 
         try:
-            vault_id = get_or_create_playlist(youtube, "Vault Backup")
-            if vault_id:
-                youtube.playlistItems().insert(
-                    part="snippet",
-                    body={"snippet": {
-                        "playlistId": vault_id,
-                        "resourceId": {"kind": "youtube#video", "videoId": video_id}
-                    }}
-                ).execute()
-                qm.consume_points("youtube", 50)
-        except Exception as pl_error:
-            print(f"⚠️ [UPLOAD] Playlist insertion failed, but video was successfully uploaded: {pl_error}")
+            vault_playlist_id = get_or_create_playlist(youtube, "Vault Backup")
+            if vault_playlist_id:
+                youtube.playlistItems().insert(part="snippet", body={"snippet": {"playlistId": vault_playlist_id, "resourceId": {"kind": "youtube#video", "videoId": video_id}}}).execute()
+                quota_manager.consume_points("youtube", 50)
+        except Exception as playlist_err:
+            trace = traceback.format_exc()
+            print(f"⚠️ [VAULT] Video uploaded, but playlist assignment failed:\n{trace}")
+            vault_playlist_id = "Failed to Assign"
 
-        print(f"✅ [UPLOAD] Vaulted successfully. Video ID: {video_id}")
+        # 🚨 LEGACY RESTORE: Farm engagement immediately after uploading
+        comment_text = _get_creator_comment(niche)
+        if post_creator_comment(youtube, video_id, comment_text):
+            quota_manager.consume_points("youtube", 50)
+
+        notify_vault_secure(safe_title, video_id, vault_playlist_id)
         return True, video_id
 
     except Exception as e:
-        qm.diagnose_fatal_error("YouTube Upload", e)
-        return False, str(e)
+        if isinstance(e, HttpError) and e.resp.status == 403 and b"quota" in e.content.lower():
+            raise e
+        quota_manager.diagnose_fatal_error("youtube_manager.py", e)
+        return False, None
