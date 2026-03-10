@@ -1,9 +1,10 @@
-# scripts/api_monitor.py
+# scripts/api_monitor.py — Ghost Engine V14.0
 import os
 import requests
 from datetime import datetime
 from scripts.quota_manager import quota_manager
-from scripts.discord_notifier import notify_summary, notify_error
+from scripts.discord_notifier import notify_summary, notify_error, set_channel_context
+from engine.config_manager import config_manager
 
 class APIMonitor:
     def __init__(self):
@@ -16,6 +17,12 @@ class APIMonitor:
 
     def run_audit(self):
         print("🕵️ [MONITOR] Initiating Weekly Technical Audit...")
+        
+        # GOD-TIER FIX: Inject Discord context so standalone audits can dispatch webhooks
+        active_channels = config_manager.get_active_channels()
+        if active_channels:
+            set_channel_context(active_channels[0])
+            
         findings = []
 
         audit_prompt = f"""
@@ -35,14 +42,12 @@ class APIMonitor:
         """
 
         try:
-            # We use the system's own text generation (Gemini) to perform the audit
             report, _ = quota_manager.generate_text(audit_prompt, task_type="analysis")
             
             if "No critical updates" in report:
                 print("✅ [MONITOR] Stack is stable. No action required.")
                 return
 
-            # Route findings to Discord
             msg = f"🛡️ **Weekly Stack Audit Result**\n\n{report}"
             notify_summary(True, msg)
             print("📡 [MONITOR] Audit report dispatched to Discord.")
