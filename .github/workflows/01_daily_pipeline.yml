@@ -47,7 +47,7 @@ jobs:
         env:
           PYTHONUNBUFFERED: 1
           GHOST_ENGINE_ENABLED: ${{ vars.GHOST_ENGINE_ENABLED }}
-          TEST_MODE: false
+          TEST_MODE: true
           
           # Universal AI/Infrastructure APIs
           GEMINI_API_KEY:       ${{ secrets.GEMINI_API_KEY }}
