@@ -34,7 +34,6 @@ def format_time(seconds: float) -> str:
     return f"{h:02}:{m:02}:{s:02},{ms:03}"
 
 def trim_audio_precision(file_path: str):
-    # 🚨 LEGACY RESTORE: Biological Padding & Normalization
     from pydub import AudioSegment, effects
     try:
         audio = AudioSegment.from_file(file_path)
@@ -43,7 +42,6 @@ def trim_audio_precision(file_path: str):
         
         audio = effects.normalize(audio)
         
-        # Exact 200ms start pad, 500ms end pad to prevent abrupt cutoffs
         sil_start = AudioSegment.silent(duration=200, frame_rate=audio.frame_rate).set_channels(audio.channels)
         sil_end   = AudioSegment.silent(duration=500, frame_rate=audio.frame_rate).set_channels(audio.channels)
         
@@ -128,7 +126,6 @@ def generate_audio(text: str, output_base: str = "temp_audio", target_voice: str
                     whisper = get_whisper_model()
                     segments, _ = whisper.transcribe(wav_path, language="en", word_timestamps=True)
                     
-                    # 🚨 LEGACY RESTORE: Exact 3-Word Chunking logic
                     srt_lines = []
                     idx = 1
                     for segment in segments:
