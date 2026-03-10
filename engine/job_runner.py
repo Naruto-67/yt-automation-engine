@@ -1,4 +1,4 @@
-# engine/job_runner.py — Ghost Engine V8.1
+# engine/job_runner.py — Ghost Engine V13.0
 import os
 import time
 import shutil
@@ -8,6 +8,7 @@ from datetime import datetime
 from engine.logger import logger
 from engine.models import VideoJob, JobState, FailureLog
 from engine.database import db
+from engine.context import ctx
 
 from scripts.generate_script   import generate_script
 from scripts.generate_voice    import generate_audio
@@ -28,7 +29,7 @@ class JobRunner:
         self.final_size_mb  = 0.0
 
     def process(self):
-        os.environ["CURRENT_CHANNEL_ID"] = self.job.channel_id
+        ctx.set_channel_id(self.job.channel_id)
         logger.engine(f"Processing Job {self.job.id} | Topic: {self.job.topic} | State: {self.job.state.name}")
 
         try:
@@ -76,12 +77,9 @@ class JobRunner:
 
         except Exception as e:
             trace = traceback.format_exc()
-            
-            # FULL TRANSPARENCY FIX: Do not silence the terminal logs.
             print(f"\n🚨 [CRITICAL ERROR] JobRunner crashed on topic '{self.job.topic}':")
             print(f"└ Exact Exception: {type(e).__name__}: {e}")
             print(f"└ Traceback:\n{trace}\n")
-            
             self._handle_failure(str(e), trace)
 
     def _transition_to(self, new_state: JobState):
@@ -194,8 +192,6 @@ class JobRunner:
         self.job.video_path = output_path
         
         logger.success(f"Rendered: {output_path} ({size_mb:.1f} MB, {duration:.1f}s)")
-        
-        # DOUBLE-PRINT FIX: Cleaned up the details argument so Discord format is perfect
         notify_step(self.job.topic, "RENDERED", f"Size: {size_mb:.1f} MB | Duration: {duration:.1f}s", 0x9b59b6)
         
         self._execute_upload()
