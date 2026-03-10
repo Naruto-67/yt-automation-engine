@@ -1,4 +1,4 @@
-# scripts/discord_notifier.py — Ghost Engine V17.0
+# scripts/discord_notifier.py — Ghost Engine V18.0
 import os
 import requests
 
