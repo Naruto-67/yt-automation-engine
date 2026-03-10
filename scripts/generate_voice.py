@@ -1,17 +1,13 @@
-# scripts/generate_voice.py — Ghost Engine V6
+# scripts/generate_voice.py — Ghost Engine V14.0
 import os
 import re
 import random
 
-# Set HF hub token before any model imports
 if os.environ.get("HF_TOKEN"):
     os.environ["HUGGING_FACE_HUB_TOKEN"] = os.environ["HF_TOKEN"]
 
-# FIX: numpy/soundfile imported lazily to avoid crashing in lightweight environments
-# (audit and publisher workflows that don't install ML deps)
 _KOKORO_PIPELINE = None
 _WHISPER_MODEL   = None
-
 
 def get_kokoro_pipeline():
     global _KOKORO_PIPELINE
@@ -20,14 +16,12 @@ def get_kokoro_pipeline():
         _KOKORO_PIPELINE = KPipeline(lang_code="a", repo_id="hexgrad/Kokoro-82M")
     return _KOKORO_PIPELINE
 
-
 def get_whisper_model():
     global _WHISPER_MODEL
     if _WHISPER_MODEL is None:
         from faster_whisper import WhisperModel
         _WHISPER_MODEL = WhisperModel("tiny.en", device="cpu", compute_type="int8")
     return _WHISPER_MODEL
-
 
 def format_time(seconds: float) -> str:
     if seconds < 0:
@@ -37,7 +31,6 @@ def format_time(seconds: float) -> str:
     s  = int(seconds % 60)
     ms = int((seconds - int(seconds)) * 1000)
     return f"{h:02}:{m:02}:{s:02},{ms:03}"
-
 
 def trim_audio_precision(file_path: str):
     from pydub import AudioSegment, effects
@@ -54,11 +47,9 @@ def trim_audio_precision(file_path: str):
     except Exception:
         return False, 0.0
 
-
 def sanitize_for_tts(text: str) -> str:
     clean = re.sub(r"[^\w\s.,!?'\"−]", "", text)
     return re.sub(r"\s+", " ", clean).strip()
-
 
 def generate_fallback_srt(text: str, duration: float, srt_path: str) -> bool:
     try:
@@ -81,7 +72,6 @@ def generate_fallback_srt(text: str, duration: float, srt_path: str) -> bool:
     except Exception:
         return False
 
-
 def _get_kokoro_to_groq_map() -> dict:
     from engine.config_manager import config_manager
     settings = config_manager.get_settings()
@@ -92,16 +82,7 @@ def _get_kokoro_to_groq_map() -> dict:
         "af_sarah":   "hannah",
     })
 
-
-def generate_audio(text: str, output_base: str = "temp_audio",
-                   target_voice: str = None):
-    """
-    TTS pipeline:
-      1. Kokoro local (speed=1.1, AI-chosen voice)
-      2. Groq Orpheus (mapped voice)
-
-    Returns: (success: bool, provider: str, duration: float)
-    """
+def generate_audio(text: str, output_base: str = "temp_audio", target_voice: str = None):
     from scripts.groq_client import groq_client
 
     clean_text  = sanitize_for_tts(text)
@@ -109,7 +90,6 @@ def generate_audio(text: str, output_base: str = "temp_audio",
     srt_path    = f"{output_base}.srt"
     duration    = 0.0
 
-    # ── Tier 1: Kokoro ────────────────────────────────────────────────────────
     from engine.config_manager import config_manager
     settings     = config_manager.get_settings()
     kokoro_voice = target_voice or "am_adam"
@@ -123,7 +103,7 @@ def generate_audio(text: str, output_base: str = "temp_audio",
         import numpy as np
         import soundfile as sf
 
-        pipeline    = get_kokoro_pipeline()
+        pipeline   = get_kokoro_pipeline()
         audio_chunks = []
 
         for _, _, audio in pipeline(clean_text, voice=kokoro_voice, speed=tts_speed):
@@ -135,11 +115,9 @@ def generate_audio(text: str, output_base: str = "temp_audio",
             sf.write(wav_path, full_audio, 24000)
             ok, duration = trim_audio_precision(wav_path)
             if ok and duration > 0:
-                # Generate subtitles via Whisper
                 try:
                     whisper   = get_whisper_model()
-                    segments, _ = whisper.transcribe(wav_path, language="en",
-                                                     word_timestamps=True)
+                    segments, _ = whisper.transcribe(wav_path, language="en", word_timestamps=True)
                     srt_lines = []
                     idx       = 1
                     for seg in segments:
@@ -150,8 +128,14 @@ def generate_audio(text: str, output_base: str = "temp_audio",
                                 f"{word.word.strip().upper()}\n"
                             )
                             idx += 1
-                    with open(srt_path, "w", encoding="utf-8") as f:
-                        f.write("\n".join(srt_lines))
+                            
+                    # GOD-TIER FIX: Safeguard against empty Whisper transcriptions
+                    if srt_lines:
+                        with open(srt_path, "w", encoding="utf-8") as f:
+                            f.write("\n".join(srt_lines))
+                    else:
+                        generate_fallback_srt(clean_text, duration, srt_path)
+                        
                 except Exception:
                     generate_fallback_srt(clean_text, duration, srt_path)
 
@@ -161,14 +145,12 @@ def generate_audio(text: str, output_base: str = "temp_audio",
     except Exception as e:
         print(f"⚠️ [TTS] Kokoro failed: {e}")
 
-    # ── Tier 2: Groq Orpheus ──────────────────────────────────────────────────
     try:
         voice_map     = _get_kokoro_to_groq_map()
         groq_voice    = voice_map.get(target_voice) if target_voice else None
-        groq_override = groq_voice  # Pass mapped voice to Groq
+        groq_override = groq_voice
 
-        ok = groq_client.generate_audio(clean_text, wav_path,
-                                         voice_override=groq_override)
+        ok = groq_client.generate_audio(clean_text, wav_path, voice_override=groq_override)
         if ok:
             _, duration = trim_audio_precision(wav_path)
             generate_fallback_srt(clean_text, duration, srt_path)
