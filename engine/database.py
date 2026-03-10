@@ -1,4 +1,4 @@
-# engine/database.py — Ghost Engine V11.0
+# engine/database.py — Ghost Engine V15.0
 import sqlite3
 import os
 import json
@@ -17,7 +17,6 @@ class SQLiteDB:
         self._initialize_tables()
 
     def _connect(self):
-        # GOD-TIER FIX: Timeout buffer extended to 30.0s to survive VM disk I/O latency spikes.
         return sqlite3.connect(self.db_path, timeout=30.0)
 
     def _initialize_tables(self):
@@ -114,30 +113,36 @@ class SQLiteDB:
         with contextlib.closing(self._connect()) as conn:
             with conn:
                 c = conn.cursor()
-                c.execute('''
-                    INSERT INTO jobs
-                        (channel_id, topic, niche, state, script, metadata,
-                         audio_path, image_paths, video_path, youtube_id,
-                         attempts, created_at, updated_at)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-                    ON CONFLICT(channel_id, topic) DO UPDATE SET
-                        state=excluded.state, script=excluded.script,
-                        metadata=excluded.metadata, audio_path=excluded.audio_path,
-                        image_paths=excluded.image_paths, video_path=excluded.video_path,
-                        youtube_id=excluded.youtube_id, attempts=excluded.attempts,
-                        updated_at=excluded.updated_at
-                ''', (
-                    job.channel_id, job.topic, job.niche, job.state.value,
-                    job.script, job.metadata, job.audio_path, job.image_paths,
-                    job.video_path, job.youtube_id, job.attempts,
-                    job.created_at, job.updated_at
-                ))
-                if not job.id:
-                    c.execute('SELECT id FROM jobs WHERE channel_id=? AND topic=?', (job.channel_id, job.topic))
-                    row = c.fetchone()
-                    if row:
-                        job.id = row[0]
-        return job.id
+                # GOD-TIER FIX: Differentiate between UPDATE and INSERT to prevent researchers
+                # from accidentally overwriting completed videos with blank states.
+                if job.id is not None:
+                    c.execute('''
+                        UPDATE jobs SET
+                            channel_id=?, topic=?, niche=?, state=?, script=?, metadata=?,
+                            audio_path=?, image_paths=?, video_path=?, youtube_id=?,
+                            attempts=?, updated_at=?
+                        WHERE id=?
+                    ''', (
+                        job.channel_id, job.topic, job.niche, job.state.value, job.script, job.metadata,
+                        job.audio_path, job.image_paths, job.video_path, job.youtube_id,
+                        job.attempts, job.updated_at, job.id
+                    ))
+                else:
+                    c.execute('''
+                        INSERT OR IGNORE INTO jobs
+                            (channel_id, topic, niche, state, script, metadata,
+                             audio_path, image_paths, video_path, youtube_id,
+                             attempts, created_at, updated_at)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    ''', (
+                        job.channel_id, job.topic, job.niche, job.state.value,
+                        job.script, job.metadata, job.audio_path, job.image_paths,
+                        job.video_path, job.youtube_id, job.attempts,
+                        job.created_at, job.updated_at
+                    ))
+                    if c.rowcount > 0:
+                        job.id = c.lastrowid
+        return job.id or 0
 
     def get_jobs_by_state(self, channel_id: str, state: JobState, limit: int = 5) -> List[VideoJob]:
         with contextlib.closing(self._connect()) as conn:
