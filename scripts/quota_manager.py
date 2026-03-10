@@ -1,4 +1,4 @@
-# scripts/quota_manager.py — Ghost Engine V13.0
+# scripts/quota_manager.py — Ghost Engine V16.0
 import os
 import json
 import time
@@ -10,10 +10,9 @@ from engine.database import db
 from engine.config_manager import config_manager
 from engine.context import ctx
 
-_QUOTA_JSON_PATH = os.path.join(
-    os.path.abspath(os.path.join(os.path.dirname(__file__), "..")),
-    "memory", "quota_state.json"
-)
+TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
+_FILE_NAME = "quota_state_test.json" if TEST_MODE else "quota_state.json"
+_QUOTA_JSON_PATH = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")), "memory", _FILE_NAME)
 
 class MasterQuotaManager:
     def __init__(self):
@@ -68,6 +67,9 @@ class MasterQuotaManager:
         }
 
     def consume_points(self, provider: str, amount: int):
+        if TEST_MODE:
+            return # GOD-TIER FIX: Freeze quotas entirely during test simulations
+            
         if provider == "youtube":
             target_id = self._get_channel_id()
             col = "youtube_points"
@@ -106,10 +108,12 @@ class MasterQuotaManager:
         return result
 
     def can_afford_youtube(self, cost: int) -> bool:
+        if TEST_MODE: return True
         state = self._get_active_state()
         return (state.get("youtube_points", 0) + cost) <= self.LIMITS["youtube"]
 
     def is_provider_exhausted(self, provider: str) -> bool:
+        if TEST_MODE: return False
         state = self._get_active_state()
         col_limit_map = {
             "cloudflare":  ("cf_images",    "cloudflare"),
@@ -194,7 +198,7 @@ class MasterQuotaManager:
 
         for provider in chains.get("script", ["gemini", "groq"]):
             if provider == "gemini":
-                if state.get("gemini_calls", 0) >= self.LIMITS["gemini"]:
+                if state.get("gemini_calls", 0) >= self.LIMITS["gemini"] and not TEST_MODE:
                     print("⚠️ [GEMINI] Daily limit reached — skipping.")
                     continue
                 if not self.gemini_key:
