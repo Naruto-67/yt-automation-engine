@@ -1,4 +1,4 @@
-# scripts/quota_manager.py — Ghost Engine V17.0
+# scripts/quota_manager.py — Ghost Engine V18.0
 import os
 import json
 import time
@@ -205,10 +205,10 @@ class MasterQuotaManager:
                     continue
 
                 model_chain = self._discover_gemini_models()
-                provider_exhausted = False
+                gemini_hard_failed = False
                 
                 for model in model_chain:
-                    if provider_exhausted:
+                    if gemini_hard_failed:
                         break
                         
                     for attempt in range(3): 
@@ -225,19 +225,31 @@ class MasterQuotaManager:
                             return response.text, f"Gemini ({model})"
                         except Exception as e:
                             err = str(e).lower()
-                            if any(x in err for x in ["429", "too many requests", "quota", "exhausted"]):
+                            
+                            # GOD-TIER FIX: Implement requested Fallback Hierarchy
+                            # 1. SOFT LIMIT (RPM) -> Backoff and retry
+                            if any(x in err for x in ["429", "too many requests"]):
                                 if attempt < 2:
                                     self._execute_jitter_backoff(attempt, "GEMINI")
                                     continue
                                 else:
-                                    # GOD-TIER FIX: Account limits apply globally. Break the outer provider loop instantly.
-                                    print(f"⚠️ [GEMINI QUOTA] Account-wide limit hit on {model}. Failing over to Groq instantly.")
-                                    provider_exhausted = True
+                                    print(f"⚠️ [GEMINI QUOTA] Soft limit exhausted. Escalating to Hard Failover.")
+                                    gemini_hard_failed = True
                                     break 
+                                    
+                            # 2. HARD LIMIT (Quota/Billing) -> Instant failover to Groq
+                            elif any(x in err for x in ["quota", "exhausted", "billing", "403"]):
+                                print(f"⚠️ [GEMINI QUOTA] Hard account limit hit. Failing over to Groq instantly.")
+                                gemini_hard_failed = True
+                                break
+                                
+                            # 3. MODEL ERROR (404/Deprecated) -> Try next Gemini Model
                             elif any(x in err for x in ["404", "not found", "deprecated"]):
-                                print(f"⚠️ [GEMINI] Model deprecated: {model}")
+                                print(f"⚠️ [GEMINI] Model deprecated: {model}. Trying next Gemini model.")
                                 self._gemini_models_discovered = False
                                 break
+                                
+                            # 4. UNKNOWN ERROR -> Try next Gemini Model
                             else:
                                 print(f"⚠️ [GEMINI] Error on {model}: {e}")
                                 break 
@@ -252,13 +264,19 @@ class MasterQuotaManager:
                             return res, f"Groq ({groq.TEXT_MODEL})"
                     except Exception as e:
                         err = str(e).lower()
-                        if any(x in err for x in ["429", "too many requests", "quota", "exhausted"]):
+                        # Soft Limit
+                        if any(x in err for x in ["429", "too many requests"]):
                             if attempt < 2:
                                 self._execute_jitter_backoff(attempt, "GROQ")
                                 continue
                             else:
-                                print(f"⚠️ [GROQ QUOTA] Account-wide limit hit. Failing over.")
+                                print(f"⚠️ [GROQ QUOTA] Soft limit exhausted. Failing over.")
                                 break
+                        # Hard Limit
+                        elif any(x in err for x in ["quota", "exhausted", "billing", "403"]):
+                            print(f"⚠️ [GROQ QUOTA] Hard account limit hit. Failing over.")
+                            break
+                        # Unknown Error
                         print(f"⚠️ [GROQ] Text generation failed: {e}")
                         break
 
