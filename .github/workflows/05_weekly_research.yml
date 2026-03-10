@@ -18,6 +18,9 @@ jobs:
   scrape_trends:
     runs-on: ubuntu-latest
     if: vars.GHOST_ENGINE_ENABLED != 'false' || github.event.inputs.force_run == 'true'
+    
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
