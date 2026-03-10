@@ -1,4 +1,4 @@
-# scripts/quota_manager.py — Ghost Engine V20.0
+# scripts/quota_manager.py
 import os
 import json
 import time
@@ -67,7 +67,6 @@ class MasterQuotaManager:
         }
 
     def consume_points(self, provider: str, amount: int):
-        # GOD-TIER FIX: Freeze YouTube points, but allow AI limits to be tested
         if TEST_MODE and provider == "youtube":
             return 
             
@@ -101,13 +100,6 @@ class MasterQuotaManager:
             except Exception:
                 pass
 
-    def consume_youtube_and_call(self, api_call, cost: int):
-        if not self.can_afford_youtube(cost):
-            raise RuntimeError(f"Quota insufficient for YouTube call (cost={cost})")
-        result = api_call()
-        self.consume_points("youtube", cost)
-        return result
-
     def can_afford_youtube(self, cost: int) -> bool:
         if TEST_MODE: return True
         state = self._get_active_state()
@@ -133,8 +125,7 @@ class MasterQuotaManager:
 
         settings  = config_manager.get_settings()
         fallbacks = settings.get("gemini_model_fallback_chain", [
-            "gemini-2.0-flash", "gemini-2.0-flash-lite",
-            "gemini-1.5-flash-8b", "gemini-1.5-flash",
+            "gemini-2.0-flash", "gemini-1.5-flash-8b", "gemini-1.5-flash"
         ])
 
         if not self.gemini_key:
@@ -150,23 +141,35 @@ class MasterQuotaManager:
 
             def _score(name: str) -> int:
                 n = name.lower()
-                if "flash" not in n and "lite" not in n: return -1
+                # 🚨 LEGACY RESTORE: Explicitly ban non-text models from crashing the queue
+                if any(x in n for x in ["vision", "image", "embedding", "audio", "aqa", "learn", "tts", "customtools"]):
+                    return -1
+                if "flash" not in n and "lite" not in n and "pro" not in n: return -1
+                
                 score = 0
-                if "preview" in n or "exp" in n: score -= 20
-                if "2.0" in n:  score += 100
+                # 🚨 LEGACY RESTORE: Mathematical scoring to auto-favor newest generational releases
+                if "3.1" in n: score += 150
+                elif "3.0" in n: score += 120
+                elif "2.5" in n: score += 100
+                elif "2.0" in n: score += 80
                 elif "1.5" in n: score += 60
                 elif "1.0" in n: score += 20
-                if "flash-8b" in n:  score += 10
+                
+                if "flash-8b" in n: score += 10
                 elif "flash-lite" in n: score += 15
-                elif "flash" in n:    score += 20
+                elif "flash" in n: score += 20
+                
+                if "pro" in n: score -= 50 # Deprioritize heavy models for free tier
+                if "exp" in n or "preview" in n: score -= 5
                 return score
 
             ranked = sorted([m for m in model_names if _score(m) >= 0], key=_score, reverse=True)
             self._gemini_model_chain = ranked[:5] if ranked else fallbacks
-            print(f"✅ [GEMINI] Discovered model chain: {self._gemini_model_chain}")
+            print(f"🔍 [GEMINI] Auto-discovered {len(ranked)} text models. Active queue: {self._gemini_model_chain}")
 
         except Exception as e:
-            print(f"⚠️ [GEMINI] Model discovery failed ({e}), using fallback chain.")
+            trace = traceback.format_exc()
+            print(f"⚠️ [GEMINI] Model discovery failed:\n{trace}\nUsing fallback chain.")
             self._gemini_model_chain = fallbacks
 
         self._gemini_models_discovered = True
@@ -198,7 +201,7 @@ class MasterQuotaManager:
 
         for provider in chains.get("script", ["gemini", "groq"]):
             if provider == "gemini":
-                if state.get("gemini_calls", 0) >= self.LIMITS["gemini"]:
+                if state.get("gemini_calls", 0) >= self.LIMITS["gemini"] and not TEST_MODE:
                     print("⚠️ [GEMINI] Daily limit reached — skipping.")
                     continue
                 if not self.gemini_key:
@@ -225,20 +228,20 @@ class MasterQuotaManager:
                             return response.text, f"Gemini ({model})"
                         except Exception as e:
                             err = str(e).lower()
+                            trace = traceback.format_exc()
+                            print(f"⚠️ [GEMINI] Exception on {model} (Attempt {attempt+1}):\n{trace}")
                             
                             if any(x in err for x in ["429", "too many requests"]):
                                 if attempt < 2:
                                     self._execute_jitter_backoff(attempt, "GEMINI")
                                     continue
                                 else:
-                                    print(f"⚠️ [GEMINI QUOTA] Soft limit exhausted. Escalating to Hard Failover.")
-                                    gemini_hard_failed = True
+                                    print(f"⚠️ [GEMINI QUOTA] Soft limit exhausted on {model}. Trying next Gemini model.")
                                     break 
                                     
                             elif any(x in err for x in ["quota", "exhausted", "billing", "403"]):
-                                print(f"⚠️ [GEMINI QUOTA] Hard account limit hit. Failing over to Groq instantly.")
-                                gemini_hard_failed = True
-                                break
+                                print(f"⚠️ [GEMINI QUOTA] Hard limit hit on {model}. Trying next Gemini model.")
+                                break 
                                 
                             elif any(x in err for x in ["404", "not found", "deprecated"]):
                                 print(f"⚠️ [GEMINI] Model deprecated: {model}. Trying next Gemini model.")
@@ -246,8 +249,9 @@ class MasterQuotaManager:
                                 break
                                 
                             else:
-                                print(f"⚠️ [GEMINI] Error on {model}: {e}")
                                 break 
+                
+                print("⚠️ [GEMINI] All Gemini models failed. Failing over to Groq.")
 
             elif provider in ("groq", "groq_orpheus"):
                 for attempt in range(3):
@@ -259,6 +263,8 @@ class MasterQuotaManager:
                             return res, f"Groq ({groq.TEXT_MODEL})"
                     except Exception as e:
                         err = str(e).lower()
+                        trace = traceback.format_exc()
+                        print(f"⚠️ [GROQ] Exception (Attempt {attempt+1}):\n{trace}")
                         if any(x in err for x in ["429", "too many requests"]):
                             if attempt < 2:
                                 self._execute_jitter_backoff(attempt, "GROQ")
@@ -269,7 +275,6 @@ class MasterQuotaManager:
                         elif any(x in err for x in ["quota", "exhausted", "billing", "403"]):
                             print(f"⚠️ [GROQ QUOTA] Hard account limit hit. Failing over.")
                             break
-                        print(f"⚠️ [GROQ] Text generation failed: {e}")
                         break
 
         return None, "All Providers Exhausted"
