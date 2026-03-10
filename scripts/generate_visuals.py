@@ -1,4 +1,4 @@
-# scripts/generate_visuals.py — Ghost Engine V10.0 (God-Tier Backoff)
+# scripts/generate_visuals.py — Ghost Engine V16.1
 import os
 import requests
 import urllib.parse
@@ -89,7 +89,10 @@ def generate_cloudflare_image(prompt, output_path):
 
     url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/@cf/black-forest-labs/flux-1-schnell"
     headers = {"Authorization": f"Bearer {api_token}", "Content-Type": "application/json"}
-    payload = {"prompt": f"{prompt[:200].replace('\"', '').replace(chr(10), ' ')}, vertical 9:16 format, masterpiece"}
+    
+    # GOD-TIER FIX: Extracted string manipulation outside of the f-string to prevent Python 3.11 SyntaxError
+    clean_prompt = prompt[:200].replace('"', '').replace('\n', ' ')
+    payload = {"prompt": f"{clean_prompt}, vertical 9:16 format, masterpiece"}
 
     for retry in range(3):
         try:
@@ -124,7 +127,10 @@ def generate_huggingface_cascade(prompt, output_path):
 
     dynamic_models = discover_hf_image_models()
     headers = {"Authorization": f"Bearer {hf_token}", "Content-Type": "application/json"}
-    payload = {"inputs": f"{prompt[:200].replace('\"', '').replace(chr(10), ' ')}, vertical 9:16 format"}
+    
+    # GOD-TIER FIX: Extracted string manipulation outside of the f-string to prevent Python 3.11 SyntaxError
+    clean_prompt = prompt[:200].replace('"', '').replace('\n', ' ')
+    payload = {"inputs": f"{clean_prompt}, vertical 9:16 format"}
 
     for model in dynamic_models:
         short_name = model.split('/')[-1]
@@ -143,7 +149,6 @@ def generate_huggingface_cascade(prompt, output_path):
                 elif response.status_code in [401, 402, 403, 404]: 
                     break 
                 elif response.status_code >= 500:
-                    # Respect API estimated time, but fall back to jitter if it's a hard gateway error
                     try:
                         data = response.json()
                         wait_time = min(int(data.get("estimated_time", 13)) + 2, 60)
