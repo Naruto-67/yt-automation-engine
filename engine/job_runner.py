@@ -1,4 +1,4 @@
-# engine/job_runner.py — Ghost Engine V13.0
+# engine/job_runner.py — Ghost Engine V15.0
 import os
 import time
 import shutil
@@ -219,7 +219,8 @@ class JobRunner:
         notify_vault_secure(self.job.topic, self.job.youtube_id, vault_id or "unknown")
         
         try:
-            if os.path.exists(self.job.video_path):
+            # GOD-TIER FIX: Bypass deletion on GitHub Actions to preserve the Artifact Upload
+            if os.path.exists(self.job.video_path) and not os.environ.get("GITHUB_ACTIONS"):
                 os.remove(self.job.video_path)
                 logger.engine("🧹 Cleaned up local video file to protect persistent server storage limits.")
         except Exception:
