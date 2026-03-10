@@ -1,4 +1,4 @@
-# engine/database.py — Ghost Engine V15.0
+# engine/database.py — Ghost Engine V16.0
 import sqlite3
 import os
 import json
@@ -8,7 +8,9 @@ from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 from engine.models import VideoJob, JobState, FailureLog
 
-_DB_PATH = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")), "memory", "ghost_engine.db")
+TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
+_DB_FILE = "ghost_engine_test.db" if TEST_MODE else "ghost_engine.db"
+_DB_PATH = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")), "memory", _DB_FILE)
 
 class SQLiteDB:
     def __init__(self, db_path: str = _DB_PATH):
@@ -113,8 +115,6 @@ class SQLiteDB:
         with contextlib.closing(self._connect()) as conn:
             with conn:
                 c = conn.cursor()
-                # GOD-TIER FIX: Differentiate between UPDATE and INSERT to prevent researchers
-                # from accidentally overwriting completed videos with blank states.
                 if job.id is not None:
                     c.execute('''
                         UPDATE jobs SET
