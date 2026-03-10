@@ -1,4 +1,4 @@
-# scripts/schedule_video.py — Ghost Engine V7.2
+# scripts/schedule_video.py — Ghost Engine V16.0
 import os
 import json
 import time
@@ -15,6 +15,8 @@ from engine.database import db
 from engine.models import JobState
 from engine.config_manager import config_manager
 from engine.logger import logger
+
+TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
 
 def load_config_prompts():
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -78,6 +80,10 @@ def publish_vault_videos():
         print("🔴 [KILL SWITCH] Publisher halted.")
         return
 
+    if TEST_MODE:
+        print("🧪 [TEST MODE] Bypassing Scheduler API Calls.")
+        return
+
     settings      = config_manager.get_settings()
     publish_limit = settings.get("vault", {}).get("publish_per_run", 2)
     publish_cost  = publish_limit * 150  
@@ -132,7 +138,6 @@ def publish_vault_videos():
 
             target_dt = now.replace(hour=hr, minute=mn, second=0, microsecond=0)
             
-            # GOD-TIER FIX: Expanded 15m buffer to 30m to safely absorb API transmission latencies
             if target_dt <= now + timedelta(minutes=30):
                 target_dt += timedelta(days=1)
             publish_time_str = target_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
