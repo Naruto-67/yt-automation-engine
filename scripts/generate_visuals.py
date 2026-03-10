@@ -33,7 +33,6 @@ def _execute_jitter_backoff(attempt: int, api_name: str):
     print(f"      ⏳ [{api_name} RPM] Tier {tier} backoff. Cooling down for {wait_time:.1f}s...")
     time.sleep(wait_time)
 
-# 🚨 LEGACY RESTORE: AI Visual Safety Filter Rewriter
 def _regenerate_safe_prompt(bad_prompt):
     prompts_cfg = load_config_prompts()
     sys_msg = prompts_cfg.get('visual_safety', {}).get('system_prompt', "You are an AI Safety Filter & Creative Prompt Engineer.")
