@@ -1,4 +1,4 @@
-# scripts/reply_comments.py — Ghost Engine V14.0
+# scripts/reply_comments.py — Ghost Engine V16.0
 import os
 import json
 import time
@@ -10,6 +10,7 @@ from scripts.discord_notifier import set_channel_context, notify_engagement_repo
 from engine.config_manager import config_manager
 from engine.logger import logger
 
+TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
 _MAX_STORED_IDS = 15000
 
 def _get_replied_path(channel_id: str) -> str:
@@ -54,7 +55,6 @@ def generate_ai_reply(video_title: str, comment_text: str, attempt_num: int, pro
     task = "comment_reply_groq" if attempt_num > 3 else "creative"
     raw, _ = quota_manager.generate_text(user_msg, task_type=task, system_prompt=sys_msg)
     
-    # GOD-TIER FIX: Differentiate between Content Flags and API Failures
     if raw:
         clean = raw.strip().replace('"', "")
         if "FLAGGED_COMMENT" in clean:
@@ -65,6 +65,10 @@ def generate_ai_reply(video_title: str, comment_text: str, attempt_num: int, pro
 def run_engagement_protocol():
     if os.environ.get("GHOST_ENGINE_ENABLED", "true").lower() == "false":
         print("🔴 [KILL SWITCH] Engagement halted.")
+        return
+
+    if TEST_MODE:
+        print("🧪 [TEST MODE] Bypassing Comment Engagement.")
         return
 
     settings    = config_manager.get_settings()
@@ -148,7 +152,6 @@ def run_engagement_protocol():
 
                     reply_text = generate_ai_reply(vid_title, top["textDisplay"], replies_sent + 1, prompts_cfg)
 
-                    # GOD-TIER FIX: Handle the exact return types safely to prevent queue burning
                     if reply_text == "FLAGGED":
                         flagged_count += 1
                         notify_security_flag(top.get("authorDisplayName", "unknown"), top["textDisplay"][:200], vid_title)
