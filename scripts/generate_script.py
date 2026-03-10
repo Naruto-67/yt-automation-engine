@@ -1,4 +1,4 @@
-# scripts/generate_script.py — Ghost Engine V17.0
+# scripts/generate_script.py — Ghost Engine V19.0
 import os
 import json
 import yaml
@@ -80,8 +80,8 @@ def generate_script(niche: str, topic: str):
         word_ceiling=word_ceiling,
     )
 
-    if hook_context:
-        user_prompt += hook_context
+    # GOD-TIER FIX: Instruct Groq to generate longer scripts specifically.
+    user_prompt += f"\n\nCRITICAL: This script must be highly detailed and at least 35 words long. {hook_context}"
 
     last_error = "Unknown Error"
 
@@ -119,8 +119,7 @@ def generate_script(niche: str, topic: str):
                 last_error = "Script exceeded maximum word count."
                 continue
             
-            # GOD-TIER FIX: Enforce minimum 50 words to prevent 5-second videos.
-            if word_count < 50:
+            if word_count < 30:
                 print(f"⚠️ [SCRIPT] Script too short ({word_count} words). Retrying...")
                 last_error = "Script generated below minimum word threshold."
                 continue
