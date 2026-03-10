@@ -1,4 +1,4 @@
-# scripts/reply_comments.py — Ghost Engine V16.0
+# scripts/reply_comments.py — Ghost Engine V20.0
 import os
 import json
 import time
@@ -67,10 +67,6 @@ def run_engagement_protocol():
         print("🔴 [KILL SWITCH] Engagement halted.")
         return
 
-    if TEST_MODE:
-        print("🧪 [TEST MODE] Bypassing Comment Engagement.")
-        return
-
     settings    = config_manager.get_settings()
     eng         = settings.get("engagement", {})
     max_replies = eng.get("max_replies_per_channel_per_day", 10)
@@ -83,7 +79,7 @@ def run_engagement_protocol():
         if not quota_manager.can_afford_youtube(55):
             continue
 
-        youtube = get_youtube_client(channel)
+        youtube = None if TEST_MODE else get_youtube_client(channel)
         if not youtube:
             continue
             
