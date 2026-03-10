@@ -1,8 +1,9 @@
 name: 02_Ghost_Daily_Publisher
 
 on:
-  schedule:
-    - cron: '0 6 * * *'
+  # 🚨 PUBLISHER DISARMED: Cron schedule commented out so videos won't go live automatically.
+  # schedule:
+  #   - cron: '0 6 * * *'
   workflow_dispatch:
     inputs:
       force_run:
