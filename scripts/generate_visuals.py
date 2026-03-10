@@ -1,4 +1,4 @@
-# scripts/generate_visuals.py — Ghost Engine V16.1
+# scripts/generate_visuals.py
 import os
 import requests
 import urllib.parse
@@ -20,7 +20,6 @@ def load_config_prompts():
     with open(os.path.join(root_dir, "config", "prompts.yaml"), "r", encoding="utf-8") as f: return yaml.safe_load(f)
 
 def _execute_jitter_backoff(attempt: int, api_name: str):
-    """God-Tier Exponential Backoff with Jitter for Visual Generation"""
     if attempt == 0:
         wait_time = random.uniform(5.0, 10.0)
         tier = "Low"
@@ -34,14 +33,18 @@ def _execute_jitter_backoff(attempt: int, api_name: str):
     print(f"      ⏳ [{api_name} RPM] Tier {tier} backoff. Cooling down for {wait_time:.1f}s...")
     time.sleep(wait_time)
 
+# 🚨 LEGACY RESTORE: AI Visual Safety Filter Rewriter
 def _regenerate_safe_prompt(bad_prompt):
     prompts_cfg = load_config_prompts()
-    sys_msg = prompts_cfg['visual_safety']['system_prompt']
-    user_msg = prompts_cfg['visual_safety']['user_template'].format(bad_prompt=bad_prompt)
+    sys_msg = prompts_cfg.get('visual_safety', {}).get('system_prompt', "You are an AI Safety Filter & Creative Prompt Engineer.")
+    template = prompts_cfg.get('visual_safety', {}).get('user_template', "Rewrite this to be safe: {bad_prompt}")
+    user_msg = template.format(bad_prompt=bad_prompt)
     try:
         clean_text, _ = quota_manager.generate_text(user_msg, task_type="creative", system_prompt=sys_msg)
         if clean_text: return clean_text.strip().replace('"', '').replace('\n', ' ')
-    except: pass
+    except Exception as e: 
+        trace = traceback.format_exc()
+        print(f"⚠️ [VISUALS] Prompt rewrite failed:\n{trace}")
     return "Cinematic 3D animation of a mysterious artifact, highly detailed"
 
 def discover_hf_image_models():
@@ -75,7 +78,8 @@ def discover_hf_image_models():
                 print(f"✅ [HF] Model cascade dynamically updated: {_HF_MODELS_CACHE}")
                 return _HF_MODELS_CACHE
     except Exception as e:
-        print(f"⚠️ [HF] Discovery failed: {e}")
+        trace = traceback.format_exc()
+        print(f"⚠️ [HF] Discovery failed:\n{trace}")
 
     _HF_MODELS_CACHE = ["black-forest-labs/FLUX.1-schnell", "stabilityai/stable-diffusion-xl-base-1.0"]
     return _HF_MODELS_CACHE
@@ -90,7 +94,6 @@ def generate_cloudflare_image(prompt, output_path):
     url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/@cf/black-forest-labs/flux-1-schnell"
     headers = {"Authorization": f"Bearer {api_token}", "Content-Type": "application/json"}
     
-    # GOD-TIER FIX: Extracted string manipulation outside of the f-string to prevent Python 3.11 SyntaxError
     clean_prompt = prompt[:200].replace('"', '').replace('\n', ' ')
     payload = {"prompt": f"{clean_prompt}, vertical 9:16 format, masterpiece"}
 
@@ -112,7 +115,7 @@ def generate_cloudflare_image(prompt, output_path):
             else: return False, f"HTTP {response.status_code}"
         except Exception as e:
             trace = traceback.format_exc()
-            print(f"🚨 [CF AI ERROR] {type(e).__name__}: {e}\n{trace}")
+            print(f"🚨 [CF AI ERROR] {type(e).__name__}:\n{trace}")
             if retry < 2: 
                 _execute_jitter_backoff(retry, "CF AI")
                 continue
@@ -128,7 +131,6 @@ def generate_huggingface_cascade(prompt, output_path):
     dynamic_models = discover_hf_image_models()
     headers = {"Authorization": f"Bearer {hf_token}", "Content-Type": "application/json"}
     
-    # GOD-TIER FIX: Extracted string manipulation outside of the f-string to prevent Python 3.11 SyntaxError
     clean_prompt = prompt[:200].replace('"', '').replace('\n', ' ')
     payload = {"inputs": f"{clean_prompt}, vertical 9:16 format"}
 
@@ -161,7 +163,7 @@ def generate_huggingface_cascade(prompt, output_path):
                             continue
             except Exception as e:
                 trace = traceback.format_exc()
-                print(f"🚨 [HF AI ERROR] {type(e).__name__}: {e}\n{trace}")
+                print(f"🚨 [HF AI ERROR] {type(e).__name__}:\n{trace}")
                 if retry < 2:
                     _execute_jitter_backoff(retry, "HF AI")
                     continue
@@ -185,7 +187,7 @@ def fallback_pexels_image(search_query, output_path, is_retry=False):
             return fallback_pexels_image("cinematic aesthetic", output_path, is_retry=True)
     except Exception as e:
         trace = traceback.format_exc()
-        print(f"🚨 [PEXELS ERROR] {type(e).__name__}: {e}\n{trace}")
+        print(f"🚨 [PEXELS ERROR] {type(e).__name__}:\n{trace}")
         return False, "API Error"
     return False, "No images found"
 
@@ -202,7 +204,7 @@ def generate_offline_gradient(output_path):
         return True, "Local Render"
     except Exception as e:
         trace = traceback.format_exc()
-        print(f"🚨 [LOCAL RENDER ERROR] {type(e).__name__}: {e}\n{trace}")
+        print(f"🚨 [LOCAL RENDER ERROR] {type(e).__name__}:\n{trace}")
         return False, "Fatal Render"
 
 def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene"):
@@ -226,6 +228,7 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
                     final_provider = "Cloudflare FLUX API"
                     break
                 elif "400" in err and safety_retries < 1:
+                    print(f"      ⚠️ Tier 1 Safety Filter triggered. Rewriting prompt...")
                     current_prompt = _regenerate_safe_prompt(current_prompt)
                     safety_retries += 1
                     continue
@@ -237,6 +240,7 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
                     final_provider = err
                     break
                 elif "400" in err and safety_retries < 1:
+                    print(f"      ⚠️ Tier 2 Safety Filter triggered. Rewriting prompt...")
                     current_prompt = _regenerate_safe_prompt(current_prompt)
                     safety_retries += 1
                     continue
