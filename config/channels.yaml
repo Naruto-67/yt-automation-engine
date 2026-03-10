@@ -1,4 +1,4 @@
-# config/channels.yaml — Ghost Engine V6
+# config/channels.yaml — Ghost Engine Multi-Channel Configuration
 #
 # ══════════════════════════════════════════════════════════════════════════════
 # HOW TO ADD A NEW CHANNEL (zero code changes needed after initial setup)
@@ -8,62 +8,40 @@
 #    → Each channel needs its OWN GCP project for independent 10,000pt/day quotas
 #
 # 2. ENABLE THE YOUTUBE DATA API V3 in that GCP project
-#    → console.cloud.google.com → APIs & Services → Enable APIs
 #
-# 3. CREATE OAUTH 2.0 CREDENTIALS (Desktop App type)
-#    → APIs & Services → Credentials → Create Credentials → OAuth client ID
-#    → Application type: Desktop app
-#    → Note the Client ID and Client Secret
+# 3. CREATE OAUTH 2.0 CREDENTIALS (Web Application type)
+#    → Add Authorized Redirect URI: https://developers.google.com/oauthplayground
 #
-# 4. REQUIRED OAUTH SCOPES (select all during consent screen setup):
-#    → https://www.googleapis.com/auth/youtube
-#    → https://www.googleapis.com/auth/youtube.upload
-#    → https://www.googleapis.com/auth/youtube.force-ssl
-#    (These cover: upload, publish, schedule, playlists, comments, analytics)
+# 4. GENERATE REFRESH TOKEN via OAuth Playground
 #
-# 5. GENERATE YOUR REFRESH TOKEN using the OAuth Playground or a local script:
-#    → Use: https://developers.google.com/oauthplayground
-#    → Or run: python scripts/get_refresh_token.py (uses your client_id/secret)
-#
-# 6. ADD GITHUB SECRETS (Settings → Secrets → Actions → New repository secret):
-#    For a channel named "CH_NEW_03", add:
-#    → YOUTUBE_CLIENT_ID_NEW       = your GCP client_id
-#    → YOUTUBE_CLIENT_SECRET_NEW   = your GCP client_secret
-#    → YOUTUBE_REFRESH_TOKEN_NEW   = your OAuth refresh_token
-#    → DISCORD_WEBHOOK_NEW         = your Discord channel webhook URL
-#
-# 7. ADD THE CHANNEL BLOCK BELOW (copy CH_MAIN_01 as template)
-#
-# 8. ADD THE ENV VARS TO ALL 5 WORKFLOW FILES (01–05 and 11):
-#    Under the 'env:' block in each workflow, add:
-#    → YOUTUBE_CLIENT_ID_NEW: ${{ secrets.YOUTUBE_CLIENT_ID_NEW }}
-#    → YOUTUBE_CLIENT_SECRET_NEW: ${{ secrets.YOUTUBE_CLIENT_SECRET_NEW }}
-#    → YOUTUBE_REFRESH_TOKEN_NEW: ${{ secrets.YOUTUBE_REFRESH_TOKEN_NEW }}
-#    → DISCORD_WEBHOOK_NEW: ${{ secrets.DISCORD_WEBHOOK_NEW }}
-#    This is a one-time change per channel — after that the engine handles everything.
-#
+# 5. ADD GITHUB SECRETS (Settings → Secrets → Actions):
+#    → YOUTUBE_CLIENT_ID_CHX
+#    → YOUTUBE_CLIENT_SECRET_CHX
+#    → YOUTUBE_REFRESH_TOKEN_CHX
+#    → DISCORD_WEBHOOK_CHX
 # ══════════════════════════════════════════════════════════════════════════════
 
 channels:
-  - id: "CH_MAIN_01"
+  - id: "CH_01"
     name: "GhostEngine_Main"
     # Baseline niche — system will evolve beyond this using research & analysis
     niche: "Cosmic Horror and Space Mysteries"
     target_audience: "US"
-    # Each channel uses its OWN GCP project → separate 10,000pt/day YouTube quota
-    youtube_client_id_env: "YOUTUBE_CLIENT_ID_MAIN"
-    youtube_client_secret_env: "YOUTUBE_CLIENT_SECRET_MAIN"
-    youtube_refresh_token_env: "YOUTUBE_REFRESH_TOKEN_MAIN"
-    discord_webhook_env: "DISCORD_WEBHOOK_MAIN"
+    # Maps to the GitHub Secrets for Channel 1
+    youtube_client_id_env: "YOUTUBE_CLIENT_ID_CH1"
+    youtube_client_secret_env: "YOUTUBE_CLIENT_SECRET_CH1"
+    youtube_refresh_token_env: "YOUTUBE_REFRESH_TOKEN_CH1"
+    discord_webhook_env: "DISCORD_WEBHOOK_CH1"
     active: true
 
-  # CH_TECH_02 is a placeholder — set active: false until you create its GCP project
-  - id: "CH_TECH_02"
-    name: "GhostEngine_Tech"
+  - id: "CH_02"
+    name: "GhostEngine_Second"
+    # Update this to whatever baseline niche you want for the second channel
     niche: "AI, Automation, and Futuristic Tech"
     target_audience: "US"
-    youtube_client_id_env: "YOUTUBE_CLIENT_ID_TECH"
-    youtube_client_secret_env: "YOUTUBE_CLIENT_SECRET_TECH"
-    youtube_refresh_token_env: "YOUTUBE_REFRESH_TOKEN_TECH"
-    discord_webhook_env: "DISCORD_WEBHOOK_TECH"
-    active: false  # ← Set to true once GCP project + secrets are configured
+    # Maps to the GitHub Secrets for Channel 2
+    youtube_client_id_env: "YOUTUBE_CLIENT_ID_CH2"
+    youtube_client_secret_env: "YOUTUBE_CLIENT_SECRET_CH2"
+    youtube_refresh_token_env: "YOUTUBE_REFRESH_TOKEN_CH2"
+    discord_webhook_env: "DISCORD_WEBHOOK_CH2"
+    active: true
