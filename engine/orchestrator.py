@@ -1,4 +1,4 @@
-# engine/orchestrator.py — Ghost Engine V16.0
+# engine/orchestrator.py — Ghost Engine V18.0
 import os
 import glob
 import yaml
@@ -55,7 +55,6 @@ class Orchestrator:
         logger.engine("🧹 Workspace cleanup...")
         patterns = ["*.wav", "*.srt", "*.ass", "*.jpg", "*.png", "temp_*", "concat_list.txt", "temp_merged_*.mp4"]
         
-        # GOD-TIER FIX: Guarantee the artifact is preserved during Test Mode so you can download the video
         if not os.environ.get("GITHUB_ACTIONS") and not TEST_MODE:
             patterns.append("final_*.mp4")
             
@@ -71,6 +70,7 @@ class Orchestrator:
             notify_summary(True, "🧪 **TEST MODE** — Global 1-video simulation initiated.")
 
         global_produced = 0
+        global_failed = False
 
         for channel in self.channels:
             if TEST_MODE and global_produced >= 1:
@@ -97,6 +97,7 @@ class Orchestrator:
                 if not yt_client:
                     logger.error(f"Auth failed for {channel.channel_id}. Skipping.")
                     notify_summary(False, f"🔴 Auth failure for `{channel.channel_id}` — check `{channel.youtube_refresh_token_env}` secret.")
+                    global_failed = True
                     continue
 
                 live_name = get_channel_name(yt_client)
@@ -111,6 +112,7 @@ class Orchestrator:
 
                 if not guardian.pre_flight_check():
                     logger.error(f"Guardian halted run for {channel.channel_id}.")
+                    global_failed = True
                     break
 
                 unprocessed = db.get_unprocessed_count(channel.channel_id)
@@ -147,9 +149,15 @@ class Orchestrator:
                 try:
                     runner = JobRunner(job, youtube_client=yt_client, channel_name=channel.channel_name)
                     runner.process()
-                    global_produced += 1
+                    
+                    if job.state == JobState.FAILED:
+                        global_failed = True
+                    else:
+                        global_produced += 1
+                    
                     processed_this_run += 1
                 except Exception as e:
+                    global_failed = True
                     trace = traceback.format_exc()
                     print(f"\n🚨 [ORCHESTRATOR ERROR] Job Runner failed:")
                     print(f"└ Exact Exception: {type(e).__name__}: {e}")
@@ -161,4 +169,9 @@ class Orchestrator:
                         break
 
         self.cleanup()
-        notify_summary(True, f"🌙 Pipeline cycle complete. Produced **{global_produced}** video(s) this run.")
+        
+        # GOD-TIER FIX: Report the actual outcome status accurately to Discord.
+        if global_failed:
+            notify_summary(False, f"❌ Pipeline cycle encountered critical errors. Produced **{global_produced}** video(s).")
+        else:
+            notify_summary(True, f"🌙 Pipeline cycle complete. Produced **{global_produced}** video(s) this run.")
