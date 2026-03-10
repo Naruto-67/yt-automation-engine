@@ -1,4 +1,4 @@
-# engine/orchestrator.py — Ghost Engine V20.0
+# engine/orchestrator.py
 import os
 import sys
 import glob
@@ -139,13 +139,13 @@ class Orchestrator:
                 self.cleanup()
                 try:
                     runner = JobRunner(job, youtube_client=yt_client, channel_name=channel.channel_name)
-                    runner.process()
+                    success = runner.process()
                     
-                    if job.state == JobState.FAILED:
-                        global_failed = True
-                    else:
+                    if success:
                         global_produced += 1
-                    
+                    else:
+                        global_failed = True
+                        
                     processed_this_run += 1
                 except Exception as e:
                     global_failed = True
