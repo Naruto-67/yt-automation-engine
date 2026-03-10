@@ -13,18 +13,6 @@ from engine.logger import logger
 
 TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
 
-# 🚨 LEGACY RESTORE: Creative Lenses
-CREATIVE_LENSES = [
-    "Historical Anomalies and Unexplained Events",
-    "Glitches in the Matrix & Simulation Theory",
-    "Cosmic Horror and Deep Space Mysteries",
-    "Futuristic AI Dystopias & Cyberpunk Concepts",
-    "Deep Sea Terrors and Unexplored Abyss",
-    "Paradoxes and Mind-Bending Physics",
-    "Secret Societies and Hidden Architecture",
-    "Biological Marvels and Bizarre Evolution"
-]
-
 def load_config_prompts():
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     with open(os.path.join(root_dir, "config", "prompts.yaml"), "r") as f:
@@ -155,9 +143,6 @@ def _generate_topics_and_evolve_niche(channel_config: ChannelConfig, needed: int
     intel = db.get_channel_intelligence(channel_config.channel_id)
     competitor_section = f"\n\n🏆 COMPETITOR INSIGHTS:\n{competitor_context}" if competitor_context else ""
 
-    lens = random.choice(CREATIVE_LENSES)
-    print(f"      🎨 Injecting Creative Lens: {lens}")
-
     sys_msg  = prompts_cfg["researcher"]["system_prompt"]
     user_msg = prompts_cfg["researcher"]["user_template"].format(
         needed_count=max(5, needed + 5),
@@ -166,8 +151,10 @@ def _generate_topics_and_evolve_niche(channel_config: ChannelConfig, needed: int
         history_string=", ".join(historical_topics[-300:]) if historical_topics else "None"
     )
     
-    # 🚨 LEGACY RESTORE: Force the AI to filter through the lens
-    user_msg += f"\n\nCRITICAL: You MUST filter all {needed} ideas through this specific Creative Lens: '{lens}'. Make them bizarre and fascinating."
+    if channel_config.creative_lenses:
+        lens = random.choice(channel_config.creative_lenses)
+        print(f"      🎨 Injecting Channel-Specific Lens: {lens}")
+        user_msg += f"\n\nCRITICAL: You MUST filter all {needed} ideas through this specific Creative Lens: '{lens}'. Make them bizarre and fascinating."
 
     raw, _ = quota_manager.generate_text(user_msg, task_type="research", system_prompt=sys_msg)
     if not raw:
