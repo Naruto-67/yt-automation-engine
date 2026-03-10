@@ -1,3 +1,4 @@
+# .github/workflows/01_daily_pipeline.yml
 name: 01_Ghost_Daily_Production
 
 on:
@@ -47,7 +48,8 @@ jobs:
         env:
           PYTHONUNBUFFERED: 1
           GHOST_ENGINE_ENABLED: ${{ vars.GHOST_ENGINE_ENABLED }}
-          TEST_MODE: false
+          # 🚨 GOD-TIER LAUNCH SWITCH: FALSE = REAL UPLOADS
+          TEST_MODE: false  
           
           # Universal AI/Infrastructure APIs
           GEMINI_API_KEY:       ${{ secrets.GEMINI_API_KEY }}
