@@ -11,10 +11,9 @@ from engine.config_manager import config_manager
 from engine.context import ctx
 from engine.logger import logger
 
-# 🚨 LEGACY RESTORE: Biologically-calibrated speech rate constants
-_WORDS_PER_SECOND_TTS = 143 / 60.0  # ~2.38 WPS (Kokoro at 1.1x speed)
+_WORDS_PER_SECOND_TTS = 143 / 60.0  
 _MAX_VIDEO_SECONDS = 59.0
-_ABSOLUTE_WORD_CEILING = int(_MAX_VIDEO_SECONDS * _WORDS_PER_SECOND_TTS) # ~140 words
+_ABSOLUTE_WORD_CEILING = int(_MAX_VIDEO_SECONDS * _WORDS_PER_SECOND_TTS)
 
 def load_config_prompts():
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -72,7 +71,6 @@ def generate_script(niche: str, topic: str):
     if evolved and evolved != niche:
         print(f"🧬 [SCRIPT] Using evolved niche: {evolved}")
 
-    # 🚨 LEGACY RESTORE: Dynamic Duration & Scene Scaling based on Niche
     niche_lower = active_niche.lower()
     is_fact = any(x in niche_lower for x in ["fact", "hack", "tip", "news", "top", "brainrot"])
     
@@ -80,7 +78,6 @@ def generate_script(niche: str, topic: str):
     target_dur = "30-40 seconds" if is_fact else "45-55 seconds"
     target_words = "~75 words" if is_fact else "~120 words"
 
-    # GOD-TIER FIX: Passed ALL possible variables to format() so KeyError is mathematically impossible.
     user_prompt = prompts_cfg["script_gen"]["user_template"].format(
         niche=active_niche, 
         topic=topic,
@@ -92,7 +89,6 @@ def generate_script(niche: str, topic: str):
         word_ceiling=_ABSOLUTE_WORD_CEILING
     )
 
-    # Injecting the dynamic scene requirement directly to ensure compliance
     user_prompt += (
         f"\n\nCRITICAL INSTRUCTION: Break the script into EXACTLY {target_scenes} visual scenes. "
         f"The combined text across all scenes MUST be a detailed, multi-sentence narrative. {hook_context}"
