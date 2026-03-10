@@ -18,13 +18,14 @@ script_gen:
     🎨 PREFERRED VISUAL STYLE: {visual_preference}
 
     CONSTRAINTS & DIRECTORIAL CHOICES:
-    1. Maximum {word_ceiling} words total. Hook the viewer in the first 2 seconds. No meta-commentary.
-    2. Choose a 'voice_actor' that fits the psychological vibe of the script:
+    1. TARGET DURATION: This script is for a YouTube Short. The target duration is {target_duration}. Write a highly detailed narrative that matches this length (usually {target_word_count}). Absolute maximum limit is {word_ceiling} words.
+    2. Hook the viewer in the first 2 seconds. No meta-commentary.
+    3. Choose a 'voice_actor' that fits the psychological vibe of the script:
        - "am_adam" (Deep/Serious - good for horror/mystery)
        - "af_bella" (Warm/Storytelling - good for lore)
        - "am_michael" (Fast/Punchy - good for facts/hacks)
        - "af_sarah" (Energetic/Bright - good for tech/pop-culture)
-    3. Choose a 'subtitle_color' that fits the mood:
+    4. Choose a 'subtitle_color' that fits the mood:
        - "&H00FFFFFF" (White - Clean/Standard)
        - "&H0000FFFF" (Yellow - Viral/Attention)
        - "&H000000FF" (Red - Horror/Warning)
@@ -107,4 +108,5 @@ scheduler:
   user_template: |
     Determine the two absolute best times to publish YouTube Shorts today (US Audience).
     Historical Data: {historical_data}
-    Output EXACTLY TWO times in UTC format (HH:MM) inside a JSON array. Example: ["14:30", "22:00"]
+    Output EXACTLY TWO times in UTC format (HH:MM) inside a JSON array.
+    Example: ["14:30", "22:00"]
