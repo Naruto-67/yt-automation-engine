@@ -1,10 +1,10 @@
-# engine/storage_manager.py — Ghost Engine V6.3
+# engine/storage_manager.py — Ghost Engine V14.0
 import os
 from datetime import datetime
 from engine.database import db
 from engine.config_manager import config_manager
 from engine.logger import logger
-from scripts.discord_notifier import notify_storage_report
+from scripts.discord_notifier import notify_storage_report, set_channel_context
 
 _ROOT    = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 _MEM_DIR = os.path.join(_ROOT, "memory")
@@ -43,17 +43,21 @@ def _trim_error_log(max_mb: float = 1.0):
 
 def run_housekeeping():
     logger.engine("🧹 [STORAGE] Starting weekly housekeeping...")
+    
+    # GOD-TIER FIX: Inject Discord context so standalone audits can dispatch webhooks
+    active_channels = config_manager.get_active_channels()
+    if active_channels:
+        set_channel_context(active_channels[0])
+    
     settings = config_manager.get_settings()
     stor     = settings.get("storage", {})
 
     prune_days    = stor.get("db_prune_after_days", 30)
     max_log_mb    = stor.get("error_log_max_mb", 1.0)
 
-    # 1. Prune old DB records
     jobs_pruned = db.prune_old_jobs(days=prune_days)
     logger.engine(f"└ Pruned {jobs_pruned} old DB jobs.")
 
-    # 2. Vacuum DB to reclaim space
     try:
         with db._connect() as conn:
             conn.execute("VACUUM")
@@ -61,13 +65,8 @@ def run_housekeeping():
     except Exception as e:
         logger.error(f"DB vacuum failed: {e}")
 
-    # 3. Trim logs
     _trim_error_log(max_mb=max_log_mb)
 
-    # Note: topic_archive SQLite table is NEVER pruned by design 
-    # to maintain perfect Jaccard deduplication across years of production.
-
-    # 4. Measure sizes
     db_size_kb   = _get_db_size_kb()
     repo_size_mb = _get_repo_size_mb()
 
@@ -77,7 +76,6 @@ def run_housekeeping():
         f"Jobs pruned: {jobs_pruned} | Topics preserved: All Time"
     )
 
-    # Re-use topics_trimmed=0 to not break Discord API signature
     notify_storage_report(db_size_kb, repo_size_mb, jobs_pruned, 0)
 
 if __name__ == "__main__":
