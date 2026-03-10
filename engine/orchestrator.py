@@ -1,4 +1,4 @@
-# engine/orchestrator.py — Ghost Engine V11.0
+# engine/orchestrator.py — Ghost Engine V13.0
 import os
 import glob
 import yaml
@@ -10,6 +10,7 @@ from engine.database import db
 from engine.models import JobState
 from engine.job_runner import JobRunner
 from engine.guardian import guardian
+from engine.context import ctx
 from scripts.discord_notifier import set_channel_context, notify_summary
 from scripts.youtube_manager import get_youtube_client, get_actual_vault_count, get_channel_name
 from scripts.dynamic_researcher import run_dynamic_research
@@ -52,7 +53,6 @@ class Orchestrator:
 
     def cleanup(self):
         logger.engine("🧹 Workspace cleanup...")
-        # GOD-TIER FIX: Include final_*.mp4 to wipe orphaned artifacts from failed uploads
         patterns = ["*.wav", "*.srt", "*.ass", "*.jpg", "*.png", "temp_*", "concat_list.txt", "temp_merged_*.mp4", "final_*.mp4"]
         for p in patterns:
             for f in glob.glob(p):
@@ -72,7 +72,9 @@ class Orchestrator:
                 break
 
             set_channel_context(channel)
-            os.environ["CURRENT_CHANNEL_ID"] = channel.channel_id
+            
+            # GOD-TIER FIX: Thread-safe context injection replaces global OS environment variables
+            ctx.set_channel_id(channel.channel_id)
 
             yt_client = get_youtube_client(channel)
             if not yt_client and not TEST_MODE:
