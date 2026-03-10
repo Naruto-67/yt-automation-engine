@@ -13,6 +13,10 @@ jobs:
   build-and-vault:
     runs-on: ubuntu-24.04
     if: vars.GHOST_ENGINE_ENABLED != 'false'
+    
+    # GOD-TIER FIX: Required for modern GitHub repos, otherwise the DB commit fails with 403 Forbidden.
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout Repository
