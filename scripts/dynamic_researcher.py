@@ -1,4 +1,4 @@
-# scripts/dynamic_researcher.py — Ghost Engine V16.0
+# scripts/dynamic_researcher.py — Ghost Engine V20.0
 import re
 import json
 import yaml
@@ -185,10 +185,6 @@ def _generate_topics_and_evolve_niche(channel_config: ChannelConfig, needed: int
     return topics, evolved_niche
 
 def run_dynamic_research(channel_config: ChannelConfig, yt_client):
-    if TEST_MODE:
-        logger.engine("🧪 [TEST MODE] Bypassing Dynamic Researcher.")
-        return
-
     if not quota_manager.can_afford_youtube(15):
         logger.engine("YT quota too low for research. Skipping.")
         return
