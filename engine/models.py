@@ -21,8 +21,11 @@ class ChannelConfig(BaseModel):
     channel_name: str
     niche: str
     target_audience: str
-    youtube_refresh_token_env: str 
-    creative_lenses: List[str] = Field(default_factory=list) # 🚨 GOD-TIER FIX: Channel-specific lenses
+    youtube_refresh_token_env: str
+    youtube_client_id_env: str = ""
+    youtube_client_secret_env: str = ""
+    discord_webhook_env: str = ""
+    creative_lenses: List[str] = Field(default_factory=list)
 
 class VideoJob(BaseModel):
     id: Optional[int] = None
@@ -32,9 +35,9 @@ class VideoJob(BaseModel):
     state: JobState = JobState.QUEUED
     
     script: Optional[str] = None
-    metadata: Optional[Dict] = None
+    metadata: Optional[str] = None
     audio_path: Optional[str] = None
-    image_paths: Optional[List[str]] = None
+    image_paths: Optional[str] = None
     video_path: Optional[str] = None
     youtube_id: Optional[str] = None
     
