@@ -1,4 +1,4 @@
-# engine/orchestrator.py — Ghost Engine V13.0
+# engine/orchestrator.py — Ghost Engine V15.0
 import os
 import glob
 import yaml
@@ -53,7 +53,13 @@ class Orchestrator:
 
     def cleanup(self):
         logger.engine("🧹 Workspace cleanup...")
-        patterns = ["*.wav", "*.srt", "*.ass", "*.jpg", "*.png", "temp_*", "concat_list.txt", "temp_merged_*.mp4", "final_*.mp4"]
+        patterns = ["*.wav", "*.srt", "*.ass", "*.jpg", "*.png", "temp_*", "concat_list.txt", "temp_merged_*.mp4"]
+        
+        # GOD-TIER FIX: Only delete final outputs proactively if NOT running on GitHub Actions.
+        # This allows the upload-artifact YAML step to successfully archive the video.
+        if not os.environ.get("GITHUB_ACTIONS"):
+            patterns.append("final_*.mp4")
+            
         for p in patterns:
             for f in glob.glob(p):
                 try:
@@ -72,8 +78,6 @@ class Orchestrator:
                 break
 
             set_channel_context(channel)
-            
-            # GOD-TIER FIX: Thread-safe context injection replaces global OS environment variables
             ctx.set_channel_id(channel.channel_id)
 
             yt_client = get_youtube_client(channel)
