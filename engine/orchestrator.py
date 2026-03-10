@@ -1,5 +1,6 @@
-# engine/orchestrator.py — Ghost Engine V18.0
+# engine/orchestrator.py — Ghost Engine V19.0
 import os
+import sys
 import glob
 import yaml
 import re
@@ -85,7 +86,7 @@ class Orchestrator:
                 yt_client = None
                 dummy_job = VideoJob(
                     channel_id=channel.channel_id,
-                    topic="Simulated God-Tier Test Artifact",
+                    topic="The dark side of AI automation and deepfakes", 
                     niche=channel.niche or "Tech Innovation",
                     state=JobState.QUEUED
                 )
@@ -170,8 +171,9 @@ class Orchestrator:
 
         self.cleanup()
         
-        # GOD-TIER FIX: Report the actual outcome status accurately to Discord.
         if global_failed:
             notify_summary(False, f"❌ Pipeline cycle encountered critical errors. Produced **{global_produced}** video(s).")
+            if TEST_MODE:
+                sys.exit(1)
         else:
             notify_summary(True, f"🌙 Pipeline cycle complete. Produced **{global_produced}** video(s) this run.")
