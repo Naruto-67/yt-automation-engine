@@ -18,6 +18,9 @@ class MasterQuotaManager:
     def __init__(self):
         self.root_dir   = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         self.gemini_key = os.environ.get("GEMINI_API_KEY")
+        # Ensure we securely check for the Groq key to prevent retry-loop resource leaks
+        self.groq_key   = os.environ.get("GROQ_API_KEY")
+        
         settings = config_manager.get_settings()
         self.LIMITS     = settings.get("api_limits", {
             "gemini": 38, "cloudflare": 90, "huggingface": 45, "youtube": 9200
@@ -147,13 +150,17 @@ class MasterQuotaManager:
         self._discover_gemini_models()
         state = self._get_active_state()
         
-        # 🚨 THE V25 HIERARCHY PLAN: Stable Gemini -> Groq -> Preview Gemini
         execution_plan = []
+        
+        # STAGE 1: Stable Gemini
         if state.get("gemini_calls", 0) < self.LIMITS["gemini"] and self.gemini_key:
             execution_plan.append(("Gemini Stable", self._gemini_stable_chain))
             
-        execution_plan.append(("Groq Llama 3.3", ["llama-3.3-70b-versatile"]))
+        # 🚨 FIX: STAGE 2: Groq Llama 3.3 (Gated safely by API key existence)
+        if self.groq_key:
+            execution_plan.append(("Groq Llama 3.3", ["llama-3.3-70b-versatile"]))
         
+        # STAGE 3: Gemini Preview (Failsafe)
         if state.get("gemini_calls", 0) < self.LIMITS["gemini"] and self.gemini_key:
             execution_plan.append(("Gemini Preview", self._gemini_preview_chain))
 
