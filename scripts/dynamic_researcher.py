@@ -226,6 +226,9 @@ def run_dynamic_research(channel_config: ChannelConfig, yt_client):
     overall_evolved = None
     competitor_summary = ""
 
+    # FIX: Read the Feature Flag to dictate chunking logic
+    experimental_lenses = settings.get("research", {}).get("experimental_sub_niche_lenses", False)
+
     for active_niche in sub_niches:
         if added_count >= needed:
             break
@@ -240,42 +243,55 @@ def run_dynamic_research(channel_config: ChannelConfig, yt_client):
                 lines = competitor_context.strip().split("\n")
                 competitor_summary = lines[0] if lines else ""
 
-        new_topics, evolved_niche = _generate_topics_and_evolve_niche(
-            channel_config, needed - added_count, channel_context, competitor_context,
-            historical_topics, prompts_cfg, active_niche
-        )
-        
-        if evolved_niche:
-            overall_evolved = evolved_niche
-
-        if not new_topics:
-            continue
-
-        for item in new_topics:
-            if added_count >= needed:
-                break
+        # FIX: Loop and chunk the requests. The random.choice(creative_lenses) inside 
+        # _generate_topics_and_evolve_niche will now be called dynamically for every small batch.
+        while added_count < needed:
+            chunk_size = 5 if experimental_lenses else (needed - added_count)
+            chunk_needed = min(chunk_size, needed - added_count)
             
-            topic_clean = ""
-            if isinstance(item, dict):
-                topic_clean = item.get("topic", "").strip()
-            elif isinstance(item, str):
-                topic_clean = item.strip()
-                
-            if not topic_clean:
-                continue
-                
-            if any(_jaccard_similarity(topic_clean, h) > 0.6 for h in historical_topics):
-                continue
+            new_topics, evolved_niche = _generate_topics_and_evolve_niche(
+                channel_config, chunk_needed, channel_context, competitor_context,
+                historical_topics, prompts_cfg, active_niche
+            )
+            
+            if evolved_niche:
+                overall_evolved = evolved_niche
 
-            validated_niche = active_niche
-            db.upsert_job(VideoJob(
-                channel_id=channel_config.channel_id,
-                topic=topic_clean,
-                niche=validated_niche
-            ))
-            db.archive_topic(channel_config.channel_id, topic_clean, validated_niche)
-            historical_topics.append(topic_clean.lower())
-            added_count += 1
+            if not new_topics:
+                break # If AI fails to return topics, break out to the next sub-niche
+
+            valid_topics_added_in_chunk = 0
+
+            for item in new_topics:
+                if added_count >= needed:
+                    break
+                
+                topic_clean = ""
+                if isinstance(item, dict):
+                    topic_clean = item.get("topic", "").strip()
+                elif isinstance(item, str):
+                    topic_clean = item.strip()
+                    
+                if not topic_clean:
+                    continue
+                    
+                if any(_jaccard_similarity(topic_clean, h) > 0.6 for h in historical_topics):
+                    continue
+
+                validated_niche = active_niche
+                db.upsert_job(VideoJob(
+                    channel_id=channel_config.channel_id,
+                    topic=topic_clean,
+                    niche=validated_niche
+                ))
+                db.archive_topic(channel_config.channel_id, topic_clean, validated_niche)
+                historical_topics.append(topic_clean.lower())
+                added_count += 1
+                valid_topics_added_in_chunk += 1
+
+            # If not chunking, or if the AI returned garbage/duplicates, move on to the next sub-niche
+            if not experimental_lenses or valid_topics_added_in_chunk == 0:
+                break
 
     if overall_evolved or competitor_summary:
         if overall_evolved and overall_evolved != channel_config.niche:
