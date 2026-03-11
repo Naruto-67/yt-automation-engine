@@ -48,6 +48,9 @@ def test_is_provider_exhausted(mock_active_state):
     mock_active_state.return_value = {"gemini_calls": 10, "cf_images": 50, "hf_images": 50}
     assert qm.is_provider_exhausted("huggingface") is True
 
+# FIX IS HERE: We force TEST_MODE to False so it actually tests the math limit,
+# rather than just returning True because the test runner is globally in TEST_MODE.
+@patch('scripts.quota_manager.TEST_MODE', False)
 @patch('scripts.quota_manager.MasterQuotaManager._get_active_state')
 def test_can_afford_youtube_transaction(mock_active_state):
     qm = MasterQuotaManager()
