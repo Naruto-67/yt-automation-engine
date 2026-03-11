@@ -19,7 +19,10 @@ class SQLiteDB:
         self._initialize_tables()
 
     def _connect(self):
-        return sqlite3.connect(self.db_path, timeout=30.0)
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
+        # 🚨 FIX: Prevent GitHub Actions database locking errors
+        conn.execute("PRAGMA journal_mode=WAL")
+        return conn
 
     def _initialize_tables(self):
         with contextlib.closing(self._connect()) as conn:
@@ -60,8 +63,8 @@ class SQLiteDB:
 
                 c.execute('''
                     CREATE TABLE IF NOT EXISTS api_quotas (
-                        date           TEXT NOT NULL,
-                        channel_id     TEXT NOT NULL,
+                        date          TEXT NOT NULL,
+                        channel_id    TEXT NOT NULL,
                         youtube_points INTEGER DEFAULT 0,
                         gemini_calls   INTEGER DEFAULT 0,
                         cf_images      INTEGER DEFAULT 0,
@@ -230,6 +233,10 @@ class SQLiteDB:
                 )
 
     def update_quota(self, date_str: str, channel_id: str, provider_col: str, amount: int, yt_last_used: str = None):
+        # 🚨 FIX: Strict allowlist to prevent arbitrary code execution / SQL injection
+        ALLOWED_COLUMNS = {"youtube_points", "gemini_calls", "cf_images", "hf_images"}
+        assert provider_col in ALLOWED_COLUMNS, f"CRITICAL: Invalid provider column {provider_col}"
+
         with contextlib.closing(self._connect()) as conn:
             with conn:
                 c = conn.cursor()
