@@ -56,12 +56,13 @@ class Orchestrator:
     def run_pipeline(self):
         if TEST_MODE: notify_summary(True, "🧪 **TEST MODE** — End-to-End system simulation initiated.")
 
-        global_produced = 0  # Still tracks global state for TEST_MODE break logic
+        global_produced = 0  
+        global_failed = False  # 🚨 FIX: Initialized here to prevent NameError on sys.exit
 
         for channel in self.channels:
             if TEST_MODE and global_produced >= 1: break
             
-            # 🚨 V25 FIX: Isolate tracking variables per channel for accurate Discord reporting
+            # 🚨 V25 FIX: Isolate tracking variables per channel
             channel_produced = 0
             channel_failed = False
             
@@ -91,6 +92,7 @@ class Orchestrator:
             if not guardian.pre_flight_check():
                 logger.error(f"Guardian halted run for {channel.channel_id}.")
                 channel_failed = True
+                global_failed = True # 🚨 FIX: Sync global state
                 notify_summary(False, "❌ Run aborted by Quota Guardian. API limits reached.")
                 continue
 
@@ -123,9 +125,11 @@ class Orchestrator:
                         global_produced += 1
                     else: 
                         channel_failed = True
+                        global_failed = True # 🚨 FIX: Sync global state
                     processed_this_run += 1
                 except Exception as e:
                     channel_failed = True
+                    global_failed = True # 🚨 FIX: Sync global state
                     trace = traceback.format_exc()
                     print(f"\n🚨 [ORCHESTRATOR ERROR] Job Runner failed:\n{trace}\n")
                     action = guardian.report_incident(job.state.name, e)
@@ -135,7 +139,6 @@ class Orchestrator:
 
             self.cleanup()
             
-            # 🚨 V25 FIX: Send the notification *here* inside the loop, so the payload targets the specific channel webhook with its specific numbers.
             if channel_failed:
                 notify_summary(False, f"❌ Pipeline cycle encountered critical errors. Produced **{channel_produced}** video(s) for this channel.")
             elif channel_produced > 0:
