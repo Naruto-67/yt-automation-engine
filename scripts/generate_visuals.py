@@ -29,7 +29,7 @@ def _execute_jitter_backoff(attempt: int, api_name: str):
     else:
         wait_time = random.uniform(40.0, 60.0)
         tier = "High"
-        
+    
     print(f"      ⏳ [{api_name} RPM] Tier {tier} backoff. Cooling down for {wait_time:.1f}s...")
     time.sleep(wait_time)
 
@@ -247,7 +247,9 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
             break
 
         if not success:
-            success, err = fallback_pexels_image(pexels_queries[i], output_path)
+            # 🚨 FIX: Guard against IndexError when pexels_queries is malformed or short
+            safe_query = pexels_queries[i] if i < len(pexels_queries) else original_prompt
+            success, err = fallback_pexels_image(safe_query, output_path)
             if success: final_provider = "Pexels Stock"
 
         if not success:
