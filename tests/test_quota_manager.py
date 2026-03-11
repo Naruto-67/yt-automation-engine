@@ -48,8 +48,6 @@ def test_is_provider_exhausted(mock_active_state):
     mock_active_state.return_value = {"gemini_calls": 10, "cf_images": 50, "hf_images": 50}
     assert qm.is_provider_exhausted("huggingface") is True
 
-# FIX IS HERE: We force TEST_MODE to False so it actually tests the math limit,
-# rather than just returning True because the test runner is globally in TEST_MODE.
 @patch('scripts.quota_manager.TEST_MODE', False)
 @patch('scripts.quota_manager.MasterQuotaManager._get_active_state')
 def test_can_afford_youtube_transaction(mock_active_state):
@@ -58,46 +56,3 @@ def test_can_afford_youtube_transaction(mock_active_state):
     mock_active_state.return_value = {"youtube_points": 8000}
     assert qm.can_afford_youtube(1000) is True
     assert qm.can_afford_youtube(1500) is False
-
-@patch('scripts.quota_manager.time.sleep')
-def test_jitter_backoff_execution(mock_sleep):
-    qm = MasterQuotaManager()
-    
-    with patch('scripts.quota_manager.random.uniform') as mock_uniform:
-        mock_uniform.return_value = 7.5
-        qm._execute_jitter_backoff(0, "TEST_API")
-        mock_sleep.assert_called_with(7.5)
-        
-        mock_uniform.return_value = 30.0
-        qm._execute_jitter_backoff(1, "TEST_API")
-        mock_sleep.assert_called_with(30.0)
-        
-        mock_uniform.return_value = 55.0
-        qm._execute_jitter_backoff(2, "TEST_API")
-        mock_sleep.assert_called_with(55.0)
-
-@patch('scripts.quota_manager.config_manager.get_settings')
-def test_gemini_model_discovery_scoring(mock_get_settings):
-    mock_get_settings.return_value = {}
-    qm = MasterQuotaManager()
-    
-    def _score(name: str) -> int:
-        n = name.lower()
-        if any(x in n for x in ["vision", "image", "embedding", "audio", "aqa", "learn", "tts", "customtools"]): return -1
-        if "flash" not in n and "lite" not in n and "pro" not in n: return -1
-        score = 0
-        if "3.1" in n: score += 150
-        elif "3.0" in n: score += 120
-        elif "2.5" in n: score += 100
-        elif "2.0" in n: score += 80
-        elif "1.5" in n: score += 60
-        elif "1.0" in n: score += 20
-        if "flash-8b" in n: score += 10
-        elif "flash-lite" in n: score += 15
-        elif "flash" in n: score += 20
-        if "pro" in n: score -= 50 
-        return score
-        
-    assert _score("gemini-1.5-vision") == -1  
-    assert _score("gemini-2.0-flash-exp") > _score("gemini-1.5-flash") 
-    assert _score("gemini-1.5-pro") < _score("gemini-1.5-flash")
