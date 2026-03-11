@@ -108,3 +108,7 @@ groq_model_fallback_chain:
   - "llama-3.1-70b-versatile"    # Stable fallback
   - "llama3-70b-8192"            # Older but reliable
   - "mixtral-8x7b-32768"         # Last resort
+
+  # ─── RESEARCH ────────────────────────────────────────────────────────────────
+research:
+  experimental_sub_niche_lenses: true
