@@ -18,24 +18,17 @@ def set_channel_context(channel_config):
         _ACTIVE_CHANNEL = getattr(channel_config, "channel_name", "Unknown Channel")
 
 def _send_embed(title: str, description: str, color: int):
-    if not _ACTIVE_WEBHOOK:
-        return
-        
-    if len(description) > 3900:
-        description = description[:3900] + "\n..."
-        
+    if not _ACTIVE_WEBHOOK: return
+    if len(description) > 3900: description = description[:3900] + "\n..."
     payload = {
-        "embeds": [
-            {
-                "title": f"{title} | {_ACTIVE_CHANNEL}",
-                "description": description,
-                "color": color
-            }
-        ]
+        "embeds": [{
+            "title": f"{title} | {_ACTIVE_CHANNEL}",
+            "description": description,
+            "color": color
+        }]
     }
     
     time.sleep(random.uniform(2.5, 4.5))
-    
     try:
         response = requests.post(_ACTIVE_WEBHOOK, json=payload, timeout=10)
         if response.status_code == 429:
@@ -44,9 +37,7 @@ def _send_embed(title: str, description: str, color: int):
                 print(f"⚠️ [DISCORD] Rate limited. Pausing for {retry_after}s to ensure delivery...")
                 time.sleep(retry_after + 1)
                 requests.post(_ACTIVE_WEBHOOK, json=payload, timeout=10)
-            except Exception:
-                pass
-                
+            except: pass
     except Exception as e:
         trace = traceback.format_exc()
         print(f"⚠️ [DISCORD] Failed to send webhook:\n{trace}")
@@ -64,15 +55,33 @@ def notify_step(topic: str, step_name: str, details: str, color: int = 0x3498db)
     desc = f"└ 🎬 **Topic:** {topic}\n└ 📝 **Details:** {details}"
     _send_embed(f"⚙️ Step: {step_name}", desc, color)
 
-def notify_production_success(niche, topic, script, script_ai, seo_ai, voice_ai, visual_ai, metadata, duration, size):
+# 🚨 V25 FIX: Redesigned the Embed layout for pristine aesthetic alignment
+def notify_production_success(niche, topic, script, script_ai, seo_ai, voice_ai, visual_ai, metadata, duration, size, video_id="Unknown"):
+    safe_title = metadata.get('title', 'Generated Title').replace("...", "")
+    safe_desc = metadata.get('description', 'Generated Description')[:80].replace('\n', ' ') + "..."
+    tags = ', '.join(metadata.get('tags', []))[:50] + "..."
+    
+    safe_script = script[:147] + "..." if len(script) > 150 else script
+    
+    url = f"https://youtu.be/{video_id}" if video_id != "test_mode_dummy_video_id" else "Simulated (Test Mode)"
+
     desc = (f"└ 🎬 **Topic:** {topic}\n"
-            f"└ 🧬 **Niche:** {niche}\n"
-            f"└ 🤖 **Script AI:** {script_ai}\n"
-            f"└ 🎙️ **Voice AI:** {voice_ai}\n"
-            f"└ 🎨 **Visual AI:** {visual_ai}\n"
-            f"└ 🔍 **SEO AI:** {seo_ai}\n"
-            f"└ ⏱️ **Duration:** {duration:.2f}s\n"
-            f"└ 💾 **Size:** {size:.2f} MB")
+            f"└ 🔗 **Link:** {url}\n"
+            f"└ ⏱️ **Specs:** {duration:.1f}s | {size:.1f} MB\n"
+            f"\n"
+            f"**🔥 SEO METADATA**\n"
+            f"└ 🏷️ **Title:** {safe_title}\n"
+            f"└ 📝 **Desc:** {safe_desc}\n"
+            f"└ 🏷️ **Tags:** {tags}\n"
+            f"\n"
+            f"**📜 SCRIPT PREVIEW**\n"
+            f"└ *\"{safe_script}\"*\n"
+            f"\n"
+            f"**🧠 AI PIPELINE**\n"
+            f"└ **Brain:** {script_ai}\n"
+            f"└ **Voice:** {voice_ai}\n"
+            f"└ **Vision:** {visual_ai}")
+            
     _send_embed("✅ Production Complete", desc, 0x2ecc71)
 
 def notify_vault_secure(topic: str, video_id: str, vault_id: str):
@@ -85,8 +94,7 @@ def notify_published(topic: str, video_id: str, publish_time: str):
 
 def notify_research_complete(channel_name: str, added_count: int, niche: str, comp_summary: str):
     desc = f"└ 🧬 **Niche:** {niche}\n└ 📥 **Topics Added:** {added_count}\n"
-    if comp_summary:
-        desc += f"└ 🏆 **Competitor Insight:** {comp_summary[:150]}..."
+    if comp_summary: desc += f"└ 🏆 **Competitor Insight:** {comp_summary[:150]}..."
     _send_embed("🔬 Research Complete", desc, 0x3498db)
 
 def notify_daily_pulse(views: int, subs: int, growth_7d: int, intel: dict):
@@ -112,8 +120,7 @@ def notify_token_health(channel_id: str, status: str, days: int, action: str):
     icon = "✅" if status == "HEALTHY" else "⚠️" if status == "WARNING" else "🚨"
     color = 0x2ecc71 if status == "HEALTHY" else 0xf1c40f if status == "WARNING" else 0xe74c3c
     desc = f"└ 📊 **Status:** {status}\n└ ⏳ **Days Unused:** {days}\n"
-    if action:
-        desc += f"└ 🛠️ **Action Req:** {action}"
+    if action: desc += f"└ 🛠️ **Action Req:** {action}"
     _send_embed(f"{icon} Token Health Report", desc, color)
 
 def notify_quota_warning(provider: str, usage: int, limit: int):
