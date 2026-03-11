@@ -1,6 +1,7 @@
 # engine/config_manager.py
 import os
 import yaml
+import copy
 from typing import List, Dict, Any
 from engine.logger import logger
 from engine.models import ChannelConfig
@@ -47,8 +48,12 @@ class ConfigManager:
         return self._load_yaml(self.providers_path)
 
     @lru_cache(maxsize=1)
-    def get_settings(self) -> Dict[str, Any]:
+    def _cached_settings(self) -> Dict[str, Any]:
         return self._load_yaml(self.settings_path)
+
+    def get_settings(self) -> Dict[str, Any]:
+        # 🚨 FIX: Return deepcopy to prevent mutable cache corruption across processes
+        return copy.deepcopy(self._cached_settings())
 
     def reload_channels(self):
         pass
