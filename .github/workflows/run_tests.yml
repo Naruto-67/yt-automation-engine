@@ -27,4 +27,4 @@ jobs:
         env:
           TEST_MODE: "true"
         run: |
-          python -m pytest tests/test_quota_manager.py -v
+          python -m pytest tests/ -v
