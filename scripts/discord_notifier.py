@@ -5,7 +5,8 @@ import time
 import random
 import traceback
 
-_ACTIVE_WEBHOOK = None
+# 🚨 FIX: Prevent silent drops on global crash paths
+_ACTIVE_WEBHOOK = os.environ.get("DISCORD_WEBHOOK_URL")
 _ACTIVE_CHANNEL = "Unknown Channel"
 
 def set_channel_context(channel_config):
@@ -22,7 +23,7 @@ def _send_embed(title: str, description: str, color: int):
     if len(description) > 3900: description = description[:3900] + "\n..."
     payload = {
         "embeds": [{
-            "title": f"{title} | {_ACTIVE_CHANNEL}",
+          "title": f"{title} | {_ACTIVE_CHANNEL}",
             "description": description,
             "color": color
         }]
@@ -55,7 +56,6 @@ def notify_step(topic: str, step_name: str, details: str, color: int = 0x3498db)
     desc = f"└ 🎬 **Topic:** {topic}\n└ 📝 **Details:** {details}"
     _send_embed(f"⚙️ Step: {step_name}", desc, color)
 
-# 🚨 V25 FIX: Redesigned the Embed layout for pristine aesthetic alignment
 def notify_production_success(niche, topic, script, script_ai, seo_ai, voice_ai, visual_ai, metadata, duration, size, video_id="Unknown"):
     safe_title = metadata.get('title', 'Generated Title').replace("...", "")
     safe_desc = metadata.get('description', 'Generated Description')[:80].replace('\n', ' ') + "..."
