@@ -22,7 +22,8 @@ class MasterQuotaManager:
         self.LIMITS     = settings.get("api_limits", {
             "gemini": 38, "cloudflare": 90, "huggingface": 45, "youtube": 9200
         })
-        self._gemini_model_chain: list = []
+        self._gemini_stable_chain: list = []
+        self._gemini_preview_chain: list = []
         self._gemini_models_discovered = False
         self._groq = None
         self._last_llm_call_time = 0.0
@@ -33,112 +34,64 @@ class MasterQuotaManager:
             self._groq = groq_client
         return self._groq
 
-    def _today_utc(self) -> str:
-        return datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
-    def _today_pt(self) -> str:
-        return datetime.now(pytz.timezone('America/Los_Angeles')).strftime("%Y-%m-%d")
-
-    def _get_channel_id(self) -> str:
-        return ctx.get_channel_id()
+    def _today_utc(self) -> str: return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    def _today_pt(self) -> str: return datetime.now(pytz.timezone('America/Los_Angeles')).strftime("%Y-%m-%d")
+    def _get_channel_id(self) -> str: return ctx.get_channel_id()
 
     def _get_active_state(self) -> dict:
-        today_utc = self._today_utc()
-        today_pt = self._today_pt()
-        ch_id = self._get_channel_id()
-
+        today_utc, today_pt, ch_id = self._today_utc(), self._today_pt(), self._get_channel_id()
         ch_state = db.get_quota_state(today_pt, ch_id)
         if not ch_state:
             db.init_quota_state(today_pt, ch_id, today_pt)
             ch_state = db.get_quota_state(today_pt, ch_id) or {}
-
         gl_state = db.get_quota_state(today_utc, "GLOBAL")
         if not gl_state:
             db.init_quota_state(today_utc, "GLOBAL", today_utc)
             gl_state = db.get_quota_state(today_utc, "GLOBAL") or {}
-
         return {
-            "date":           today_utc,
-            "channel_id":     ch_id,
-            "youtube_points": ch_state.get("youtube_points", 0),
-            "gemini_calls":   gl_state.get("gemini_calls", 0),
-            "cf_images":      gl_state.get("cf_images", 0),
-            "hf_images":      gl_state.get("hf_images", 0)
+            "date": today_utc, "channel_id": ch_id,
+            "youtube_points": ch_state.get("youtube_points", 0), "gemini_calls": gl_state.get("gemini_calls", 0),
+            "cf_images": gl_state.get("cf_images", 0), "hf_images": gl_state.get("hf_images", 0)
         }
 
     def consume_points(self, provider: str, amount: int):
-        if TEST_MODE and provider == "youtube":
-            return 
-            
+        if TEST_MODE and provider == "youtube": return 
         if provider == "youtube":
-            target_id = self._get_channel_id()
-            col = "youtube_points"
-            today = self._today_pt()
-            yt_update = today
+            target_id, col, today, yt_update = self._get_channel_id(), "youtube_points", self._today_pt(), self._today_pt()
         else:
-            target_id = "GLOBAL"
-            col_map = {
-                "gemini":      "gemini_calls",
-                "cloudflare":  "cf_images",
-                "huggingface": "hf_images"
-            }
+            target_id, today, yt_update = "GLOBAL", self._today_utc(), None
+            col_map = {"gemini": "gemini_calls", "cloudflare": "cf_images", "huggingface": "hf_images"}
             col = col_map.get(provider)
-            today = self._today_utc()
-            yt_update = None
-
         if col:
-            if not db.get_quota_state(today, target_id):
-                db.init_quota_state(today, target_id, today)
-                
+            if not db.get_quota_state(today, target_id): db.init_quota_state(today, target_id, today)
             db.update_quota(today, target_id, col, amount, yt_update)
-            
             try:
                 state = self._get_active_state()
                 os.makedirs(os.path.dirname(_QUOTA_JSON_PATH), exist_ok=True)
-                with open(_QUOTA_JSON_PATH, "w") as f:
-                    json.dump(state, f, indent=2)
-            except Exception:
-                pass
-
-    def consume_youtube_and_call(self, api_call, cost: int):
-        if not self.can_afford_youtube(cost):
-            raise RuntimeError(f"Quota insufficient for YouTube call (cost={cost})")
-        result = api_call()
-        self.consume_points("youtube", cost)
-        return result
+                with open(_QUOTA_JSON_PATH, "w") as f: json.dump(state, f, indent=2)
+            except Exception: pass
 
     def can_afford_youtube(self, cost: int) -> bool:
         if TEST_MODE: return True
-        state = self._get_active_state()
-        return (state.get("youtube_points", 0) + cost) <= self.LIMITS["youtube"]
+        return (self._get_active_state().get("youtube_points", 0) + cost) <= self.LIMITS["youtube"]
 
     def is_provider_exhausted(self, provider: str) -> bool:
         state = self._get_active_state()
-        col_limit_map = {
-            "cloudflare":  ("cf_images",    "cloudflare"),
-            "huggingface": ("hf_images",    "huggingface"),
-            "gemini":      ("gemini_calls", "gemini"),
-        }
-        if provider not in col_limit_map:
-            return False
+        col_limit_map = {"cloudflare": ("cf_images", "cloudflare"), "huggingface": ("hf_images", "huggingface"), "gemini": ("gemini_calls", "gemini")}
+        if provider not in col_limit_map: return False
         col, key = col_limit_map[provider]
-        used  = state.get(col, 0)
-        limit = self.LIMITS.get(key, 9999)
-        return used >= limit
+        return state.get(col, 0) >= self.LIMITS.get(key, 9999)
 
-    def _discover_gemini_models(self) -> list:
-        if self._gemini_models_discovered:
-            return self._gemini_model_chain
-
-        settings  = config_manager.get_settings()
-        fallbacks = settings.get("gemini_model_fallback_chain", [
-            "gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash-8b"
-        ])
+    def _discover_gemini_models(self):
+        if self._gemini_models_discovered: return
+        settings = config_manager.get_settings()
+        fallback_stable = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash-8b", "gemini-1.5-flash"]
+        fallback_preview = ["gemini-3.1-flash-lite-preview", "gemini-2.5-flash-lite-preview"]
 
         if not self.gemini_key:
-            self._gemini_model_chain = fallbacks
+            self._gemini_stable_chain, self._gemini_preview_chain = fallback_stable, fallback_preview
             self._gemini_models_discovered = True
-            return self._gemini_model_chain
+            return
 
         try:
             from google import genai
@@ -148,10 +101,8 @@ class MasterQuotaManager:
 
             def _score(name: str) -> int:
                 n = name.lower()
-                if any(x in n for x in ["vision", "image", "embedding", "audio", "aqa", "learn", "tts", "customtools"]):
-                    return -1
+                if any(x in n for x in ["vision", "image", "embedding", "audio", "aqa", "learn", "tts", "customtools"]): return -1
                 if "flash" not in n and "lite" not in n and "pro" not in n: return -1
-                
                 score = 0
                 if "3.1" in n: score += 150
                 elif "3.0" in n: score += 120
@@ -159,126 +110,104 @@ class MasterQuotaManager:
                 elif "2.0" in n: score += 80
                 elif "1.5" in n: score += 60
                 elif "1.0" in n: score += 20
-                
                 if "flash-8b" in n: score += 10
                 elif "flash-lite" in n: score += 15
                 elif "flash" in n: score += 20
-                
                 if "pro" in n: score -= 50 
-                if "exp" in n or "preview" in n: score -= 5
                 return score
 
-            ranked = sorted([m for m in model_names if _score(m) >= 0], key=_score, reverse=True)
-            self._gemini_model_chain = ranked[:5] if ranked else fallbacks
-            print(f"🔍 [GEMINI] Auto-discovered {len(ranked)} text models. Active queue: {self._gemini_model_chain}")
+            valid_models = [m for m in model_names if _score(m) >= 0]
+            stable_models = sorted([m for m in valid_models if "preview" not in m.lower() and "exp" not in m.lower()], key=_score, reverse=True)
+            preview_models = sorted([m for m in valid_models if "preview" in m.lower() or "exp" in m.lower()], key=_score, reverse=True)
 
+            self._gemini_stable_chain = stable_models[:4] if stable_models else fallback_stable
+            self._gemini_preview_chain = preview_models[:2] if preview_models else fallback_preview
+            print(f"🔍 [GEMINI] Auto-discovered {len(stable_models)} stable models. Active stable queue: {self._gemini_stable_chain}")
+            print(f"🔍 [GEMINI] Auto-discovered {len(preview_models)} preview models. Failsafe queue: {self._gemini_preview_chain}")
         except Exception as e:
             trace = traceback.format_exc()
-            print(f"⚠️ [GEMINI] Model discovery failed:\n{trace}\nUsing fallback chain.")
-            self._gemini_model_chain = fallbacks
+            print(f"⚠️ [GEMINI] Model discovery failed:\n{trace}\nUsing fallback chains.")
+            self._gemini_stable_chain, self._gemini_preview_chain = fallback_stable, fallback_preview
 
         self._gemini_models_discovered = True
-        return self._gemini_model_chain
 
     def _enforce_rpm_throttle(self):
         elapsed = time.time() - self._last_llm_call_time
-        if elapsed < 2.5:
-            time.sleep(2.5 - elapsed)
+        if elapsed < 2.5: time.sleep(2.5 - elapsed)
         self._last_llm_call_time = time.time()
 
     def _execute_jitter_backoff(self, attempt: int, api_name: str):
-        if attempt == 0:
-            wait_time = random.uniform(5.0, 10.0)
-            tier = "Low"
-        elif attempt == 1:
-            wait_time = random.uniform(20.0, 40.0)
-            tier = "Mid"
-        else:
-            wait_time = random.uniform(40.0, 60.0)
-            tier = "High"
-            
+        if attempt == 0: wait_time, tier = random.uniform(5.0, 10.0), "Low"
+        elif attempt == 1: wait_time, tier = random.uniform(20.0, 40.0), "Mid"
+        else: wait_time, tier = random.uniform(40.0, 60.0), "High"
         print(f"⏳ [{api_name} RPM] Tier {tier} backoff. Cooling down for {wait_time:.1f}s...")
         time.sleep(wait_time)
 
     def generate_text(self, prompt: str, task_type: str = "creative", system_prompt: str = None) -> tuple:
-        state  = self._get_active_state()
-        chains = config_manager.get_providers().get("generation_chains", {})
+        self._discover_gemini_models()
+        state = self._get_active_state()
+        
+        # 🚨 THE V25 HIERARCHY PLAN: Stable Gemini -> Groq -> Preview Gemini
+        execution_plan = []
+        if state.get("gemini_calls", 0) < self.LIMITS["gemini"] and self.gemini_key:
+            execution_plan.append(("Gemini Stable", self._gemini_stable_chain))
+            
+        execution_plan.append(("Groq Llama 3.3", ["llama-3.3-70b-versatile"]))
+        
+        if state.get("gemini_calls", 0) < self.LIMITS["gemini"] and self.gemini_key:
+            execution_plan.append(("Gemini Preview", self._gemini_preview_chain))
 
-        for provider in chains.get("script", ["gemini", "groq"]):
-            if provider == "gemini":
-                if state.get("gemini_calls", 0) >= self.LIMITS["gemini"] and not TEST_MODE:
-                    print("⚠️ [GEMINI] Daily limit reached — skipping.")
-                    continue
-                if not self.gemini_key:
-                    continue
-
-                model_chain = self._discover_gemini_models()
-                gemini_hard_failed = False
-                
-                for model in model_chain:
-                    if gemini_hard_failed:
-                        break
-                        
+        for stage_name, models in execution_plan:
+            if "Gemini" in stage_name:
+                stage_hard_failed = False
+                for model in models:
+                    if stage_hard_failed: break
                     for attempt in range(3): 
                         self._enforce_rpm_throttle()
                         try:
                             from google import genai
                             client = genai.Client(api_key=self.gemini_key)
                             cfg = {"system_instruction": system_prompt} if system_prompt else {}
-                            response = client.models.generate_content(
-                                model=model, contents=prompt, config=cfg or None
-                            )
+                            response = client.models.generate_content(model=model, contents=prompt, config=cfg or None)
                             self.consume_points("gemini", 1)
-                            print(f"✅ [GEMINI] Generated via {model}")
+                            print(f"✅ [{stage_name.upper()}] Generated via {model}")
                             return response.text, f"Gemini ({model})"
                         except Exception as e:
-                            err = str(e).lower()
-                            trace = traceback.format_exc()
+                            err, trace = str(e).lower(), traceback.format_exc()
                             print(f"⚠️ [GEMINI] Exception on {model} (Attempt {attempt+1}):\n{trace}")
-                            
                             if any(x in err for x in ["429", "too many requests"]):
-                                if attempt < 2:
-                                    self._execute_jitter_backoff(attempt, "GEMINI")
-                                    continue
+                                if attempt < 2: self._execute_jitter_backoff(attempt, "GEMINI"); continue
                                 else:
-                                    print(f"⚠️ [GEMINI QUOTA] Soft limit exhausted on {model}. Trying next Gemini model.")
+                                    print(f"⚠️ [GEMINI QUOTA] Soft limit exhausted on {model}. Trying next model.")
                                     break 
-                                    
                             elif any(x in err for x in ["quota", "exhausted", "billing", "403"]):
-                                print(f"⚠️ [GEMINI QUOTA] Hard limit hit on {model}. Trying next Gemini model.")
+                                print(f"⚠️ [GEMINI QUOTA] Hard limit hit on {model}. Breaking out of Gemini stage.")
+                                stage_hard_failed = True
                                 break 
-                                
                             elif any(x in err for x in ["404", "not found", "deprecated"]):
-                                print(f"⚠️ [GEMINI] Model deprecated: {model}. Trying next Gemini model.")
-                                self._gemini_models_discovered = False
+                                print(f"⚠️ [GEMINI] Model deprecated: {model}. Trying next model.")
                                 break
-                                
-                            else:
-                                break 
-                
-                print("⚠️ [GEMINI] All Gemini models failed. Failing over to Groq.")
+                            else: break 
+                if stage_hard_failed:
+                    print(f"⚠️ [{stage_name.upper()}] Stage collapsed. Moving to next provider fallback.")
 
-            elif provider in ("groq", "groq_orpheus"):
+            elif stage_name == "Groq Llama 3.3":
                 for attempt in range(3):
                     self._enforce_rpm_throttle()
                     try:
                         groq = self._groq_client()
                         res = groq.generate_text(prompt, system_prompt=system_prompt)
-                        if res:
-                            return res, f"Groq ({groq.TEXT_MODEL})"
+                        if res: return res, f"Groq ({groq.TEXT_MODEL})"
                     except Exception as e:
-                        err = str(e).lower()
-                        trace = traceback.format_exc()
+                        err, trace = str(e).lower(), traceback.format_exc()
                         print(f"⚠️ [GROQ] Exception (Attempt {attempt+1}):\n{trace}")
                         if any(x in err for x in ["429", "too many requests"]):
-                            if attempt < 2:
-                                self._execute_jitter_backoff(attempt, "GROQ")
-                                continue
+                            if attempt < 2: self._execute_jitter_backoff(attempt, "GROQ"); continue
                             else:
-                                print(f"⚠️ [GROQ QUOTA] Soft limit exhausted. Failing over.")
+                                print(f"⚠️ [GROQ QUOTA] Soft limit exhausted. Moving to absolute failsafe.")
                                 break
                         elif any(x in err for x in ["quota", "exhausted", "billing", "403"]):
-                            print(f"⚠️ [GROQ QUOTA] Hard account limit hit. Failing over.")
+                            print(f"⚠️ [GROQ QUOTA] Hard account limit hit. Moving to absolute failsafe.")
                             break
                         break
 
@@ -286,25 +215,16 @@ class MasterQuotaManager:
 
     def diagnose_fatal_error(self, module: str, exception: Exception):
         error_log = os.path.join(self.root_dir, "memory", "error_log.txt")
-        timestamp = datetime.now().isoformat()
-        trace     = traceback.format_exc()
-
+        timestamp, trace = datetime.now().isoformat(), traceback.format_exc()
         try:
             if os.path.exists(error_log) and os.path.getsize(error_log) > 1_000_000:
-                with open(error_log, "r") as f:
-                    lines = f.readlines()
-                with open(error_log, "w") as f:
-                    f.writelines(lines[len(lines)//2:])
-        except Exception:
-            pass
-
-        with open(error_log, "a") as f:
-            f.write(f"\n[{timestamp}] [{module}] {type(exception).__name__}: {exception}\n{trace}\n{'─'*40}")
-
+                with open(error_log, "r") as f: lines = f.readlines()
+                with open(error_log, "w") as f: f.writelines(lines[len(lines)//2:])
+            with open(error_log, "a") as f: f.write(f"\n[{timestamp}] [{module}] {type(exception).__name__}: {exception}\n{trace}\n{'─'*40}")
+        except: pass
         try:
             from scripts.discord_notifier import notify_error
             notify_error(module, type(exception).__name__, str(exception))
-        except Exception:
-            pass
+        except: pass
 
 quota_manager = MasterQuotaManager()
