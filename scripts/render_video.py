@@ -12,6 +12,7 @@ from engine.config_manager import config_manager
 
 MIN_RENDER_DISK_BYTES = 2 * 1024 * 1024 * 1024  # 2 GB
 
+
 def _check_disk_space(required_bytes: int = MIN_RENDER_DISK_BYTES) -> bool:
     try:
         free = shutil.disk_usage("/").free
@@ -30,12 +31,16 @@ def _check_disk_space(required_bytes: int = MIN_RENDER_DISK_BYTES) -> bool:
         return True
 
 
-# ── FIX 1: Download Anton (heavy condensed = Impact equivalent) ──────────────
 def download_cinematic_font():
-    """Download Anton-Regular.ttf — the viral Shorts caption font (Impact-class)."""
+    """
+    Download Anton-Regular.ttf — the heavy condensed Impact-class font used
+    in viral YouTube Shorts captions (CapCut Neon/Hornet presets).
+    Falls back to Liberation Sans Bold if all mirrors fail.
+    """
     font_path = "/tmp/Anton-Regular.ttf"
     if os.path.exists(font_path) and os.path.getsize(font_path) > 20000:
         return font_path
+
     mirrors = [
         "https://github.com/google/fonts/raw/main/ofl/anton/Anton-Regular.ttf",
         "https://fonts.gstatic.com/s/anton/v25/1Ptgg87LROyAm3K.ttf",
@@ -48,38 +53,67 @@ def download_cinematic_font():
             with open(font_path, "wb") as f:
                 f.write(response.content)
             if os.path.getsize(font_path) > 20000:
-                print(f"✅ [RENDERER] Anton font downloaded from {url}")
+                print(f"✅ [RENDERER] Anton font downloaded.")
                 return font_path
         except Exception:
             pass
-    # Final fallback — Liberation Sans Bold (better than nothing)
+
+    print("⚠️ [RENDERER] Anton font download failed. Using Liberation Sans Bold fallback.")
     return "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
 
 
-# ── Glow color safety map ────────────────────────────────────────────────────
-# ASS format: &HAABBGGRR  (alpha, blue, green, red)
-# If LLM returns a legacy subtitle_color accidentally, remap to a proper glow.
-_LEGACY_TO_GLOW = {
-    "&H00FFFFFF": "&H0000D700",   # white text → green glow
-    "&H0000FFFF": "&H00FFD700",   # yellow text → cyan glow
+# ── Glow color safety map ─────────────────────────────────────────────────────
+# ASS colour format: &HAABBGGRR  (alpha 00 = fully opaque)
+# Map any legacy subtitle_color values to proper glow colors so old jobs
+# that still have "target_color" in their script JSON don't produce red text.
+_LEGACY_COLOR_REMAP = {
+    "&H00FFFFFF": "&H0000D700",  # old "white text" → green glow
+    "&H0000FFFF": "&H00FFD700",  # old "yellow text" → cyan glow
+    "&H000000FF": "&H000015FF",  # old "red text"    → red glow  (now applied as halo)
+    "&H00FF0000": "&H00FF8040",  # old "blue text"   → blue glow
 }
 
+# Valid glow presets the LLM is instructed to choose from
+_VALID_GLOW_COLORS = {
+    "&H0000D700",  # Green  — nature, animals, science facts
+    "&H00FFD700",  # Cyan   — technology, space, futurism
+    "&H000015FF",  # Red    — horror, danger, dark revelations
+    "&H00FF8040",  # Blue   — mystery, ocean, sci-fi
+}
+
+
 def _resolve_glow_color(raw_color: str) -> str:
-    """Ensure the value is a valid ASS glow color, not a text color."""
-    if not raw_color or not raw_color.startswith("&H"):
-        return "&H0000D700"   # default: green
-    return _LEGACY_TO_GLOW.get(raw_color, raw_color)
+    """
+    Normalise whatever value arrived from the LLM / script JSON into a
+    valid glow color code.  Falls back to green if value is unrecognised.
+    """
+    if not raw_color or not isinstance(raw_color, str):
+        return "&H0000D700"
+    # Remap legacy text-color values
+    remapped = _LEGACY_COLOR_REMAP.get(raw_color, raw_color)
+    # Accept if it's in our valid set, else default to green
+    return remapped if remapped in _VALID_GLOW_COLORS else "&H0000D700"
 
 
 def get_style_config():
-    """Return the base style dict from settings.yaml. Text color is always white."""
+    """
+    Return the base ASS style dict from settings.yaml.
+    Text PrimaryColour is ALWAYS forced to white — the LLM controls
+    the glow halo color separately via glow_color, not the text color.
+    """
     settings   = config_manager.get_settings()
     base_style = settings.get("subtitle_style", {
-        "FontName": "Anton", "FontSize": "90", "PrimaryColour": "&H00FFFFFF",
-        "OutlineColour": "&H00000000", "Outline": "5",
-        "Shadow": "0", "BorderStyle": "1", "Alignment": "2", "MarginV": "500",
+        "FontName":      "Anton",
+        "FontSize":      "90",
+        "PrimaryColour": "&H00FFFFFF",
+        "OutlineColour": "&H00000000",
+        "Outline":       "5",
+        "Shadow":        "0",
+        "BorderStyle":   "1",
+        "Alignment":     "2",
+        "MarginV":       "500",
     })
-    # SAFETY: always force white text — never let LLM color bleed into text layer
+    # Safety override — never let any legacy value bleed white text away
     base_style["PrimaryColour"] = "&H00FFFFFF"
     return base_style
 
@@ -90,31 +124,52 @@ def time_to_seconds(time_str):
     return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000.0
 
 
-# ── FIX 2: Dual-layer ASS with colored glow ──────────────────────────────────
 def srt_to_ass(srt_path, ass_path, style, glow_color="&H0000D700"):
     """
-    Convert SRT → ASS with a two-layer caption system matching manual Topato style:
-      Layer 0 (Glow):    transparent text, thick colored outline, Gaussian blur  → outer glow
-      Layer 1 (Default): white text, thin black outline, sharp                   → readable text
+    Convert SRT → ASS with a two-layer caption system that replicates the
+    CapCut 'Neon/Hornet' preset used in the manually-created Topato videos:
+
+      Layer 0  'Glow'    — transparent text, thick colored outline (28px),
+                           Gaussian blur → outer neon halo effect
+      Layer 1  'Default' — white text, thin black outline (5px), sharp
+                           → clean readable foreground
+
+    Both layers share identical timing so they composite perfectly.
+    The glow_color argument controls the halo color (ASS &HAABBGGRR format).
     """
-    font      = style.get("FontName", "Anton")
-    size      = style.get("FontSize", "90")
-    alignment = style.get("Alignment", "2")
-    margin_v  = style.get("MarginV", "500")
+    font      = style.get("FontName",      "Anton")
+    size      = style.get("FontSize",      "90")
+    alignment = style.get("Alignment",     "2")
+    margin_v  = style.get("MarginV",       "500")
     safe_glow = _resolve_glow_color(glow_color)
 
     header = (
-        "[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n\n"
+        "[Script Info]\n"
+        "ScriptType: v4.00+\n"
+        "PlayResX: 1080\n"
+        "PlayResY: 1920\n\n"
         "[V4+ Styles]\n"
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
-        "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, "
-        "Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
-        # Glow layer: transparent primary, glow color outline, thick (28px), blurred
-        f"Style: Glow,{font},{size},&H00000000,&H000000FF,"
-        f"{safe_glow},&H00000000,1,0,0,0,100,100,0,0,1,28,0,{alignment},10,10,{margin_v},1\n"
-        # Text layer: white primary, black outline, sharp (5px)
-        f"Style: Default,{font},{size},&H00FFFFFF,&H000000FF,"
-        f"&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,5,0,{alignment},10,10,{margin_v},1\n\n"
+        "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
+        "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
+        "Alignment, MarginL, MarginR, MarginV, Encoding\n"
+        # ── Glow layer ────────────────────────────────────────────────────────
+        # PrimaryColour &H00000000 = fully transparent text body
+        # OutlineColour = the chosen neon glow color
+        # Outline = 28px thick → spreads into a wide halo
+        # \blur15 tag applied per-event for soft Gaussian falloff
+        f"Style: Glow,{font},{size},"
+        f"&H00000000,&H000000FF,"
+        f"{safe_glow},&H00000000,"
+        f"1,0,0,0,100,100,0,0,1,28,0,{alignment},10,10,{margin_v},1\n"
+        # ── Text layer ────────────────────────────────────────────────────────
+        # PrimaryColour &H00FFFFFF = pure white
+        # OutlineColour &H00000000 = pure black outline
+        # Outline = 5px → crisp, readable stroke
+        f"Style: Default,{font},{size},"
+        f"&H00FFFFFF,&H000000FF,"
+        f"&H00000000,&H00000000,"
+        f"1,0,0,0,100,100,0,0,1,5,0,{alignment},10,10,{margin_v},1\n\n"
         "[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
     )
@@ -124,6 +179,7 @@ def srt_to_ass(srt_path, ass_path, style, glow_color="&H0000D700"):
             content = f.read()
 
         def convert_time(ts):
+            # SRT  00:00:01,234  →  ASS  00:00:01.23
             return ts.replace(",", ".")[:-1]
 
         events = []
@@ -134,16 +190,23 @@ def srt_to_ass(srt_path, ass_path, style, glow_color="&H0000D700"):
                 if len(times) == 2:
                     text = re.sub(r"<[^>]+>", "", " ".join(lines[2:]))
                     text = text.replace("\n", " ").replace("\r", " ").strip().upper()
-                    t0, t1 = convert_time(times[0]), convert_time(times[1])
-                    # Layer 0: blurred glow halo
-                    events.append(f"Dialogue: 0,{t0},{t1},Glow,,0,0,0,,{{\\blur15}}{text}")
+                    t0 = convert_time(times[0])
+                    t1 = convert_time(times[1])
+                    # Layer 0: blurred glow halo (rendered first / behind)
+                    events.append(
+                        f"Dialogue: 0,{t0},{t1},Glow,,0,0,0,,{{\\blur15}}{text}"
+                    )
                     # Layer 1: sharp white text on top
-                    events.append(f"Dialogue: 1,{t0},{t1},Default,,0,0,0,,{text}")
+                    events.append(
+                        f"Dialogue: 1,{t0},{t1},Default,,0,0,0,,{text}"
+                    )
 
         with open(ass_path, "w", encoding="utf-8") as f:
             f.write(header + "\n".join(events))
-        print(f"🎨 [RENDERER] ASS subtitles built — glow color: {safe_glow}")
+
+        print(f"🎨 [RENDERER] ASS subtitles built — glow: {safe_glow} | font: {font} {size}pt")
         return True
+
     except Exception as e:
         trace = traceback.format_exc()
         print(f"⚠️ [RENDERER] SRT to ASS conversion failed:\n{trace}")
@@ -174,10 +237,28 @@ def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=30):
         return False
 
 
-# ── FIX 3: Renamed subtitle_color → glow_color in signature ─────────────────
 def render_video(image_paths, audio_path, output_path,
-                 scene_weights=None, watermark_text="Topato", glow_color=None):
+                 scene_weights=None, watermark_text="Topato", glow_color=None,
+                 # ── backward-compat shim — old callers may pass subtitle_color ──
+                 subtitle_color=None):
+    """
+    Master render function.
+
+    Parameters
+    ----------
+    image_paths    : list of image file paths (one per scene)
+    audio_path     : path to .wav file (must have matching .srt alongside it)
+    output_path    : destination .mp4 path
+    scene_weights  : optional list of floats summing to 1.0 for scene durations
+    watermark_text : channel name (will be uppercased and centered)
+    glow_color     : ASS &HAABBGGRR color for the caption neon glow halo
+    subtitle_color : deprecated alias for glow_color — accepted for back-compat
+    """
     print("⚙️ [RENDERER] Executing Master Render Engine...")
+
+    # Back-compat: if caller passed the old subtitle_color kwarg, honour it
+    if glow_color is None and subtitle_color is not None:
+        glow_color = subtitle_color
 
     if not _check_disk_space():
         return False, 0.0, 0
@@ -239,7 +320,9 @@ def render_video(image_paths, audio_path, output_path,
     safe_font = font_path.replace("\\", "/").replace(":", r"\:")
     safe_ass  = ass_path.replace("\\", "/").replace(":", r"\:")
 
-    # ── FIX 4: Watermark — ALL CAPS, top-center at ~28% height, no shadow ────
+    # ── Watermark: ALL CAPS, horizontally centered, at ~28% from top ─────────
+    # Matches the manual Topato video style: "TOPATO" semi-transparent grey,
+    # center-frame, upper-center zone — NOT bottom of screen.
     safe_watermark = re.sub(r"[^a-zA-Z0-9\s]", "", watermark_text).strip().upper() or "TOPATO"
     watermark_filter = (
         f",drawtext=fontfile='{safe_font}':text='{safe_watermark}':"
