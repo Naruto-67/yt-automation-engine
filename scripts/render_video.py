@@ -27,15 +27,19 @@ def _check_disk_space(required_bytes: int = MIN_RENDER_DISK_BYTES) -> bool:
         return True
     except Exception as e:
         print(f"⚠️ [RENDERER] Disk check failed ({e}). Proceeding with caution.")
-        return True  
+        return True
 
+
+# ── FIX 1: Download Anton (heavy condensed = Impact equivalent) ──────────────
 def download_cinematic_font():
-    font_path = "/tmp/Montserrat-Bold.ttf"
-    if os.path.exists(font_path) and os.path.getsize(font_path) > 50000:
+    """Download Anton-Regular.ttf — the viral Shorts caption font (Impact-class)."""
+    font_path = "/tmp/Anton-Regular.ttf"
+    if os.path.exists(font_path) and os.path.getsize(font_path) > 20000:
         return font_path
     mirrors = [
-        "https://cdn.jsdelivr.net/gh/JulietaUla/Montserrat@master/fonts/ttf/Montserrat-Bold.ttf",
-        "https://raw.githubusercontent.com/JulietaUla/Montserrat/master/fonts/ttf/Montserrat-Bold.ttf",
+        "https://github.com/google/fonts/raw/main/ofl/anton/Anton-Regular.ttf",
+        "https://fonts.gstatic.com/s/anton/v25/1Ptgg87LROyAm3K.ttf",
+        "https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/anton/Anton-Regular.ttf",
     ]
     for url in mirrors:
         try:
@@ -43,40 +47,78 @@ def download_cinematic_font():
             response.raise_for_status()
             with open(font_path, "wb") as f:
                 f.write(response.content)
-            if os.path.getsize(font_path) > 50000:
+            if os.path.getsize(font_path) > 20000:
+                print(f"✅ [RENDERER] Anton font downloaded from {url}")
                 return font_path
         except Exception:
             pass
+    # Final fallback — Liberation Sans Bold (better than nothing)
     return "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
 
-def get_style_config(subtitle_color=None):
+
+# ── Glow color safety map ────────────────────────────────────────────────────
+# ASS format: &HAABBGGRR  (alpha, blue, green, red)
+# If LLM returns a legacy subtitle_color accidentally, remap to a proper glow.
+_LEGACY_TO_GLOW = {
+    "&H00FFFFFF": "&H0000D700",   # white text → green glow
+    "&H0000FFFF": "&H00FFD700",   # yellow text → cyan glow
+}
+
+def _resolve_glow_color(raw_color: str) -> str:
+    """Ensure the value is a valid ASS glow color, not a text color."""
+    if not raw_color or not raw_color.startswith("&H"):
+        return "&H0000D700"   # default: green
+    return _LEGACY_TO_GLOW.get(raw_color, raw_color)
+
+
+def get_style_config():
+    """Return the base style dict from settings.yaml. Text color is always white."""
     settings   = config_manager.get_settings()
     base_style = settings.get("subtitle_style", {
-        "FontName": "Arial", "FontSize": "75", "PrimaryColour": "&H00FFFFFF",
-        "OutlineColour": "&H00000000", "BackColour": "&H00000000", "Outline": "10",
+        "FontName": "Anton", "FontSize": "90", "PrimaryColour": "&H00FFFFFF",
+        "OutlineColour": "&H00000000", "Outline": "5",
         "Shadow": "0", "BorderStyle": "1", "Alignment": "2", "MarginV": "500",
     })
-    if subtitle_color and subtitle_color.startswith("&H"):
-        base_style["PrimaryColour"] = subtitle_color
-        print(f"🎨 [RENDERER] Applied AI Director color: {subtitle_color}")
+    # SAFETY: always force white text — never let LLM color bleed into text layer
+    base_style["PrimaryColour"] = "&H00FFFFFF"
     return base_style
+
 
 def time_to_seconds(time_str):
     h, m, s_ms = time_str.split(":")
     s, ms      = s_ms.split(",")
     return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000.0
 
-def srt_to_ass(srt_path, ass_path, style):
+
+# ── FIX 2: Dual-layer ASS with colored glow ──────────────────────────────────
+def srt_to_ass(srt_path, ass_path, style, glow_color="&H0000D700"):
+    """
+    Convert SRT → ASS with a two-layer caption system matching manual Topato style:
+      Layer 0 (Glow):    transparent text, thick colored outline, Gaussian blur  → outer glow
+      Layer 1 (Default): white text, thin black outline, sharp                   → readable text
+    """
+    font      = style.get("FontName", "Anton")
+    size      = style.get("FontSize", "90")
+    alignment = style.get("Alignment", "2")
+    margin_v  = style.get("MarginV", "500")
+    safe_glow = _resolve_glow_color(glow_color)
+
     header = (
         "[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n\n"
-        "[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
+        "[V4+ Styles]\n"
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
         "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, "
         "Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
-        f"Style: Default,{style['FontName']},{style['FontSize']},{style['PrimaryColour']},&H000000FF,"
-        f"{style['OutlineColour']},{style['BackColour']},1,0,0,0,100,100,0,0,{style['BorderStyle']},"
-        f"{style['Outline']},{style['Shadow']},{style['Alignment']},10,10,{style['MarginV']},1\n\n"
-        "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+        # Glow layer: transparent primary, glow color outline, thick (28px), blurred
+        f"Style: Glow,{font},{size},&H00000000,&H000000FF,"
+        f"{safe_glow},&H00000000,1,0,0,0,100,100,0,0,1,28,0,{alignment},10,10,{margin_v},1\n"
+        # Text layer: white primary, black outline, sharp (5px)
+        f"Style: Default,{font},{size},&H00FFFFFF,&H000000FF,"
+        f"&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,5,0,{alignment},10,10,{margin_v},1\n\n"
+        "[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
     )
+
     try:
         with open(srt_path, "r", encoding="utf-8") as f:
             content = f.read()
@@ -91,18 +133,22 @@ def srt_to_ass(srt_path, ass_path, style):
                 times = re.findall(r"(\d+:\d+:\d+,\d+)", lines[1])
                 if len(times) == 2:
                     text = re.sub(r"<[^>]+>", "", " ".join(lines[2:]))
-                    text = text.replace("\n", " ").replace("\r", " ").strip()
-                    events.append(
-                        f"Dialogue: 0,{convert_time(times[0])},{convert_time(times[1])},Default,,0,0,0,,{text.upper()}"
-                    )
+                    text = text.replace("\n", " ").replace("\r", " ").strip().upper()
+                    t0, t1 = convert_time(times[0]), convert_time(times[1])
+                    # Layer 0: blurred glow halo
+                    events.append(f"Dialogue: 0,{t0},{t1},Glow,,0,0,0,,{{\\blur15}}{text}")
+                    # Layer 1: sharp white text on top
+                    events.append(f"Dialogue: 1,{t0},{t1},Default,,0,0,0,,{text}")
 
         with open(ass_path, "w", encoding="utf-8") as f:
             f.write(header + "\n".join(events))
+        print(f"🎨 [RENDERER] ASS subtitles built — glow color: {safe_glow}")
         return True
     except Exception as e:
         trace = traceback.format_exc()
         print(f"⚠️ [RENDERER] SRT to ASS conversion failed:\n{trace}")
         return False
+
 
 def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=30):
     frames      = int(duration * fps)
@@ -127,8 +173,10 @@ def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=30):
         print(f"⚠️ [RENDERER] Ken Burns generation failed:\n{trace}")
         return False
 
+
+# ── FIX 3: Renamed subtitle_color → glow_color in signature ─────────────────
 def render_video(image_paths, audio_path, output_path,
-                 scene_weights=None, watermark_text="GhostEngine", subtitle_color=None):
+                 scene_weights=None, watermark_text="Topato", glow_color=None):
     print("⚙️ [RENDERER] Executing Master Render Engine...")
 
     if not _check_disk_space():
@@ -139,17 +187,16 @@ def render_video(image_paths, audio_path, output_path,
     temp_concat = "concat_list.txt"
     temp_merged = "temp_merged_no_subs.mp4"
 
-    if not srt_to_ass(srt_path, ass_path, get_style_config(subtitle_color)):
+    resolved_glow = _resolve_glow_color(glow_color)
+    if not srt_to_ass(srt_path, ass_path, get_style_config(), glow_color=resolved_glow):
         return False, 0.0, 0
 
     try:
-        audio    = AudioSegment.from_file(audio_path)
+        audio     = AudioSegment.from_file(audio_path)
         total_dur = min(len(audio) / 1000.0, 59.0)
-        
         if len(audio) / 1000.0 > 59.0:
             print(f"⚠️ [RENDERER] Audio exceeds 59s ({len(audio)/1000.0}s). Applying cinematic fade-out.")
             audio[:59000].fade_out(1500).export(audio_path, format="wav")
-            
     except Exception as e:
         trace = traceback.format_exc()
         print(f"⚠️ [RENDERER] Audio processing failed:\n{trace}")
@@ -188,15 +235,16 @@ def render_video(image_paths, audio_path, output_path,
         print(f"⚠️ [RENDERER] Concat phase failed:\n{trace}")
         return False, total_dur, 0
 
-    font_path      = download_cinematic_font()
-    safe_font      = font_path.replace("\\", "/").replace(":", r"\:")
-    safe_ass       = ass_path.replace("\\", "/").replace(":", r"\:")
-    safe_watermark = re.sub(r"[^a-zA-Z0-9\s]", "", watermark_text).strip() or "GhostEngine"
+    font_path = download_cinematic_font()
+    safe_font = font_path.replace("\\", "/").replace(":", r"\:")
+    safe_ass  = ass_path.replace("\\", "/").replace(":", r"\:")
 
+    # ── FIX 4: Watermark — ALL CAPS, top-center at ~28% height, no shadow ────
+    safe_watermark = re.sub(r"[^a-zA-Z0-9\s]", "", watermark_text).strip().upper() or "TOPATO"
     watermark_filter = (
         f",drawtext=fontfile='{safe_font}':text='{safe_watermark}':"
-        f"fontcolor=0xD3D3D3@0.25:shadowcolor=0x000000@0.25:shadowx=3:shadowy=3:"
-        f"fontsize=60:x=(w-text_w)/2:y=h-250"
+        f"fontcolor=0xC8C8C8@0.35:"
+        f"fontsize=55:x=(w-text_w)/2:y=h*0.28"
     )
 
     try:
