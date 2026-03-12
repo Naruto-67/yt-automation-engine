@@ -25,11 +25,11 @@ script_gen:
        - "af_bella" (Warm/Storytelling - good for lore)
        - "am_michael" (Fast/Punchy - good for facts/hacks)
        - "af_sarah" (Energetic/Bright - good for tech/pop-culture)
-    4. Choose a 'subtitle_color' that fits the mood:
-       - "&H00FFFFFF" (White - Clean/Standard)
-       - "&H0000FFFF" (Yellow - Viral/Attention)
-       - "&H000000FF" (Red - Horror/Warning)
-       - "&H00FF0000" (Blue - Sci-Fi/Tech)
+    4. Choose a 'glow_color' for the caption neon glow halo (caption text is always white):
+       - "&H0000D700" (Green glow  — nature, animals, science facts)
+       - "&H00FFD700" (Cyan glow   — technology, space, futurism)
+       - "&H000015FF" (Red glow    — horror, danger, dark revelations)
+       - "&H00FF8040" (Blue glow   — mystery, deep sea, sci-fi)
     
     Format as valid JSON only:
     {{
