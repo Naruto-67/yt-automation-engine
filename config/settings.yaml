@@ -63,27 +63,40 @@ voice_actors:
     am_michael: "austin"   # Fast/Punchy
     af_sarah: "hannah"     # Energetic/Bright
 
-# ─── SUBTITLE STYLE ──────────────────────────────────────────────────────────
-# Text is ALWAYS white. The glow_color chosen by the LLM controls the halo.
-# ASS color format: &HAABBGGRR (alpha, blue, green, red)
+# ─── SUBTITLE STYLE ───────────────────────────────────────────────────────────
+# Text is ALWAYS white (#FFFFFF). The LLM controls the neon glow halo color
+# separately via the 'glow_color' field in the script JSON.
+#
+# Two ASS layers are generated per caption event:
+#   Layer 0 'Glow'    — transparent text, thick colored outline (28px) + blur
+#   Layer 1 'Default' — white text, thin black outline (5px), sharp
+#
+# ASS colour format: &HAABBGGRR  (alpha 00 = fully opaque)
+# FontSize 90 at PlayResX=1080 renders as ~60pt equivalent at 720px export.
 subtitle_style:
-  FontName: "Anton"           # Impact-class heavy condensed font
-  FontSize: "90"              # ~60pt at 720px export = 90pt at 1080px render
-  PrimaryColour: "&H00FFFFFF" # White — NEVER change this
-  OutlineColour: "&H00000000" # Black outline on sharp layer
-  Outline: "5"                # Sharp text layer outline (glow layer uses 28px)
-  Shadow: "0"
-  BorderStyle: "1"
-  Alignment: "2"              # Bottom-center
-  MarginV: "500"
+  FontName:      "Anton"        # Heavy condensed Impact-class font (viral Shorts standard)
+  FontSize:      "90"           # Large enough to fill the lower third
+  PrimaryColour: "&H00FFFFFF"   # White text — NEVER change this value
+  OutlineColour: "&H00000000"   # Black outline on the sharp Default layer
+  Outline:       "5"            # Sharp layer outline thickness (glow layer uses 28px)
+  Shadow:        "0"            # No drop shadow — glow handles the halo
+  BorderStyle:   "1"
+  Alignment:     "2"            # Bottom-center
+  MarginV:       "500"          # Vertical margin from bottom edge (1920px canvas)
 
-# ─── GLOW COLOR PRESETS (ASS BBGGRR format) ──────────────────────────────────
-# These are valid values the LLM may return as glow_color.
+# ─── GLOW COLOR PRESETS ───────────────────────────────────────────────────────
+# These are the valid values the LLM is instructed to pick from.
+# They are applied to the Glow ASS layer's OutlineColour (not the text color).
+# ASS format: &HAABBGGRR
+#   &H0000D700  → RGB #00D700  Green  (nature, animals, biology, science facts)
+#   &H00FFD700  → RGB #00D7FF  Cyan   (technology, space, AI, futurism)
+#   &H000015FF  → RGB #FF1500  Red    (horror, danger, dark facts, warnings)
+#   &H00FF8040  → RGB #4080FF  Blue   (mystery, deep sea, sci-fi, cosmos)
 glow_color_presets:
-  green:  "&H0000D700"   # Nature, animals, science  (RGB #00D700)
-  cyan:   "&H00FFD700"   # Tech, space, future        (RGB #00D7FF)
-  red:    "&H000015FF"   # Horror, dark, warning      (RGB #FF1500)
-  blue:   "&H00FF8040"   # Mystery, ocean, sci-fi     (RGB #4080FF)
+  green: "&H0000D700"
+  cyan:  "&H00FFD700"
+  red:   "&H000015FF"
+  blue:  "&H00FF8040"
 
 # ─── STORAGE MANAGEMENT ──────────────────────────────────────────────────────
 storage:
