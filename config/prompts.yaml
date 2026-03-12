@@ -34,7 +34,7 @@ script_gen:
     Format as valid JSON only:
     {{
       "voice_actor": "...",
-      "subtitle_color": "...",
+      "glow_color": "...",
       "thought_process": "...",
       "scenes": [
         {{"text": "...", "image_prompt": "...", "pexels_query": "..."}}
