@@ -15,7 +15,44 @@ from engine.guardian import guardian
 SIMULATE_CASCADE_TEST = False
 _HF_MODELS_CACHE = []
 
-# ── Prompt quality suffix ─────────────────────────────────────────────────────
+# ── Minimum acceptable image file size ────────────────────────────────────────
+# HuggingFace and Cloudflare occasionally return HTTP 200 with:
+#   - An HTML error page (~1-5 KB of text)
+#   - A tiny loading placeholder PNG (< 2 KB)
+#   - A partially transferred JPEG (truncated / corrupt)
+# Writing these to disk then passing them to FFmpeg causes silent black frames
+# or render crashes. This threshold catches all three cases.
+_MIN_IMAGE_BYTES = 10_000   # 10 KB — any real 1080x1920 image is well above this
+
+
+def _validate_image(path: str) -> bool:
+    """
+    Returns True only if the file at `path` is a valid, fully-decodable image
+    of at least _MIN_IMAGE_BYTES. Rejects HTML error pages, tiny placeholders,
+    and truncated JPEGs before they reach FFmpeg.
+    """
+    try:
+        if not os.path.exists(path):
+            return False
+        if os.path.getsize(path) < _MIN_IMAGE_BYTES:
+            print(f"      ⚠️ [VALIDATE] Image too small ({os.path.getsize(path)} bytes < {_MIN_IMAGE_BYTES}). Rejecting.")
+            return False
+        # PIL.verify() checks the file header and trailer without loading all pixels —
+        # fast and catches truncated JPEGs and non-image content.
+        with Image.open(path) as img:
+            img.verify()
+        # verify() leaves the file in an uncertain state — re-open to confirm size
+        with Image.open(path) as img:
+            w, h = img.size
+            if w < 64 or h < 64:
+                print(f"      ⚠️ [VALIDATE] Image dimensions too small ({w}x{h}). Rejecting.")
+                return False
+        return True
+    except Exception as e:
+        print(f"      ⚠️ [VALIDATE] Image failed decode check: {e}. Rejecting.")
+        return False
+
+
 # Appended to every image generation request to push output quality toward
 # the vivid, photorealistic aesthetic of the manually-created Topato videos.
 _QUALITY_SUFFIX = (
@@ -134,6 +171,11 @@ def generate_cloudflare_image(prompt, output_path):
                 else:
                     with open(output_path, "wb") as f:
                         f.write(response.content)
+                if not _validate_image(output_path):
+                    if retry < 2:
+                        _execute_jitter_backoff(retry, "CF AI")
+                        continue
+                    return False, "Invalid image data"
                 quota_manager.consume_points("cloudflare", 1)
                 return True, ""
             elif response.status_code >= 500 and retry < 2:
@@ -181,6 +223,10 @@ def generate_huggingface_cascade(prompt, output_path):
                 if response.status_code == 200:
                     with open(output_path, "wb") as f:
                         f.write(response.content)
+                    if not _validate_image(output_path):
+                        # HF returned HTTP 200 but content is garbage (HTML, tiny PNG, truncated)
+                        print(f"      ⚠️ [HF VALIDATE] {short_name} returned invalid image data. Trying next model.")
+                        break  # skip to next model — don't retry same bad response
                     quota_manager.consume_points("huggingface", 1)
                     return True, f"HF ({short_name})"
                 elif response.status_code in [401, 402, 403, 404]:
@@ -228,6 +274,10 @@ def fallback_pexels_image(search_query, output_path, is_retry=False):
             ).content
             with open(output_path, 'wb') as f:
                 f.write(img_data)
+            if not _validate_image(output_path):
+                if not is_retry:
+                    return fallback_pexels_image("cinematic aesthetic", output_path, is_retry=True)
+                return False, "Invalid image data"
             return True, ""
         elif not is_retry:
             return fallback_pexels_image("cinematic aesthetic", output_path, is_retry=True)
