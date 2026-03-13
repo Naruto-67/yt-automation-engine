@@ -32,7 +32,8 @@ jobs:
 
       - name: Run Token Health Check
         env:
-          GEMINI_API_KEY:   ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY:  ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY:    ${{ secrets.GROQ_API_KEY }}
 
           # Channel 1 Infrastructure
           YOUTUBE_CLIENT_ID_CH1:       ${{ secrets.YOUTUBE_CLIENT_ID_CH1 }}
@@ -50,12 +51,18 @@ jobs:
 
       - name: Run Storage Housekeeping
         env:
-          GEMINI_API_KEY:       ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY:  ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY:    ${{ secrets.GROQ_API_KEY }}
+          DISCORD_WEBHOOK_CH1: ${{ secrets.DISCORD_WEBHOOK_CH1 }}
+          DISCORD_WEBHOOK_CH2: ${{ secrets.DISCORD_WEBHOOK_CH2 }}
         run: python -m engine.storage_manager
 
       - name: Run API Stack Audit
         env:
-          GEMINI_API_KEY:       ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY:  ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY:    ${{ secrets.GROQ_API_KEY }}
+          DISCORD_WEBHOOK_CH1: ${{ secrets.DISCORD_WEBHOOK_CH1 }}
+          DISCORD_WEBHOOK_CH2: ${{ secrets.DISCORD_WEBHOOK_CH2 }}
         run: python scripts/api_monitor.py
 
       - name: Commit State & Memory
