@@ -118,7 +118,7 @@ class Orchestrator:
                     
                 self.cleanup()
                 try:
-                    runner = JobRunner(job, youtube_client=yt_client, channel_name=channel.channel_name)
+                    runner = JobRunner(job, youtube_client=yt_client, channel_name=channel.channel_name, channel_config=channel)
                     success = runner.process()
                     if success: 
                         channel_produced += 1
@@ -145,3 +145,7 @@ class Orchestrator:
                 notify_summary(True, f"🌙 Pipeline cycle complete. Produced **{channel_produced}** video(s) for this channel.")
                 
         if global_failed and TEST_MODE: sys.exit(1)
+
+
+
+================================================
