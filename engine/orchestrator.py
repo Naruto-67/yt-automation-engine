@@ -145,7 +145,3 @@ class Orchestrator:
                 notify_summary(True, f"🌙 Pipeline cycle complete. Produced **{channel_produced}** video(s) for this channel.")
                 
         if global_failed and TEST_MODE: sys.exit(1)
-
-
-
-================================================
