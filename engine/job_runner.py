@@ -279,7 +279,3 @@ class JobRunner:
             metadata=metadata, duration=self.final_duration, size=self.final_size_mb,
             video_id=self.job.youtube_id
         )
-
-
-
-================================================
