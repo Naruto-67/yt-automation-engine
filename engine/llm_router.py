@@ -88,24 +88,43 @@ class LLMRouter:
         print(f"⏳ [{api_name} RPM] Tier {tier} backoff. Cooling down for {wait_time:.1f}s...")
         time.sleep(wait_time)
 
-    def execute_generation(self, prompt: str, system_prompt: Optional[str], gemini_quota_ok: bool) -> Tuple[Optional[str], str, str]:
+    def execute_generation(self, prompt: str, system_prompt: Optional[str], gemini_quota_ok: bool, task_type: str = "creative") -> Tuple[Optional[str], str, str]:
         """
-        Executes the text generation. 
+        Executes the text generation.
         Returns (Generated Text, Provider Name, Provider Key Used)
         Provider Key Used is passed back so the QuotaManager knows what to deduct.
+
+        Routing strategy (preserves Gemini quota for what matters most):
+          "creative"  → Gemini first, Groq fallback   (scripts — quality critical)
+          "research"  → Gemini first, Groq fallback   (topic research — quality matters)
+          "strategy"  → Gemini first, Groq fallback   (performance analyst — strategic reasoning)
+          "analysis"  → Groq first,   Gemini fallback  (validator, scheduler, audit — cheap tasks)
+          "seo"       → Groq first,   Gemini fallback  (metadata — simple JSON, Groq handles fine)
         """
         self._discover_gemini_models()
-        
+
+        # Tasks that don't need the best model — send to Groq first to preserve Gemini quota
+        # "strategy" intentionally excluded: performance_analyst needs Gemini's reasoning quality
+        _groq_first_tasks = {"analysis", "seo"}
+        groq_first = task_type in _groq_first_tasks
+
         execution_plan = []
-        
-        if gemini_quota_ok and self.gemini_key:
-            execution_plan.append(("Gemini Stable", self._gemini_stable_chain, "gemini"))
-            
-        if self.groq_key:
-            execution_plan.append(("Groq Llama 3.3", ["llama-3.3-70b-versatile"], "groq"))
-        
-        if gemini_quota_ok and self.gemini_key:
-            execution_plan.append(("Gemini Preview", self._gemini_preview_chain, "gemini"))
+
+        if groq_first:
+            # Cheap tasks: Groq → Gemini Stable → Gemini Preview
+            if self.groq_key:
+                execution_plan.append(("Groq Llama 3.3", ["llama-3.3-70b-versatile"], "groq"))
+            if gemini_quota_ok and self.gemini_key:
+                execution_plan.append(("Gemini Stable", self._gemini_stable_chain, "gemini"))
+                execution_plan.append(("Gemini Preview", self._gemini_preview_chain, "gemini"))
+        else:
+            # Creative/research tasks: Gemini Stable → Groq → Gemini Preview
+            if gemini_quota_ok and self.gemini_key:
+                execution_plan.append(("Gemini Stable", self._gemini_stable_chain, "gemini"))
+            if self.groq_key:
+                execution_plan.append(("Groq Llama 3.3", ["llama-3.3-70b-versatile"], "groq"))
+            if gemini_quota_ok and self.gemini_key:
+                execution_plan.append(("Gemini Preview", self._gemini_preview_chain, "gemini"))
 
         for stage_name, models, provider_key in execution_plan:
             if "Gemini" in stage_name:
