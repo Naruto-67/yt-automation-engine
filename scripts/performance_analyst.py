@@ -139,7 +139,7 @@ def run_daily_analysis():
                 top_videos=top_videos_str, growth_7d=growth_7d
             )
 
-            raw, _ = quota_manager.generate_text(user_msg, task_type="analysis", system_prompt=sys_msg)
+            raw, _ = quota_manager.generate_text(user_msg, task_type="strategy", system_prompt=sys_msg)
             if raw:
                 start = raw.find('{')
                 end = raw.rfind('}')
