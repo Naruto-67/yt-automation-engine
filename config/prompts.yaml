@@ -58,7 +58,7 @@ seo_gen:
     1. Title < 60 chars + #shorts.
     2. Description: 2 sentences max.
     3. 5 highly relevant tags.
-    Format: JSON {"title": "...", "description": "...", "tags": []}
+    Format: JSON {{"title": "...", "description": "...", "tags": []}}
 
 visual_safety:
   system_prompt: "You are an AI Safety Filter & Creative Prompt Engineer."
@@ -82,7 +82,7 @@ researcher:
     ⚠️ NEGATIVE BOUNDARY (DO NOT REPEAT THESE TOPICS): 
     {history_string}
     
-    Return raw JSON block: {"evolved_niche": "Updated precise niche string", "topics": [{"topic": "...", "niche": "..."}]}
+    Return raw JSON block: {{"evolved_niche": "Updated precise niche string", "topics": [{{"topic": "...", "niche": "..."}}]}}
 
 analyst:
   system_prompt: "You are the AI CEO of a YouTube Automation channel."
@@ -95,7 +95,7 @@ analyst:
     
     Analyze modern YouTube Shorts retention psychology based on this data.
     Give one NEW specific rule to 'emphasize' and one to 'avoid'.
-    Return JSON: {"new_emphasize": "...", "new_avoid": "...", "new_tags": ["..."]}
+    Return JSON: {{"new_emphasize": "...", "new_avoid": "...", "new_tags": ["..."]}}
 
 replier:
   system_prompt: "You are a popular Gen-Z YouTube Shorts creator."
