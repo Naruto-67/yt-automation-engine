@@ -84,7 +84,38 @@ def trim_audio_precision(file_path: str):
         return False, 0.0
 
 
+# ── Acronyms that TTS handles correctly and should NOT be title-cased ─────────
+_KNOWN_ACRONYMS = {
+    "DNA", "RNA", "NASA", "FBI", "CIA", "BBC", "CNN", "NFL", "NBA", "UFC",
+    "USA", "UK", "EU", "UN", "WHO", "HIV", "AIDS", "ADHD", "PTSD",
+    "CEO", "CFO", "CTO", "HR", "PR", "TV", "PC", "GPU", "CPU", "RAM",
+    "DIY", "VIP", "ATM", "PIN", "PDF", "HTML", "CSS", "API", "URL",
+    "STEM", "IQ", "GPA", "IRS", "DMV",
+}
+
+# Stage directions: ALL-CAPS label followed by colon — e.g. "INTENSE CLOSE-UP:", "CUT TO:"
+# These are visual cues for the editor/viewer, never meant to be spoken aloud.
+_STAGE_DIR_RE  = re.compile(r"(?<![.!?])\b[A-Z][A-Z\s\-]{2,}:\s*")
+_ALLCAPS_RE    = re.compile(r"\b([A-Z]{2,})\b")
+
+
+def _fix_caps_word(m: re.Match) -> str:
+    word = m.group(1)
+    if word in _KNOWN_ACRONYMS:
+        return word          # NASA, DNA etc — TTS reads these fine as-is
+    if len(word) <= 2:
+        return word          # AI, OK, TV, US — leave short ones alone
+    return word.title()      # CRICKET→Cricket, TICK→Tick, HERO→Hero
+
+
 def sanitize_for_tts(text: str) -> str:
+    # 1. Strip stage directions ("INTENSE CLOSE-UP:", "WIDE SHOT:", "CUT TO:")
+    #    These are screenplay conventions — not words to be spoken.
+    text = _STAGE_DIR_RE.sub("", text)
+    # 2. Title-case remaining ALL-CAPS emphasis words so TTS reads them as
+    #    whole words instead of spelling each letter (T-I-C-K → "Tick").
+    text = _ALLCAPS_RE.sub(_fix_caps_word, text)
+    # 3. Strip characters TTS engines choke on, collapse whitespace.
     clean = re.sub(r"[^\w\s.,!?'\"−]", "", text)
     return re.sub(r"\s+", " ", clean).strip()
 
