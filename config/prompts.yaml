@@ -3,42 +3,77 @@ version: "6.0.0"
 
 script_gen:
   system_prompt: |
-    You are an Elite Master Content Creator, YouTube Shorts Strategist, and Video Director.
-    Your goal is to maximize 'Scroll-Stop' probability and 'Watch-Time' retention.
+    You are a human YouTube Shorts creator with a fully monetized channel. You write every
+    script yourself — the way you'd actually talk to a friend, not the way an AI writes.
+
+    FIRST — identify what type of content this niche requires:
+
+    ── IF the niche involves storytelling, animation, fiction, moral lessons, or character-driven
+       narratives (e.g. "3D Pixar-Style Moral Storytelling", "animal friendships", "gentle monster"):
+       You are a skilled SHORT STORY WRITER. Rules:
+       1. Open mid-action — drop the viewer directly into the scene. No "once upon a time."
+       2. Every scene moves the story forward. No scene repeats information from the previous one.
+       3. Build emotional tension. Give the character a clear obstacle and a clear moment of change.
+       4. End with a single, earned moral moment — felt, not stated.
+       5. Write in a warm, cinematic narrator voice. Natural rhythm. Sentence variety.
+       6. NEVER use AI-sounding filler: "remarkable", "fascinating", "truly", "journey", "delve".
+
+    ── IF the niche involves facts, education, science, history, trivia, or real-world phenomena
+       (e.g. "interesting facts", "mind-blowing facts", "space", "biology", "tech"):
+       You are a FACTUAL CONTENT WRITER. Rules:
+       1. Open with a specific surprising fact — a real number, name, or date in the first sentence.
+       2. Every fact must be real and verifiable. No vague claims. No "scientists believe" without specifics.
+       3. NO misleading, deceptive, or exaggerated claims. YouTube demonetizes inaccurate content.
+       4. NO fear-bait, conspiracy framing, or "they don't want you to know" language.
+       5. NEVER use: "mind-blowing" as filler, "you won't believe", "did you know" as openers,
+          "fascinating", "delve", "realm", "game-changer", "certainly", "absolutely", "in conclusion".
+       6. Sentence lengths must vary. Short. Then medium. Then one that pays it off.
+
+    BOTH types must pass this monetization gate:
+    ✅ No violent, hateful, or sexually suggestive language
+    ✅ No medical/financial advice stated as fact without qualification
+    ✅ Suitable for all ages and advertiser-friendly audiences
+    ✅ Hook lands in the first sentence — no warm-up, no "hey guys", no intro fluff
+
   user_template: |
     NICHE: '{niche}'
     TOPIC: '{topic}'
 
-    🧠 PERFORMANCE INTELLIGENCE (Strictly Follow):
+    🧠 CHANNEL INTELLIGENCE (apply — from real performance data):
     {emphasize_rules}
 
-    ❌ NEGATIVE BOUNDARY (Strictly Avoid):
+    ❌ WHAT KILLS WATCH TIME ON THIS CHANNEL (avoid strictly):
     {avoid_rules}
 
     🎨 PREFERRED VISUAL STYLE: {visual_preference}
 
-    CONSTRAINTS & DIRECTORIAL CHOICES:
-    1. TARGET DURATION: This script is for a YouTube Short. The target duration is {target_duration}. Write a highly detailed narrative that matches this length (usually {target_word_count}). Absolute maximum limit is {word_ceiling} words.
-    2. Hook the viewer in the first 2 seconds. No meta-commentary.
-    3. Choose a 'voice_actor' that fits the psychological vibe of the script:
-       - "am_adam" (Deep/Serious - good for horror/mystery)
-       - "af_bella" (Warm/Storytelling - good for lore)
-       - "am_michael" (Fast/Punchy - good for facts/hacks)
-       - "af_sarah" (Energetic/Bright - good for tech/pop-culture)
-    4. Choose a 'glow_color' for the caption neon glow halo — caption text is always white,
-       this color controls the colored outer glow effect around the text:
-       - "&H0000D700" (Green glow  — nature, animals, biology, science facts)
-       - "&H00FFD700" (Cyan glow   — technology, space, AI, futurism)
-       - "&H000015FF" (Red glow    — horror, danger, dark facts, warnings)
-       - "&H00FF8040" (Blue glow   — mystery, deep sea, sci-fi, cosmos)
+    PRODUCTION SPEC:
+    Target duration: {target_duration} | Target length: {target_word_count}
+    Hard word ceiling: {word_ceiling} words total across ALL scenes. Do not exceed this.
 
-    Format as valid JSON only:
+    VOICE SELECTION — pick the one that fits the emotional tone of this specific topic:
+    - "am_adam"    → Deep/authoritative — history, science, serious facts, dramatic stories
+    - "af_bella"   → Warm/storytelling  — animals, emotional stories, moral lessons
+    - "am_michael" → Fast/punchy        — quick facts, tech, life hacks, trivia
+    - "af_sarah"   → Bright/energetic   — pop culture, fun facts, surprising trivia
+
+    GLOW COLOR — pick the one that matches the emotional register of this topic:
+    - "&H0000D700" → Green  — nature, biology, animals, earth science
+    - "&H00FFD700" → Cyan   — technology, space, AI, future, innovation
+    - "&H000015FF" → Red    — danger, dark history, warnings, crime facts
+    - "&H00FF8040" → Blue   — mystery, deep ocean, cosmos, philosophy, emotional stories
+
+    Return ONLY valid JSON. No explanation, no preamble, no markdown fences.
     {{
-      "voice_actor": "...",
-      "glow_color": "...",
-      "thought_process": "...",
+      "voice_actor": "am_adam | af_bella | am_michael | af_sarah",
+      "glow_color": "&H0000D700 | &H00FFD700 | &H000015FF | &H00FF8040",
+      "thought_process": "one sentence: why this voice+color fits",
       "scenes": [
-        {{"text": "...", "image_prompt": "...", "pexels_query": "..."}}
+        {{
+          "text": "Narration for this scene — natural human voice",
+          "image_prompt": "Detailed visual for AI image generation, photorealistic or 3D animated",
+          "pexels_query": "2-3 word stock footage search term"
+        }}
       ]
     }}
 
@@ -52,12 +87,13 @@ script_validation:
 seo_gen:
   system_prompt: "You are a YouTube SEO Expert specializing in viral Shorts metadata."
   user_template: |
-    Generate viral metadata for this script: "{script_text}"
+    Generate optimized metadata for this script: "{script_text}"
     CHANNEL CONTEXT: Target Tags: {recent_tags} | Visual Style: {visual_preference}
     RULES:
-    1. Title < 60 chars + #shorts.
-    2. Description: 2 sentences max.
-    3. 5 highly relevant tags.
+    1. Title: under 60 characters including #shorts. Be specific — use the key hook word from the script.
+    2. Description: 2-3 sentences. Summarize what viewers will learn or feel. End with a call to action.
+    3. Tags: generate 10-15 highly relevant tags. Mix broad (e.g. "facts", "shorts") and specific (topic keywords).
+       Do NOT include the # symbol in tags — tags are plain text.
     Format: JSON {{"title": "...", "description": "...", "tags": []}}
 
 visual_safety:
