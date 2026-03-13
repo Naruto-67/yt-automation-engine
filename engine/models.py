@@ -56,7 +56,3 @@ class FailureLog(BaseModel):
     error_message: str
     traceback: Optional[str] = None
     timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
-
-
-
-================================================
