@@ -40,7 +40,10 @@ class ConfigManager:
                     youtube_client_id_env=ch.get("youtube_client_id_env", ""),
                     youtube_client_secret_env=ch.get("youtube_client_secret_env", ""),
                     discord_webhook_env=ch.get("discord_webhook_env", ""),
-                    creative_lenses=ch.get("creative_lenses", [])
+                    creative_lenses=ch.get("creative_lenses", []),
+                    category_id=str(ch.get("category_id", "22")),
+                    language=ch.get("language", "en"),
+                    content_type=ch.get("content_type", "factual"),
                 ))
         return active_channels
 
@@ -59,3 +62,7 @@ class ConfigManager:
         pass
 
 config_manager = ConfigManager()
+
+
+
+================================================
