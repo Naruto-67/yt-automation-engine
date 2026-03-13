@@ -6,6 +6,9 @@ channels:
     name: "AnimeRise"
     niche: "3D/Pixar-Style Moral Storytelling"
     target_audience: "US"
+    category_id: "1"          # Film & Animation — higher RPM than People & Blogs (22)
+    language: "en"             # English TTS — required for US ad targeting
+    content_type: "fictional"  # Signals script_gen to use storytelling rules, not fact rules
     youtube_client_id_env: "YOUTUBE_CLIENT_ID_CH1"
     youtube_client_secret_env: "YOUTUBE_CLIENT_SECRET_CH1"
     youtube_refresh_token_env: "YOUTUBE_REFRESH_TOKEN_CH1"
@@ -25,6 +28,9 @@ channels:
     name: "Topato"
     niche: "trending facts, interesting facts, seasonal facts, educational facts, mind-blowing facts, random facts"
     target_audience: "US"
+    category_id: "27"          # Education — highest-RPM tier for fact/educational content
+    language: "en"              # English TTS — required for US ad targeting
+    content_type: "factual"    # Signals script_gen to enforce real facts and specifics
     youtube_client_id_env: "YOUTUBE_CLIENT_ID_CH2"
     youtube_client_secret_env: "YOUTUBE_CLIENT_SECRET_CH2"
     youtube_refresh_token_env: "YOUTUBE_REFRESH_TOKEN_CH2"
