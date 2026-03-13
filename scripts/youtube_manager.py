@@ -83,7 +83,9 @@ def get_actual_vault_count(youtube):
 
 def _get_creator_comment(niche):
     niche_lower = niche.lower() if niche else ""
-    if any(k in niche_lower for k in ['fact', 'hack', 'science', 'weird']):
+    if any(k in niche_lower for k in ['storytelling', 'moral', 'pixar', 'anime', 'animation', 'fictional', 'story']):
+        return "Which part of the story hit you the hardest? 👇 Subscribe for more stories like this. ✨"
+    elif any(k in niche_lower for k in ['fact', 'hack', 'science', 'weird', 'educational', 'education']):
         return "Which fact blew your mind the most? Drop it below and subscribe for more! 🧠✨"
     elif any(k in niche_lower for k in ['horror', 'terror', 'eldritch', 'cosmic horror']):
         return "What cosmic horror keeps YOU up at night? Tell us below! 😱 Subscribe for more existential dread."
@@ -105,9 +107,16 @@ def post_creator_comment(youtube, video_id, text):
         return True
     except: return False
 
-def upload_to_youtube_vault(youtube, video_path, topic, metadata, niche=""):
+def upload_to_youtube_vault(youtube, video_path, topic, metadata, niche="", channel_config=None):
     if not youtube: return True, "test_mode_dummy_video_id"
     if shutil.disk_usage("/").free < (500 * 1024 * 1024): return False, None
+
+    # Resolve per-channel monetization metadata — fall back to safe defaults if not provided
+    category_id = "22"
+    language    = "en"
+    if channel_config is not None:
+        category_id = getattr(channel_config, "category_id", "22")
+        language    = getattr(channel_config, "language",    "en")
 
     try:
         media = MediaFileUpload(video_path, chunksize=1024*1024*5, resumable=True, mimetype="video/mp4")
@@ -129,7 +138,14 @@ def upload_to_youtube_vault(youtube, video_path, topic, metadata, niche=""):
         request = youtube.videos().insert(
             part="snippet,status",
             body={
-                "snippet": {"title": safe_title, "description": safe_desc, "tags": safe_tags, "categoryId": "22"},
+                "snippet": {
+                    "title":                safe_title,
+                    "description":          safe_desc,
+                    "tags":                 safe_tags,
+                    "categoryId":           category_id,       # per-channel, not hardcoded
+                    "defaultLanguage":      language,          # enables correct ad targeting
+                    "defaultAudioLanguage": language,
+                },
                 "status": {"privacyStatus": "private", "selfDeclaredMadeForKids": False}
             },
             media_body=media
