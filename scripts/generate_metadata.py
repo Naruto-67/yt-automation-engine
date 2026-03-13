@@ -11,6 +11,22 @@ def load_config_prompts():
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     with open(os.path.join(root_dir, "config", "prompts.yaml"), "r", encoding="utf-8") as f: return yaml.safe_load(f)
 
+def _build_hashtags(niche: str) -> str:
+    """Return a small set of hashtags appropriate for the niche, appended to description."""
+    niche_lower = niche.lower()
+    if any(k in niche_lower for k in ['storytelling', 'moral', 'pixar', 'anime', 'animation']):
+        return "#shorts #animation #moralstory #storytime #pixar"
+    elif any(k in niche_lower for k in ['fact', 'educational', 'education', 'science']):
+        return "#shorts #facts #didyouknow #educational #learnontiktok"
+    elif any(k in niche_lower for k in ['space', 'cosmic', 'stellar', 'galaxy']):
+        return "#shorts #space #universe #spacefacts #astronomy"
+    elif any(k in niche_lower for k in ['tech', 'ai', 'future', 'automation']):
+        return "#shorts #tech #ai #futuretech #technology"
+    elif any(k in niche_lower for k in ['horror', 'terror', 'scary', 'eldritch']):
+        return "#shorts #horror #scary #creepy #darkfacts"
+    else:
+        return "#shorts #viral #fyp #trending"
+
 def generate_seo_metadata(niche, script):
     print("🔍 [SEO] Generating optimized metadata...")
     
@@ -22,6 +38,8 @@ def generate_seo_metadata(niche, script):
     vis_str = ", ".join(intel.get("preferred_visuals", [])) or "Cinematic"
 
     user_msg = prompts_cfg['seo_gen']['user_template'].format(script_text=script, recent_tags=tags_str, visual_preference=vis_str)
+
+    hashtags = _build_hashtags(niche)
 
     try:
         raw_text, provider = quota_manager.generate_text(user_msg, task_type="seo", system_prompt=prompts_cfg['seo_gen']['system_prompt'])
@@ -59,26 +77,41 @@ def generate_seo_metadata(niche, script):
                 else:
                     safe_tags = ["shorts", niche]
                 
+                # Allow up to 500 chars of tags (YouTube limit) — old 400 cap was leaving value unused
                 valid_tags = []
                 total_len = 0
                 for t in safe_tags:
-                    if total_len + len(t) + 1 <= 400:
+                    if total_len + len(t) + 1 <= 490:
                         valid_tags.append(t)
                         total_len += len(t) + 1
                     else:
                         break
                 
+                # Append hashtags to description — YouTube uses these for hashtag search surfacing
+                raw_desc = str(data.get("description", "")).replace("<", "").replace(">", "").strip()
+                if raw_desc and not raw_desc.endswith(hashtags):
+                    full_desc = f"{raw_desc}\n\n{hashtags}"
+                else:
+                    full_desc = raw_desc or hashtags
+
                 return {
                     "title": final_title, 
-                    "description": str(data.get("description", "Facts! #shorts")).replace("<", "").replace(">", "")[:4900], 
+                    "description": full_desc[:4900], 
                     "tags": valid_tags
                 }, provider
     except Exception as e:
         # GOD-TIER FIX: Do not silently pass on extraction errors. Log them before falling back.
         logger.error(f"SEO Generation encountered an error: {e}. Executing fallback metadata.")
     
+    # Fallback — use a niche-appropriate description instead of hardcoded "Mind blowing facts"
+    niche_lower = niche.lower()
+    if any(k in niche_lower for k in ['storytelling', 'moral', 'pixar', 'anime', 'animation']):
+        fallback_desc = f"Watch this short story and discover the lesson hidden inside. {hashtags}"
+    else:
+        fallback_desc = f"Discover amazing facts you never knew. {hashtags}"
+
     return {
         "title": f"{niche} #shorts"[:95], 
-        "description": "Mind blowing facts! #shorts", 
-        "tags": ["shorts", niche]
+        "description": fallback_desc, 
+        "tags": ["shorts", niche, "viral", "facts", "fyp"]
     }, "Fallback"
