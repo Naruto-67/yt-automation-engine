@@ -163,9 +163,11 @@ def publish_vault_videos():
                     body={
                         "id":     vid_id,
                         "status": {
-                            "privacyStatus":            "private",
-                            "publishAt":                publish_time_str,
-                            "selfDeclaredMadeForKids":  False
+                            "privacyStatus":           "private",
+                            "publishAt":               publish_time_str,
+                            "selfDeclaredMadeForKids": False,
+                            "embeddable":              True,
+                            "publicStatsViewable":     True,
                         }
                     }
                 ).execute()
