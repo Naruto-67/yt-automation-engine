@@ -26,6 +26,10 @@ class ChannelConfig(BaseModel):
     youtube_client_secret_env: str = ""
     discord_webhook_env: str = ""
     creative_lenses: List[str] = Field(default_factory=list)
+    # Monetization metadata — all optional with safe defaults so existing code never breaks
+    category_id: str = "22"        # YouTube category. Default 22=People&Blogs. Set per channel in channels.yaml.
+    language: str = "en"           # Audio/video language for ad targeting
+    content_type: str = "factual"  # "factual" or "fictional" — controls script_gen prompt behaviour
 
 class VideoJob(BaseModel):
     id: Optional[int] = None
@@ -52,3 +56,7 @@ class FailureLog(BaseModel):
     error_message: str
     traceback: Optional[str] = None
     timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+
+
+
+================================================
