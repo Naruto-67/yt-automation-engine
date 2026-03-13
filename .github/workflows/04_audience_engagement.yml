@@ -1,8 +1,14 @@
 name: 04_Ghost_Audience_Engagement
+# ─────────────────────────────────────────────────────────────────────────────
+# AUTO-REPLY SYSTEM: PERMANENTLY DISABLED
+#
+# The comment auto-reply feature has been intentionally disabled.
+# The implementation is preserved in scripts/reply_comments.py for reference.
+#
+# To re-enable: restore the `on:` triggers below and uncomment the schedule.
+# ─────────────────────────────────────────────────────────────────────────────
 
 on:
-  #schedule:
-    #- cron: '0 14 * * *'
   workflow_dispatch:
     inputs:
       force_run:
@@ -17,8 +23,9 @@ concurrency:
 jobs:
   engage_fans:
     runs-on: ubuntu-latest
-    if: vars.GHOST_ENGINE_ENABLED != 'false' || github.event.inputs.force_run == 'true'
-    
+    # DISABLED: This job will never execute. Remove this line to re-enable.
+    if: false
+
     permissions:
       contents: write
 
