@@ -21,12 +21,13 @@ TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
 
 
 class JobRunner:
-    def __init__(self, job: VideoJob, youtube_client=None, channel_name: str = ""):
-        self.job           = job
-        self.youtube       = youtube_client
-        self.channel_name  = channel_name or job.channel_id
-        self.max_attempts  = 3
-        self.base_filename = f"job_{job.id}_{job.channel_id.replace(' ', '_')}"
+    def __init__(self, job: VideoJob, youtube_client=None, channel_name: str = "", channel_config=None):
+        self.job            = job
+        self.youtube        = youtube_client
+        self.channel_name   = channel_name or job.channel_id
+        self.channel_config = channel_config   # ChannelConfig — used for category_id, language etc.
+        self.max_attempts   = 3
+        self.base_filename  = f"job_{job.id}_{job.channel_id.replace(' ', '_')}"
         self.final_duration = 0.0
         self.final_size_mb  = 0.0
 
@@ -252,7 +253,8 @@ class JobRunner:
         from scripts.youtube_manager import upload_to_youtube_vault, get_or_create_playlist
 
         success, video_id_or_error = upload_to_youtube_vault(
-            self.youtube, self.job.video_path, self.job.topic, metadata, self.job.niche
+            self.youtube, self.job.video_path, self.job.topic, metadata,
+            self.job.niche, channel_config=self.channel_config
         )
         if not success:
             raise RuntimeError(f"YouTube vault upload API failed: {video_id_or_error}")
@@ -277,3 +279,7 @@ class JobRunner:
             metadata=metadata, duration=self.final_duration, size=self.final_size_mb,
             video_id=self.job.youtube_id
         )
+
+
+
+================================================
