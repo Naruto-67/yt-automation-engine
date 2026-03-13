@@ -80,7 +80,8 @@ class MasterQuotaManager:
         generated_text, provider_log_name, provider_key = llm_router.execute_generation(
             prompt=prompt, 
             system_prompt=system_prompt, 
-            gemini_quota_ok=gemini_quota_ok
+            gemini_quota_ok=gemini_quota_ok,
+            task_type=task_type,
         )
         
         if provider_key and provider_key != "none":
