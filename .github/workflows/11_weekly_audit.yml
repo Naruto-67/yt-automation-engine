@@ -1,3 +1,4 @@
+# .github/workflows/11_weekly_audit.yml
 name: 11_Weekly_Audit
 
 on:
@@ -47,7 +48,7 @@ jobs:
           YOUTUBE_REFRESH_TOKEN_CH2:   ${{ secrets.YOUTUBE_REFRESH_TOKEN_CH2 }}
           DISCORD_WEBHOOK_CH2:         ${{ secrets.DISCORD_WEBHOOK_CH2 }}
 
-        run: python scripts/token_health.py
+        run: python -m scripts.token_health
 
       - name: Run Storage Housekeeping
         env:
@@ -63,7 +64,7 @@ jobs:
           GROQ_API_KEY:    ${{ secrets.GROQ_API_KEY }}
           DISCORD_WEBHOOK_CH1: ${{ secrets.DISCORD_WEBHOOK_CH1 }}
           DISCORD_WEBHOOK_CH2: ${{ secrets.DISCORD_WEBHOOK_CH2 }}
-        run: python scripts/api_monitor.py
+        run: python -m scripts.api_monitor
 
       - name: Commit State & Memory
         run: |
