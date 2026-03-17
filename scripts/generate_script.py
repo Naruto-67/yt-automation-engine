@@ -1,5 +1,5 @@
 # scripts/generate_script.py
-# Ghost Engine V26.0.0 — Human-Fingerprint & Creative Direction Logic
+# Ghost Engine V26.0.0 — Human-Fingerprint & Resilient Directing
 import os
 import json
 import yaml
@@ -16,12 +16,10 @@ _WORDS_PER_SECOND_TTS = 143 / 60.0
 _MAX_VIDEO_SECONDS = 59.0
 _ABSOLUTE_WORD_CEILING = int(_MAX_VIDEO_SECONDS * _WORDS_PER_SECOND_TTS)
 
-
 def load_config_prompts():
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     with open(os.path.join(root_dir, "config", "prompts.yaml"), "r") as f:
         return yaml.safe_load(f)
-
 
 def extract_scene_data(scene_dict, fallback_topic: str):
     if not isinstance(scene_dict, dict):
@@ -30,7 +28,6 @@ def extract_scene_data(scene_dict, fallback_topic: str):
     prompt = scene_dict.get("image_prompt") or scene_dict.get("visual")    or f"Cinematic {fallback_topic}"
     query  = scene_dict.get("pexels_query") or fallback_topic
     return narr, prompt, query
-
 
 def validate_script_quality(script_text: str, prompts_cfg: dict) -> bool:
     sys_msg  = prompts_cfg["script_validation"]["system_prompt"]
@@ -49,11 +46,9 @@ def validate_script_quality(script_text: str, prompts_cfg: dict) -> bool:
         logger.error(f"Validation parsing error: {e}")
         return True
 
-
 def generate_script(niche: str, topic: str, personality: str = "Generic Creator"):
     """
     Generate a complete script for a YouTube Short with V26 Human-Fingerprint logic.
-    Returns: (full_text, img_prompts, pexels_queries, scene_weights, provider, metadata_dict)
     """
     print(f"🎬 [SCRIPT] Drafting narrative for: {topic} (Personality: {personality})")
 
@@ -65,7 +60,7 @@ def generate_script(niche: str, topic: str, personality: str = "Generic Creator"
     human_rules = prompts_cfg.get("human_fingerprint_rules", "")
 
     emp  = "\n".join([f"- {r}" for r in intel.get("emphasize", [])[-3:]])
-    avo  = "\n".join([f"- {r}" for r in intel.get("avoid",     [])[-3:]])
+    avo  = "\n".join([f"- {r}" for r in intel.get("avoid", [])[-3:]])
     vis  = ", ".join(intel.get("preferred_visuals", ["Cinematic"])[:3])
 
     hooks = intel.get("hook_patterns", [])
@@ -99,8 +94,8 @@ def generate_script(niche: str, topic: str, personality: str = "Generic Creator"
     # Injecting V26 Specific Directives
     user_prompt += f"\n\n🚨 HUMAN-FINGERPRINT PROTOCOL:\n{human_rules}"
     user_prompt += (
-        f"\n\nCRITICAL: Break script into EXACTLY {target_scenes} scenes. "
-        f"The text must be a single cohesive narrative. {hook_context}"
+        f"\n\nCRITICAL: Break script into EXACTLY {target_scenes} scenes."
+        f"The text must be a single cohesive narrative.\n{hook_context}"
     )
 
     last_error = "Unknown Error"
@@ -122,16 +117,19 @@ def generate_script(niche: str, topic: str, personality: str = "Generic Creator"
 
             data = json.loads(raw[start:end + 1])
 
+            # 🛠️ V26 FIX: Sanitize keys to handle the '\n  "mood"' crash
+            clean_data = {str(k).strip(): v for k, v in data.items()}
+
             # V26 Creative Extraction
             creative_meta = {
-                "mood":          data.get("mood", "NEUTRAL"),
-                "music_tag":     data.get("music_tag", "upbeat_curiosity"),
-                "caption_style": data.get("caption_style", "NEON_HORNET"),
-                "voice_actor":   data.get("voice_actor", "am_adam"),
-                "glow_color":    data.get("glow_color", "&H0000D700")
+                "mood":          str(clean_data.get("mood", "NEUTRAL")).strip().upper(),
+                "music_tag":     str(clean_data.get("music_tag", "upbeat_curiosity")).strip().lower(),
+                "caption_style": str(clean_data.get("caption_style", "NEON_HORNET")).strip().upper(),
+                "voice_actor":   str(clean_data.get("voice_actor", "am_adam")).strip().lower(),
+                "glow_color":    str(clean_data.get("glow_color", "&H0000D700")).strip().upper()
             }
 
-            parsed_scenes  = [extract_scene_data(s, topic) for s in data.get("scenes", [])]
+            parsed_scenes  = [extract_scene_data(s, topic) for s in clean_data.get("scenes", [])]
             full_text      = " ".join([s[0] for s in parsed_scenes])
             img_prompts    = [s[1] for s in parsed_scenes]
             pexels_queries = [s[2] for s in parsed_scenes]
