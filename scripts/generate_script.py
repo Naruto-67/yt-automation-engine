@@ -1,4 +1,5 @@
 # scripts/generate_script.py
+# Ghost Engine V26.0.0 — Human-Fingerprint & Creative Direction Logic
 import os
 import json
 import yaml
@@ -40,36 +41,28 @@ def validate_script_quality(script_text: str, prompts_cfg: dict) -> bool:
     try:
         numbers = [int(n) for n in re.findall(r'\b\d+\b', raw or "")]
         if numbers:
-            if len(numbers) >= 2 and numbers[-1] == 10 and numbers[-2] <= 10:
-                score = numbers[-2]
-            else:
-                score = numbers[-1]
+            # Retention check: Looking for a score >= 6
+            score = numbers[-1]
             return score >= 6
         return True
     except Exception as e:
-        trace = traceback.format_exc()
-        logger.error(f"Validation parsing error:\n{trace}")
+        logger.error(f"Validation parsing error: {e}")
         return True
 
 
-def generate_script(niche: str, topic: str):
+def generate_script(niche: str, topic: str, personality: str = "Generic Creator"):
     """
-    Generate a complete script for a YouTube Short.
-
-    Returns
-    -------
-    tuple: (full_text, img_prompts, pexels_queries, scene_weights,
-            provider, chosen_voice, chosen_glow)
-
-    chosen_glow is an ASS &HAABBGGRR color code for the caption neon halo.
-    It is always sourced from the 'glow_color' key in the LLM JSON response.
-    Caption text itself is always white — the glow_color only affects the halo.
+    Generate a complete script for a YouTube Short with V26 Human-Fingerprint logic.
+    Returns: (full_text, img_prompts, pexels_queries, scene_weights, provider, metadata_dict)
     """
-    print(f"🎬 [SCRIPT] Drafting narrative for: {topic}")
+    print(f"🎬 [SCRIPT] Drafting narrative for: {topic} (Personality: {personality})")
 
     channel_id   = ctx.get_channel_id()
     intel        = db.get_channel_intelligence(channel_id)
     prompts_cfg  = load_config_prompts()
+    
+    # Extract Human-Fingerprint rules to inject into the prompt
+    human_rules = prompts_cfg.get("human_fingerprint_rules", "")
 
     emp  = "\n".join([f"- {r}" for r in intel.get("emphasize", [])[-3:]])
     avo  = "\n".join([f"- {r}" for r in intel.get("avoid",     [])[-3:]])
@@ -77,16 +70,14 @@ def generate_script(niche: str, topic: str):
 
     hooks = intel.get("hook_patterns", [])
     hook_context = (
-        "\n🎣 PROVEN HOOK PATTERNS (from competitor analysis — adapt these):\n" +
+        "\n🎣 PROVEN HOOK PATTERNS (Adapt these):\n" +
         "\n".join([f"- {h}" for h in hooks[:3]])
         if hooks else ""
     )
 
     evolved      = intel.get("evolved_niche")
     active_niche = evolved or niche
-    if evolved and evolved != niche:
-        print(f"🧬 [SCRIPT] Using evolved niche: {evolved}")
-
+    
     niche_lower  = active_niche.lower()
     is_fact      = any(x in niche_lower for x in ["fact", "hack", "tip", "news", "top", "brainrot"])
 
@@ -97,17 +88,19 @@ def generate_script(niche: str, topic: str):
     user_prompt = prompts_cfg["script_gen"]["user_template"].format(
         niche=active_niche,
         topic=topic,
+        personality=personality,
         emphasize_rules=emp or "Focus on viewer retention.",
         avoid_rules=avo or "Avoid slow pacing.",
-        visual_preference=vis,
         target_duration=target_dur,
         target_word_count=target_words,
         word_ceiling=_ABSOLUTE_WORD_CEILING
     )
 
+    # Injecting V26 Specific Directives
+    user_prompt += f"\n\n🚨 HUMAN-FINGERPRINT PROTOCOL:\n{human_rules}"
     user_prompt += (
-        f"\n\nCRITICAL INSTRUCTION: Break the script into EXACTLY {target_scenes} visual scenes. "
-        f"The combined text across all scenes MUST be a detailed, multi-sentence narrative. {hook_context}"
+        f"\n\nCRITICAL: Break script into EXACTLY {target_scenes} scenes. "
+        f"The text must be a single cohesive narrative. {hook_context}"
     )
 
     last_error = "Unknown Error"
@@ -120,28 +113,23 @@ def generate_script(niche: str, topic: str):
                 system_prompt=prompts_cfg["script_gen"]["system_prompt"]
             )
             if not raw:
-                last_error = "API returned empty response."
                 continue
 
             start = raw.find('{')
             end   = raw.rfind('}')
-            if start == -1 or end == -1 or end <= start:
-                last_error = "Malformed JSON boundary returned by AI."
+            if start == -1 or end == -1:
                 continue
 
-            json_payload = raw[start:end + 1]
-            data         = json.loads(json_payload)
+            data = json.loads(raw[start:end + 1])
 
-            chosen_voice = data.get("voice_actor", "am_adam")
-
-            # ── glow_color: the neon halo color for captions ─────────────────
-            # Accept either the new key ('glow_color') or the legacy key
-            # ('subtitle_color') in case an older cached response is replayed.
-            chosen_glow = (
-                data.get("glow_color")
-                or data.get("subtitle_color")
-                or "&H0000D700"   # default: green glow
-            )
+            # V26 Creative Extraction
+            creative_meta = {
+                "mood":          data.get("mood", "NEUTRAL"),
+                "music_tag":     data.get("music_tag", "upbeat_curiosity"),
+                "caption_style": data.get("caption_style", "NEON_HORNET"),
+                "voice_actor":   data.get("voice_actor", "am_adam"),
+                "glow_color":    data.get("glow_color", "&H0000D700")
+            }
 
             parsed_scenes  = [extract_scene_data(s, topic) for s in data.get("scenes", [])]
             full_text      = " ".join([s[0] for s in parsed_scenes])
@@ -149,60 +137,45 @@ def generate_script(niche: str, topic: str):
             pexels_queries = [s[2] for s in parsed_scenes]
 
             word_count = len(full_text.split())
-            print(f"      -> [TEXT PRE-CHECK] Script generated: {word_count} words (Mathematical Limit: {_ABSOLUTE_WORD_CEILING}).")
-
+            
             if word_count > _ABSOLUTE_WORD_CEILING:
-                print(f"      ⚠️ [SCRIPT] Too long ({word_count} words, limit {_ABSOLUTE_WORD_CEILING}). Retrying...")
-                last_error = "Script exceeded maximum mathematical word count."
+                last_error = f"Too long: {word_count} words."
                 continue
 
             if word_count < 15:
-                print(f"      ⚠️ [SCRIPT] Script critically short ({word_count} words). Retrying...")
-                last_error = "Script generated below functional minimum."
+                last_error = "Too short."
                 continue
 
             if not validate_script_quality(full_text, prompts_cfg):
-                print("⚠️ [SCRIPT] Quality validation failed. Retrying...")
-                last_error = "Failed ruthless retention quality check."
+                last_error = "Failed retention quality check."
                 continue
 
             total_chars   = sum(len(s[0]) for s in parsed_scenes)
-            scene_weights = (
-                [len(s[0]) / total_chars for s in parsed_scenes]
-                if total_chars > 0 else []
-            )
+            scene_weights = [len(s[0]) / total_chars for s in parsed_scenes] if total_chars > 0 else []
 
-            print(
-                f"✅ [SCRIPT] Validated via {provider} "
-                f"({word_count} words). Voice: {chosen_voice}, Glow: {chosen_glow}"
-            )
-            return full_text, img_prompts, pexels_queries, scene_weights, provider, chosen_voice, chosen_glow
+            print(f"✅ [SCRIPT] V26 Directives Loaded. Mood: {creative_meta['mood']} | Style: {creative_meta['caption_style']}")
+            return full_text, img_prompts, pexels_queries, scene_weights, provider, creative_meta
 
         except Exception as e:
             last_error = str(e)
-            trace = traceback.format_exc()
-            print(f"⚠️ [SCRIPT] Attempt {attempt + 1} failed:\n{trace}")
+            print(f"⚠️ [SCRIPT] Attempt {attempt + 1} failed: {last_error}")
             continue
 
-    logger.error("🚨 Script Generation Fatal Exhaustion. Injecting Emergency Fallback Script.")
-
-    fallback_text = (
-        f"The story of {topic} is absolutely unbelievable. Most people have no idea what is actually "
-        f"happening behind the scenes. Experts are warning that the implications could change everything "
-        f"we know. As more details emerge, the truth becomes even more terrifying. Subscribe to stay "
-        f"updated on this unfolding mystery."
-    )
-    fallback_prompts = [
-        f"Cinematic, mysterious shot representing {topic}, 8k resolution",
-        f"Dark, dramatic revelation about {topic}, photorealistic masterpiece",
-        f"Mind-blowing conclusion of {topic}, epic lighting"
-    ]
+    logger.error("🚨 Script Generation Exhausted. Using V26 Fallback.")
+    
+    fallback_meta = {
+        "mood": "TERRIFYING", "music_tag": "horror_drones", 
+        "caption_style": "BOLD_CRITICAL", "voice_actor": "am_adam", 
+        "glow_color": "&H000015FF"
+    }
+    
     return (
-        fallback_text,
-        fallback_prompts,
-        [topic, "mystery", "shocking"],
+        f"The mystery of {topic} is deeper than anyone realized. Most people look at the surface, "
+        f"but the truth hidden beneath is actually quite disturbing. What we found changes "
+        f"everything we thought we knew about this. Subscribe if you're ready for the truth.",
+        [f"Mysterious, cinematic shot of {topic}", "Dark revelation, high detail", "Shocking conclusion"],
+        [topic, "mystery"],
         [0.33, 0.33, 0.34],
-        "Emergency Fallback",
-        "am_adam",
-        "&H0000D700"   # default green glow on emergency fallback
+        "V26 Emergency Fallback",
+        fallback_meta
     )
