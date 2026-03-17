@@ -1,37 +1,39 @@
 # config/channels.yaml
-# Ghost Engine V26.0.0 — 100% Monetization Architecture
+# Ghost Engine V26.0.0 — 100% Monetization & Humanization Architecture
 version: "26.0.0"
 
 channels:
   - id: "CH_01"
     name: "AnimeRise"
     niche: "3D/Pixar-Style Moral Storytelling"
-    personality: "Gothic Narrator"  # V26: Guides AI for human-like narrative soul
+    personality: "Gothic Narrator"  # Guides AI for human-like narrative soul
     target_audience: "US"
     category_id: "1"               # Film & Animation
-    language: "en"            
-    content_type: "fictional"  
+    language: "en"                 # English TTS for US ad targeting
+    content_type: "fictional"      # Logic fork for storytelling rules
     youtube_client_id_env: "YOUTUBE_CLIENT_ID_CH1"
     youtube_client_secret_env: "YOUTUBE_CLIENT_SECRET_CH1"
     youtube_refresh_token_env: "YOUTUBE_REFRESH_TOKEN_CH1"
     discord_webhook_env: "DISCORD_WEBHOOK_CH1"
     active: true
+    # V26: Lenses updated for deeper "Human witness" immersion
     creative_lenses:
       - "First-person witness accounts of supernatural mundane events"
       - "The heavy emotional toll of being an immortal everyday object"
       - "Hidden folklore found in modern urban alleyways"
       - "A massive, epic adventure undertaken by the smallest possible creature"
       - "A misunderstanding between a gentle monster and a terrified human"
+      - "The emotional journey of a discarded, obsolete piece of technology"
 
   - id: "CH_02"
     name: "Topato"
-    # V26: Expanded Niche for broad fact-telling
+    # V26: Expanded Niche for broad fact-telling (Funny, Dark, Sci, etc.)
     niche: "funny facts, random facts, dark facts, educational facts, science facts"
-    personality: "Skeptical Researcher" # V26: Guides AI to curate and react, not just list
+    personality: "Skeptical Researcher" # Guides AI to curate and react, not just list
     target_audience: "US"
     category_id: "27"              # Education
-    language: "en"              
-    content_type: "factual"    
+    language: "en"                 # English TTS
+    content_type: "factual"        # Logic fork for verified facts
     youtube_client_id_env: "YOUTUBE_CLIENT_ID_CH2"
     youtube_client_secret_env: "YOUTUBE_CLIENT_SECRET_CH2"
     youtube_refresh_token_env: "YOUTUBE_REFRESH_TOKEN_CH2"
@@ -41,6 +43,8 @@ channels:
       - "Funny and ridiculous laws that are still enforced today"
       - "Dark and terrifying historical coincidences"
       - "Bizarre biological facts that sound like science fiction"
-      - "Mind-blowing space phenomena that challenge our reality"
+      - "Mind-blowing space and cosmic phenomena"
       - "Glitch-in-the-matrix style real world anomalies"
       - "The unsettling science behind everyday human habits"
+      - "Counter-intuitive facts that contradict common beliefs"
+      - "Largest, smallest, fastest, oldest things in existence"
