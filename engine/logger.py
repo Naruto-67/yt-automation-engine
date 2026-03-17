@@ -1,32 +1,36 @@
 # engine/logger.py
+# Ghost Engine V26.0.0 — Multi-Module Structured Logging
+import os
+import sys
+import logging
 from datetime import datetime
+from colorama import Fore, Style, init
+
+init(autoreset=True)
 
 class StructuredLogger:
-    @staticmethod
-    def _log(tag: str, message: str, level: str = "INFO"):
-        timestamp = datetime.utcnow().isoformat() + "Z"
-        icon = "✅" if level == "SUCCESS" else "⚠️" if level == "WARN" else "🚨" if level == "ERROR" else "⚙️"
-        print(f"{icon} [{timestamp}] [{tag}] [{level}] {message}")
+    def __init__(self):
+        self.logger = logging.getLogger("GhostEngine")
+        self.logger.setLevel(logging.INFO)
+        if not self.logger.handlers:
+            handler = logging.StreamHandler(sys.stdout)
+            formatter = logging.Formatter('%(message)s')
+            handler.setFormatter(formatter)
+            self.logger.addHandler(handler)
 
-    @classmethod
-    def engine(cls, msg: str, level="INFO"): cls._log("ENGINE", msg, level)
-    
-    @classmethod
-    def research(cls, msg: str, level="INFO"): cls._log("RESEARCH", msg, level)
-    
-    @classmethod
-    def generation(cls, msg: str, level="INFO"): cls._log("GENERATION", msg, level)
-    
-    @classmethod
-    def render(cls, msg: str, level="INFO"): cls._log("RENDER", msg, level)
-    
-    @classmethod
-    def publish(cls, msg: str, level="INFO"): cls._log("PUBLISH", msg, level)
-    
-    @classmethod
-    def error(cls, msg: str): cls._log("SYSTEM", msg, "ERROR")
+    def _format_msg(self, emoji, module, msg, color=Fore.WHITE):
+        ts = datetime.now().strftime("%H:%M:%S")
+        return f"{color}{emoji} [{ts}] [{module}] {msg}{Style.RESET_ALL}"
 
-    @classmethod
-    def success(cls, msg: str): cls._log("SYSTEM", msg, "SUCCESS")
+    def engine(self, msg): print(self._format_msg("⚙️", "ENGINE", msg, Fore.CYAN))
+    def research(self, msg): print(self._format_msg("🔍", "RESEARCH", msg, Fore.MAGENTA))
+    def script(self, msg): print(self._format_msg("📝", "SCRIPT", msg, Fore.WHITE))
+    def generation(self, msg): print(self._format_msg("🧠", "GEN", msg, Fore.YELLOW))
+    def render(self, msg): print(self._format_msg("🎬", "RENDER", msg, Fore.BLUE))
+    def upload(self, msg): print(self._format_msg("🚀", "UPLOAD", msg, Fore.GREEN))
+    def success(self, msg): print(self._format_msg("✅", "SUCCESS", msg, Fore.GREEN))
+    def info(self, msg): print(self._format_msg("ℹ️", "INFO", msg, Fore.WHITE))
+    def warning(self, msg): print(self._format_msg("⚠️", "WARNING", msg, Fore.YELLOW))
+    def error(self, msg): print(self._format_msg("🚨", "ERROR", msg, Fore.RED))
 
 logger = StructuredLogger()
