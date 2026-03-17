@@ -26,29 +26,20 @@ def extract_scene_data(scene_dict, fallback_topic: str):
         return str(scene_dict), f"Cinematic shot of {fallback_topic}", fallback_topic
     narr   = scene_dict.get("text")         or scene_dict.get("narration") or fallback_topic
     prompt = scene_dict.get("image_prompt") or scene_dict.get("visual")    or f"Cinematic {fallback_topic}"
-    query  = scene_dict.get("pexels_query") or fallback_topic
+    query  = scene_dict.get("stock_keyword") or fallback_topic
     return narr, prompt, query
 
 def validate_script_quality(script_text: str, prompts_cfg: dict) -> bool:
     sys_msg  = prompts_cfg["script_validation"]["system_prompt"]
-    user_msg = prompts_cfg["script_validation"]["user_template"].format(
-        script_text=script_text
-    )
+    user_msg = prompts_cfg["script_validation"]["user_template"].format(script_text=script_text)
     raw, _ = quota_manager.generate_text(user_msg, task_type="analysis", system_prompt=sys_msg)
     try:
         numbers = [int(n) for n in re.findall(r'\b\d+\b', raw or "")]
-        if numbers:
-            score = numbers[-1]
-            return score >= 6
-        return True
-    except Exception as e:
-        logger.error(f"Validation parsing error: {e}")
+        return numbers[-1] >= 6 if numbers else True
+    except:
         return True
 
 def generate_script(niche: str, topic: str, personality: str = "Generic Creator"):
-    """
-    Generate a complete script for a YouTube Short with V26 Human-Fingerprint logic.
-    """
     logger.script(f"Drafting narrative for: {topic} (Personality: {personality})")
 
     channel_id   = ctx.get_channel_id()
@@ -61,13 +52,13 @@ def generate_script(niche: str, topic: str, personality: str = "Generic Creator"
     
     evolved      = intel.get("evolved_niche")
     active_niche = evolved or niche
-    is_fact      = any(x in active_niche.lower() for x in ["fact", "hack", "tip", "news", "top", "brainrot"])
+    is_fact      = any(x in active_niche.lower() for x in ["fact", "hack", "tip", "news", "top"])
 
     target_scenes = random.randint(3, 5) if is_fact else random.randint(5, 7)
     target_dur    = "30-40 seconds"     if is_fact else "45-55 seconds"
     target_words  = "~75 words"         if is_fact else "~120 words"
 
-    # 🛠️ V26 FIX: Use .replace() instead of .format() to avoid KeyError on JSON braces in template
+    # 🛠️ V26 FIX: Use .replace() instead of .format() to avoid literal {JSON} brace errors
     user_prompt = prompts_cfg["script_gen"]["user_template"]
     replacements = {
         "{niche}": active_niche,
@@ -97,7 +88,7 @@ def generate_script(niche: str, topic: str, personality: str = "Generic Creator"
             if start == -1 or end == -1: continue
 
             data = json.loads(raw[start:end + 1])
-            # 🛠️ V26 FIX: Sanitize keys to handle AI newline/space garbage
+            # 🛠️ V26 FIX: Sanitize keys to handle AI newline garbage (e.g. '\n "mood"')
             clean_data = {str(k).strip(): v for k, v in data.items()}
 
             creative_meta = {
@@ -118,12 +109,11 @@ def generate_script(niche: str, topic: str, personality: str = "Generic Creator"
             total_chars   = sum(len(s[0]) for s in parsed_scenes)
             scene_weights = [len(s[0]) / total_chars for s in parsed_scenes] if total_chars > 0 else []
 
-            print(f"✅ [SCRIPT] V26 Directives Loaded. Mood: {creative_meta['mood']}")
+            logger.success(f"V26 Directives Loaded. Mood: {creative_meta['mood']}")
             return full_text, img_prompts, pexels_queries, scene_weights, provider, creative_meta
 
         except Exception as e:
             print(f"⚠️ [SCRIPT] Attempt {attempt + 1} failed: {e}")
             continue
 
-    # Emergency Fallback
-    return ("Fallback script for " + topic, [topic], [topic], [1.0], "FALLBACK", {"mood": "NEUTRAL", "music_tag": "upbeat_curiosity", "caption_style": "PUNCHY_YELLOW", "voice_actor": "am_adam", "glow_color": "&H0000D700"})
+    return ("Fallback narrative for " + topic, [topic], [topic], [1.0], "FALLBACK", {"mood": "NEUTRAL", "music_tag": "upbeat_curiosity", "caption_style": "PUNCHY_YELLOW", "voice_actor": "am_adam", "glow_color": "&H0000D700"})
