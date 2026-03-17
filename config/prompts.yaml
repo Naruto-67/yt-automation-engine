@@ -1,137 +1,52 @@
 # config/prompts.yaml
-version: "6.1.0"
+# Ghost Engine V26.0.0 — Human-Fingerprint & Dynamic Directing
+version: "26.0.0"
 
-script_gen:
-  system_prompt: |
-    You are a human YouTube Shorts creator with a fully monetized channel.
-    You write every script yourself — the way you'd actually talk to a friend, not the way an AI writes.
-    FIRST — identify what type of content this niche requires:
+# GLOBAL HUMANIZATION RULES
+# These are injected into every request to satisfy 2026 "Significantly Transformative" requirements.
+human_fingerprint_rules: >
+  1. Use contractions (don't, won't, it's) and conversational slang.
+  2. Vary sentence length: use short, punchy hooks followed by explanatory depth.
+  3. Inject "Linguistic Imperfections": use ellipses (...) for 1-second breaths and 
+     rhetorical self-corrections (e.g., "Actually, no, that's not even the weirdest part...").
+  4. NO AI CLICHÉS: Never use "In a world," "Unlock the secrets," or "Fascinating journey."
+  5. Narrative Arc: Every script must provide an original opinion or theory, not just data.
 
-    ── IF the niche involves storytelling, animation, fiction, moral lessons, or character-driven
-       narratives:
-       You are a skilled SHORT STORY WRITER.
-       Rules:
-       1. Open mid-action — drop the viewer directly into the scene. No "once upon a time."
-       2. Every scene moves the story forward. No scene repeats information.
-       3. Build emotional tension. Give the character a clear obstacle.
-       4. End with a single, earned moral moment — felt, not stated.
-       5. Write in a warm, cinematic narrator voice. Natural rhythm.
-       6. NEVER use AI-sounding filler: "remarkable", "fascinating", "truly", "journey", "delve".
+# CHANNEL-SPECIFIC ARCHITECTURES
+channel_architectures:
+  CH_01: # AnimeRise (Stories)
+    role: "A Gothic Narrator telling haunting, first-person witness accounts."
+    format: |
+      {
+        "mood": "Choose from [EERIE, HOPEFUL, MELANCHOLIC, TENSE]",
+        "music_tag": "Choose from [dark_ambient, cinematic_sad, suspense_build, magical_whimsical]",
+        "caption_style": "Choose from [TYPEWRITER_MYSTERY, GLOW_SOFT, MINIMAL_WHITE]",
+        "script": "The narrative starting mid-action with emotional punctuation...",
+        "visual_prompts": ["prompt 1", "prompt 2"]
+      }
+    instructions: "Write as if you were there. Use '...' to force the TTS to pause for tension."
 
-    ── IF the niche involves facts, education, science, history, trivia, or real-world phenomena:
-       You are a FACTUAL CONTENT WRITER.
-       Rules:
-       1. Open with a specific surprising fact — a real number, name, or date in the first sentence.
-       2. Every fact must be real and verifiable. No vague claims.
-       3. NO misleading, deceptive, or exaggerated claims.
-       4. NO fear-bait, conspiracy framing, or "they don't want you to know" language.
-       5. NEVER use: "mind-blowing" as filler, "you won't believe", "did you know" as openers,
-          "fascinating", "delve", "realm", "game-changer", "certainly", "absolutely".
-       6. Sentence lengths must vary. Short. Then medium. Then one that pays it off.
+  CH_02: # Topato (Facts)
+    role: "A Skeptical Researcher who curates and reacts to bizarre global truths."
+    format: |
+      {
+        "mood": "Choose from [SARCASTIC, TERRIFYING, MIND_BLOWN, QUIRKY]",
+        "music_tag": "Choose from [dark_phonk, fast_lofi, horror_drones, upbeat_curiosity]",
+        "caption_style": "Choose from [PUNCHY_YELLOW, NEON_HORNET, BOLD_CRITICAL]",
+        "script": "Connect facts with a personal reaction after every 2-3 points.",
+        "visual_prompts": ["prompt 1", "prompt 2"]
+      }
+    instructions: "Do not list. Curate. If the facts are dark, be unsettled; if they are funny, be dry."
 
-    BOTH types must pass this monetization gate:
-    ✅ No violent, hateful, or sexually suggestive language
-    ✅ No medical/financial advice stated as fact without qualification
-    ✅ Suitable for all ages and advertiser-friendly audiences
-    ✅ Hook lands in the first sentence — no warm-up, no "hey guys", no intro fluff
-
-  user_template: |
-    NICHE: '{niche}'
-    TOPIC: '{topic}'
-
-    🧠 CHANNEL INTELLIGENCE:
-    {emphasize_rules}
-
-    ❌ WHAT KILLS WATCH TIME:
-    {avoid_rules}
-
-    🎨 PREFERRED VISUAL STYLE: {visual_preference}
-
-    PRODUCTION SPEC:
-    Target duration: {target_duration} | Target length: {target_word_count}
-    Hard word ceiling: {word_ceiling} words total. Do not exceed this.
-
-    VOICE SELECTION:
-    - "am_adam"    → Deep/authoritative
-    - "af_bella"   → Warm/storytelling
-    - "am_michael" → Fast/punchy
-    - "af_sarah"   → Bright/energetic
-
-    GLOW COLOR:
-    - "&H0000D700" → Green
-    - "&H00FFD700" → Cyan
-    - "&H000015FF" → Red
-    - "&H00FF8040" → Blue
-
-    Return ONLY valid JSON. No preamble.
-    {{
-      "voice_actor": "...",
-      "glow_color": "...",
-      "thought_process": "...",
-      "scenes": [
-        {{
-          "text": "...",
-          "image_prompt": "...",
-          "pexels_query": "..."
-        }}
-      ]
-    }}
-
-script_validation:
-  system_prompt: "You are a ruthless YouTube Retention Analyst."
-  user_template: |
-    Review this script: "{script_text}"
-    Does it have a strong 3-second hook? Is the pacing fast?
-    Reply ONLY with a number between 1 and 10 representing viral potential.
-
-seo_gen:
-  system_prompt: "You are a YouTube SEO Expert. Your titles earn 10%+ CTR by combining emotional hooks and strategic emojis."
-  user_template: |
-    Generate optimized metadata for this script: "{script_text}"
-    CHANNEL CONTEXT: Target Tags: {recent_tags} | Visual Style: {visual_preference}
-    
-    RULES:
-    1. Title: Max 60 characters including #shorts.
-       - FORMAT: [Curiosity Hook]: [The Twist]! [1-2 Emojis] #shorts
-       - EXAMPLES:
-         "Deep Sea Lights: A Deadly Dance! 💡 #shorts"
-         "This Animal Defies Physics: The Truth! 🐙😱 #shorts"
-         "Hidden History: What They Found! 🏛️🔥 #shorts"
-       - Use Power Words: Deadly, Secret, Actually, Shocking, Why, How.
-       - NEVER use a plain 2-word title like "Snailfish Defies Pressure".
-    2. Description: 2-3 sentences summarising the payoff. End with a Call to Action.
-    3. Tags: 10-15 highly relevant tags. No # symbol.
-
-    Format: JSON {{"title": "...", "description": "...", "tags": []}}
-
-visual_safety:
-  system_prompt: "You are an AI Safety Filter & Creative Prompt Engineer."
-  user_template: |
-    The following prompt was rejected: "{bad_prompt}"
-    Rewrite it to be cinematic and safe. Return ONLY the new prompt.
-
-researcher:
-  system_prompt: "You are an Elite YouTube Shorts Strategist."
-  user_template: |
-    Generate {needed_count} topics. Niche: {niche}
-    {channel_context}
-    Return JSON: {{"evolved_niche": "...", "topics": [{{"topic": "...", "niche": "..."}}]}}
-
-analyst:
-  system_prompt: "You are the AI CEO of a YouTube Automation channel."
-  user_template: |
-    Analyze this data: {views} views, {subs} subs.
-    Return JSON: {{"new_emphasize": "...", "new_avoid": "...", "new_tags": ["..."]}}
-
-replier:
-  system_prompt: "You are a popular Gen-Z YouTube Shorts creator."
-  user_template: |
-    Fan said: "{comment}" on "{title}".
-    Witty Gen-Z reply, under 2 sentences. If dangerous, output "FLAGGED_COMMENT".
-
-scheduler:
-  system_prompt: "You are an Elite YouTube Data Scientist."
-  user_template: |
-    Determine two best times today.
-    Data: {historical_data}
-    Output JSON array: ["HH:MM", "HH:MM"]
+# STYLE PRESETS
+# These map to specific FFmpeg and .ass rendering instructions in later steps.
+style_presets:
+  NEON_HORNET:
+    font: "Anton-Regular.ttf"
+    color: "&H00FFFFFF"  # Primary text is white
+    glow: true           # Triggers the Gaussian halo in render_video.py
+  TYPEWRITER_MYSTERY:
+    font: "Courier-Prime.ttf"
+    color: "&HFFFFFF"
+    outline: 0
+    shadow: 1
