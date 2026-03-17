@@ -1,21 +1,21 @@
 # scripts/render_video.py
-# Ghost Engine V26.0.0 — Multi-Layer Production & Dynamic Mixing
+# Ghost Engine V26.0.0 — Multi-Layer Production & Deep Track Randomization
 import os
-import subprocess
-import json
 import random
+import subprocess
 import time
+import requests
+import re
 from engine.logger import logger
 from engine.config_manager import config_manager
 
 def get_random_music(music_tag: str) -> str:
     """
     V26: Finds a random track in assets/music/ that matches the AI's music_tag.
-    If the folder or tag doesn't exist, it returns None.
+    [cite: 50-51, 115]
     """
     settings = config_manager.get_settings()
     bank_path = settings["paths"]["music_bank"]
-    # Look for a subfolder matching the tag (e.g., assets/music/dark_phonk/)
     tag_folder = os.path.join(bank_path, music_tag.lower())
     
     if os.path.exists(tag_folder):
@@ -23,7 +23,6 @@ def get_random_music(music_tag: str) -> str:
         if tracks:
             return os.path.join(tag_folder, random.choice(tracks))
     
-    # Fallback: Look for any file in the root music_bank that contains the tag in the name
     if os.path.exists(bank_path):
         all_files = [f for f in os.listdir(bank_path) if f.endswith(('.mp3', '.wav'))]
         matching = [f for f in all_files if music_tag.lower() in f.lower()]
@@ -32,11 +31,35 @@ def get_random_music(music_tag: str) -> str:
             
     return None
 
-def generate_subtitles_ass(text_segments: list, weights: list, total_duration: float, output_ass: str, style_name: str = "PUNCHY_YELLOW", glow_color: str = "&H0000D700"):
+def download_cinematic_font():
     """
-    V26: Generates a .ass subtitle file with dynamic styles and glow effects.
+    Ensures the Anton-Regular font is available for high-retention captions.
+    [cite: 419-423]
     """
-    # ASS Header with V26 Style Definitions
+    font_path = "/tmp/Anton-Regular.ttf"
+    if os.path.exists(font_path) and os.path.getsize(font_path) > 20000:
+        return font_path
+
+    mirrors = [
+        "https://github.com/google/fonts/raw/main/ofl/anton/Anton-Regular.ttf",
+        "https://fonts.gstatic.com/s/anton/v25/1Ptgg87LROyAm3K.ttf"
+    ]
+    for url in mirrors:
+        try:
+            response = requests.get(url, timeout=15)
+            if response.status_code == 200:
+                with open(font_path, "wb") as f:
+                    f.write(response.content)
+                return font_path
+        except:
+            continue
+    return "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
+
+def generate_subtitles_ass(text_segments: list, weights: list, total_duration: float, output_ass: str, style_name: str, glow_color: str):
+    """
+    Generates V26 Gaussian-glow captions for the 'Human' editing feel.
+    [cite: 431-442]
+    """
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
@@ -44,35 +67,32 @@ PlayResY: 1920
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: {style_name},Anton,80,&H00FFFFFF,&H000000FF,&H00000000,{glow_color},1,0,0,0,100,100,0,0,1,3,10,5,50,50,960,1
+Style: Glow,Anton,80,&H00000000,&H000000FF,{glow_color},&H00000000,1,0,0,0,100,100,0,0,1,25,0,2,10,10,500,1
+Style: {style_name},Anton,80,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,5,0,2,10,10,500,1
 """
-    
     events_header = "\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
     
     with open(output_ass, 'w', encoding='utf-8') as f:
-        f.write(header)
-        f.write(events_header)
-        
+        f.write(header + events_header)
         current_time = 0.0
         for i, text in enumerate(text_segments):
-            duration = weights[i] * total_duration
-            start_str = time.strftime('%H:%M:%S.%S', time.gmtime(current_time))[:-1]
-            end_str = time.strftime('%H:%M:%S.%S', time.gmtime(current_time + duration))[:-1]
-            
-            # Escape text for ASS
-            clean_text = text.replace('\n', ' ').strip()
-            f.write(f"Dialogue: 0,{start_str},{end_str},{style_name},,0,0,0,,{clean_text}\n")
-            current_time += duration
+            dur = weights[i] * total_duration
+            start = time.strftime('%H:%M:%S.%S', time.gmtime(current_time))[:-1]
+            end = time.strftime('%H:%M:%S.%S', time.gmtime(current_time + dur))[:-1]
+            clean_text = text.replace('\n', ' ').strip().upper()
+            f.write(f"Dialogue: 0,{start},{end},Glow,,0,0,0,,{{\\blur15}}{clean_text}\n")
+            f.write(f"Dialogue: 1,{start},{end},{style_name},,0,0,0,,{clean_text}\n")
+            current_time += dur
 
 def render_video(image_paths, audio_path, output_path, scene_weights, watermark_text="Ghost Engine", glow_color="&H0000D700", mood="NEUTRAL", music_tag="upbeat_curiosity", caption_style="PUNCHY_YELLOW"):
     """
-    V26 Full Multi-Layer Renderer.
-    Layers: 1. Images, 2. Subtitles, 3. Watermark, 4. Voiceover, 5. Background Music.
+    V26 Master Renderer with Deep Track Randomization.
+    [cite: 119-122, 446-455]
     """
     start_time = time.time()
     settings = config_manager.get_settings()
     
-    # 1. Get total duration from audio
+    # 1. Get total video duration
     try:
         probe = subprocess.check_output([
             'ffprobe', '-v', 'error', '-show_entries', 'format=duration',
@@ -80,94 +100,62 @@ def render_video(image_paths, audio_path, output_path, scene_weights, watermark_
         ]).decode('utf-8').strip()
         total_duration = float(probe)
     except Exception as e:
-        logger.error(f"FFprobe failed: {e}")
+        logger.error(f"FFprobe failed on voiceover: {e}")
         return False, 0, 0
 
-    # 2. Prepare Subtitles
-    # We split the script into sentences for the subtitles based on weights
-    # Since script_data isn't passed directly, we use the image_paths count to split
-    temp_ass = f"temp_subs_{int(start_time)}.ass"
-    # Note: In a production run, you'd pass the actual text segments. 
-    # For this implementation, we assume scene_weights corresponds to scenes.
-    # In job_runner, we'll ensure this syncs.
-    
-    # 3. Choose Music and Watermark Position
+    # 2. Deep Track Logic: Random Music Offset [cite: 119-122]
     music_file = get_random_music(music_tag)
-    watermark_pos = random.choice(settings["visuals"]["watermark"]["positions"])
-    
-    pos_map = {
-        "top_right":    "x=main_w-text_w-50:y=50",
-        "bottom_right": "x=main_w-text_w-50:y=main_h-text_h-50",
-        "top_left":     "x=50:y=50",
-        "bottom_left":  "x=50:y=main_h-text_h-50"
-    }
-    drawtext_pos = pos_map.get(watermark_pos, "x=50:y=50")
-
-    # 4. Construct Complex Filter
-    # Filter 1: Create video from images
-    # Filter 2: Mix Audio (Voice + Music)
-    music_vol = settings["audio"]["music_volume"]
-    
-    cmd = [
-        'ffmpeg', '-y',
-        '-loop', '1', '-i', image_paths[0], # Placeholder for concatenation logic
-    ]
-    
-    # Add all images (simplified concat for this block, full engine uses filter_complex concat)
-    filter_parts = []
-    for i, img in enumerate(image_paths):
-        cmd.extend(['-loop', '1', '-t', str(scene_weights[i] * total_duration), '-i', img])
-        filter_parts.append(f"[{i+1}:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920[v{i}];")
-    
-    concat_filter = "".join([f"[v{i}]" for i in range(len(image_paths))])
-    concat_filter += f"concat=n={len(image_paths)}:v=1:a=0[v_base];"
-    
-    # Subtitles and Watermark
-    visual_filter = concat_filter + (
-        f"[v_base]ass={temp_ass},"
-        f"drawtext=text='{watermark_text}':fontfile=assets/fonts/Anton-Regular.ttf:"
-        f"fontsize={settings['visuals']['watermark']['font_size']}:fontcolor=white@0.3:"
-        f"{drawtext_pos}[v_final]"
-    )
-
-    # Audio Mixing logic
-    audio_inputs = ['-i', audio_path]
+    music_start_offset = 0
     if music_file:
-        audio_inputs.extend(['-stream_loop', '-1', '-i', music_file])
-        audio_filter = f"[0:a]volume=1.0[a_voice];[1:a]volume={music_vol},afade=t=in:st=0:d=2[a_music];[a_voice][a_music]amix=inputs=2:duration=first[a_final]"
-    else:
-        audio_filter = "[0:a]volume=1.0[a_final]"
+        try:
+            m_probe = subprocess.check_output([
+                'ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+                '-of', 'default=noprint_wrappers=1:nokey=1', music_file
+            ]).decode('utf-8').strip()
+            music_total_len = float(m_probe)
+            
+            if music_total_len > (total_duration + 5):
+                # Pick a random start point, leaving a 5s buffer at the end
+                max_start = int(music_total_len - total_duration - 5)
+                music_start_offset = random.randint(0, max_start)
+                logger.render(f"🎵 Deep Track Sync: Starting '{music_tag}' at {music_start_offset}s")
+        except:
+            music_start_offset = 0
 
-    final_cmd = [
-        'ffmpeg', '-y'
-    ]
-    # Add image inputs
-    for i, img in enumerate(image_paths):
-        final_cmd.extend(['-loop', '1', '-t', str(scene_weights[i] * total_duration), '-i', img])
+    # 3. Prepare Subtitles and Watermark [cite: 453]
+    temp_ass = f"temp_subs_{int(start_time)}.ass"
+    # Fallback segments if not provided
+    segments = ["..."] * len(image_paths) 
+    generate_subtitles_ass(segments, scene_weights, total_duration, temp_ass, caption_style, glow_color)
     
-    # Add audio inputs
-    final_cmd.extend(['-i', audio_path])
-    if music_file:
-        final_cmd.extend(['-stream_loop', '-1', '-i', music_file])
-
-    # Build the filter_complex
+    font_path = download_cinematic_font()
+    safe_font = font_path.replace("\\", "/").replace(":", r"\:")
+    
+    # 4. Construct FFmpeg Filter Complex
     inputs_count = len(image_paths)
     v_inputs = "".join([f"[{i}:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920[v{i}];" for i in range(inputs_count)])
     v_concat = "".join([f"[v{i}]" for i in range(inputs_count)]) + f"concat=n={inputs_count}:v=1:a=0[v_base];"
     
-    # Handle Subtitles and Watermark in the filter
-    # FFmpeg requires escaping the path for the ass filter
-    escaped_ass = temp_ass.replace(":", "\\:").replace("\\", "/")
+    # Centralized Watermark [cite: 453]
+    v_final = f"[v_base]ass='{temp_ass}',drawtext=fontfile='{safe_font}':text='{watermark_text.upper()}':fontcolor=white@0.3:fontsize=50:x=(w-text_w)/2:y=h*0.28[vout]"
     
-    v_final = f"[v_base]ass='{escaped_ass}',drawtext=text='{watermark_text}':fontfile=assets/fonts/Anton-Regular.ttf:fontsize=45:fontcolor=white@0.3:{drawtext_pos}[vout]"
-    
-    # Audio Mixing
+    # Audio Mixing with Random Offset and Fade [cite: 51, 119-122]
     voice_idx = inputs_count
+    music_vol = settings["audio"]["music_volume"]
     if music_file:
         music_idx = inputs_count + 1
         a_final = f"[{voice_idx}:a]volume=1.0[avoice];[{music_idx}:a]volume={music_vol},afade=t=in:st=0:d=2[amusic];[avoice][amusic]amix=inputs=2:duration=first[aout]"
     else:
         a_final = f"[{voice_idx}:a]volume=1.0[aout]"
+
+    # 5. Execute Final Command
+    final_cmd = ['ffmpeg', '-y']
+    for i, img in enumerate(image_paths):
+        final_cmd.extend(['-loop', '1', '-t', str(scene_weights[i] * total_duration), '-i', img])
+    
+    final_cmd.extend(['-i', audio_path])
+    if music_file:
+        final_cmd.extend(['-ss', str(music_start_offset), '-stream_loop', '-1', '-i', music_file])
 
     final_cmd.extend([
         '-filter_complex', v_inputs + v_concat + v_final + ";" + a_final,
@@ -179,18 +167,11 @@ def render_video(image_paths, audio_path, output_path, scene_weights, watermark_
     ])
 
     try:
-        # Before running, create dummy ASS if text segments are missing (fallback)
-        if not os.path.exists(temp_ass):
-            generate_subtitles_ass(["..."] * len(image_paths), scene_weights, total_duration, temp_ass, caption_style, glow_color)
-            
         subprocess.run(final_cmd, check=True, capture_output=True)
-        
         size_mb = os.path.getsize(output_path) / (1024 * 1024)
         return True, total_duration, size_mb
     except subprocess.CalledProcessError as e:
         logger.error(f"FFmpeg Error: {e.stderr.decode()}")
         return False, 0, 0
     finally:
-        # Cleanup
-        if os.path.exists(temp_ass):
-            os.remove(temp_ass)
+        if os.path.exists(temp_ass): os.remove(temp_ass)
