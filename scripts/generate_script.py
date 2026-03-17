@@ -1,10 +1,8 @@
 # scripts/generate_script.py
-# Ghost Engine V26.0.0 — Human-Fingerprint & Resilient Directing
 import os
 import json
 import yaml
 import re
-import traceback
 import random
 from scripts.quota_manager import quota_manager
 from engine.database import db
@@ -18,7 +16,7 @@ _ABSOLUTE_WORD_CEILING = int(_MAX_VIDEO_SECONDS * _WORDS_PER_SECOND_TTS)
 
 def load_config_prompts():
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    with open(os.path.join(root_dir, "config", "prompts.yaml"), "r", encoding="utf-8") as f:
+    with open(os.path.join(root_dir, "config", "prompts.yaml"), "r") as f:
         return yaml.safe_load(f)
 
 def extract_scene_data(scene_dict, fallback_topic: str):
@@ -58,7 +56,6 @@ def generate_script(niche: str, topic: str, personality: str = "Generic Creator"
     target_dur    = "30-40 seconds"     if is_fact else "45-55 seconds"
     target_words  = "~75 words"         if is_fact else "~120 words"
 
-    # 🛠️ V26 FIX: Use .replace() instead of .format() to avoid literal {JSON} brace errors
     user_prompt = prompts_cfg["script_gen"]["user_template"]
     replacements = {
         "{niche}": active_niche,
@@ -88,7 +85,6 @@ def generate_script(niche: str, topic: str, personality: str = "Generic Creator"
             if start == -1 or end == -1: continue
 
             data = json.loads(raw[start:end + 1])
-            # 🛠️ V26 FIX: Sanitize keys to handle AI newline garbage (e.g. '\n "mood"')
             clean_data = {str(k).strip(): v for k, v in data.items()}
 
             creative_meta = {
