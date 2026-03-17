@@ -1,4 +1,5 @@
 # engine/job_runner.py
+# Ghost Engine V26.0.0 — Pipeline Orchestration & Creative Data Flow
 import os
 import time
 import shutil
@@ -25,7 +26,7 @@ class JobRunner:
         self.job            = job
         self.youtube        = youtube_client
         self.channel_name   = channel_name or job.channel_id
-        self.channel_config = channel_config   # ChannelConfig — used for category_id, language etc.
+        self.channel_config = channel_config   # ChannelConfig — contains personality and niche metadata
         self.max_attempts   = 3
         self.base_filename  = f"job_{job.id}_{job.channel_id.replace(' ', '_')}"
         self.final_duration = 0.0
@@ -36,17 +37,19 @@ class JobRunner:
         logger.engine(f"Processing Job {self.job.id} | Topic: {self.job.topic} | State: {self.job.state.name}")
 
         try:
+            # Recovery logic for interrupted jobs [cite: 159-161]
             if self.job.state in [JobState.VISUAL_GENERATION, JobState.RENDERING]:
                 if not self.job.audio_path or not os.path.exists(self.job.audio_path):
-                    logger.engine(f"⚠️ [RECOVERY] Job {self.job.id} physical audio missing. Rewinding to VOICE_GENERATION...")
+                    logger.engine(f"⚠️ [RECOVERY] Job {self.job.id} physical audio missing. Rewinding...")
                     self._transition_to(JobState.VOICE_GENERATION)
 
             if self.job.state == JobState.RENDERING:
                 paths = json.loads(self.job.image_paths) if self.job.image_paths else []
                 if not paths or not all(os.path.exists(p) for p in paths):
-                    logger.engine(f"⚠️ [RECOVERY] Job {self.job.id} physical images missing. Rewinding to VISUAL_GENERATION...")
+                    logger.engine(f"⚠️ [RECOVERY] Job {self.job.id} physical images missing. Rewinding...")
                     self._transition_to(JobState.VISUAL_GENERATION)
 
+            # Standard pipeline flow [cite: 161-165]
             if self.job.state == JobState.QUEUED:
                 self._transition_to(JobState.SCRIPT_GENERATION)
 
@@ -80,9 +83,6 @@ class JobRunner:
 
         except Exception as e:
             trace = traceback.format_exc()
-            print(f"\n🚨 [CRITICAL ERROR] JobRunner crashed on topic '{self.job.topic}':")
-            print(f"└ Exact Exception: {type(e).__name__}: {e}")
-            print(f"└ Traceback:\n{trace}\n")
             self._handle_failure(str(e), trace)
 
         return self.job.state == JobState.VAULTED
@@ -110,9 +110,10 @@ class JobRunner:
             time.sleep(5)
 
     def _execute_script_generation(self):
-        logger.generation("Drafting script...")
-        script_text, prompts, pexels, weights, prov, voice, glow_color = generate_script(
-            self.job.niche, self.job.topic
+        logger.generation("Drafting V26 Humanized Script...")
+        # V26: Passing personality from channel config and handling rich metadata [cite: 169-173]
+        script_text, prompts, pexels, weights, prov, meta = generate_script(
+            self.job.niche, self.job.topic, personality=self.channel_config.personality
         )
         if not script_text:
             raise ValueError("Empty script returned from generator.")
@@ -123,24 +124,28 @@ class JobRunner:
             logger.error(f"SEO Generation failed: {e}. Using fallback metadata.")
             meta_data = {
                 "title":       f"{self.job.niche} #shorts"[:95],
-                "description": "Mind blowing facts!",
+                "description": "Amazing Facts!",
                 "tags":        ["shorts", self.job.niche],
             }
 
+        # V26: Store all creative metadata in the job script field [cite: 172-173]
         self.job.script = json.dumps({
-            "text":         script_text,
-            "prompts":      prompts,
-            "pexels":       pexels,
-            "weights":      weights,
-            "provider":     prov,
-            "target_voice": voice,
-            "glow_color":   glow_color,   # caption neon halo color (ASS &HAABBGGRR)
+            "text":          script_text,
+            "prompts":       prompts,
+            "pexels":        pexels,
+            "weights":       weights,
+            "provider":      prov,
+            "target_voice":  meta.get("voice_actor", "am_adam"),
+            "glow_color":    meta.get("glow_color", "&H0000D700"),
+            "mood":          meta.get("mood", "NEUTRAL"),
+            "music_tag":     meta.get("music_tag", "upbeat_curiosity"),
+            "caption_style": meta.get("caption_style", "NEON_HORNET")
         })
         self.job.metadata = json.dumps(meta_data)
         self._transition_to(JobState.VOICE_GENERATION)
 
     def _execute_voice_generation(self):
-        logger.generation("Synthesizing audio...")
+        logger.generation("Synthesizing V26 Prosody Audio...")
         script_data  = json.loads(self.job.script)
         audio_base   = f"temp_audio_{self.base_filename}"
         target_voice = script_data.get("target_voice", "am_adam")
@@ -155,22 +160,19 @@ class JobRunner:
         self._transition_to(JobState.VISUAL_GENERATION)
 
     def _execute_visual_generation(self):
-        logger.generation("Sourcing scene images...")
+        logger.generation("Sourcing scene visuals...")
         script_data = json.loads(self.job.script)
         prompts     = script_data.get("prompts", [])
         pexels      = script_data.get("pexels",  [])
 
         if not prompts:
-            raise ValueError("No image prompts available in script data.")
+            raise ValueError("No image prompts available.")
 
         images, provider = fetch_scene_images(prompts, pexels, base_filename=f"temp_scene_{self.base_filename}")
         min_acceptable = max(1, len(prompts) // 2)
 
         if len(images) < min_acceptable:
-            raise RuntimeError(
-                f"Visual generation critically failed: {len(images)}/{len(prompts)} images. "
-                f"Last provider: {provider}"
-            )
+            raise RuntimeError(f"Visual generation failed: {len(images)}/{len(prompts)} images.")
 
         while len(images) < len(prompts):
             images.append(images[-1])
@@ -179,30 +181,27 @@ class JobRunner:
         self._transition_to(JobState.RENDERING)
 
     def _execute_rendering(self):
-        logger.generation("Rendering final video...")
+        logger.generation("Rendering V26 Multi-Layer Video...")
         script_data = json.loads(self.job.script)
         images      = json.loads(self.job.image_paths)
         weights     = script_data.get("weights", [])
 
-        # Resolve glow_color — accept legacy 'target_color' key from old jobs
-        # so that any QUEUED/RENDERING jobs created before this update still work.
-        glow_color = (
-            script_data.get("glow_color")
-            or script_data.get("target_color")
-            or None
-        )
+        # V26: Extracting dynamic creative metadata for the renderer [cite: 178-181]
+        glow_color    = script_data.get("glow_color")
+        mood          = script_data.get("mood")
+        music_tag     = script_data.get("music_tag")
+        caption_style = script_data.get("caption_style")
 
         scene_count = len(images)
         required_gb = max(2.0, (scene_count * 0.3) + 0.5)
         free_gb     = shutil.disk_usage("/").free / (1024 ** 3)
         if free_gb < required_gb:
-            raise RuntimeError(
-                f"Disk space too low: {free_gb:.1f} GB free, need {required_gb:.1f} GB."
-            )
+            raise RuntimeError(f"Disk space too low: {free_gb:.1f} GB free.")
 
         output_path = f"final_{self.base_filename}.mp4"
         watermark   = self.channel_name or self.job.channel_id
 
+        # Passing new creative parameters to render_video (to be updated in Step 3)
         success, duration, size_mb = render_video(
             image_paths=images,
             audio_path=self.job.audio_path,
@@ -210,10 +209,14 @@ class JobRunner:
             scene_weights=weights,
             watermark_text=watermark,
             glow_color=glow_color,
+            # V26: New mood and music parameters for the Step 3 mixer
+            mood=mood,
+            music_tag=music_tag,
+            caption_style=caption_style
         )
 
         if not success:
-            raise RuntimeError("FFmpeg render failed — output not produced.")
+            raise RuntimeError("FFmpeg render failed.")
 
         self.final_duration = duration
         self.final_size_mb  = size_mb
@@ -229,11 +232,10 @@ class JobRunner:
         script_data = json.loads(self.job.script)      if self.job.script   else {}
 
         if TEST_MODE:
-            logger.success("🧪 [TEST MODE] Bypassing YouTube Upload. Simulating success.")
+            logger.success("🧪 [TEST MODE] Bypassing Upload.")
             self.job.youtube_id = "test_mode_dummy_video_id"
             self._transition_to(JobState.VAULTED)
             notify_vault_secure(self.job.topic, self.job.youtube_id, "Test_Playlist_ID")
-
             notify_production_success(
                 niche=self.job.niche, topic=self.job.topic,
                 script=script_data.get("text", ""),
@@ -245,7 +247,7 @@ class JobRunner:
             return
 
         if not self.youtube:
-            raise RuntimeError("No YouTube client available for upload.")
+            raise RuntimeError("No YouTube client available.")
         if not self.job.video_path or not os.path.exists(self.job.video_path):
             raise RuntimeError(f"Video file not found at: {self.job.video_path}")
 
@@ -257,7 +259,7 @@ class JobRunner:
             self.job.niche, channel_config=self.channel_config
         )
         if not success:
-            raise RuntimeError(f"YouTube vault upload API failed: {video_id_or_error}")
+            raise RuntimeError(f"YouTube upload failed: {video_id_or_error}")
 
         self.job.youtube_id = video_id_or_error
         vault_id            = get_or_create_playlist(self.youtube, "Vault Backup")
