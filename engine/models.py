@@ -1,4 +1,5 @@
 # engine/models.py
+# Ghost Engine V26.0.0 — Data Integrity & Personality Architecture
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
 from enum import Enum
@@ -26,10 +27,13 @@ class ChannelConfig(BaseModel):
     youtube_client_secret_env: str = ""
     discord_webhook_env: str = ""
     creative_lenses: List[str] = Field(default_factory=list)
-    # Monetization metadata — all optional with safe defaults so existing code never breaks
-    category_id: str = "22"        # YouTube category. Default 22=People&Blogs. Set per channel in channels.yaml.
-    language: str = "en"           # Audio/video language for ad targeting
-    content_type: str = "factual"  # "factual" or "fictional" — controls script_gen prompt behaviour
+    
+    # V26: Personality & Monetization metadata
+    # These match the new structure in your updated channels.yaml
+    personality: str = "Generic Creator" # Guides LLM "Voice"
+    category_id: str = "22"               # YouTube category (e.g., 27 for Education)
+    language: str = "en"                  # Audio language for ad targeting
+    content_type: str = "factual"         # "factual" or "fictional" logic fork
 
 class VideoJob(BaseModel):
     id: Optional[int] = None
@@ -38,7 +42,10 @@ class VideoJob(BaseModel):
     niche: str
     state: JobState = JobState.QUEUED
     
-    script: Optional[str] = None
+    # V26 script field stores JSON including:
+    # text, prompts, pexels, weights, target_voice, glow_color, 
+    # mood, music_tag, and caption_style.
+    script: Optional[str] = None 
     metadata: Optional[str] = None
     audio_path: Optional[str] = None
     image_paths: Optional[str] = None
