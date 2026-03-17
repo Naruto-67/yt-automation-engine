@@ -1,0 +1,52 @@
+name: 00_V26_Smoke_Test
+
+on:
+  workflow_dispatch: # Allows manual trigger from the Actions tab
+  schedule:
+    - cron: '0 12 * * 1' # Runs every Monday at 12:00 PM UTC
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    if: vars.GHOST_ENGINE_ENABLED != 'false'
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq ffmpeg fonts-liberation espeak-ng
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install Python Dependencies
+        run: |
+          pip install -r requirements.txt
+          python -m spacy download en_core_web_sm
+
+      - name: Run Smoke Test
+        run: python smoke_test_v26.py
+        env:
+          TEST_MODE: "true"
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY:   ${{ secrets.GROQ_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          HF_TOKEN:       ${{ secrets.HF_TOKEN }}
+          CF_ACCOUNT_ID:  ${{ secrets.CF_ACCOUNT_ID }}
+          CF_API_TOKEN:   ${{ secrets.CF_API_TOKEN }}
+          # Channel 1 Infrastructure (for personality context)
+          YOUTUBE_REFRESH_TOKEN_CH1: ${{ secrets.YOUTUBE_REFRESH_TOKEN_CH1 }}
+          DISCORD_WEBHOOK_CH1:       ${{ secrets.DISCORD_WEBHOOK_CH1 }}
+
+      - name: Upload Test Video
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v26-smoke-test-video
+          path: v26_smoke_test_output.mp4
+          retention-days: 1
