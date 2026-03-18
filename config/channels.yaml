@@ -1,50 +1,51 @@
 # config/channels.yaml
-# Ghost Engine V26.0.0 — 100% Monetization & Humanization Architecture
-version: "26.0.0"
+version: "6.0.0"
 
 channels:
   - id: "CH_01"
     name: "AnimeRise"
     niche: "3D/Pixar-Style Moral Storytelling"
-    personality: "Gothic Narrator"  # Guides AI for human-like narrative soul
     target_audience: "US"
-    category_id: "1"               # Film & Animation
-    language: "en"                 # English TTS for US ad targeting
-    content_type: "fictional"      # Logic fork for storytelling rules
+    category_id: "1"          # Film & Animation — higher RPM than People & Blogs (22)
+    language: "en"             # English TTS — required for US ad targeting
+    content_type: "fictional"  # Signals script_gen to use storytelling rules, not fact rules
     youtube_client_id_env: "YOUTUBE_CLIENT_ID_CH1"
     youtube_client_secret_env: "YOUTUBE_CLIENT_SECRET_CH1"
     youtube_refresh_token_env: "YOUTUBE_REFRESH_TOKEN_CH1"
     discord_webhook_env: "DISCORD_WEBHOOK_CH1"
     active: true
-    # V26: Lenses updated for deeper "Human witness" immersion
     creative_lenses:
-      - "First-person witness accounts of supernatural mundane events"
-      - "The heavy emotional toll of being an immortal everyday object"
-      - "Hidden folklore found in modern urban alleyways"
+      - "The secret, unseen lives of everyday inanimate objects"
+      - "Unlikely and dangerous animal friendships in harsh environments"
+      - "Miniature, hidden civilizations living right beneath human feet"
+      - "The emotional journey of a discarded, obsolete piece of technology"
+      - "Magical realism intersecting with a mundane, normal human life"
+      - "The personification of abstract concepts, elements, or emotions"
       - "A massive, epic adventure undertaken by the smallest possible creature"
       - "A misunderstanding between a gentle monster and a terrified human"
-      - "The emotional journey of a discarded, obsolete piece of technology"
 
   - id: "CH_02"
     name: "Topato"
-    # V26: Expanded Niche for broad fact-telling (Funny, Dark, Sci, etc.)
-    niche: "funny facts, random facts, dark facts, educational facts, science facts"
-    personality: "Skeptical Researcher" # Guides AI to curate and react, not just list
+    niche: "trending facts, interesting facts, seasonal facts, educational facts, mind-blowing facts, random facts"
     target_audience: "US"
-    category_id: "27"              # Education
-    language: "en"                 # English TTS
-    content_type: "factual"        # Logic fork for verified facts
+    category_id: "27"          # Education — highest-RPM tier for fact/educational content
+    language: "en"              # English TTS — required for US ad targeting
+    content_type: "factual"    # Signals script_gen to enforce real facts and specifics
     youtube_client_id_env: "YOUTUBE_CLIENT_ID_CH2"
     youtube_client_secret_env: "YOUTUBE_CLIENT_SECRET_CH2"
     youtube_refresh_token_env: "YOUTUBE_REFRESH_TOKEN_CH2"
     discord_webhook_env: "DISCORD_WEBHOOK_CH2"
     active: true
     creative_lenses:
-      - "Funny and ridiculous laws that are still enforced today"
-      - "Dark and terrifying historical coincidences"
-      - "Bizarre biological facts that sound like science fiction"
-      - "Mind-blowing space and cosmic phenomena"
-      - "Glitch-in-the-matrix style real world anomalies"
-      - "The unsettling science behind everyday human habits"
       - "Counter-intuitive facts that contradict common beliefs"
       - "Largest, smallest, fastest, oldest things in existence"
+      - "Bizarre historical events that sound fictional but are real"
+      - "Hidden systems behind everyday life"
+      - "Extremely strange biological adaptations"
+      - "Facts about things happening right now on Earth"
+      - "Mind-blowing space and cosmic phenomena"
+      - "Future technologies that already exist in early form"
+      - "Crazy probabilities and coincidences"
+      - "Deep dives into ordinary objects revealing shocking facts"
+      - "Phenomena that seem impossible but are scientifically proven"
+      - "Unusual natural disasters or environmental phenomena"
