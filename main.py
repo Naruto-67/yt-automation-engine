@@ -1,5 +1,4 @@
 # main.py
-# Ghost Engine V26.0.0 — System Entry & Safety Gateway
 import os
 import sys
 import traceback
@@ -9,40 +8,34 @@ from scripts.quota_manager import quota_manager
 from engine.logger import logger
 
 def main():
-    # ─── SYSTEM KILL SWITCH ───────────────────────────────────────────────────
-    # Allows for immediate halting of all production via GitHub Repo Variables.
-    # 
+    # ─── POINT 3: SYSTEM KILL SWITCH ──────────────────────────────────────────
+    # Reads from GitHub Repo Variables (GHOST_ENGINE_ENABLED)
     _SYSTEM_ENABLED = os.environ.get("GHOST_ENGINE_ENABLED", "true").strip().lower()
     
     if _SYSTEM_ENABLED == "false":
         msg = "🔴 [KILL SWITCH] GHOST_ENGINE_ENABLED=false. System halted by operator."
         print(msg)
         try:
-            # Notify Discord that the system has been manually disabled
             notify_summary(False, f"**Kill Switch Active**\n{msg}\nSet to `true` to resume.")
-        except: 
-            pass
+        except: pass
         sys.exit(0)
     # ──────────────────────────────────────────────────────────────────────────
 
     try:
-        logger.engine("☀️ System Wake. Ghost Engine V26.0.0 Orchestrator Booting...")
+        logger.engine("☀️ System Wake. V5.0 Multi-Channel Orchestrator Booting...")
         
-        # Initialize the Command Center [cite: 10]
+        # Initialize and Run
         orchestrator = Orchestrator()
-        
-        # Execute the multi-channel production pipeline
         orchestrator.run_pipeline()
         
         logger.success("🌙 Pipeline Cycle Finished Successfully.")
         
     except Exception as e:
-        # FATAL DIAGNOSIS 
-        # In the event of a core failure, capture the traceback and notify the operator.
+        # POINT 9: Fatal Diagnosis
         tb = traceback.format_exc()
         logger.error(f"FATAL SYSTEM CRASH: {e}")
         
-        # Log the incident to persistent memory and dispatch a Discord alert
+        # Log to persistent error file and notify Discord
         quota_manager.diagnose_fatal_error("System Core (main.py)", e)
         sys.exit(1)
 
