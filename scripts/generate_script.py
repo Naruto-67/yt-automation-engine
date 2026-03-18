@@ -16,7 +16,7 @@ _ABSOLUTE_WORD_CEILING = int(_MAX_VIDEO_SECONDS * _WORDS_PER_SECOND_TTS)
 
 def load_config_prompts():
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    with open(os.path.join(root_dir, "config", "prompts.yaml"), "r") as f:
+    with open(os.path.join(root_dir, "config", "prompts.yaml"), "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 def extract_scene_data(scene_dict, fallback_topic: str):
@@ -28,10 +28,10 @@ def extract_scene_data(scene_dict, fallback_topic: str):
     return narr, prompt, query
 
 def validate_script_quality(script_text: str, prompts_cfg: dict) -> bool:
-    sys_msg  = prompts_cfg["script_validation"]["system_prompt"]
-    user_msg = prompts_cfg["script_validation"]["user_template"].format(script_text=script_text)
-    raw, _ = quota_manager.generate_text(user_msg, task_type="analysis", system_prompt=sys_msg)
     try:
+        sys_msg  = prompts_cfg["script_validation"]["system_prompt"]
+        user_msg = prompts_cfg["script_validation"]["user_template"].format(script_text=script_text)
+        raw, _ = quota_manager.generate_text(user_msg, task_type="analysis", system_prompt=sys_msg)
         numbers = [int(n) for n in re.findall(r'\b\d+\b', raw or "")]
         return numbers[-1] >= 6 if numbers else True
     except:
@@ -112,4 +112,4 @@ def generate_script(niche: str, topic: str, personality: str = "Generic Creator"
             print(f"⚠️ [SCRIPT] Attempt {attempt + 1} failed: {e}")
             continue
 
-    return ("Fallback narrative for " + topic, [topic], [topic], [1.0], "FALLBACK", {"mood": "NEUTRAL", "music_tag": "upbeat_curiosity", "caption_style": "PUNCHY_YELLOW", "voice_actor": "am_adam", "glow_color": "&H0000D700"})
+    return ("The mystery of " + topic + " is deep... Subscribe for more.", [topic], [topic], [1.0], "FALLBACK", {"mood": "NEUTRAL", "music_tag": "upbeat_curiosity", "caption_style": "PUNCHY_YELLOW", "voice_actor": "am_adam", "glow_color": "&H0000D700"})
