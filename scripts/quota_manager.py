@@ -20,14 +20,9 @@ class MasterQuotaManager:
             "gemini": 38, "cloudflare": 90, "huggingface": 45, "youtube": 9200
         })
 
-    def _today_utc(self) -> str: 
-        return datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
-    def _today_pt(self) -> str: 
-        return datetime.now(pytz.timezone('America/Los_Angeles')).strftime("%Y-%m-%d")
-
-    def _get_channel_id(self) -> str: 
-        return ctx.get_channel_id()
+    def _today_utc(self) -> str: return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    def _today_pt(self) -> str: return datetime.now(pytz.timezone('America/Los_Angeles')).strftime("%Y-%m-%d")
+    def _get_channel_id(self) -> str: return ctx.get_channel_id()
 
     def _get_active_state(self) -> dict:
         today_utc, today_pt, ch_id = self._today_utc(), self._today_pt(), self._get_channel_id()
@@ -40,12 +35,9 @@ class MasterQuotaManager:
             db.init_quota_state(today_utc, "GLOBAL", today_utc)
             gl_state = db.get_quota_state(today_utc, "GLOBAL") or {}
         return {
-            "date": today_utc, 
-            "channel_id": ch_id,
-            "youtube_points": ch_state.get("youtube_points", 0), 
-            "gemini_calls": gl_state.get("gemini_calls", 0),
-            "cf_images": gl_state.get("cf_images", 0), 
-            "hf_images": gl_state.get("hf_images", 0)
+            "date": today_utc, "channel_id": ch_id,
+            "youtube_points": ch_state.get("youtube_points", 0), "gemini_calls": gl_state.get("gemini_calls", 0),
+            "cf_images": gl_state.get("cf_images", 0), "hf_images": gl_state.get("hf_images", 0)
         }
 
     def consume_points(self, provider: str, amount: int):
@@ -56,15 +48,14 @@ class MasterQuotaManager:
             target_id, today, yt_update = "GLOBAL", self._today_utc(), None
             col_map = {"gemini": "gemini_calls", "cloudflare": "cf_images", "huggingface": "hf_images"}
             col = col_map.get(provider)
+        
         if col:
-            if not db.get_quota_state(today, target_id): 
-                db.init_quota_state(today, target_id, today)
+            if not db.get_quota_state(today, target_id): db.init_quota_state(today, target_id, today)
             db.update_quota(today, target_id, col, amount, yt_update)
             try:
                 state = self._get_active_state()
                 os.makedirs(os.path.dirname(_QUOTA_JSON_PATH), exist_ok=True)
-                with open(_QUOTA_JSON_PATH, "w") as f: 
-                    json.dump(state, f, indent=2)
+                with open(_QUOTA_JSON_PATH, "w") as f: json.dump(state, f, indent=2)
             except Exception: pass
 
     def can_afford_youtube(self, cost: int) -> bool:
@@ -79,11 +70,23 @@ class MasterQuotaManager:
         return state.get(col, 0) >= self.LIMITS.get(key, 9999)
 
     def generate_text(self, prompt: str, task_type: str = "creative", system_prompt: str = None) -> tuple:
+        """
+        Delegates text generation to the dedicated LLMRouter while strictly maintaining quota tracking.
+        This resolves the architectural God Object issue cleanly.
+        """
         gemini_quota_ok = not self.is_provider_exhausted("gemini")
+        
         from engine.llm_router import llm_router
-        generated_text, provider_log_name, provider_key = llm_router.execute_generation(prompt=prompt, system_prompt=system_prompt, gemini_quota_ok=gemini_quota_ok, task_type=task_type)
+        generated_text, provider_log_name, provider_key = llm_router.execute_generation(
+            prompt=prompt, 
+            system_prompt=system_prompt, 
+            gemini_quota_ok=gemini_quota_ok,
+            task_type=task_type,
+        )
+        
         if provider_key and provider_key != "none":
             self.consume_points(provider_key, 1)
+            
         return generated_text, provider_log_name
 
     def diagnose_fatal_error(self, module: str, exception: Exception):
@@ -93,8 +96,7 @@ class MasterQuotaManager:
             if os.path.exists(error_log) and os.path.getsize(error_log) > 1_000_000:
                 with open(error_log, "r") as f: lines = f.readlines()
                 with open(error_log, "w") as f: f.writelines(lines[len(lines)//2:])
-            with open(error_log, "a") as f: 
-                f.write(f"\n[{timestamp}] [{module}] {type(exception).__name__}: {exception}\n{trace}\n{'─'*40}")
+            with open(error_log, "a") as f: f.write(f"\n[{timestamp}] [{module}] {type(exception).__name__}: {exception}\n{trace}\n{'─'*40}")
         except: pass
         try:
             from scripts.discord_notifier import notify_error
