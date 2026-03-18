@@ -1,5 +1,4 @@
 # scripts/generate_visuals.py
-# Ghost Engine V26.0.0 — 4-Tier Visual Cascade & Integrity Validation
 import os
 import requests
 import urllib.parse
@@ -17,203 +16,361 @@ SIMULATE_CASCADE_TEST = False
 _HF_MODELS_CACHE = []
 
 # ── Minimum acceptable image file size ────────────────────────────────────────
-# Threshold to catch HTML error pages or tiny loading placeholders
-_MIN_IMAGE_BYTES = 10_000   # 10 KB 
+# HuggingFace and Cloudflare occasionally return HTTP 200 with:
+#   - An HTML error page (~1-5 KB of text)
+#   - A tiny loading placeholder PNG (< 2 KB)
+#   - A partially transferred JPEG (truncated / corrupt)
+# Writing these to disk then passing them to FFmpeg causes silent black frames
+# or render crashes. This threshold catches all three cases.
+_MIN_IMAGE_BYTES = 10_000   # 10 KB — any real 1080x1920 image is well above this
+
 
 def _validate_image(path: str) -> bool:
     """
-    Returns True only if the file is a valid, fully-decodable image.
-    Rejects HTML error pages and truncated JPEGs before they reach FFmpeg.
+    Returns True only if the file at `path` is a valid, fully-decodable image
+    of at least _MIN_IMAGE_BYTES. Rejects HTML error pages, tiny placeholders,
+    and truncated JPEGs before they reach FFmpeg.
     """
     try:
         if not os.path.exists(path):
-            return False [cite: 279]
-        if os.path.getsize(path) < _MIN_IMAGE_BYTES:
-            print(f"      ⚠️ [VALIDATE] Image too small ({os.path.getsize(path)} bytes). Rejecting.")
             return False
-        # PIL.verify() checks header/trailer for corruption [cite: 280]
+        if os.path.getsize(path) < _MIN_IMAGE_BYTES:
+            print(f"      ⚠️ [VALIDATE] Image too small ({os.path.getsize(path)} bytes < {_MIN_IMAGE_BYTES}). Rejecting.")
+            return False
+        # PIL.verify() checks the file header and trailer without loading all pixels —
+        # fast and catches truncated JPEGs and non-image content.
         with Image.open(path) as img:
             img.verify()
+        # verify() leaves the file in an uncertain state — re-open to confirm size
         with Image.open(path) as img:
             w, h = img.size
-            if w < 64 or h < 64: [cite: 281]
-                print(f"      ⚠️ [VALIDATE] Dimensions too small ({w}x{h}). Rejecting.")
+            if w < 64 or h < 64:
+                print(f"      ⚠️ [VALIDATE] Image dimensions too small ({w}x{h}). Rejecting.")
                 return False
         return True
     except Exception as e:
         print(f"      ⚠️ [VALIDATE] Image failed decode check: {e}. Rejecting.")
         return False
 
-# Pushes output quality toward the photorealistic V26 aesthetic 
+
+# Appended to every image generation request to push output quality toward
+# the vivid, photorealistic aesthetic of the manually-created Topato videos.
 _QUALITY_SUFFIX = (
     ", vertical 9:16 format, photorealistic, highly detailed, "
     "vibrant cinematic lighting, vivid colors, 8k quality, masterpiece"
 )
+# Cloudflare has a 200-char prompt limit — leave room for suffix
 _PROMPT_MAX_BASE = 180
+
 
 def load_config_prompts():
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     with open(os.path.join(root_dir, "config", "prompts.yaml"), "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
+
 def _execute_jitter_backoff(attempt: int, api_name: str):
-    """Tiered delay brackets to handle API rate limits [cite: 283]"""
     if attempt == 0:
         wait_time = random.uniform(5.0, 10.0)
+        tier = "Low"
     elif attempt == 1:
         wait_time = random.uniform(20.0, 40.0)
+        tier = "Mid"
     else:
         wait_time = random.uniform(40.0, 60.0)
-    print(f"      ⏳ [{api_name} RPM] Backoff: cooling down for {wait_time:.1f}s...")
+        tier = "High"
+    print(f"      ⏳ [{api_name} RPM] Tier {tier} backoff. Cooling down for {wait_time:.1f}s...")
     time.sleep(wait_time)
 
+
 def _regenerate_safe_prompt(bad_prompt):
-    """Uses LLM to rewrite prompts rejected by safety filters [cite: 284]"""
     prompts_cfg = load_config_prompts()
-    sys_msg = prompts_cfg.get("visual_safety", {}).get("system_prompt", "AI Safety Filter")
-    template = prompts_cfg.get("visual_safety", {}).get("user_template", "{bad_prompt}")
+    sys_msg  = prompts_cfg.get("visual_safety", {}).get("system_prompt", "You are an AI Safety Filter & Creative Prompt Engineer.")
+    template = prompts_cfg.get("visual_safety", {}).get("user_template", "Rewrite this to be safe: {bad_prompt}")
     user_msg = template.format(bad_prompt=bad_prompt)
     try:
         clean_text, _ = quota_manager.generate_text(user_msg, task_type="creative", system_prompt=sys_msg)
         if clean_text:
             return clean_text.strip().replace('"', '').replace('\n', ' ')
     except Exception:
-        pass
+        trace = traceback.format_exc()
+        print(f"⚠️ [VISUALS] Prompt rewrite failed:\n{trace}")
     return "Cinematic 3D animation of a mysterious artifact, highly detailed"
 
+
 def discover_hf_image_models():
-    """Auto-discovers trending text-to-image models on HuggingFace [cite: 285-290]"""
     global _HF_MODELS_CACHE
-    if _HF_MODELS_CACHE: return _HF_MODELS_CACHE
+    if _HF_MODELS_CACHE:
+        return _HF_MODELS_CACHE
+
+    print("🔍 [HF] Auto-discovering trending text-to-image models...")
     try:
         url = "https://huggingface.co/api/models?pipeline_tag=text-to-image&sort=trending&limit=20"
         res = requests.get(url, timeout=10)
         if res.status_code == 200:
-            candidates = [m['id'] for m in res.json()]
-            valid_models = [m for m in candidates if any(x in m.lower() for x in ['flux', 'sdxl', 'diffusion'])]
+            models_data = res.json()
+            candidates  = [m['id'] for m in models_data]
+
+            def _score_hf(name):
+                s = 0
+                n = name.lower()
+                if 'flux'         in n: s += 50
+                if 'schnell'      in n: s += 30
+                if 'stable-diffusion' in n: s += 20
+                if 'turbo'        in n or 'lightning' in n: s += 15
+                if 'lora'         in n or 'controlnet' in n or 'adapter' in n or 'ip-adapter' in n: s -= 100
+                return s
+
+            valid_models = [m for m in candidates if _score_hf(m) > 0]
+            valid_models.sort(key=_score_hf, reverse=True)
+
             if valid_models:
+                # Only cache on successful discovery so stale fallback list
+                # is never locked in if the API later becomes available.
                 _HF_MODELS_CACHE = valid_models[:4]
+                print(f"✅ [HF] Model cascade dynamically updated: {_HF_MODELS_CACHE}")
                 return _HF_MODELS_CACHE
+
     except Exception:
-        pass
+        trace = traceback.format_exc()
+        print(f"⚠️ [HF] Discovery failed:\n{trace}")
+
+    # Do NOT set _HF_MODELS_CACHE here — keep it empty so next run retries discovery
     return ["black-forest-labs/FLUX.1-schnell", "stabilityai/stable-diffusion-xl-base-1.0"]
 
-def generate_cloudflare_image(prompt, output_path):
-    """Tier 1: High-speed FLUX generation [cite: 291-297]"""
-    if quota_manager.is_provider_exhausted("cloudflare"): return False, "Quota"
-    account_id, api_token = os.environ.get("CF_ACCOUNT_ID"), os.environ.get("CF_API_TOKEN")
-    if not account_id or not api_token: return False, "Credentials"
 
-    url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/@cf/black-forest-labs/flux-1-schnell"
+def generate_cloudflare_image(prompt, output_path):
+    print("      [Tier 1: Cloudflare AI] Attempting Official FLUX...")
+    if SIMULATE_CASCADE_TEST or quota_manager.is_provider_exhausted("cloudflare"):
+        return False, "Quota Reached"
+
+    account_id = os.environ.get("CF_ACCOUNT_ID")
+    api_token  = os.environ.get("CF_API_TOKEN")
+    if not account_id or not api_token:
+        return False, "Missing CF Credentials"
+
+    url     = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/@cf/black-forest-labs/flux-1-schnell"
     headers = {"Authorization": f"Bearer {api_token}", "Content-Type": "application/json"}
+
+    # Trim base to leave room for the quality suffix (CF hard-limits total prompt)
     clean_base = prompt[:_PROMPT_MAX_BASE].replace('"', '').replace('\n', ' ')
-    payload = {"prompt": f"{clean_base}{_QUALITY_SUFFIX}"}
+    payload    = {"prompt": f"{clean_base}{_QUALITY_SUFFIX}"}
 
     for retry in range(3):
         try:
-            response = requests.post(url, headers=headers, json=payload, timeout=60)
+            response = requests.post(url, headers=headers, json=payload, timeout=(15, 60))
             if response.status_code == 200:
-                with open(output_path, "wb") as f:
-                    f.write(response.content)
-                if _validate_image(output_path):
-                    quota_manager.consume_points("cloudflare", 1)
-                    return True, ""
-            _execute_jitter_backoff(retry, "CF AI")
+                data = (
+                    response.json()
+                    if "application/json" in response.headers.get("Content-Type", "")
+                    else None
+                )
+                if data and "result" in data and "image" in data["result"]:
+                    with open(output_path, "wb") as f:
+                        f.write(base64.b64decode(data["result"]["image"]))
+                else:
+                    with open(output_path, "wb") as f:
+                        f.write(response.content)
+                if not _validate_image(output_path):
+                    if retry < 2:
+                        _execute_jitter_backoff(retry, "CF AI")
+                        continue
+                    return False, "Invalid image data"
+                quota_manager.consume_points("cloudflare", 1)
+                return True, ""
+            elif response.status_code >= 500 and retry < 2:
+                _execute_jitter_backoff(retry, "CF AI")
+                continue
+            elif response.status_code == 400:
+                return False, "HTTP 400 (Safety Filter)"
+            else:
+                return False, f"HTTP {response.status_code}"
         except Exception:
-            _execute_jitter_backoff(retry, "CF AI")
-    return False, "Failed"
+            trace = traceback.format_exc()
+            print(f"🚨 [CF AI ERROR]:\n{trace}")
+            if retry < 2:
+                _execute_jitter_backoff(retry, "CF AI")
+                continue
+            return False, "Timeout Error"
+    return False, "Exhausted Retries"
+
 
 def generate_huggingface_cascade(prompt, output_path):
-    """Tier 2: Multi-model AI failover [cite: 298-308]"""
-    if quota_manager.is_provider_exhausted("huggingface"): return False, "Quota"
+    print("      [Tier 2: HuggingFace] Attempting AI cascade...")
+    if quota_manager.is_provider_exhausted("huggingface"):
+        return False, "HF Quota Reached"
     hf_token = os.environ.get("HF_TOKEN")
-    if not hf_token: return False, "No Token"
+    if not hf_token:
+        return False, "No Token"
 
     dynamic_models = discover_hf_image_models()
-    headers = {"Authorization": f"Bearer {hf_token}"}
-    payload = {"inputs": f"{prompt[:_PROMPT_MAX_BASE]}{_QUALITY_SUFFIX}"}
+    headers        = {"Authorization": f"Bearer {hf_token}", "Content-Type": "application/json"}
+
+    clean_base = prompt[:_PROMPT_MAX_BASE].replace('"', '').replace('\n', ' ')
+    payload    = {"inputs": f"{clean_base}{_QUALITY_SUFFIX}"}
 
     for model in dynamic_models:
+        short_name = model.split('/')[-1]
+        print(f"      -> Routing to {short_name}...")
+        if SIMULATE_CASCADE_TEST and "FLUX" in model:
+            continue
+
         url = f"https://api-inference.huggingface.co/models/{model}"
-        for retry in range(2):
+
+        for retry in range(3):
             try:
-                res = requests.post(url, headers=headers, json=payload, timeout=60)
-                if res.status_code == 200:
+                response = requests.post(url, headers=headers, json=payload, timeout=(15, 60))
+                if response.status_code == 200:
                     with open(output_path, "wb") as f:
-                        f.write(res.content)
-                    if _validate_image(output_path):
-                        quota_manager.consume_points("huggingface", 1)
-                        return True, model
-                elif res.status_code == 503: # Model Loading [cite: 305]
-                    time.sleep(15)
+                        f.write(response.content)
+                    if not _validate_image(output_path):
+                        # HF returned HTTP 200 but content is garbage (HTML, tiny PNG, truncated)
+                        print(f"      ⚠️ [HF VALIDATE] {short_name} returned invalid image data. Trying next model.")
+                        break  # skip to next model — don't retry same bad response
+                    quota_manager.consume_points("huggingface", 1)
+                    return True, f"HF ({short_name})"
+                elif response.status_code in [401, 402, 403, 404]:
+                    break  # skip to next model
+                elif response.status_code >= 500:
+                    try:
+                        data      = response.json()
+                        wait_time = min(int(data.get("estimated_time", 13)) + 2, 60)
+                        print(f"      ⏳ [HF LOAD] Model booting. Waiting {wait_time}s...")
+                        time.sleep(wait_time)
+                        continue
+                    except Exception:
+                        if retry < 2:
+                            _execute_jitter_backoff(retry, "HF AI")
+                            continue
+            except Exception:
+                trace = traceback.format_exc()
+                print(f"🚨 [HF AI ERROR]:\n{trace}")
+                if retry < 2:
+                    _execute_jitter_backoff(retry, "HF AI")
                     continue
                 break
-            except Exception:
-                break
-    return False, "Exhausted"
 
-def fallback_pexels_image(search_query, output_path):
-    """Tier 3: Stock imagery fallback [cite: 309-312]"""
+    return False, "HF Exhausted"
+
+
+def fallback_pexels_image(search_query, output_path, is_retry=False):
+    safe_query = " ".join(
+        [w for w in re.sub(r'[^a-zA-Z0-9\s]', '', search_query).split() if len(w) >= 2][:3]
+    ) or "cinematic"
+    print(f"      [Tier 3: Pexels] Searching: '{safe_query}'...")
     api_key = os.environ.get("PEXELS_API_KEY")
-    if not api_key: return False, "No Key"
-    safe_query = urllib.parse.quote(search_query[:50])
-    url = f"https://api.pexels.com/v1/search?query={safe_query}&orientation=portrait&per_page=1"
+    if not api_key:
+        return False, "No Key"
+
     try:
-        res = requests.get(url, headers={"Authorization": api_key}, timeout=20).json()
+        url = (
+            f"https://api.pexels.com/v1/search"
+            f"?query={urllib.parse.quote(safe_query)}&orientation=portrait&per_page=15"
+        )
+        res = requests.get(url, headers={"Authorization": api_key}, timeout=(10, 30)).json()
         if res.get('photos'):
-            img_url = res['photos'][0]['src']['large2x']
-            data = requests.get(img_url, timeout=20).content
+            img_data = requests.get(
+                random.choice(res['photos'])['src']['large2x'], timeout=(10, 30)
+            ).content
             with open(output_path, 'wb') as f:
-                f.write(data)
-            return _validate_image(output_path), "Pexels"
+                f.write(img_data)
+            if not _validate_image(output_path):
+                if not is_retry:
+                    return fallback_pexels_image("cinematic aesthetic", output_path, is_retry=True)
+                return False, "Invalid image data"
+            return True, ""
+        elif not is_retry:
+            return fallback_pexels_image("cinematic aesthetic", output_path, is_retry=True)
     except Exception:
-        pass
-    return False, "Failed"
+        trace = traceback.format_exc()
+        print(f"🚨 [PEXELS ERROR]:\n{trace}")
+        return False, "API Error"
+    return False, "No images found"
+
 
 def generate_offline_gradient(output_path):
-    """Tier 4: Emergency local render to prevent black frames [cite: 313-315]"""
+    print("      🛡️ [Tier 4] Local Gradient Render...")
     try:
         image = Image.new("RGB", (1080, 1920), "#000000")
-        draw = ImageDraw.Draw(image)
-        r1, g1, b1 = random.randint(10, 50), random.randint(10, 50), random.randint(50, 100)
-        r2, g2, b2 = random.randint(0, 20), random.randint(0, 20), random.randint(0, 20)
+        draw  = ImageDraw.Draw(image)
+        r1, g1, b1 = random.randint(10, 50),  random.randint(10, 50),  random.randint(50, 100)
+        r2, g2, b2 = random.randint(0,  20),  random.randint(0,  20),  random.randint(0,  20)
         for y in range(1920):
-            draw.line([(0, y), (1080, y)], fill=(
-                int(r1 + (r2 - r1) * (y / 1920)),
-                int(g1 + (g2 - g1) * (y / 1920)),
-                int(b1 + (b2 - b1) * (y / 1920))
-            ))
+            draw.line(
+                [(0, y), (1080, y)],
+                fill=(
+                    int(r1 + (r2 - r1) * (y / 1920)),
+                    int(g1 + (g2 - g1) * (y / 1920)),
+                    int(b1 + (b2 - b1) * (y / 1920)),
+                )
+            )
         image.save(output_path, "JPEG", quality=90)
         return True, "Local Render"
     except Exception:
-        return False, "Fatal"
+        trace = traceback.format_exc()
+        print(f"🚨 [LOCAL RENDER ERROR]:\n{trace}")
+        return False, "Fatal Render"
+
 
 def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene"):
-    """Main Orchestrator for visual sourcing [cite: 316-324]"""
+    print(f"🖼️ [VISUALS] Sourcing {len(prompts_list)} scenes...")
     successful_images = []
-    safe_mode = guardian.is_safe_mode() [cite: 316]
-    
-    for i, original_prompt in enumerate(prompts_list):
-        output_path = f"{base_filename}_{i}.jpg"
-        success = False
-        
-        if not safe_mode: [cite: 317-322]
-            # Try AI Tiers
-            success, _ = generate_cloudflare_image(original_prompt, output_path)
-            if not success:
-                success, _ = generate_huggingface_cascade(original_prompt, output_path)
-        
-        if not success:
-            # Fallback to Stock [cite: 323]
-            query = pexels_queries[i] if i < len(pexels_queries) else original_prompt
-            success, _ = fallback_pexels_image(query, output_path)
-            
-        if not success:
-            # Emergency Local Render
-            success, _ = generate_offline_gradient(output_path)
-            
-        if success:
-            successful_images.append(output_path) [cite: 324]
-        time.sleep(1)
 
-    return successful_images, "Hybrid Cascade"
+    safe_mode    = guardian.is_safe_mode()
+    tier1_active = not safe_mode
+    tier2_active = not safe_mode
+    if safe_mode:
+        print("🛡️ [SAFE MODE] API Quota critically low for this channel. Bypassing AI generation.")
+
+    final_provider = "Unknown"
+    for i, original_prompt in enumerate(prompts_list):
+        output_path    = f"{base_filename}_{i}.jpg"
+        success        = False
+        current_prompt = original_prompt
+        safety_retries = 0
+
+        while True:
+            if tier1_active:
+                success, err = generate_cloudflare_image(current_prompt, output_path)
+                if success:
+                    final_provider = "Cloudflare FLUX API"
+                    break
+                elif "400" in err and safety_retries < 1:
+                    print("      ⚠️ Tier 1 Safety Filter triggered. Rewriting prompt...")
+                    current_prompt = _regenerate_safe_prompt(current_prompt)
+                    safety_retries += 1
+                    continue
+                elif any(x in err for x in ["401", "402", "403"]):
+                    tier1_active = False
+
+            if not success and tier2_active:
+                success, err = generate_huggingface_cascade(current_prompt, output_path)
+                if success:
+                    final_provider = err
+                    break
+                elif "400" in err and safety_retries < 1:
+                    print("      ⚠️ Tier 2 Safety Filter triggered. Rewriting prompt...")
+                    current_prompt = _regenerate_safe_prompt(current_prompt)
+                    safety_retries += 1
+                    continue
+                elif any(x in err for x in ["401", "402", "403"]):
+                    tier2_active = False
+            break
+
+        if not success:
+            # Guard against IndexError when pexels_queries is shorter than prompts_list
+            safe_query = pexels_queries[i] if i < len(pexels_queries) else original_prompt
+            success, err = fallback_pexels_image(safe_query, output_path)
+            if success:
+                final_provider = "Pexels Stock"
+
+        if not success:
+            success, err = generate_offline_gradient(output_path)
+            if success:
+                final_provider = "Offline Generator"
+
+        if success:
+            successful_images.append(output_path)
+        time.sleep(2)
+
+    return successful_images, final_provider
