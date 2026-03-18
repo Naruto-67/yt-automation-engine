@@ -9,7 +9,7 @@ class LLMRouter:
     def __init__(self):
         self.gemini_key = os.environ.get("GEMINI_API_KEY")
         self.groq_key = os.environ.get("GROQ_API_KEY")
-        self._gemini_models = ["gemini-2.0-flash", "gemini-1.5-flash"]
+        self._gemini_models = ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash"]
         self._last_call = 0.0
 
     def _enforce_throttle(self):
@@ -21,7 +21,7 @@ class LLMRouter:
     def execute_generation(self, prompt: str, system_prompt: Optional[str], gemini_quota_ok: bool, task_type: str = "creative") -> Tuple[Optional[str], str, str]:
         logger.info(f"LLM Router: Task Type '{task_type}' | Gemini Quota Status: {gemini_quota_ok}")
 
-        # 1. Primary AI: Google Gemini (2026 Optimization)
+        # 1. Primary AI: Google Gemini (High Speed/Reasoning)
         if gemini_quota_ok and self.gemini_key:
             for model in self._gemini_models:
                 logger.info(f"LLM Router: Attempting primary generation via {model}...")
@@ -37,7 +37,7 @@ class LLMRouter:
                 except Exception as e:
                     logger.warning(f"LLM Router: Gemini {model} failed: {str(e)[:100]}")
 
-        # 2. Secondary AI: Groq (Llama 3.3 Versatile)
+        # 2. Secondary AI: Groq (Low Latency Failover)
         if self.groq_key:
             logger.info("LLM Router: Engaging Groq Llama 3.3 failover...")
             try:
