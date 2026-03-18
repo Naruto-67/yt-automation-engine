@@ -5,13 +5,9 @@ import time
 import yaml
 import random
 from datetime import datetime, timedelta, timezone
-from scripts.youtube_manager import (
-    get_authenticated_service, get_or_create_playlist
-)
+from scripts.youtube_manager import get_authenticated_service, get_or_create_playlist
 from scripts.quota_manager import quota_manager
-from scripts.discord_notifier import (
-    set_channel_context, notify_published, notify_summary, notify_error
-)
+from scripts.discord_notifier import set_channel_context, notify_published, notify_summary
 from engine.database import db
 from engine.models import JobState
 from engine.config_manager import config_manager
@@ -20,6 +16,7 @@ from engine.logger import logger
 TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
 
 def analyze_power_hours(youtube) -> list:
+    """Historical Engagement Heatmap Feature"""
     if not youtube: return ["15:00", "20:00"]
     try:
         ch_res = youtube.channels().list(part="contentDetails", mine=True).execute()
@@ -76,3 +73,6 @@ def publish_vault_videos():
             db.upsert_job(job)
             published_total += 1
             notify_published(job.topic, vid_id, target_dt.strftime("%Y-%m-%d %H:%M"))
+
+if __name__ == "__main__":
+    publish_vault_videos()
