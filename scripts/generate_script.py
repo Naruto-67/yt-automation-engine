@@ -16,7 +16,7 @@ _ABSOLUTE_WORD_CEILING = int(_MAX_VIDEO_SECONDS * _WORDS_PER_SECOND_TTS)
 
 def load_config_prompts():
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    with open(os.path.join(root_dir, "config", "prompts.yaml"), "r", encoding="utf-8") as f:
+    with open(os.path.join(root_dir, "config", "prompts.yaml"), "r") as f:
         return yaml.safe_load(f)
 
 def extract_scene_data(scene_dict, fallback_topic: str):
@@ -24,7 +24,7 @@ def extract_scene_data(scene_dict, fallback_topic: str):
         return str(scene_dict), f"Cinematic shot of {fallback_topic}", fallback_topic
     narr   = scene_dict.get("text")         or scene_dict.get("narration") or fallback_topic
     prompt = scene_dict.get("image_prompt") or scene_dict.get("visual")    or f"Cinematic {fallback_topic}"
-    query  = scene_dict.get("stock_keyword") or fallback_topic
+    query  = scene_dict.get("pexels_query") or fallback_topic
     return narr, prompt, query
 
 def validate_script_quality(script_text: str, prompts_cfg: dict) -> bool:
@@ -56,6 +56,7 @@ def generate_script(niche: str, topic: str, personality: str = "Generic Creator"
     target_dur    = "30-40 seconds"     if is_fact else "45-55 seconds"
     target_words  = "~75 words"         if is_fact else "~120 words"
 
+    # 🛠️ V26 FIX: Use .replace() to avoid brace errors in prompts.yaml
     user_prompt = prompts_cfg["script_gen"]["user_template"]
     replacements = {
         "{niche}": active_niche,
@@ -109,7 +110,7 @@ def generate_script(niche: str, topic: str, personality: str = "Generic Creator"
             return full_text, img_prompts, pexels_queries, scene_weights, provider, creative_meta
 
         except Exception as e:
-            print(f"⚠️ [SCRIPT] Attempt {attempt + 1} failed: {e}")
+            logger.warning(f"Script attempt {attempt+1} failed: {e}")
             continue
 
-    return ("The mystery of " + topic + " is deep... Subscribe for more.", [topic], [topic], [1.0], "FALLBACK", {"mood": "NEUTRAL", "music_tag": "upbeat_curiosity", "caption_style": "PUNCHY_YELLOW", "voice_actor": "am_adam", "glow_color": "&H0000D700"})
+    return (f"The truth about {topic} is deeper than it seems.", [topic], [topic], [1.0], "FALLBACK", {"mood": "NEUTRAL", "music_tag": "upbeat_curiosity", "caption_style": "PUNCHY_YELLOW", "voice_actor": "am_adam", "glow_color": "&H0000D700"})
