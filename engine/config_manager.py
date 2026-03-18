@@ -1,5 +1,4 @@
 # engine/config_manager.py
-# Ghost Engine V26.0.0 — Configuration Orchestration logic
 import os
 import yaml
 import copy
@@ -32,12 +31,10 @@ class ConfigManager:
         active_channels = []
         for ch in raw_channels:
             if ch.get("active", False):
-                # V26: Added 'personality' to the constructor call
                 active_channels.append(ChannelConfig(
                     channel_id=ch.get("id", ""),
                     channel_name=ch.get("name", ""),
                     niche=ch.get("niche", ""),
-                    personality=ch.get("personality", "Generic Creator"),
                     target_audience=ch.get("target_audience", "Global"),
                     youtube_refresh_token_env=ch.get("youtube_refresh_token_env", ""),
                     youtube_client_id_env=ch.get("youtube_client_id_env", ""),
@@ -58,11 +55,10 @@ class ConfigManager:
         return self._load_yaml(self.settings_path)
 
     def get_settings(self) -> Dict[str, Any]:
-        # Return deepcopy to prevent mutable cache corruption across processes
+        # 🚨 FIX: Return deepcopy to prevent mutable cache corruption across processes
         return copy.deepcopy(self._cached_settings())
 
     def reload_channels(self):
-        # Clears any cached channel state if needed in future iterations
         pass
 
 config_manager = ConfigManager()
