@@ -160,7 +160,6 @@ class DatabaseManager:
             return {"emphasize": [], "avoid": [], "preferred_visuals": [], "hook_patterns": [], "evolved_niche": None}
 
     def upsert_channel_intelligence(self, channel_id: str, data: dict):
-        """Used by performance_analyst.py"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
@@ -170,10 +169,6 @@ class DatabaseManager:
             ''', (channel_id, json.dumps(data), datetime.utcnow().isoformat()))
             conn.commit()
 
-    def save_channel_intelligence(self, channel_id: str, data: dict):
-        """Alias for compatibility"""
-        self.upsert_channel_intelligence(channel_id, data)
-
     def get_all_historical_topics(self, channel_id: str) -> list:
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -181,11 +176,10 @@ class DatabaseManager:
             return [row[0].lower() for row in cursor.fetchall()]
 
     def archive_topic(self, channel_id: str, topic: str, niche: str):
-        """Used by dynamic_researcher.py"""
-        # Historical tracking is done via the video_jobs table in V26
+        # Tracking is handled via the video_jobs table in V26
         pass
 
-    # --- Logging & Pruning ---
+    # --- Logging & Maintenance ---
     def log_failure(self, failure: FailureLog):
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -196,10 +190,10 @@ class DatabaseManager:
             conn.commit()
 
     def prune_old_jobs(self, days: int = 30):
-        """Used by storage_manager.py"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM video_jobs WHERE created_at < date('now', ?)", (f'-{days} days',))
+            conn.commit()
             return cursor.rowcount
 
 db = DatabaseManager()
