@@ -634,32 +634,22 @@ def render_video(image_paths, audio_path, output_path,
     if clip_durs:
         clip_durs[-1] += 0.6   # tail buffer for last scene
 
-    # ── Image reuse: render each image as 2 sub-clips ─────────────────────────
-    # Sub-clip A uses effect index N, sub-clip B uses index N+1.
-    # The global effect_index increments across all sub-clips so no two
-    # consecutive clips ever use the same motion direction.
-    clip_files    = []
-    effect_index  = 0
+    # ── One unique Ken Burns clip per scene ────────────────────────────────────
+    # Each image gets exactly one motion effect. Effect index cycles through the
+    # 8-effect pool so consecutive scenes always have different motion directions.
+    clip_files   = []
+    effect_index = 0
 
     for i, img in enumerate(image_paths):
-        half_dur = clip_durs[i] / 2.0
+        clip_out = f"temp_anim_{i}.mp4"
+        success  = create_ken_burns_clip(img, clip_durs[i], clip_out, index=effect_index)
+        if success:
+            clip_files.append(clip_out)
+        else:
+            print(f"⚠️ [RENDERER] Clip {i} failed — skipping scene.")
+        effect_index += 1
 
-        for sub in range(2):
-            clip_out = f"temp_anim_{i}_{sub}.mp4"
-            success  = create_ken_burns_clip(img, half_dur, clip_out, index=effect_index)
-            if success:
-                clip_files.append(clip_out)
-            else:
-                # Sub-clip failed — try the full duration as a single clip fallback
-                print(f"⚠️ [RENDERER] Sub-clip {i}_{sub} failed. Trying single-clip fallback...")
-                if sub == 0:
-                    clip_fallback = f"temp_anim_{i}_fallback.mp4"
-                    if create_ken_burns_clip(img, clip_durs[i], clip_fallback, index=effect_index):
-                        clip_files.append(clip_fallback)
-                    break   # skip sub-clip 1 since we used the full duration
-            effect_index += 1
-
-    print(f"   📽️  Clips generated: {len(clip_files)} (from {len(image_paths)} images × 2 sub-clips each)")
+    print(f"   📽️  Clips generated: {len(clip_files)} (from {len(image_paths)} unique scenes)")
 
     if not clip_files:
         return False, total_dur, 0
