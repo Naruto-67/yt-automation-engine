@@ -39,30 +39,41 @@ def format_time(seconds: float) -> str:
 
 def trim_audio_precision(file_path: str):
     """
-    Intelligently trim leading silence from TTS audio instead of blindly
-    cutting a fixed 200ms that can clip the opening syllable.
+    Intelligently trim leading silence from TTS audio.
 
     Strategy:
-      1. Detect actual leading silence using pydub's detect_leading_silence()
-         with a -45 dBFS threshold.
-      2. Only trim if meaningful silence exists (>50ms), capped at 400ms,
-         leaving a 30ms breath room before voice onset.
-      3. Re-pad with 150ms silence at start (comfortable but not choppy)
-         and 500ms at end (natural tail).
-      4. Normalize volume.
+      1. Detect leading silence using pydub's detect_leading_silence()
+         at -38 dBFS (was -45). Less aggressive — won't clip soft-onset
+         phonemes like 'th', 'sh', 's', or breathy vowels.
+      2. Only trim if meaningful silence exists, leaving a 100ms breath room
+         before voice onset (was 30ms). This prevents the first phoneme from
+         ever being cut — even when Kokoro has a near-silent onset.
+      3. Trim capped at 400ms — never over-trim.
+      4. Prepend 300ms silence at start (was 150ms) — gives the viewer a
+         natural moment to read the scene before narration begins.
+         Data from test videos: 150ms felt abrupt. 300ms feels professional.
+      5. Append 500ms silence at end — natural tail for the last word.
+      6. Normalize volume.
+
+    Why -38 dBFS (not -45):
+      Kokoro sometimes generates words starting with very soft onset
+      (quiet 's', 'th', breathy vowels). At -45 dBFS the silence detector
+      treats these as silence and clips them. At -38 dBFS we only trim
+      genuine empty silence, never the start of a word.
     """
     from pydub import AudioSegment, effects, silence as pydub_silence
     try:
         audio = AudioSegment.from_file(file_path)
 
-        # Detect leading silence before voice onset
+        # Detect leading silence — use -38 dBFS to avoid clipping soft phoneme onsets
         leading_silence_ms = pydub_silence.detect_leading_silence(
-            audio, silence_threshold=-45.0
+            audio, silence_threshold=-38.0
         )
 
-        # Only trim if there is real silence. Leave 30ms breath room.
-        # Cap at 400ms so we never over-trim (some voices have a soft onset).
-        trim_ms = max(0, min(leading_silence_ms - 30, 400))
+        # Leave 100ms breath room before voice onset so no syllable gets clipped.
+        # Cap trim at 400ms — if Kokoro generated >500ms silence, trim up to 400ms of it.
+        breath_room_ms = 100
+        trim_ms = max(0, min(leading_silence_ms - breath_room_ms, 400))
         if trim_ms > 0:
             audio = audio[trim_ms:]
             print(f"✂️  [VOICE] Trimmed {trim_ms}ms of leading silence (detected {leading_silence_ms}ms).")
@@ -71,7 +82,9 @@ def trim_audio_precision(file_path: str):
 
         audio = effects.normalize(audio)
 
-        sil_start = AudioSegment.silent(duration=150, frame_rate=audio.frame_rate).set_channels(audio.channels)
+        # 300ms lead silence: professional breathing room before first word
+        # 500ms tail silence: natural decay after last word before video ends
+        sil_start = AudioSegment.silent(duration=300, frame_rate=audio.frame_rate).set_channels(audio.channels)
         sil_end   = AudioSegment.silent(duration=500, frame_rate=audio.frame_rate).set_channels(audio.channels)
 
         final = sil_start + audio + sil_end
@@ -121,16 +134,29 @@ def sanitize_for_tts(text: str) -> str:
 
 
 def generate_fallback_srt(text: str, duration: float, srt_path: str) -> bool:
+    """
+    Generate a fallback SRT from word-count timing.
+    Used by Groq Orpheus path (Whisper not available for Groq output).
+    Accounts for the 300ms lead silence so caption timing aligns with audio.
+    """
     try:
-        words         = [w.strip().upper() for w in text.split() if w.strip()]
+        words = [w.strip().upper() for w in text.split() if w.strip()]
         if not words:
             return False
-        time_per_word = max(duration / len(words), 0.1)
-        lines         = []
+
+        # The audio has 300ms lead silence. Start captions at 0.3s.
+        # Duration excludes the lead/tail silence for timing calculation.
+        voice_duration = duration - 0.8   # subtract 300ms lead + 500ms tail
+        voice_duration = max(voice_duration, len(words) * 0.1)
+
+        time_per_word = voice_duration / len(words)
+        lead_offset   = 0.3   # match the 300ms lead silence
+
+        lines = []
         for i in range(0, len(words), 3):
             chunk  = words[i:i + 3]
-            start  = i * time_per_word
-            end    = min((i + len(chunk)) * time_per_word, duration)
+            start  = lead_offset + i * time_per_word
+            end    = lead_offset + min((i + len(chunk)) * time_per_word, voice_duration)
             lines.append(
                 f"{i // 3 + 1}\n{format_time(start)} --> {format_time(end)}\n"
                 f"{' '.join(chunk)}\n"
@@ -156,13 +182,6 @@ def _get_kokoro_to_groq_map() -> dict:
 # ── Emotion injection: Kokoro (punctuation-based preprocessing) ───────────────
 # Kokoro-82M has no native emotion tags — we shape emotion through rhythm,
 # punctuation cadence, and sentence structure that guide prosody naturally.
-#
-# Strategy per mood:
-#   neutral    → clean, moderate pauses, factual delivery
-#   wonder     → ellipses for drift, rising questions, open-ended breath
-#   excitement → short staccato sentences, exclamations, fast rhythm
-#   horror     → long pauses, fragmented phrasing, trailing silence
-#   warm       → soft commas, flowing rhythm, gentle cadence
 
 def _inject_kokoro_emotion(text: str, mood: str) -> str:
     """
@@ -171,28 +190,21 @@ def _inject_kokoro_emotion(text: str, mood: str) -> str:
     Returns the modified text string.
     """
     if mood == "neutral":
-        # Clean delivery — no changes needed beyond sanitization
         return text
 
     elif mood == "wonder":
-        # Insert ellipses after key revelation sentences to create drifting awe.
-        # Replace full stops mid-paragraph with "..." to encourage trailing off.
-        # Keep final sentence clean for impact landing.
         sentences = re.split(r'(?<=[.!?])\s+', text)
         result = []
         for i, s in enumerate(sentences):
             s = s.strip()
             if not s:
                 continue
-            # Add ellipsis after middle sentences (not first or last)
             if 0 < i < len(sentences) - 1 and s.endswith('.'):
                 s = s[:-1] + '...'
             result.append(s)
         return ' '.join(result)
 
     elif mood == "excitement":
-        # Break long sentences into short punchy fragments with exclamation energy.
-        # Replace ". " with "! " on sentences over 10 words to inject energy.
         sentences = re.split(r'(?<=[.!?])\s+', text)
         result = []
         for s in sentences:
@@ -206,11 +218,7 @@ def _inject_kokoro_emotion(text: str, mood: str) -> str:
         return ' '.join(result)
 
     elif mood == "horror":
-        # Fragment sentences with comma pauses to create a tense, halting delivery.
-        # Insert pause-inducing commas before "and", "but", "because" in longer sentences.
-        # This forces Kokoro to breathe mid-thought, creating unease.
         processed = re.sub(r'\s+(and|but|because|however|yet)\s+', r', \1 ', text)
-        # Replace ". " between sentences with "... " for trailing tension
         sentences = re.split(r'(?<=[.!?])\s+', processed)
         result = []
         for i, s in enumerate(sentences):
@@ -223,19 +231,14 @@ def _inject_kokoro_emotion(text: str, mood: str) -> str:
         return ' '.join(result)
 
     elif mood == "warm":
-        # Soften with flowing commas, gentle rhythm.
-        # Break sentences that feel abrupt by adding a soft pause comma
-        # before the final clause when sentences are long enough.
         sentences = re.split(r'(?<=[.!?])\s+', text)
         result = []
         for s in sentences:
             s = s.strip()
             if not s:
                 continue
-            # For longer sentences, insert a soft pause before the last 3-4 words
             words = s.split()
             if len(words) > 12 and ',' not in s[-30:]:
-                # Insert comma before the last 3 words
                 pivot = len(words) - 3
                 s = ' '.join(words[:pivot]) + ', ' + ' '.join(words[pivot:])
             result.append(s)
@@ -245,16 +248,11 @@ def _inject_kokoro_emotion(text: str, mood: str) -> str:
 
 
 # ── Emotion injection: Orpheus (native tag-based) ─────────────────────────────
-# Groq's Orpheus TTS supports native emotion/prosody tags.
-# These are inserted at strategic points to shape the delivery.
-# Tags used: <sigh>, <laugh>, <whisper>...</whisper>, [pause]
-# We use them sparingly — over-tagging causes robotic output.
 
 def _inject_orpheus_emotion(text: str, mood: str) -> str:
     """
     Insert Orpheus-native emotion tags at strategic positions in the text.
-    Tags are injected at sentence boundaries, not mid-word.
-    Returns the tagged text string.
+    Tags: <sigh>, <laugh>, <whisper>...</whisper>, [pause]
     """
     sentences = re.split(r'(?<=[.!?])\s+', text)
 
@@ -262,19 +260,14 @@ def _inject_orpheus_emotion(text: str, mood: str) -> str:
         return text
 
     elif mood == "wonder":
-        # Add a quiet pause before the final revelation sentence
         if len(sentences) > 2:
             sentences[-1] = "[pause] " + sentences[-1]
         return ' '.join(sentences)
 
     elif mood == "excitement":
-        # No special tags — Orpheus reads exclamation sentences with natural energy
-        # Just ensure clean delivery
         return text
 
     elif mood == "horror":
-        # Add a sigh at the start for a haunted, heavy tone
-        # Add pause before the final line for maximum dread
         result = []
         for i, s in enumerate(sentences):
             s = s.strip()
@@ -288,8 +281,6 @@ def _inject_orpheus_emotion(text: str, mood: str) -> str:
         return ' '.join(result)
 
     elif mood == "warm":
-        # Add a gentle sigh at the end of the penultimate sentence
-        # for a warm, reflective close
         if len(sentences) > 2:
             idx = len(sentences) - 2
             sentences[idx] = sentences[idx].rstrip('.') + '. <sigh>'
@@ -305,11 +296,10 @@ def generate_audio(text: str, output_base: str = "temp_audio",
 
     Parameters
     ----------
-    text         : script text (already sanitized before passing in, or sanitized here)
-    output_base  : file path base (without extension) — .wav and .srt will be written
-    target_voice : Kokoro voice name (e.g. "am_adam") — used as primary
-    mood         : emotional register ("neutral"|"wonder"|"excitement"|"horror"|"warm")
-                   Controls emotion injection preprocessing for both Kokoro and Orpheus.
+    text         : script text
+    output_base  : file path base (without extension) — .wav and .srt written here
+    target_voice : Kokoro voice name (e.g. "am_adam")
+    mood         : emotional register — controls emotion injection preprocessing
 
     Returns
     -------
@@ -336,7 +326,6 @@ def generate_audio(text: str, output_base: str = "temp_audio",
         import numpy as np
         import soundfile as sf
 
-        # Apply Kokoro emotion injection before synthesis
         kokoro_text  = _inject_kokoro_emotion(clean_text, mood)
         pipeline     = get_kokoro_pipeline()
         audio_chunks = []
@@ -404,16 +393,13 @@ def generate_audio(text: str, output_base: str = "temp_audio",
     try:
         voice_map     = _get_kokoro_to_groq_map()
         groq_voice    = voice_map.get(target_voice) if target_voice else None
-        groq_override = groq_voice
+        orpheus_text  = _inject_orpheus_emotion(clean_text, mood)
 
-        # Apply Orpheus native emotion tags before synthesis
-        orpheus_text = _inject_orpheus_emotion(clean_text, mood)
-
-        ok = groq_client.generate_audio(orpheus_text, wav_path, voice_override=groq_override)
+        ok = groq_client.generate_audio(orpheus_text, wav_path, voice_override=groq_voice)
         if ok:
             _, duration = trim_audio_precision(wav_path)
             generate_fallback_srt(clean_text, duration, srt_path)
-            used_voice = groq_override or "random"
+            used_voice = groq_voice or "random"
             print(f"✅ [TTS] Groq Orpheus — {duration:.1f}s | Voice: {used_voice} | Mood: {mood}")
             return True, "Groq Orpheus", duration
 
