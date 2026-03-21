@@ -1,4 +1,4 @@
-# scripts/music_manager.py — Ghost Engine V7.1
+# scripts/music_manager.py — Ghost Engine V26.0.0
 """
 Pixabay Music Library Manager.
 
