@@ -65,33 +65,98 @@ def download_cinematic_font():
 
 
 # ── Glow color safety map ─────────────────────────────────────────────────────
+# ASS colour format: &HAABBGGRR  (alpha 00 = fully opaque)
+# Map any legacy subtitle_color values to proper glow colors so old jobs
+# that still have "target_color" in their script JSON don't produce red text.
 _LEGACY_COLOR_REMAP = {
-    "&H00FFFFFF": "&H0000D700",
-    "&H0000FFFF": "&H00FFD700",
-    "&H000000FF": "&H000015FF",
-    "&H00FF0000": "&H00FF8040",
+    "&H00FFFFFF": "&H0000D700",  # old "white text" → green glow
+    "&H0000FFFF": "&H00FFD700",  # old "yellow text" → cyan glow
+    "&H000000FF": "&H000015FF",  # old "red text"    → red glow
+    "&H00FF0000": "&H00FF8040",  # old "blue text"   → blue glow
 }
 
+# Valid glow presets the LLM is instructed to choose from
 _VALID_GLOW_COLORS = {
-    "&H0000D700",
-    "&H00FFD700",
-    "&H000015FF",
-    "&H00FF8040",
+    "&H0000D700",  # Green  — nature, animals, science facts
+    "&H00FFD700",  # Cyan   — technology, space, futurism
+    "&H000015FF",  # Red    — horror, danger, dark revelations
+    "&H00FF8040",  # Blue   — mystery, ocean, sci-fi
 }
 
 
 def _resolve_glow_color(raw_color: str) -> str:
+    """
+    Normalise whatever value arrived from the LLM / script JSON into a
+    valid glow color code. Falls back to green if value is unrecognised.
+    """
     if not raw_color or not isinstance(raw_color, str):
         return "&H0000D700"
     remapped = _LEGACY_COLOR_REMAP.get(raw_color, raw_color)
     return remapped if remapped in _VALID_GLOW_COLORS else "&H0000D700"
 
 
+# ── Mood-specific visual color grades ─────────────────────────────────────────
+# Applied in the final FFmpeg composite pass (after concat, before subtitle burn-in).
+# Each grade is a self-contained FFmpeg -vf filter string fragment.
+#
+# neutral    → Clean contrast/saturation boost. No tint.
+# wonder     → Slightly cooler/teal shadows (cosmic, sci-fi feel)
+# excitement → High contrast, punchy saturation (energetic, viral)
+# horror     → Desaturated, cold blue tint, crushed blacks (unsettling)
+# warm       → Warm orange-gold tint, soft contrast (emotional, story)
+#
+# colorbalance: rs/gs/bs = red/green/blue in shadows
+#               rm/gm/bm = red/green/blue in midtones
+#               rh/gh/bh = red/green/blue in highlights
+# All values: -1.0 (remove channel) to +1.0 (add channel)
+_MOOD_COLOR_GRADE = {
+    "neutral": (
+        "eq=contrast=1.06:saturation=1.18:brightness=0.01"
+    ),
+    "wonder": (
+        "eq=contrast=1.08:saturation=1.15:brightness=0.02,"
+        "colorbalance=bs=-0.06:gs=-0.02:rs=0.02"   # slight teal-cool shadows
+    ),
+    "excitement": (
+        "eq=contrast=1.12:saturation=1.38:brightness=0.02"  # punchy, high-energy
+    ),
+    "horror": (
+        "eq=contrast=1.15:saturation=0.82:brightness=-0.02,"
+        "colorbalance=bs=0.07:rs=-0.05"            # cold blue, crushed blacks
+    ),
+    "warm": (
+        "eq=contrast=1.05:saturation=1.22:brightness=0.03,"
+        "colorbalance=rs=0.06:gs=0.01:bs=-0.05"   # warm orange-gold
+    ),
+}
+
+# ── Post-grade overlays (applied same pass, after color grade) ─────────────────
+# vignette: subtle edge darkening — focuses viewer attention on center
+#   angle=PI/5 is the default (moderate, not heavy)
+# noise: film grain — makes AI renders look shot, not generated
+#   alls=5 = very subtle (0-100 scale), allf=t = temporal (organic, changes per frame)
+_VIGNETTE = "vignette=angle=PI/5"
+_FILM_GRAIN = "noise=alls=5:allf=t"
+
+
+def _get_visual_filter_chain(mood: str) -> str:
+    """
+    Build the complete visual filter chain for the final FFmpeg pass.
+    Order: color grade → vignette → film grain → [then ass+watermark appended by caller]
+    Color grade and vignette run BEFORE subtitle burn-in so captions stay pure white.
+    """
+    grade = _MOOD_COLOR_GRADE.get(mood, _MOOD_COLOR_GRADE["neutral"])
+    return f"{grade},{_VIGNETTE},{_FILM_GRAIN}"
+
+
 def get_style_config(caption_style: str = None):
     """
     Return the ASS style dict for the given caption_style preset name.
-    Falls back to base subtitle_style block for backward compatibility.
-    PrimaryColour is ALWAYS forced to white.
+
+    If caption_style is None or not found in settings.yaml, falls back to
+    the base subtitle_style block (backward compatible with all old jobs).
+    PrimaryColour is ALWAYS forced to white — the LLM controls the glow
+    halo color separately via glow_color, not the text color.
     """
     settings = config_manager.get_settings()
 
@@ -134,8 +199,12 @@ def time_to_seconds(time_str):
 
 def srt_to_ass(srt_path, ass_path, style, glow_color="&H0000D700"):
     """
-    Convert SRT → ASS with two-layer caption system (Glow + Default).
-    GlowSize and BlurStrength come from the caption_style preset.
+    Convert SRT → ASS with a two-layer caption system that replicates the
+    CapCut 'Neon/Hornet' preset:
+
+      Layer 0  'Glow'    — transparent text, thick colored outline (GlowSize px),
+                           Gaussian blur → outer neon halo effect
+      Layer 1  'Default' — white text, thin black outline (5px), sharp
     """
     font          = style.get("FontName",      "Anton")
     size          = style.get("FontSize",      "90")
@@ -209,7 +278,7 @@ def srt_to_ass(srt_path, ass_path, style, glow_color="&H0000D700"):
 def _select_watermark_preset(mood: str = "neutral") -> dict:
     """
     Select the watermark position/opacity preset based on content mood.
-    Applies a 30% random override to break visual fingerprint.
+    Applies a 30% random override to break visual fingerprint across uploads.
     """
     settings    = config_manager.get_settings()
     wm_cfg      = settings.get("watermark_presets", {})
@@ -227,18 +296,18 @@ def _select_watermark_preset(mood: str = "neutral") -> dict:
     preset = presets.get(primary_preset_name, {})
 
     return {
-        "x":        preset.get("x",        "(w-text_w)/2"),
-        "y":        preset.get("y",        "h*0.28"),
-        "opacity":  preset.get("opacity",  "0.35"),
-        "fontsize": preset.get("fontsize", "55"),
+        "x":           preset.get("x",        "(w-text_w)/2"),
+        "y":           preset.get("y",        "h*0.28"),
+        "opacity":     preset.get("opacity",  "0.35"),
+        "fontsize":    preset.get("fontsize", "55"),
         "preset_name": primary_preset_name,
     }
 
 
 def _mix_background_music(output_path: str, mood: str = "neutral") -> bool:
     """
-    Mix background music into the output video at a low volume level.
-    Skips silently if no tracks cached or any error occurs.
+    Find a background music track for the given mood and mix it into the
+    output video at a low volume level. Skips silently on any failure.
     """
     settings  = config_manager.get_settings()
     music_cfg = settings.get("music", {})
@@ -249,8 +318,8 @@ def _mix_background_music(output_path: str, mood: str = "neutral") -> bool:
     mood_folders = music_cfg.get("mood_to_folder", {})
     folder_name  = mood_folders.get(mood, "cinematic_sad")
 
-    root_dir     = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    folder_path  = os.path.join(root_dir, "assets", "music", folder_name)
+    root_dir    = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    folder_path = os.path.join(root_dir, "assets", "music", folder_name)
 
     if not os.path.isdir(folder_path):
         print(f"🎵 [MUSIC] Folder not found: {folder_path}. Skipping music mix.")
@@ -262,7 +331,7 @@ def _mix_background_music(output_path: str, mood: str = "neutral") -> bool:
         return False
 
     track_path = random.choice(mp3_files)
-    print(f"🎵 [MUSIC] Mixing track: {os.path.basename(track_path)} (mood={mood}, folder={folder_name})")
+    print(f"🎵 [MUSIC] Mixing track: {os.path.basename(track_path)} (mood={mood})")
 
     temp_path = output_path + ".music_mix.tmp.mp4"
 
@@ -302,7 +371,9 @@ def _mix_background_music(output_path: str, mood: str = "neutral") -> bool:
                 "-shortest",
                 temp_path,
             ],
-            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=300,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            timeout=300,
         )
 
         if result.returncode != 0:
@@ -341,78 +412,120 @@ def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=30):
     """
     Create a smooth Ken Burns animation clip from a still image.
 
-    WHY THIS APPROACH (crop-based, not zoompan):
-    ─────────────────────────────────────────────
-    The old `zoompan` filter produced visible wobble/jitter. Root cause:
-    zoompan computes position as a float (`iw/2 - (iw/zoom)/2`) and then
-    FFmpeg truncates it to an integer pixel. This truncation is non-uniform —
-    the step alternates between 0px and 1px in an irregular pattern:
-        Frame 1→2: 0px, Frame 2→3: 1px, Frame 3→4: 1px, Frame 4→5: 0px...
-    This irregular cadence is perceived as wobble/jitter.
+    WHY CROP-BASED (not zoompan):
+    ─────────────────────────────
+    The `zoompan` filter produces visible wobble because it computes position
+    as a float (iw/2 - (iw/zoom)/2) and truncates to integer pixels in an
+    irregular pattern: 0→0→1→1→1→0→1 steps per frame.
 
-    The crop-based approach:
-    `crop=w=OUT_W:h=OUT_H:x='floor(PAN*n/FRAMES)':y=FIXED`
-    produces PERFECTLY UNIFORM steps because `floor(PAN*n/FRAMES)` with
-    integer PAN and FRAMES always gives smooth linear integer sequences.
-    Measured step per frame: exactly 1px or 2px, never 0→1→1→0→1.
+    The crop approach uses floor(PAN*n/FRAMES) which produces perfectly
+    uniform steps — mathematically smooth, no jitter.
 
-    Scale factor: image is scaled to 2x target size (2160x3840) giving
-    1080px horizontal and 1920px vertical headroom for smooth panning.
+    8 MOTION EFFECTS:
+    ─────────────────
+    4 cardinal directions + 4 diagonals. Using 6 sub-clips per video
+    (2 per image), each video cycles through 6 unique effects with zero
+    repetition. The 8-effect pool ensures variety across consecutive videos.
+
+    SHARPEN:
+    ────────
+    AI-generated images are slightly soft. unsharp luma=0.3 (subtle) makes
+    them look crisper without introducing halos or noise artifacts.
     """
     frames = int(duration * fps)
 
-    # ── Source dimensions (2x output for pan headroom) ────────────────────────
+    # Source dimensions: 2x output for smooth pan headroom (no upscaling artifacts)
     SRC_W, SRC_H = 2160, 3840
     OUT_W, OUT_H = 1080, 1920
 
-    # Center positions for the non-moving axis
-    cx = (SRC_W - OUT_W) // 2   # 540px — center x
-    cy = (SRC_H - OUT_H) // 2   # 960px — center y
+    # Center positions for non-moving axis
+    cx = (SRC_W - OUT_W) // 2   # 540px
+    cy = (SRC_H - OUT_H) // 2   # 960px
 
-    # Pan travel distance: use 40% of available headroom for subtle, cinematic movement
-    # Too much travel = distracting. Too little = static-looking.
+    # Pan travel: 40% of available headroom → cinematic, not distracting
     pan_x = int((SRC_W - OUT_W) * 0.40)   # 432px horizontal travel
     pan_y = int((SRC_H - OUT_H) * 0.40)   # 768px vertical travel
 
-    # Base prep: scale image to SRC size, crop to exact SRC dimensions, fix SAR
+    # Diagonal travel: 30% on both axes simultaneously
+    pan_dx = int((SRC_W - OUT_W) * 0.30)  # 324px diagonal x
+    pan_dy = int((SRC_H - OUT_H) * 0.30)  # 576px diagonal y
+
+    # Base prep: scale to SRC, crop exact, fix SAR
     prep = (
         f"scale={SRC_W}:{SRC_H}:force_original_aspect_ratio=increase,"
         f"crop={SRC_W}:{SRC_H},"
         f"setsar=1"
     )
 
-    # ── 4 smooth motion patterns using crop with frame-number expressions ─────
-    # `n` = input frame number (starts at 0)
-    # `floor(PAN * n / FRAMES)` = perfectly linear integer sequence
-    # Each pattern ends with scale to exact output size + color grading
+    # Subtle per-clip sharpen — makes AI images look crisper
+    # unsharp: lx=ly=3 (kernel), la=0.3 (luma strength), ca=0 (no chroma fringe)
+    sharpen = "unsharp=lx=3:ly=3:la=0.3:cx=3:cy=3:ca=0"
+
+    # eq per-clip: base contrast/saturation before mood-grade in final pass
+    base_eq = "eq=contrast=1.05:saturation=1.15"
+
+    # 8 smooth motion patterns using crop with perfectly linear floor() expressions
+    # `n` = input frame number starting at 0
     effects = [
-        # Pan left → right, center vertically
+        # 0: Pan left → right, center vertically
         (
             f"{prep},"
             f"crop={OUT_W}:{OUT_H}:'floor({pan_x}*n/{frames})':{cy},"
             f"scale={OUT_W}:{OUT_H},"
-            f"eq=contrast=1.05:saturation=1.15"
+            f"{sharpen},{base_eq}"
         ),
-        # Pan right → left, center vertically
+        # 1: Pan right → left, center vertically
         (
             f"{prep},"
             f"crop={OUT_W}:{OUT_H}:'floor({pan_x}*(1-n/{frames}))':{cy},"
             f"scale={OUT_W}:{OUT_H},"
-            f"eq=contrast=1.05:saturation=1.15"
+            f"{sharpen},{base_eq}"
         ),
-        # Pan top → bottom, center horizontally
+        # 2: Pan top → bottom, center horizontally
         (
             f"{prep},"
             f"crop={OUT_W}:{OUT_H}:{cx}:'floor({pan_y}*n/{frames})',"
             f"scale={OUT_W}:{OUT_H},"
-            f"eq=contrast=1.05:saturation=1.15"
+            f"{sharpen},{base_eq}"
         ),
-        # Pan bottom → top, center horizontally
+        # 3: Pan bottom → top, center horizontally
         (
             f"{prep},"
             f"crop={OUT_W}:{OUT_H}:{cx}:'floor({pan_y}*(1-n/{frames}))',"
             f"scale={OUT_W}:{OUT_H},"
-            f"eq=contrast=1.05:saturation=1.15"
+            f"{sharpen},{base_eq}"
+        ),
+        # 4: Diagonal TL → BR
+        (
+            f"{prep},"
+            f"crop={OUT_W}:{OUT_H}:'floor({pan_dx}*n/{frames})':"
+            f"'floor({pan_dy}*n/{frames})',"
+            f"scale={OUT_W}:{OUT_H},"
+            f"{sharpen},{base_eq}"
+        ),
+        # 5: Diagonal TR → BL
+        (
+            f"{prep},"
+            f"crop={OUT_W}:{OUT_H}:'floor({pan_dx}*(1-n/{frames}))':"
+            f"'floor({pan_dy}*n/{frames})',"
+            f"scale={OUT_W}:{OUT_H},"
+            f"{sharpen},{base_eq}"
+        ),
+        # 6: Diagonal BL → TR
+        (
+            f"{prep},"
+            f"crop={OUT_W}:{OUT_H}:'floor({pan_dx}*n/{frames})':"
+            f"'floor({pan_dy}*(1-n/{frames}))',"
+            f"scale={OUT_W}:{OUT_H},"
+            f"{sharpen},{base_eq}"
+        ),
+        # 7: Diagonal BR → TL
+        (
+            f"{prep},"
+            f"crop={OUT_W}:{OUT_H}:'floor({pan_dx}*(1-n/{frames}))':"
+            f"'floor({pan_dy}*(1-n/{frames}))',"
+            f"scale={OUT_W}:{OUT_H},"
+            f"{sharpen},{base_eq}"
         ),
     ]
 
@@ -460,9 +573,26 @@ def render_video(image_paths, audio_path, output_path,
     scene_weights  : optional list of floats summing to 1.0 for scene durations
     watermark_text : channel name (will be uppercased)
     glow_color     : ASS &HAABBGGRR color for the caption neon glow halo
-    mood           : emotional register — controls watermark preset + music folder
+    mood           : emotional register — controls color grade, watermark, music
     caption_style  : preset key from caption_style_presets in settings.yaml
     subtitle_color : deprecated alias for glow_color — accepted for back-compat
+
+    IMAGE REUSE FOR PACING:
+    ────────────────────────
+    Each source image is rendered as 2 sub-clips with different Ken Burns
+    motion effects. This doubles the visual cut frequency without any extra
+    API calls:
+        3 images × 2 effects = 6 clips
+        25s ÷ 6 clips ≈ 4s per cut   ← fast-paced Shorts rhythm
+    vs:
+        3 images × 1 effect = 3 clips
+        25s ÷ 3 clips ≈ 8s per cut   ← slow and static
+
+    VISUAL FILTER PIPELINE (final pass):
+    ──────────────────────────────────────
+    mood color grade → vignette → film grain → subtitles → watermark
+    Color grade and vignette run BEFORE subtitle burn-in so captions
+    stay pure white regardless of the mood tint.
     """
     print("⚙️ [RENDERER] Executing Master Render Engine...")
     print(f"   Mood: {mood} | Caption Style: {caption_style or 'default'}")
@@ -479,7 +609,7 @@ def render_video(image_paths, audio_path, output_path,
     temp_merged = "temp_merged_no_subs.mp4"
 
     resolved_glow = _resolve_glow_color(glow_color)
-    style = get_style_config(caption_style)
+    style         = get_style_config(caption_style)
 
     if not srt_to_ass(srt_path, ass_path, style, glow_color=resolved_glow):
         return False, 0.0, 0
@@ -495,19 +625,41 @@ def render_video(image_paths, audio_path, output_path,
         print(f"⚠️ [RENDERER] Audio processing failed:\n{trace}")
         return False, 0.0, 0
 
+    # ── Compute per-scene durations ───────────────────────────────────────────
     clip_durs = (
         [w * total_dur for w in scene_weights]
         if scene_weights
         else [total_dur / len(image_paths)] * len(image_paths)
     )
     if clip_durs:
-        clip_durs[-1] += 0.6
+        clip_durs[-1] += 0.6   # tail buffer for last scene
 
-    clip_files = []
+    # ── Image reuse: render each image as 2 sub-clips ─────────────────────────
+    # Sub-clip A uses effect index N, sub-clip B uses index N+1.
+    # The global effect_index increments across all sub-clips so no two
+    # consecutive clips ever use the same motion direction.
+    clip_files    = []
+    effect_index  = 0
+
     for i, img in enumerate(image_paths):
-        clip_out = f"temp_anim_{i}.mp4"
-        if create_ken_burns_clip(img, clip_durs[i], clip_out, index=i):
-            clip_files.append(clip_out)
+        half_dur = clip_durs[i] / 2.0
+
+        for sub in range(2):
+            clip_out = f"temp_anim_{i}_{sub}.mp4"
+            success  = create_ken_burns_clip(img, half_dur, clip_out, index=effect_index)
+            if success:
+                clip_files.append(clip_out)
+            else:
+                # Sub-clip failed — try the full duration as a single clip fallback
+                print(f"⚠️ [RENDERER] Sub-clip {i}_{sub} failed. Trying single-clip fallback...")
+                if sub == 0:
+                    clip_fallback = f"temp_anim_{i}_fallback.mp4"
+                    if create_ken_burns_clip(img, clip_durs[i], clip_fallback, index=effect_index):
+                        clip_files.append(clip_fallback)
+                    break   # skip sub-clip 1 since we used the full duration
+            effect_index += 1
+
+    print(f"   📽️  Clips generated: {len(clip_files)} (from {len(image_paths)} images × 2 sub-clips each)")
 
     if not clip_files:
         return False, total_dur, 0
@@ -532,8 +684,9 @@ def render_video(image_paths, audio_path, output_path,
     safe_font = font_path.replace("\\", "/").replace(":", r"\:")
     safe_ass  = ass_path.replace("\\", "/").replace(":", r"\:")
 
-    safe_watermark  = re.sub(r"[^a-zA-Z0-9\s]", "", watermark_text).strip().upper() or "TOPATO"
-    wm              = _select_watermark_preset(mood)
+    # ── Watermark (mood-driven dynamic position) ──────────────────────────────
+    safe_watermark   = re.sub(r"[^a-zA-Z0-9\s]", "", watermark_text).strip().upper() or "TOPATO"
+    wm               = _select_watermark_preset(mood)
     watermark_filter = (
         f",drawtext=fontfile='{safe_font}':text='{safe_watermark}':"
         f"fontcolor=0xC8C8C8@{wm['opacity']}:"
@@ -541,16 +694,34 @@ def render_video(image_paths, audio_path, output_path,
     )
     print(f"   Watermark preset: {wm['preset_name']} | opacity: {wm['opacity']}")
 
+    # ── Visual filter chain ───────────────────────────────────────────────────
+    # Order: color grade → vignette → film grain → subtitle burn-in → watermark
+    # Color grade + vignette + grain run BEFORE ass so captions stay pure white.
+    visual_chain = _get_visual_filter_chain(mood)
+    print(f"   Visual grade: {mood}")
+
+    final_vf = f"{visual_chain},ass='{safe_ass}'{watermark_filter}"
+
     try:
         subprocess.run(
-            ["ffmpeg", "-y", "-i", temp_merged, "-vf",
-             f"ass='{safe_ass}'{watermark_filter}",
-             "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-c:a", "copy", output_path],
-            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True, timeout=600,
+            [
+                "ffmpeg", "-y",
+                "-i",     temp_merged,
+                "-vf",    final_vf,
+                "-c:v",   "libx264",
+                "-preset","fast",
+                "-crf",   "18",
+                "-c:a",   "copy",
+                output_path,
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            check=True,
+            timeout=600,
         )
     except Exception as e:
         trace = traceback.format_exc()
-        print(f"⚠️ [RENDERER] Final subtitle overlay failed:\n{trace}")
+        print(f"⚠️ [RENDERER] Final composite pass failed:\n{trace}")
         return False, total_dur, 0
 
     if not os.path.exists(output_path):
@@ -560,7 +731,7 @@ def render_video(image_paths, audio_path, output_path,
     if file_size_mb < 0.5:
         return False, total_dur, file_size_mb
 
-    # Mix background music (post-render, in-place, silent skip if no tracks)
+    # ── Background music mix (post-render, in-place, silent skip if empty) ────
     _mix_background_music(output_path, mood)
 
     final_size_mb = os.path.getsize(output_path) / (1024 * 1024)
