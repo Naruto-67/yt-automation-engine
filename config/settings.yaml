@@ -1,5 +1,5 @@
-# config/settings.yaml — Ghost Engine V6
-version: "25.0.0"
+# config/settings.yaml — Ghost Engine
+version: "26.0.0"
 
 # ─── API LIMITS ───────────────────────────────────────────────────────────────
 # YouTube: 10,000pts/day PER GCP PROJECT (separate project = separate quota)
@@ -25,6 +25,7 @@ guardian_costs:
 # ─── COMMENT ENGAGEMENT QUOTA BUDGET ─────────────────────────────────────────
 # YouTube cost: commentThreads.list=1pt, comments.insert=50pts per reply
 # Budget: max 10 replies/day × 50pts = 500pts maximum spend on engagement
+# NOTE: Engagement workflow (04) is currently disabled. These settings are preserved.
 engagement:
   max_replies_per_channel_per_day: 10
   max_videos_to_scan: 5      # Only scan last 5 videos for comments
@@ -63,30 +64,95 @@ voice_actors:
     am_michael: "austin"   # Fast/Punchy
     af_sarah: "hannah"     # Energetic/Bright
 
-# ─── SUBTITLE STYLE ───────────────────────────────────────────────────────────
-# Text is ALWAYS white (#FFFFFF). The LLM controls the neon glow halo color
-# separately via the 'glow_color' field in the script JSON.
-#
-# Two ASS layers are generated per caption event:
-#   Layer 0 'Glow'    — transparent text, thick colored outline (28px) + blur
-#   Layer 1 'Default' — white text, thin black outline (5px), sharp
-#
-# ASS colour format: &HAABBGGRR  (alpha 00 = fully opaque)
-# FontSize 90 at PlayResX=1080 renders as ~60pt equivalent at 720px export.
+# ─── GROQ TTS MODELS (ordered by preference, dynamic fallback chain) ─────────
+# The system tries each model in order until audio is produced successfully.
+# Voice names from voice_actors.groq are tried first, then PlayAI fallbacks.
+groq_tts_models:
+  - "playai-tts"
+  - "playai-tts-arabic"
+
+# ─── SUBTITLE STYLE — BASE DEFAULTS (overridden by caption_style_presets) ─────
+# This block is kept for backward compatibility with any existing QUEUED jobs
+# that were created before the caption_style_presets system was added.
+# Text is ALWAYS white (#FFFFFF). Glow color is LLM-controlled separately.
 subtitle_style:
-  FontName:      "Anton"        # Heavy condensed Impact-class font (viral Shorts standard)
-  FontSize:      "90"           # Large enough to fill the lower third
+  FontName:      "Anton"
+  FontSize:      "90"
   PrimaryColour: "&H00FFFFFF"   # White text — NEVER change this value
   OutlineColour: "&H00000000"   # Black outline on the sharp Default layer
-  Outline:       "5"            # Sharp layer outline thickness (glow layer uses 28px)
-  Shadow:        "0"            # No drop shadow — glow handles the halo
+  Outline:       "5"
+  Shadow:        "0"
   BorderStyle:   "1"
   Alignment:     "2"            # Bottom-center
-  MarginV:       "500"          # Vertical margin from bottom edge (1920px canvas)
+  MarginV:       "500"
+
+# ─── CAPTION STYLE PRESETS (LLM selects based on content mood) ───────────────
+# Each preset controls the full ASS subtitle geometry and glow intensity.
+# PrimaryColour is ALWAYS overridden to &H00FFFFFF (white) — never touch this.
+# GlowSize   = outline thickness of the Glow layer (creates the neon halo width)
+# BlurStrength = \blur tag value applied per caption event (softens the glow)
+# Alignment  = ASS alignment number (2=bottom-center, 8=top-center)
+# MarginV    = pixel margin from the aligned edge (bottom for align 2, top for align 8)
+caption_style_presets:
+  viral_impact:        # Default — bold viral Shorts style (current standard)
+    FontName:      "Anton"
+    FontSize:      "90"
+    Alignment:     "2"
+    MarginV:       "500"
+    GlowSize:      "28"
+    BlurStrength:  "15"
+
+  cinematic:           # Subtle, filmic presentation — wonder/discovery content
+    FontName:      "Anton"
+    FontSize:      "82"
+    Alignment:     "2"
+    MarginV:       "380"
+    GlowSize:      "22"
+    BlurStrength:  "12"
+
+  horror_tight:        # High-tension horror style — dark/unsettling content
+    FontName:      "Anton"
+    FontSize:      "88"
+    Alignment:     "2"
+    MarginV:       "620"
+    GlowSize:      "34"
+    BlurStrength:  "22"
+
+  minimal_clean:       # Clean educational look — factual/neutral content
+    FontName:      "Liberation Sans"
+    FontSize:      "76"
+    Alignment:     "2"
+    MarginV:       "460"
+    GlowSize:      "18"
+    BlurStrength:  "8"
+
+  dynamic_upper:       # Upper-screen energetic captions — excitement content
+    FontName:      "Anton"
+    FontSize:      "85"
+    Alignment:     "8"
+    MarginV:       "180"
+    GlowSize:      "24"
+    BlurStrength:  "14"
+
+  bold_lower:          # Maximum lower-third impact — punchy viral content
+    FontName:      "Anton"
+    FontSize:      "94"
+    Alignment:     "2"
+    MarginV:       "550"
+    GlowSize:      "30"
+    BlurStrength:  "18"
+
+  storytelling:        # Warm narrative presentation — story/emotional content
+    FontName:      "Anton"
+    FontSize:      "80"
+    Alignment:     "2"
+    MarginV:       "420"
+    GlowSize:      "20"
+    BlurStrength:  "10"
 
 # ─── GLOW COLOR PRESETS ───────────────────────────────────────────────────────
 # These are the valid values the LLM is instructed to pick from.
-# They are applied to the Glow ASS layer's OutlineColour (not the text color).
+# Applied to the Glow ASS layer's OutlineColour (not the text color).
 # ASS format: &HAABBGGRR
 #   &H0000D700  → RGB #00D700  Green  (nature, animals, biology, science facts)
 #   &H00FFD700  → RGB #00D7FF  Cyan   (technology, space, AI, futurism)
@@ -97,6 +163,74 @@ glow_color_presets:
   cyan:  "&H00FFD700"
   red:   "&H000015FF"
   blue:  "&H00FF8040"
+
+# ─── WATERMARK PRESETS (mood-driven dynamic positioning) ─────────────────────
+# The watermark varies in position and opacity per video to break visual fingerprint.
+# mood_map: which preset is the primary choice for each mood.
+# A 30% random override is applied in render_video.py so even same-mood videos vary.
+# x/y: FFmpeg drawtext expressions (w=video width, h=video height, text_w=text width)
+watermark_presets:
+  mood_map:
+    neutral:    "standard"
+    wonder:     "corner_tr"
+    excitement: "upper_center"
+    horror:     "corner_tl"
+    warm:       "lower_offset"
+
+  presets:
+    standard:        # Centered at 28% from top — classic watermark position
+      x:        "(w-text_w)/2"
+      y:        "h*0.28"
+      opacity:  "0.35"
+      fontsize: "55"
+
+    corner_tr:       # Top-right corner — subtle, professional
+      x:        "w-text_w-40"
+      y:        "60"
+      opacity:  "0.30"
+      fontsize: "45"
+
+    corner_tl:       # Top-left corner — used for horror (asymmetric tension)
+      x:        "40"
+      y:        "60"
+      opacity:  "0.40"
+      fontsize: "48"
+
+    upper_center:    # Upper-center — energetic content, high visibility
+      x:        "(w-text_w)/2"
+      y:        "h*0.07"
+      opacity:  "0.38"
+      fontsize: "50"
+
+    lower_offset:    # Lower-center offset — warm/story content, subtle
+      x:        "(w-text_w)/2"
+      y:        "h*0.72"
+      opacity:  "0.28"
+      fontsize: "50"
+
+# ─── BACKGROUND MUSIC ─────────────────────────────────────────────────────────
+# Music is downloaded from Pixabay (CC0 — no attribution, free commercial use)
+# and cached in assets/music/{folder}/ by the weekly music_manager.py run.
+# volume: relative amplitude multiplier vs voice track (0.08 ≈ -22dB background level)
+# mood_to_folder: maps LLM-chosen mood to the correct assets/music/ subfolder
+# If a folder is empty, music is silently skipped — no crash, no error.
+music:
+  volume:            0.08   # Music volume relative to voice (0.08 ≈ -22 dB)
+  fade_in_seconds:   1.0    # Fade music in over N seconds at video start
+  fade_out_seconds:  1.5    # Fade music out over N seconds before video end
+  tracks_per_mood:   2      # How many tracks to download per mood folder (weekly)
+  mood_to_folder:
+    neutral:    "cinematic_sad"
+    wonder:     "upbeat_curiosity"
+    excitement: "dark_phonk"
+    horror:     "horror_drones"
+    warm:       "cinematic_sad"
+
+# ─── AI CONTENT DISCLOSURE ────────────────────────────────────────────────────
+# YouTube policy (May 2025): disclose realistic synthetic content.
+# This flag appends "[AI-generated content]" to every video description at upload.
+# Disclosure does NOT affect monetization eligibility — it only prevents policy strikes.
+ai_disclosure: true
 
 # ─── STORAGE MANAGEMENT ──────────────────────────────────────────────────────
 storage:
@@ -131,6 +265,16 @@ groq_model_fallback_chain:
   - "llama3-70b-8192"            # Older but reliable
   - "mixtral-8x7b-32768"         # Last resort
 
-  # ─── RESEARCH ────────────────────────────────────────────────────────────────
+# ─── RESEARCH ────────────────────────────────────────────────────────────────
 research:
   experimental_sub_niche_lenses: true
+
+# ─── TEST MODE — DRY RUN CONFIGURATION ───────────────────────────────────────
+# When TEST_MODE=true, the system creates synthetic in-memory jobs using these
+# topics instead of querying the database. Zero DB writes. Zero YouTube quota.
+# Full real pipeline runs (Gemini, Kokoro, FFmpeg, etc.) to validate video quality.
+# One video per channel is produced as a downloadable GitHub Actions artifact.
+test_mode:
+  test_topics:
+    CH_01: "A small leaf discovers it holds an entire forgotten world on its surface"
+    CH_02: "The human brain generates enough electricity to power a small LED light bulb"
