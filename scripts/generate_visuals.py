@@ -301,6 +301,22 @@ def generate_huggingface_cascade(prompt, output_path):
                         continue
                     break  # rate limited even after retries — try next model
 
+                else:
+                    # ── CATCH-ALL: log any unexpected status so we can diagnose it ──
+                    # This handles cases like HTTP 422, 451, or any future HF error
+                    # codes that don't fall into the buckets above. Without this,
+                    # unrecognised status codes silently fall through the retry loop.
+                    try:
+                        err_snippet = response.json().get("error", response.text[:120])
+                    except Exception:
+                        err_snippet = response.text[:120]
+                    print(f"      ⚠️ [HF {response.status_code}] {short_name}: {err_snippet}")
+                    if response.status_code in [401, 402, 403]:
+                        print(f"      ⛔ HF auth/billing failure. Bailing entire cascade.")
+                        print(f"      💡 Check HF_TOKEN and account plan (PRO required for FLUX/SDXL).")
+                        return False, f"HF Auth Error ({response.status_code})"
+                    break  # unknown status — try next model
+
             except Exception:
                 trace = traceback.format_exc()
                 print(f"🚨 [HF AI ERROR]:\n{trace}")
