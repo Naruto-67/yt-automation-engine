@@ -1,7 +1,25 @@
 # main.py
 import os
 import sys
+import warnings
 import traceback
+
+# ── Suppress known harmless deprecation warnings from upstream dependencies ──
+# torch.nn.utils.weight_norm is deprecated inside Kokoro's model — not fixable
+# from our side without patching Kokoro source.
+warnings.filterwarnings(
+    "ignore",
+    message=".*weight_norm.*deprecated.*",
+    category=FutureWarning,
+    module="torch",
+)
+# Kokoro LSTM uses dropout=0.2 with num_layers=1 — harmless, upstream issue.
+warnings.filterwarnings(
+    "ignore",
+    message=".*dropout option adds dropout.*",
+    category=UserWarning,
+    module="torch",
+)
 from engine.orchestrator import Orchestrator
 from scripts.discord_notifier import notify_summary, notify_error
 from scripts.quota_manager import quota_manager
