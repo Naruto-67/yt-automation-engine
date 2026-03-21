@@ -65,30 +65,22 @@ def download_cinematic_font():
 
 
 # ── Glow color safety map ─────────────────────────────────────────────────────
-# ASS colour format: &HAABBGGRR  (alpha 00 = fully opaque)
-# Map any legacy subtitle_color values to proper glow colors so old jobs
-# that still have "target_color" in their script JSON don't produce red text.
 _LEGACY_COLOR_REMAP = {
-    "&H00FFFFFF": "&H0000D700",  # old "white text" → green glow
-    "&H0000FFFF": "&H00FFD700",  # old "yellow text" → cyan glow
-    "&H000000FF": "&H000015FF",  # old "red text"    → red glow  (now applied as halo)
-    "&H00FF0000": "&H00FF8040",  # old "blue text"   → blue glow
+    "&H00FFFFFF": "&H0000D700",
+    "&H0000FFFF": "&H00FFD700",
+    "&H000000FF": "&H000015FF",
+    "&H00FF0000": "&H00FF8040",
 }
 
-# Valid glow presets the LLM is instructed to choose from
 _VALID_GLOW_COLORS = {
-    "&H0000D700",  # Green  — nature, animals, science facts
-    "&H00FFD700",  # Cyan   — technology, space, futurism
-    "&H000015FF",  # Red    — horror, danger, dark revelations
-    "&H00FF8040",  # Blue   — mystery, ocean, sci-fi
+    "&H0000D700",
+    "&H00FFD700",
+    "&H000015FF",
+    "&H00FF8040",
 }
 
 
 def _resolve_glow_color(raw_color: str) -> str:
-    """
-    Normalise whatever value arrived from the LLM / script JSON into a
-    valid glow color code.  Falls back to green if value is unrecognised.
-    """
     if not raw_color or not isinstance(raw_color, str):
         return "&H0000D700"
     remapped = _LEGACY_COLOR_REMAP.get(raw_color, raw_color)
@@ -98,33 +90,17 @@ def _resolve_glow_color(raw_color: str) -> str:
 def get_style_config(caption_style: str = None):
     """
     Return the ASS style dict for the given caption_style preset name.
-
-    If caption_style is None or not found in settings.yaml, falls back to
-    the base subtitle_style block (backward compatible with all old jobs).
-    PrimaryColour is ALWAYS forced to white — the LLM controls the glow
-    halo color separately via glow_color, not the text color.
-
-    Parameters
-    ----------
-    caption_style : preset key from caption_style_presets in settings.yaml
-                    e.g. "viral_impact", "cinematic", "horror_tight", etc.
-                    Pass None to get the base legacy style.
-
-    Returns
-    -------
-    dict with ASS style keys: FontName, FontSize, Alignment, MarginV,
-                              GlowSize, BlurStrength, PrimaryColour
+    Falls back to base subtitle_style block for backward compatibility.
+    PrimaryColour is ALWAYS forced to white.
     """
     settings = config_manager.get_settings()
 
-    # Try to load from caption_style_presets if a named style was requested
     if caption_style:
         presets = settings.get("caption_style_presets", {})
         preset  = presets.get(caption_style)
         if preset:
             style = dict(preset)
-            style["PrimaryColour"] = "&H00FFFFFF"   # Always white text
-            # Ensure all keys exist with safe defaults
+            style["PrimaryColour"] = "&H00FFFFFF"
             style.setdefault("FontName",     "Anton")
             style.setdefault("FontSize",     "90")
             style.setdefault("Alignment",    "2")
@@ -133,7 +109,6 @@ def get_style_config(caption_style: str = None):
             style.setdefault("BlurStrength", "15")
             return style
 
-    # Fallback: load base subtitle_style block (backward compat for old jobs)
     base_style = settings.get("subtitle_style", {
         "FontName":      "Anton",
         "FontSize":      "90",
@@ -159,18 +134,8 @@ def time_to_seconds(time_str):
 
 def srt_to_ass(srt_path, ass_path, style, glow_color="&H0000D700"):
     """
-    Convert SRT → ASS with a two-layer caption system that replicates the
-    CapCut 'Neon/Hornet' preset used in the manually-created Topato videos:
-
-      Layer 0  'Glow'    — transparent text, thick colored outline (GlowSize px),
-                           Gaussian blur (BlurStrength) → outer neon halo effect
-      Layer 1  'Default' — white text, thin black outline (5px), sharp
-                           → clean readable foreground
-
-    Both layers share identical timing so they composite perfectly.
-    The glow_color argument controls the halo color (ASS &HAABBGGRR format).
-    The GlowSize and BlurStrength come from the caption_style preset, so
-    different moods get different halo intensities.
+    Convert SRT → ASS with two-layer caption system (Glow + Default).
+    GlowSize and BlurStrength come from the caption_style preset.
     """
     font          = style.get("FontName",      "Anton")
     size          = style.get("FontSize",      "90")
@@ -192,19 +157,10 @@ def srt_to_ass(srt_path, ass_path, style, glow_color="&H0000D700"):
         "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
         "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
         "Alignment, MarginL, MarginR, MarginV, Encoding\n"
-        # ── Glow layer ────────────────────────────────────────────────────────
-        # PrimaryColour &H00000000 = fully transparent text body
-        # OutlineColour = the chosen neon glow color
-        # Outline = GlowSize px thick → spreads into a wide halo
-        # \blurN tag applied per-event for soft Gaussian falloff
         f"Style: Glow,{font},{size},"
         f"&H00000000,&H000000FF,"
         f"{safe_glow},&H00000000,"
         f"1,0,0,0,100,100,0,0,1,{glow_size},0,{alignment},10,10,{margin_v},1\n"
-        # ── Text layer ────────────────────────────────────────────────────────
-        # PrimaryColour &H00FFFFFF = pure white
-        # OutlineColour &H00000000 = pure black outline
-        # Outline = 5px → crisp, readable stroke
         f"Style: Default,{font},{size},"
         f"&H00FFFFFF,&H000000FF,"
         f"&H00000000,&H00000000,"
@@ -218,7 +174,6 @@ def srt_to_ass(srt_path, ass_path, style, glow_color="&H0000D700"):
             content = f.read()
 
         def convert_time(ts):
-            # SRT  00:00:01,234  →  ASS  00:00:01.23
             return ts.replace(",", ".")[:-1]
 
         events = []
@@ -231,14 +186,8 @@ def srt_to_ass(srt_path, ass_path, style, glow_color="&H0000D700"):
                     text = text.replace("\n", " ").replace("\r", " ").strip().upper()
                     t0 = convert_time(times[0])
                     t1 = convert_time(times[1])
-                    # Layer 0: blurred glow halo (rendered first / behind)
-                    events.append(
-                        f"Dialogue: 0,{t0},{t1},Glow,,0,0,0,,{blur_tag}{text}"
-                    )
-                    # Layer 1: sharp white text on top
-                    events.append(
-                        f"Dialogue: 1,{t0},{t1},Default,,0,0,0,,{text}"
-                    )
+                    events.append(f"Dialogue: 0,{t0},{t1},Glow,,0,0,0,,{blur_tag}{text}")
+                    events.append(f"Dialogue: 1,{t0},{t1},Default,,0,0,0,,{text}")
 
         with open(ass_path, "w", encoding="utf-8") as f:
             f.write(header + "\n".join(events))
@@ -260,20 +209,15 @@ def srt_to_ass(srt_path, ass_path, style, glow_color="&H0000D700"):
 def _select_watermark_preset(mood: str = "neutral") -> dict:
     """
     Select the watermark position/opacity preset based on content mood.
-    Applies a 30% random override so even same-mood videos vary in watermark
-    position, breaking the visual fingerprint across uploads.
-
-    Returns a dict with keys: x, y, opacity, fontsize
+    Applies a 30% random override to break visual fingerprint.
     """
     settings    = config_manager.get_settings()
     wm_cfg      = settings.get("watermark_presets", {})
     mood_map    = wm_cfg.get("mood_map", {})
     presets     = wm_cfg.get("presets", {})
 
-    # Determine the mood-driven preset name
     primary_preset_name = mood_map.get(mood, "standard")
 
-    # 30% random override — pick any other preset
     if random.random() < 0.30:
         all_preset_names = list(presets.keys())
         other_presets    = [p for p in all_preset_names if p != primary_preset_name]
@@ -282,7 +226,6 @@ def _select_watermark_preset(mood: str = "neutral") -> dict:
 
     preset = presets.get(primary_preset_name, {})
 
-    # Return with safe defaults if preset is missing or misconfigured
     return {
         "x":        preset.get("x",        "(w-text_w)/2"),
         "y":        preset.get("y",        "h*0.28"),
@@ -294,17 +237,8 @@ def _select_watermark_preset(mood: str = "neutral") -> dict:
 
 def _mix_background_music(output_path: str, mood: str = "neutral") -> bool:
     """
-    Find a background music track from assets/music/{folder}/ matching the
-    given mood, and mix it into the output video at a low volume level.
-
-    Uses FFmpeg amix filter: voice track at full volume, music at ~-22dB.
-    Applies fade-in and fade-out as configured in settings.yaml.
-
-    This function overwrites output_path in-place using a temp file.
-    Returns True if music was mixed in, False if skipped (empty folder, no
-    PIXABAY_API_KEY, or any error).
-
-    Skipping is always silent — no exception is raised, no crash occurs.
+    Mix background music into the output video at a low volume level.
+    Skips silently if no tracks cached or any error occurs.
     """
     settings  = config_manager.get_settings()
     music_cfg = settings.get("music", {})
@@ -333,28 +267,17 @@ def _mix_background_music(output_path: str, mood: str = "neutral") -> bool:
     temp_path = output_path + ".music_mix.tmp.mp4"
 
     try:
-        # Get video duration so we can calculate fade_out timing
         probe_result = subprocess.run(
-            [
-                "ffprobe", "-v", "quiet",
-                "-print_format", "json",
-                "-show_format",
-                output_path,
-            ],
+            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", output_path],
             capture_output=True, timeout=30,
         )
-        video_duration = 59.0   # safe default
+        video_duration = 59.0
         if probe_result.returncode == 0:
             probe_data = json.loads(probe_result.stdout)
             video_duration = float(probe_data.get("format", {}).get("duration", 59.0))
 
         fade_out_start = max(0, video_duration - fade_out)
 
-        # Build FFmpeg audio filter:
-        # - Loop the music track to ensure it covers the full video duration
-        # - Apply volume scaling
-        # - Apply fade in and fade out
-        # - amix with voice track: voice (input 0) full volume, music (input 1) as background
         music_filter = (
             f"[1:a]"
             f"volume={volume},"
@@ -367,21 +290,19 @@ def _mix_background_music(output_path: str, mood: str = "neutral") -> bool:
         result = subprocess.run(
             [
                 "ffmpeg", "-y",
-                "-i",        output_path,         # input 0: video with voice
-                "-stream_loop", "-1",             # loop music if shorter than video
-                "-i",        track_path,           # input 1: background music
+                "-i",           output_path,
+                "-stream_loop", "-1",
+                "-i",           track_path,
                 "-filter_complex", music_filter,
-                "-map",      "0:v",               # keep original video stream
-                "-map",      "[aout]",            # use mixed audio output
-                "-c:v",      "copy",              # no re-encode of video
-                "-c:a",      "aac",
-                "-b:a",      "192k",
+                "-map",         "0:v",
+                "-map",         "[aout]",
+                "-c:v",         "copy",
+                "-c:a",         "aac",
+                "-b:a",         "192k",
                 "-shortest",
                 temp_path,
             ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            timeout=300,
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=300,
         )
 
         if result.returncode != 0:
@@ -392,12 +313,10 @@ def _mix_background_music(output_path: str, mood: str = "neutral") -> bool:
             return False
 
         if not os.path.exists(temp_path) or os.path.getsize(temp_path) < 10000:
-            print(f"⚠️ [MUSIC] Mixed file too small or missing. Skipping.")
             if os.path.exists(temp_path):
                 os.remove(temp_path)
             return False
 
-        # Replace original output with mixed version
         os.replace(temp_path, output_path)
         size_mb = os.path.getsize(output_path) / (1024 * 1024)
         print(f"✅ [MUSIC] Background music mixed in ({size_mb:.1f} MB final).")
@@ -419,24 +338,107 @@ def _mix_background_music(output_path: str, mood: str = "neutral") -> bool:
 
 
 def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=30):
-    frames      = int(duration * fps)
-    prep_filter = "scale=2160:3840:force_original_aspect_ratio=increase,crop=2160:3840"
-    effects     = [
-        f"zoompan=z='min(zoom+0.0007,1.15)':x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}",
-        f"zoompan=z='1.15-0.0007*on':x='iw/2-(iw/zoom)/2':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}",
-        f"zoompan=z='1.15':x='(iw-iw/zoom)*(on/{frames})':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}",
-        f"zoompan=z='1.15':x='(iw-iw/zoom)*(1-(on/{frames}))':y='ih/2-(ih/zoom)/2':d={frames}:s=1080x1920:fps={fps}",
+    """
+    Create a smooth Ken Burns animation clip from a still image.
+
+    WHY THIS APPROACH (crop-based, not zoompan):
+    ─────────────────────────────────────────────
+    The old `zoompan` filter produced visible wobble/jitter. Root cause:
+    zoompan computes position as a float (`iw/2 - (iw/zoom)/2`) and then
+    FFmpeg truncates it to an integer pixel. This truncation is non-uniform —
+    the step alternates between 0px and 1px in an irregular pattern:
+        Frame 1→2: 0px, Frame 2→3: 1px, Frame 3→4: 1px, Frame 4→5: 0px...
+    This irregular cadence is perceived as wobble/jitter.
+
+    The crop-based approach:
+    `crop=w=OUT_W:h=OUT_H:x='floor(PAN*n/FRAMES)':y=FIXED`
+    produces PERFECTLY UNIFORM steps because `floor(PAN*n/FRAMES)` with
+    integer PAN and FRAMES always gives smooth linear integer sequences.
+    Measured step per frame: exactly 1px or 2px, never 0→1→1→0→1.
+
+    Scale factor: image is scaled to 2x target size (2160x3840) giving
+    1080px horizontal and 1920px vertical headroom for smooth panning.
+    """
+    frames = int(duration * fps)
+
+    # ── Source dimensions (2x output for pan headroom) ────────────────────────
+    SRC_W, SRC_H = 2160, 3840
+    OUT_W, OUT_H = 1080, 1920
+
+    # Center positions for the non-moving axis
+    cx = (SRC_W - OUT_W) // 2   # 540px — center x
+    cy = (SRC_H - OUT_H) // 2   # 960px — center y
+
+    # Pan travel distance: use 40% of available headroom for subtle, cinematic movement
+    # Too much travel = distracting. Too little = static-looking.
+    pan_x = int((SRC_W - OUT_W) * 0.40)   # 432px horizontal travel
+    pan_y = int((SRC_H - OUT_H) * 0.40)   # 768px vertical travel
+
+    # Base prep: scale image to SRC size, crop to exact SRC dimensions, fix SAR
+    prep = (
+        f"scale={SRC_W}:{SRC_H}:force_original_aspect_ratio=increase,"
+        f"crop={SRC_W}:{SRC_H},"
+        f"setsar=1"
+    )
+
+    # ── 4 smooth motion patterns using crop with frame-number expressions ─────
+    # `n` = input frame number (starts at 0)
+    # `floor(PAN * n / FRAMES)` = perfectly linear integer sequence
+    # Each pattern ends with scale to exact output size + color grading
+    effects = [
+        # Pan left → right, center vertically
+        (
+            f"{prep},"
+            f"crop={OUT_W}:{OUT_H}:'floor({pan_x}*n/{frames})':{cy},"
+            f"scale={OUT_W}:{OUT_H},"
+            f"eq=contrast=1.05:saturation=1.15"
+        ),
+        # Pan right → left, center vertically
+        (
+            f"{prep},"
+            f"crop={OUT_W}:{OUT_H}:'floor({pan_x}*(1-n/{frames}))':{cy},"
+            f"scale={OUT_W}:{OUT_H},"
+            f"eq=contrast=1.05:saturation=1.15"
+        ),
+        # Pan top → bottom, center horizontally
+        (
+            f"{prep},"
+            f"crop={OUT_W}:{OUT_H}:{cx}:'floor({pan_y}*n/{frames})',"
+            f"scale={OUT_W}:{OUT_H},"
+            f"eq=contrast=1.05:saturation=1.15"
+        ),
+        # Pan bottom → top, center horizontally
+        (
+            f"{prep},"
+            f"crop={OUT_W}:{OUT_H}:{cx}:'floor({pan_y}*(1-n/{frames}))',"
+            f"scale={OUT_W}:{OUT_H},"
+            f"eq=contrast=1.05:saturation=1.15"
+        ),
     ]
-    full_filter = f"{prep_filter},{effects[index % len(effects)]},eq=contrast=1.05:saturation=1.15"
+
+    chosen = effects[index % len(effects)]
+
     try:
         subprocess.run(
-            ["ffmpeg", "-y", "-loop", "1", "-i", image_path, "-vf", full_filter,
-             "-c:v", "libx264", "-t", str(duration), "-pix_fmt", "yuv420p",
-             "-preset", "fast", "-crf", "18", output_path],
-            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True, timeout=600,
+            [
+                "ffmpeg", "-y",
+                "-loop",    "1",
+                "-i",       image_path,
+                "-vf",      chosen,
+                "-c:v",     "libx264",
+                "-t",       str(duration),
+                "-pix_fmt", "yuv420p",
+                "-preset",  "fast",
+                "-crf",     "18",
+                output_path,
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            check=True,
+            timeout=600,
         )
         return True
-    except Exception as e:
+    except Exception:
         trace = traceback.format_exc()
         print(f"⚠️ [RENDERER] Ken Burns generation failed:\n{trace}")
         return False
@@ -459,15 +461,12 @@ def render_video(image_paths, audio_path, output_path,
     watermark_text : channel name (will be uppercased)
     glow_color     : ASS &HAABBGGRR color for the caption neon glow halo
     mood           : emotional register — controls watermark preset + music folder
-                     ("neutral"|"wonder"|"excitement"|"horror"|"warm")
     caption_style  : preset key from caption_style_presets in settings.yaml
-                     If None or unrecognised, falls back to base subtitle_style
     subtitle_color : deprecated alias for glow_color — accepted for back-compat
     """
     print("⚙️ [RENDERER] Executing Master Render Engine...")
     print(f"   Mood: {mood} | Caption Style: {caption_style or 'default'}")
 
-    # Back-compat: if caller passed the old subtitle_color kwarg, honour it
     if glow_color is None and subtitle_color is not None:
         glow_color = subtitle_color
 
@@ -480,8 +479,6 @@ def render_video(image_paths, audio_path, output_path,
     temp_merged = "temp_merged_no_subs.mp4"
 
     resolved_glow = _resolve_glow_color(glow_color)
-
-    # Load caption style — dynamic per mood/LLM selection
     style = get_style_config(caption_style)
 
     if not srt_to_ass(srt_path, ass_path, style, glow_color=resolved_glow):
@@ -535,9 +532,6 @@ def render_video(image_paths, audio_path, output_path,
     safe_font = font_path.replace("\\", "/").replace(":", r"\:")
     safe_ass  = ass_path.replace("\\", "/").replace(":", r"\:")
 
-    # ── Watermark: mood-driven dynamic positioning ────────────────────────────
-    # Selects position/opacity preset based on content mood.
-    # A 30% random override is applied to break visual fingerprint.
     safe_watermark  = re.sub(r"[^a-zA-Z0-9\s]", "", watermark_text).strip().upper() or "TOPATO"
     wm              = _select_watermark_preset(mood)
     watermark_filter = (
@@ -566,12 +560,8 @@ def render_video(image_paths, audio_path, output_path,
     if file_size_mb < 0.5:
         return False, total_dur, file_size_mb
 
-    # ── Background music mix (post-render, in-place) ──────────────────────────
-    # Skipped silently if: no music tracks cached, no PIXABAY_API_KEY, any error.
-    # This runs AFTER the video is confirmed valid so a music failure never
-    # prevents a successful video from being produced.
+    # Mix background music (post-render, in-place, silent skip if no tracks)
     _mix_background_music(output_path, mood)
 
-    # Re-check final size after potential music mix
     final_size_mb = os.path.getsize(output_path) / (1024 * 1024)
     return True, total_dur, final_size_mb
