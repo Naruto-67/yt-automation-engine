@@ -1,4 +1,19 @@
 # scripts/reply_comments.py — Ghost Engine V25.0
+# ═══════════════════════════════════════════════════════════════════════════════
+# ⚠️  DEPRECATED — AUTO-REPLY SYSTEM DISABLED
+#
+# This file is preserved for reference. The comment auto-reply feature has been
+# intentionally disabled in .github/workflows/04_audience_engagement.yml via:
+#   if: false
+#
+# Reason: Auto-replies risk engagement-bait policy flags and require human
+# oversight to ensure reply quality aligns with brand voice.
+#
+# To re-enable:
+#   1. Remove or update the `if: false` condition in 04_audience_engagement.yml
+#   2. Restore the `schedule:` trigger in the same workflow
+#   3. Test with TEST_MODE=true before activating on production channels
+# ═══════════════════════════════════════════════════════════════════════════════
 import os
 import json
 import time
