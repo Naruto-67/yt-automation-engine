@@ -29,7 +29,7 @@ jobs:
       - name: Install Dependencies
         run: |
           pip install requests google-genai google-auth-httplib2 google-auth-oauthlib \
-                      google-api-python-client pyyaml pytz pydantic ffmpeg-python
+                      google-api-python-client pyyaml pytz pydantic
 
       - name: Install FFmpeg
         run: |
@@ -43,13 +43,11 @@ jobs:
           GEMINI_API_KEY:  ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY:    ${{ secrets.GROQ_API_KEY }}
 
-          # Channel 1 Infrastructure
           YOUTUBE_CLIENT_ID_CH1:       ${{ secrets.YOUTUBE_CLIENT_ID_CH1 }}
           YOUTUBE_CLIENT_SECRET_CH1:   ${{ secrets.YOUTUBE_CLIENT_SECRET_CH1 }}
           YOUTUBE_REFRESH_TOKEN_CH1:   ${{ secrets.YOUTUBE_REFRESH_TOKEN_CH1 }}
           DISCORD_WEBHOOK_CH1:         ${{ secrets.DISCORD_WEBHOOK_CH1 }}
 
-          # Channel 2 Infrastructure
           YOUTUBE_CLIENT_ID_CH2:       ${{ secrets.YOUTUBE_CLIENT_ID_CH2 }}
           YOUTUBE_CLIENT_SECRET_CH2:   ${{ secrets.YOUTUBE_CLIENT_SECRET_CH2 }}
           YOUTUBE_REFRESH_TOKEN_CH2:   ${{ secrets.YOUTUBE_REFRESH_TOKEN_CH2 }}
@@ -74,15 +72,17 @@ jobs:
         run: python -m scripts.api_monitor
 
       - name: Seed Music Library
-        # Downloads CC0 background music from Pixabay into assets/music/
-        # Runs weekly to keep tracks fresh. Skipped silently if no API key.
-        env:
-          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
-          GEMINI_API_KEY:  ${{ secrets.GEMINI_API_KEY }}
-          GROQ_API_KEY:    ${{ secrets.GROQ_API_KEY }}
+        # DISABLED: Pixabay type=music is not a real API parameter — it returns
+        # photos silently. FFmpeg rejects JPEG input when trying to create MP3.
+        # Pixabay has no music API endpoint. Freesound.org integration pending.
+        # Background music in render_video.py is already optional — videos
+        # produce correctly with empty music folders. No action needed here.
         run: |
           mkdir -p assets/music
-          python -m scripts.music_manager
+          echo "✅ Music seeding disabled — Pixabay has no music API."
+          echo "   Videos render normally without background music."
+          echo "   To enable: register at freesound.org/apiv2/apply/ and"
+          echo "   add FREESOUND_API_KEY secret, then update music_manager.py."
 
       - name: Commit State & Memory
         run: |
@@ -91,14 +91,14 @@ jobs:
           
           git add memory/ghost_engine.db || true
           git add memory/quota_state.json || true
-          git add memory/replied_comments_*.json || true
+          git add memory/replied_comments_*.json 2>/dev/null || true
           git add memory/token_health.json || true
           git add config/channels.yaml || true
-          git add assets/lessons_learned.json || true
+          git add assets/lessons_learned.json 2>/dev/null || true
           git add assets/music/ || true
 
           if ! git diff --staged --quiet; then
-            git commit -m "Weekly audit: State sync + music library refresh [skip ci]"
+            git commit -m "Weekly audit: State sync [skip ci]"
             
             for i in {1..5}; do
               git push && break || {
