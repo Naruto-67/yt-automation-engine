@@ -314,7 +314,7 @@ def generate_script(niche: str, topic: str):
     niche_lower  = active_niche.lower()
     is_fact      = any(x in niche_lower for x in ["fact", "hack", "tip", "news", "top", "brainrot"])
 
-    target_scenes = random.randint(3, 5) if is_fact else random.randint(5, 7)
+    target_scenes = random.randint(6, 9) if is_fact else random.randint(8, 12)
     target_dur    = "30-40 seconds"     if is_fact else "45-55 seconds"
     target_words  = "~75 words"         if is_fact else "~120 words"
 
