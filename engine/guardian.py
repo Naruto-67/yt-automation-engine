@@ -1,4 +1,4 @@
-# engine/guardian.py — Ghost Engine V13.0
+# engine/guardian.py — Ghost Engine V13.1
 import os
 import json
 from scripts.quota_manager import quota_manager
@@ -17,11 +17,11 @@ class GhostGuardian:
     def __init__(self):
         settings = config_manager.get_settings()
         costs = settings.get("guardian_costs", {})
-        
+
         self.COST_PER_VIDEO = {
             "youtube_points": costs.get("youtube_points", 1850),
-            "gemini_calls": costs.get("gemini_calls", 3),
-            "image_calls": costs.get("image_calls", 7)
+            "gemini_calls":   costs.get("gemini_calls", 3),
+            "image_calls":    costs.get("image_calls", 7)
         }
         self.SAFE_MODE_THRESHOLD = costs.get("safe_mode_threshold", 0.85)
         self.channel_health = self._load_health()
@@ -42,16 +42,16 @@ class GhostGuardian:
         try:
             with open(_HEALTH_PATH, "w") as f:
                 json.dump({
-                    "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                    "date":     datetime.now(timezone.utc).strftime("%Y-%m-%d"),
                     "channels": self.channel_health
                 }, f)
         except Exception as e:
             logger.error(f"Failed to save guardian health: {e}")
 
     def get_run_forecast(self):
-        state = quota_manager._get_active_state()
+        state  = quota_manager._get_active_state()
         yt_rem = quota_manager.LIMITS["youtube"] - state.get("youtube_points", 0)
-        
+
         limit_yt = yt_rem // self.COST_PER_VIDEO["youtube_points"]
 
         logger.engine(f"🔮 FORECAST: System can support ~{limit_yt} more videos today based on YouTube quota.")
@@ -72,32 +72,60 @@ class GhostGuardian:
             return False
 
         state = quota_manager._get_active_state()
-        
-        img_usage = state.get("cf_images", 0)
-        img_limit = quota_manager.LIMITS.get("cloudflare", 95)
-        
-        if img_usage > (img_limit * 0.8) and img_usage < (img_limit * self.SAFE_MODE_THRESHOLD):
-            notify_quota_warning("Cloudflare", img_usage, img_limit)
 
-        if (img_usage / img_limit) > self.SAFE_MODE_THRESHOLD:
-            self._trigger_safe_mode("GLOBAL", "Global Resource Depletion")
-        
+        # ── Cloudflare quota monitoring (unchanged) ───────────────────────────
+        cf_usage = state.get("cf_images", 0)
+        cf_limit = quota_manager.LIMITS.get("cloudflare", 95)
+
+        if cf_usage > (cf_limit * 0.8) and cf_usage < (cf_limit * self.SAFE_MODE_THRESHOLD):
+            notify_quota_warning("Cloudflare", cf_usage, cf_limit)
+
+        if (cf_usage / max(cf_limit, 1)) > self.SAFE_MODE_THRESHOLD:
+            self._trigger_safe_mode("GLOBAL", "Cloudflare Quota Critical")
+
+        # ── BUG #7 FIX: HuggingFace quota was completely unmonitored. ─────────
+        # The original code only checked cf_images, so even when HF was fully
+        # exhausted (hf_images >= 45) or silently 403-ing on every scene, the
+        # guardian never fired a Discord warning and never triggered safe_mode.
+        # This is now mirrored for HF using the same warn/trigger thresholds.
+        hf_usage = state.get("hf_images", 0)
+        hf_limit = quota_manager.LIMITS.get("huggingface", 45)
+
+        if hf_usage > (hf_limit * 0.8) and hf_usage < (hf_limit * self.SAFE_MODE_THRESHOLD):
+            notify_quota_warning("HuggingFace", hf_usage, hf_limit)
+            logger.engine(f"⚠️ [GUARDIAN] HuggingFace quota at {hf_usage}/{hf_limit} — approaching daily limit.")
+
+        if hf_limit > 0 and (hf_usage / hf_limit) > self.SAFE_MODE_THRESHOLD:
+            self._trigger_safe_mode("GLOBAL", "HuggingFace Quota Critical")
+
+        # ── Combined image quota check: if BOTH AI image tiers are exhausted ──
+        # safe_mode ensures we skip AI generation entirely and go straight to
+        # Pexels — no point attempting CF or HF if both are known-exhausted.
+        both_exhausted = (
+            quota_manager.is_provider_exhausted("cloudflare") and
+            quota_manager.is_provider_exhausted("huggingface")
+        )
+        if both_exhausted:
+            logger.engine("⚠️ [GUARDIAN] Both Cloudflare and HuggingFace image providers exhausted. Activating safe_mode.")
+            notify_quota_warning("All AI Image Providers", cf_usage + hf_usage, cf_limit + hf_limit)
+            self._trigger_safe_mode("GLOBAL", "All AI Image Providers Exhausted")
+
         return True
-        
+
     def _trigger_safe_mode(self, target_id, reason):
-        if target_id not in self.channel_health: 
+        if target_id not in self.channel_health:
             self.channel_health[target_id] = {}
-        
+
         if not self.channel_health[target_id].get("safe_mode"):
             self.channel_health[target_id]["safe_mode"] = True
             self._save_health()
             logger.engine(f"⚠️ [GUARDIAN] Safe Mode activated for {target_id}: {reason}")
-            notify_summary(True, f"🛡️ **Safe Mode Engaged** for {target_id}.\nBypassing custom AI imagery to conserve quota.")
+            notify_summary(True, f"🛡️ **Safe Mode Engaged** for {target_id}.\nBypassing custom AI imagery to conserve quota.\nReason: {reason}")
 
     def report_incident(self, module, error):
-        err_msg = str(error).lower()
+        err_msg    = str(error).lower()
         channel_id = ctx.get_channel_id()
-        
+
         if any(x in err_msg for x in ["401", "unauthorized", "invalid_grant"]):
             logger.error(f"🚨 [GUARDIAN] Auth Failure for {channel_id}.")
             notify_error(module, "AUTH_FAILURE", f"The token for {channel_id} has expired or been revoked.")
@@ -109,6 +137,16 @@ class GhostGuardian:
                 quota_manager.consume_points("youtube", 99999)
                 notify_error(module, "YT_QUOTA_EXCEEDED", "YouTube 10,000pt limit reached. Halting channel for the day.")
                 return "FATAL"
+
+        # ── BUG #7 FIX (continued): HF/CF auth errors should also be reported
+        # as provider-level incidents so the guardian can log and notify,
+        # rather than silently falling through to Pexels every run.
+        if any(x in err_msg for x in ["hf auth error", "cf auth error"]):
+            logger.error(f"🚨 [GUARDIAN] AI Image Provider auth failure in {module}: {error}")
+            notify_error(module, "IMAGE_AUTH_FAILURE",
+                         f"Image generation auth failed: {error}. "
+                         f"Check HF_TOKEN / CF_API_TOKEN secrets.")
+            return "SWAP_PROVIDER"
 
         if any(x in err_msg for x in ["429", "quota", "limit reached"]):
             self._trigger_safe_mode("GLOBAL", "Mid-run API strike")
