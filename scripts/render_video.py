@@ -709,6 +709,7 @@ def render_video(image_paths, audio_path, output_path,
                 "-i",     temp_merged,
                 "-vf",    final_vf,
                 "-c:v",   "libx264",
+                "-pix_fmt","yuv420p",   # REQUIRED: force universal pixel format
                 "-preset","fast",
                 "-crf",   "18",
                 "-c:a",   "copy",
