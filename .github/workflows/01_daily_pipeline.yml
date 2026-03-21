@@ -3,6 +3,11 @@ name: 01_Ghost_Daily_Production
 
 on:
   workflow_dispatch:
+    inputs:
+      test_mode:
+        description: 'Run in TEST MODE (no DB writes, no YouTube uploads, 1 video per channel)'
+        type: boolean
+        default: false
   schedule:
     - cron: '0 0 * * *'
 
@@ -48,8 +53,11 @@ jobs:
         env:
           PYTHONUNBUFFERED: 1
           GHOST_ENGINE_ENABLED: ${{ vars.GHOST_ENGINE_ENABLED }}
-          TEST_MODE: false  
-          
+          # When triggered via workflow_dispatch with test_mode=true → TEST_MODE=true
+          # When triggered by schedule (cron) → github.event.inputs.test_mode is empty
+          # → expression evaluates to 'false' → production runs normally, untouched
+          TEST_MODE: ${{ github.event.inputs.test_mode || 'false' }}
+
           GEMINI_API_KEY:       ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY:         ${{ secrets.GROQ_API_KEY }}
           PEXELS_API_KEY:       ${{ secrets.PEXELS_API_KEY }}
