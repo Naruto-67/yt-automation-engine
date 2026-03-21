@@ -21,11 +21,13 @@ TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
 
 
 class JobRunner:
-    def __init__(self, job: VideoJob, youtube_client=None, channel_name: str = "", channel_config=None):
+    def __init__(self, job: VideoJob, youtube_client=None, channel_name: str = "",
+                 channel_config=None, dry_run: bool = False):
         self.job            = job
         self.youtube        = youtube_client
         self.channel_name   = channel_name or job.channel_id
         self.channel_config = channel_config   # ChannelConfig — used for category_id, language etc.
+        self.dry_run        = dry_run          # True in TEST_MODE — no DB reads/writes
         self.max_attempts   = 3
         self.base_filename  = f"job_{job.id}_{job.channel_id.replace(' ', '_')}"
         self.final_duration = 0.0
@@ -33,7 +35,11 @@ class JobRunner:
 
     def process(self) -> bool:
         ctx.set_channel_id(self.job.channel_id)
-        logger.engine(f"Processing Job {self.job.id} | Topic: {self.job.topic} | State: {self.job.state.name}")
+        logger.engine(
+            f"Processing Job {self.job.id} | Topic: {self.job.topic} | "
+            f"State: {self.job.state.name}"
+            + (" [DRY RUN — no DB writes]" if self.dry_run else "")
+        )
 
         try:
             if self.job.state in [JobState.VISUAL_GENERATION, JobState.RENDERING]:
@@ -90,15 +96,19 @@ class JobRunner:
     def _transition_to(self, new_state: JobState):
         self.job.state      = new_state
         self.job.updated_at = datetime.utcnow().isoformat()
-        db.upsert_job(self.job)
+        # ── DRY RUN GUARD: no DB writes in test mode ──────────────────────────
+        if not self.dry_run:
+            db.upsert_job(self.job)
         logger.engine(f"Job {self.job.id} → {new_state.name}")
 
     def _handle_failure(self, error_msg: str, trace: str):
         self.job.attempts += 1
-        db.log_failure(FailureLog(
-            job_id=self.job.id, channel_id=self.job.channel_id,
-            module=self.job.state.name, error_message=error_msg, traceback=trace
-        ))
+        # ── DRY RUN GUARD: no DB writes in test mode ──────────────────────────
+        if not self.dry_run:
+            db.log_failure(FailureLog(
+                job_id=self.job.id, channel_id=self.job.channel_id,
+                module=self.job.state.name, error_message=error_msg, traceback=trace
+            ))
         from engine.guardian import guardian
         guardian.report_incident(self.job.state.name, error_msg)
 
@@ -106,14 +116,19 @@ class JobRunner:
             self._transition_to(JobState.FAILED)
             notify_step(self.job.topic, "FAILED", f"Critical crash after {self.max_attempts} attempts.", 0xe74c3c)
         else:
-            db.upsert_job(self.job)
+            # Only persist attempt count to DB in production mode
+            if not self.dry_run:
+                db.upsert_job(self.job)
             time.sleep(5)
 
     def _execute_script_generation(self):
         logger.generation("Drafting script...")
-        script_text, prompts, pexels, weights, prov, voice, glow_color = generate_script(
-            self.job.niche, self.job.topic
-        )
+        # generate_script now returns a 9-tuple including mood and caption_style
+        (
+            script_text, prompts, pexels, weights, prov,
+            voice, glow_color, mood, caption_style
+        ) = generate_script(self.job.niche, self.job.topic)
+
         if not script_text:
             raise ValueError("Empty script returned from generator.")
 
@@ -128,13 +143,15 @@ class JobRunner:
             }
 
         self.job.script = json.dumps({
-            "text":         script_text,
-            "prompts":      prompts,
-            "pexels":       pexels,
-            "weights":      weights,
-            "provider":     prov,
-            "target_voice": voice,
-            "glow_color":   glow_color,   # caption neon halo color (ASS &HAABBGGRR)
+            "text":          script_text,
+            "prompts":       prompts,
+            "pexels":        pexels,
+            "weights":       weights,
+            "provider":      prov,
+            "target_voice":  voice,
+            "glow_color":    glow_color,    # caption neon halo color (ASS &HAABBGGRR)
+            "mood":          mood,          # emotional register for voice + music + watermark
+            "caption_style": caption_style, # visual subtitle preset key
         })
         self.job.metadata = json.dumps(meta_data)
         self._transition_to(JobState.VOICE_GENERATION)
@@ -144,9 +161,13 @@ class JobRunner:
         script_data  = json.loads(self.job.script)
         audio_base   = f"temp_audio_{self.base_filename}"
         target_voice = script_data.get("target_voice", "am_adam")
+        mood         = script_data.get("mood", "neutral")
 
         success, prov, duration = generate_audio(
-            script_data["text"], output_base=audio_base, target_voice=target_voice
+            script_data["text"],
+            output_base=audio_base,
+            target_voice=target_voice,
+            mood=mood,               # ← emotion injection based on mood
         )
         if not success:
             raise RuntimeError("TTS pipeline collapsed — all providers failed.")
@@ -192,6 +213,11 @@ class JobRunner:
             or None
         )
 
+        # mood and caption_style — both .get() with safe defaults so old jobs
+        # that predate these fields still render correctly using base style.
+        mood          = script_data.get("mood",          "neutral")
+        caption_style = script_data.get("caption_style", None)
+
         scene_count = len(images)
         required_gb = max(2.0, (scene_count * 0.3) + 0.5)
         free_gb     = shutil.disk_usage("/").free / (1024 ** 3)
@@ -210,6 +236,8 @@ class JobRunner:
             scene_weights=weights,
             watermark_text=watermark,
             glow_color=glow_color,
+            mood=mood,               # ← dynamic watermark + background music
+            caption_style=caption_style,  # ← dynamic caption style preset
         )
 
         if not success:
@@ -231,6 +259,7 @@ class JobRunner:
         if TEST_MODE:
             logger.success("🧪 [TEST MODE] Bypassing YouTube Upload. Simulating success.")
             self.job.youtube_id = "test_mode_dummy_video_id"
+            # ── DRY RUN GUARD: _transition_to handles the DB write guard internally ──
             self._transition_to(JobState.VAULTED)
             notify_vault_secure(self.job.topic, self.job.youtube_id, "Test_Playlist_ID")
 
