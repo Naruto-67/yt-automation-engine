@@ -1,25 +1,24 @@
-# scripts/music_manager.py — Ghost Engine V26.0.0
+# scripts/music_manager.py — Ghost Engine V7.1
 """
 Pixabay Music Library Manager.
 
-Downloads copyright-free background music tracks (CC0 license) from Pixabay
-into the assets/music/ folder structure. Runs as part of the weekly audit
-pipeline to keep the local library fresh without downloading on every video.
+Downloads royalty-free background music tracks from Pixabay using the
+standard image/video/music API with type=music parameter.
+
+CORRECT ENDPOINT: https://pixabay.com/api/?key=...&type=music&...
+WRONG ENDPOINT:   https://pixabay.com/api/music/  ← this does not exist
+
+Pixabay music is completely free: no attribution required, no copyright
+claims, safe for commercial use and monetized YouTube videos.
 
 Usage:
     python -m scripts.music_manager          # seed all mood folders
     python -m scripts.music_manager --check  # report current library state only
-
-Pixabay API: https://pixabay.com/api/music/
-License: All Pixabay music is CC0 — no attribution required, free commercial use,
-         safe for YouTube monetization (no copyright claims).
 """
 import os
 import sys
-import json
 import time
 import random
-import shutil
 import subprocess
 import traceback
 import requests
@@ -29,36 +28,37 @@ from engine.logger import logger
 
 _ROOT_DIR   = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 _MUSIC_ROOT = os.path.join(_ROOT_DIR, "assets", "music")
-_PIXABAY_API_BASE = "https://pixabay.com/api/music/"
 
-# ─── Mood → Pixabay search query mapping ─────────────────────────────────────
-# Multiple queries per mood to get varied results across seeding runs.
-# Pixabay music API accepts: q (keyword), category (optional), per_page (1-200)
+# Correct Pixabay API endpoint — same base URL used for images/videos
+_PIXABAY_API_BASE = "https://pixabay.com/api/"
+
+# ── Mood → Pixabay search query mapping ───────────────────────────────────────
+# Multiple queries per mood — random selection each weekly run for variety.
 MOOD_SEARCH_QUERIES = {
     "cinematic_sad": [
-        "cinematic sad piano",
-        "melancholic background music",
-        "emotional ambient instrumental",
+        "cinematic sad",
+        "melancholic piano",
+        "emotional ambient",
     ],
     "dark_ambient": [
-        "dark ambient atmospheric",
-        "mystery tension background",
-        "dark drone instrumental",
+        "dark ambient",
+        "mystery background",
+        "atmospheric drone",
     ],
     "dark_phonk": [
-        "dark phonk instrumental",
-        "aggressive dark trap beat",
-        "dark electronic background",
+        "dark phonk",
+        "dark trap",
+        "dark electronic",
     ],
     "horror_drones": [
-        "horror ambient suspense",
-        "scary drone atmosphere",
-        "dark suspense instrumental",
+        "horror ambient",
+        "suspense horror",
+        "dark suspense",
     ],
     "upbeat_curiosity": [
-        "upbeat discovery adventure",
-        "curious playful background",
-        "light energetic instrumental",
+        "upbeat curious",
+        "playful background",
+        "light adventure",
     ],
 }
 
@@ -70,17 +70,21 @@ def _get_api_key() -> str:
 
 def _search_pixabay_music(query: str, per_page: int = 8) -> list:
     """
-    Search Pixabay music API and return a list of hit dicts.
-    Returns empty list on any error — caller decides how to handle.
+    Search Pixabay for music tracks using type=music parameter.
+    Returns list of hit dicts, empty list on any error.
+
+    Key difference from image search: type=music returns audio files
+    with a 'audio' field containing the direct download URL.
     """
     api_key = _get_api_key()
     if not api_key:
         return []
 
     params = {
-        "key":      api_key,
-        "q":        query,
-        "per_page": per_page,
+        "key":        api_key,
+        "q":          query,
+        "type":       "music",      # ← this is the correct way to search music
+        "per_page":   per_page,
         "safesearch": "true",
     }
 
@@ -93,16 +97,16 @@ def _search_pixabay_music(query: str, per_page: int = 8) -> list:
             logger.error(f"[MUSIC] Pixabay search failed (HTTP {resp.status_code}): {query}")
             return []
     except Exception:
-        logger.error(f"[MUSIC] Pixabay search exception for query '{query}':\n{traceback.format_exc()}")
+        logger.error(f"[MUSIC] Pixabay search exception for '{query}':\n{traceback.format_exc()}")
         return []
 
 
 def _extract_audio_url(hit: dict) -> str:
     """
     Extract the downloadable audio URL from a Pixabay music hit.
-    Tries multiple field names defensively since the API can vary.
+    Tries multiple field names defensively.
     """
-    for field in ("audio", "audioUrl", "audioURL", "previewURL", "url"):
+    for field in ("audio", "audioURL", "audioUrl", "previewURL", "url"):
         val = hit.get(field)
         if val and isinstance(val, str) and val.startswith("http"):
             return val
@@ -112,8 +116,7 @@ def _extract_audio_url(hit: dict) -> str:
 def _download_and_trim(audio_url: str, output_path: str, max_seconds: int = 90) -> bool:
     """
     Download an audio file from URL and trim it to max_seconds using FFmpeg.
-    Encodes as 128 kbps MP3 (~1.4 MB for 90s — safe for GitHub storage).
-
+    Encodes as 128 kbps MP3.
     Returns True on success, False on any failure.
     """
     temp_path = output_path + ".tmp_raw"
@@ -129,15 +132,14 @@ def _download_and_trim(audio_url: str, output_path: str, max_seconds: int = 90) 
                 f.write(chunk)
 
         if not os.path.exists(temp_path) or os.path.getsize(temp_path) < 1000:
-            logger.error(f"[MUSIC] Downloaded file too small or missing: {temp_path}")
+            logger.error(f"[MUSIC] Downloaded file too small: {temp_path}")
             return False
 
-        # Trim to max_seconds and re-encode as 128k MP3
         result = subprocess.run(
             [
                 "ffmpeg", "-y",
-                "-i",  temp_path,
-                "-t",  str(max_seconds),
+                "-i",   temp_path,
+                "-t",   str(max_seconds),
                 "-c:a", "libmp3lame",
                 "-b:a", "128k",
                 "-ar",  "44100",
@@ -150,7 +152,7 @@ def _download_and_trim(audio_url: str, output_path: str, max_seconds: int = 90) 
 
         if result.returncode != 0:
             err = result.stderr.decode("utf-8", errors="replace")[:300]
-            logger.error(f"[MUSIC] FFmpeg trim failed for {output_path}:\n{err}")
+            logger.error(f"[MUSIC] FFmpeg trim failed:\n{err}")
             return False
 
         if not os.path.exists(output_path) or os.path.getsize(output_path) < 5000:
@@ -158,7 +160,7 @@ def _download_and_trim(audio_url: str, output_path: str, max_seconds: int = 90) 
             return False
 
         size_kb = os.path.getsize(output_path) // 1024
-        logger.success(f"[MUSIC] ✅ Downloaded & trimmed: {os.path.basename(output_path)} ({size_kb} KB)")
+        logger.success(f"[MUSIC] ✅ {os.path.basename(output_path)} ({size_kb} KB)")
         return True
 
     except subprocess.TimeoutExpired:
@@ -168,18 +170,15 @@ def _download_and_trim(audio_url: str, output_path: str, max_seconds: int = 90) 
         logger.error(f"[MUSIC] Download/trim exception:\n{traceback.format_exc()}")
         return False
     finally:
-        # Clean up temp raw file regardless of outcome
         if os.path.exists(temp_path):
             try: os.remove(temp_path)
-            except Exception: pass
+            except: pass
 
 
 def download_mood_tracks(folder_name: str, query: str, tracks_needed: int) -> int:
     """
-    Search Pixabay for `query`, download up to `tracks_needed` valid tracks
-    into assets/music/{folder_name}/.
-
-    Track filenames: track_0.mp3, track_1.mp3 (overwrites existing on refresh).
+    Search Pixabay for `query` with type=music, download up to `tracks_needed`
+    valid tracks into assets/music/{folder_name}/.
     Returns the number of tracks successfully downloaded.
     """
     folder_path = os.path.join(_MUSIC_ROOT, folder_name)
@@ -190,7 +189,6 @@ def download_mood_tracks(folder_name: str, query: str, tracks_needed: int) -> in
         logger.engine(f"[MUSIC] No results for query '{query}'. Skipping {folder_name}.")
         return 0
 
-    # Shuffle hits so repeated runs get variety
     random.shuffle(hits)
 
     downloaded = 0
@@ -198,48 +196,45 @@ def download_mood_tracks(folder_name: str, query: str, tracks_needed: int) -> in
         if downloaded >= tracks_needed:
             break
 
-        audio_url = _extract_audio_url(hit)
+        audio_url   = _extract_audio_url(hit)
+        track_title = hit.get("title", "unknown")[:50]
+
         if not audio_url:
             continue
 
-        track_title = hit.get("title", "unknown")[:50]
-        out_path    = os.path.join(folder_path, f"track_{downloaded}.mp3")
-
+        out_path = os.path.join(folder_path, f"track_{downloaded}.mp3")
         logger.engine(f"[MUSIC] Downloading: '{track_title}' → {folder_name}/track_{downloaded}.mp3")
+
         success = _download_and_trim(audio_url, out_path, max_seconds=90)
         if success:
             downloaded += 1
         else:
             logger.engine(f"[MUSIC] Skipping '{track_title}' (download/trim failed).")
 
-        # Polite pause between Pixabay requests
-        time.sleep(1.5)
+        time.sleep(1.0)
 
     return downloaded
 
 
 def seed_music_library() -> dict:
     """
-    Seed all mood folders in assets/music/ using Pixabay music API.
-    Uses one randomly chosen search query per folder to get variety on each run.
-    Skips any folder where tracks_per_mood = 0.
-
-    Returns a summary dict: {folder_name: tracks_downloaded}
+    Seed all mood folders using Pixabay music API (type=music).
+    Randomly picks one search query per folder per run for variety.
+    Returns {folder_name: tracks_downloaded}
     """
     api_key = _get_api_key()
     if not api_key:
         logger.engine("[MUSIC] PIXABAY_API_KEY not set. Skipping music library seeding.")
         return {}
 
-    settings     = config_manager.get_settings()
-    music_cfg    = settings.get("music", {})
+    settings      = config_manager.get_settings()
+    music_cfg     = settings.get("music", {})
     tracks_needed = int(music_cfg.get("tracks_per_mood", 2))
 
     logger.engine(f"[MUSIC] Seeding music library — {tracks_needed} track(s) per mood folder...")
 
     summary = {}
     for folder_name, query_list in MOOD_SEARCH_QUERIES.items():
-        # Randomly pick one query from the list — different results each weekly run
         query = random.choice(query_list)
         logger.engine(f"[MUSIC] Folder '{folder_name}' — query: '{query}'")
 
@@ -251,17 +246,13 @@ def seed_music_library() -> dict:
         else:
             logger.success(f"[MUSIC] '{folder_name}' → {count} track(s) ready.")
 
-        # Pause between folders to respect API rate limits
         time.sleep(2)
 
     return summary
 
 
 def check_library_state() -> dict:
-    """
-    Report the current state of the music library without downloading anything.
-    Returns {folder_name: [list of .mp3 filenames]}
-    """
+    """Report current state without downloading anything."""
     state = {}
     for folder_name in MOOD_SEARCH_QUERIES:
         folder_path = os.path.join(_MUSIC_ROOT, folder_name)
@@ -274,7 +265,6 @@ def check_library_state() -> dict:
 
 
 def print_library_report():
-    """Print a human-readable report of the current music library state."""
     state = check_library_state()
     print("\n🎵 Music Library State:")
     print("─" * 40)
