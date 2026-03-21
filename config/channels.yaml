@@ -1,5 +1,5 @@
 # config/channels.yaml
-version: "6.0.0"
+version: "26.0.0"
 
 channels:
   - id: "CH_01"
@@ -37,6 +37,7 @@ channels:
     discord_webhook_env: "DISCORD_WEBHOOK_CH2"
     active: true
     creative_lenses:
+      # — Original lenses (preserved exactly) —
       - "Counter-intuitive facts that contradict common beliefs"
       - "Largest, smallest, fastest, oldest things in existence"
       - "Bizarre historical events that sound fictional but are real"
@@ -49,3 +50,14 @@ channels:
       - "Deep dives into ordinary objects revealing shocking facts"
       - "Phenomena that seem impossible but are scientifically proven"
       - "Unusual natural disasters or environmental phenomena"
+      # — New lenses: expanding spectrum from fun to dark to psychological —
+      - "Psychological facts about how humans think, decide, and fool themselves"
+      - "Shocking food science facts hiding inside everyday ingredients"
+      - "Strange and surprising human body capabilities and hard limits"
+      - "Real unsolved historical crimes and mysteries still open today"
+      - "Technology secrets hidden inside products everyone owns and uses"
+      - "World records so extreme and specific they seem invented"
+      - "Strange laws still officially on the books in countries worldwide"
+      - "Survival science: what actually kills you in extreme environments"
+      - "Optical physics and light phenomena most people never learn about"
+      - "Economics and money facts that permanently change how you see prices"
