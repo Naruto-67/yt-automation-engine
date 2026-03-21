@@ -1,5 +1,5 @@
 # config/prompts.yaml
-version: "25.0.0"
+version: "26.0.0"
 
 script_gen:
   system_prompt: |
@@ -28,12 +28,15 @@ script_gen:
        5. NEVER use: "mind-blowing" as filler, "you won't believe", "did you know" as openers,
           "fascinating", "delve", "realm", "game-changer", "certainly", "absolutely".
        6. Sentence lengths must vary. Short. Then medium. Then one that pays it off.
+       7. Content can range from fun and light to dark and unsettling — but ALWAYS educational,
+          ALWAYS accurate, and ALWAYS advertiser-friendly. Dark facts are fine. Fear-bait is not.
 
     BOTH types must pass this monetization gate:
     ✅ No violent, hateful, or sexually suggestive language
     ✅ No medical/financial advice stated as fact without qualification
     ✅ Suitable for all ages and advertiser-friendly audiences
     ✅ Hook lands in the first sentence — no warm-up, no "hey guys", no intro fluff
+    ✅ No calls to action ("subscribe", "follow", "like") — these flag engagement bait
 
   user_template: |
     NICHE: '{niche}'
@@ -58,15 +61,33 @@ script_gen:
     - "af_sarah"   → Bright/energetic
 
     GLOW COLOR:
-    - "&H0000D700" → Green
-    - "&H00FFD700" → Cyan
-    - "&H000015FF" → Red
-    - "&H00FF8040" → Blue
+    - "&H0000D700" → Green  (nature, biology, science, curiosity)
+    - "&H00FFD700" → Cyan   (technology, space, AI, futurism)
+    - "&H000015FF" → Red    (horror, dark facts, danger, unsettling)
+    - "&H00FF8040" → Blue   (mystery, deep sea, psychology, unknown)
+
+    MOOD SELECTION — pick the ONE that best matches the emotional register of this content:
+    - "neutral"    → Standard educational or informational content
+    - "wonder"     → Awe-inspiring, discovery-driven, fascinating revelations
+    - "excitement" → High-energy, punchy, fast-paced, viral-energy content
+    - "horror"     → Dark, unsettling, spine-chilling (always advertiser-safe — educational, not fear-bait)
+    - "warm"       → Heartfelt, emotional, human-centered storytelling
+
+    CAPTION STYLE — select the ONE that best matches the mood (use the EXACT key):
+    - "viral_impact"   → Bold standard viral Shorts style (default for most content)
+    - "cinematic"      → Subtle filmic presentation (wonder, discovery)
+    - "horror_tight"   → High-tension style (dark/horror content)
+    - "minimal_clean"  → Clean educational look (neutral/factual)
+    - "dynamic_upper"  → Upper-screen energetic captions (excitement)
+    - "bold_lower"     → Maximum lower-third impact (punchy viral)
+    - "storytelling"   → Warm narrative style (warm/emotional stories)
 
     Return ONLY valid JSON. No preamble.
     {{
       "voice_actor": "...",
       "glow_color": "...",
+      "mood": "...",
+      "caption_style": "...",
       "thought_process": "...",
       "scenes": [
         {{
