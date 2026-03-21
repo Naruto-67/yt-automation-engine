@@ -1,4 +1,6 @@
+# .github/workflows/04_audience_engagement.yml
 name: 04_Ghost_Audience_Engagement
+
 # ─────────────────────────────────────────────────────────────────────────────
 # AUTO-REPLY SYSTEM: PERMANENTLY DISABLED
 #
