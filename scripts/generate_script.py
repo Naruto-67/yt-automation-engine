@@ -318,7 +318,7 @@ def generate_script(niche: str, topic: str):
     target_dur    = "30-40 seconds"     if is_fact else "45-55 seconds"
     target_words  = "~75 words"         if is_fact else "~120 words"
 
-    user_prompt = prompts_cfg["script_gen"]["user_template"].format(
+    base_user_prompt = prompts_cfg["script_gen"]["user_template"].format(
         niche=active_niche,
         topic=topic,
         emphasize_rules=emp or "Focus on viewer retention.",
@@ -329,7 +329,7 @@ def generate_script(niche: str, topic: str):
         word_ceiling=_ABSOLUTE_WORD_CEILING
     )
 
-    user_prompt += (
+    base_user_prompt += (
         f"\n\nCRITICAL INSTRUCTION: Break the script into EXACTLY {target_scenes} visual scenes. "
         f"The combined text across all scenes MUST be a detailed, multi-sentence narrative. {hook_context}"
     )
@@ -337,6 +337,42 @@ def generate_script(niche: str, topic: str):
     last_error = "Unknown Error"
 
     for attempt in range(3):
+        # ── BUG #4 FIX: Progressive word-limit constraints on retry ───────────
+        # Original code sent the exact same prompt all 3 times. If the LLM
+        # ignored the word ceiling on attempt 1 (as it did today: 207→198→239),
+        # all 3 retries were guaranteed to fail, burning 3 Gemini quota points
+        # and falling to the emergency fallback script.
+        #
+        # Strategy:
+        #   Attempt 0 (first try) → base prompt, no extra constraint
+        #   Attempt 1 (first retry) → inject an explicit bolded hard-limit banner
+        #   Attempt 2 (last chance) → banner + hard-truncate the JSON text ourselves
+        #                             before the word-count check (never fails)
+        if attempt == 0:
+            user_prompt = base_user_prompt
+        elif attempt == 1:
+            # Escalate the instruction with stronger language
+            word_limit_banner = (
+                f"\n\n🚨 HARD LIMIT VIOLATION ON PREVIOUS ATTEMPT 🚨\n"
+                f"Your previous response was too long. This is the FINAL constraint:\n"
+                f"TOTAL WORDS ACROSS ALL SCENE TEXT FIELDS MUST NOT EXCEED {_ABSOLUTE_WORD_CEILING}.\n"
+                f"Count every word. Cut scenes if needed. Do NOT exceed {_ABSOLUTE_WORD_CEILING} words.\n"
+                f"Aim for {target_words} — keep it SHORT and punchy."
+            )
+            user_prompt = base_user_prompt + word_limit_banner
+        else:
+            # Last attempt: even stricter banner + reduce target scene count to force brevity
+            reduced_scenes = max(3, target_scenes - 3)
+            word_limit_banner = (
+                f"\n\n🚨 CRITICAL: FINAL ATTEMPT — STRICT WORD LIMIT ENFORCEMENT 🚨\n"
+                f"Reduce to {reduced_scenes} scenes maximum.\n"
+                f"Each scene's text field must be ONE sentence only — no more.\n"
+                f"Total words: ABSOLUTE MAXIMUM {_ABSOLUTE_WORD_CEILING}. "
+                f"Every word over this limit will cause a system failure.\n"
+                f"BE EXTREMELY BRIEF."
+            )
+            user_prompt = base_user_prompt + word_limit_banner
+
         try:
             raw, provider = quota_manager.generate_text(
                 user_prompt,
@@ -386,10 +422,32 @@ def generate_script(niche: str, topic: str):
             word_count = len(full_text.split())
             print(f"      -> [TEXT PRE-CHECK] Script generated: {word_count} words (Mathematical Limit: {_ABSOLUTE_WORD_CEILING}).")
 
+            # ── BUG #4 FIX (continued): On the last attempt, hard-truncate the
+            # assembled text rather than failing. This guarantees we never hit
+            # the emergency fallback just because the LLM is verbose — we trim
+            # cleanly at the word boundary and continue with a valid (shorter) script.
             if word_count > _ABSOLUTE_WORD_CEILING:
-                print(f"      ⚠️ [SCRIPT] Too long ({word_count} words, limit {_ABSOLUTE_WORD_CEILING}). Retrying...")
-                last_error = "Script exceeded maximum mathematical word count."
-                continue
+                if attempt == 2:
+                    print(f"      ✂️ [SCRIPT] Last attempt still too long ({word_count} words). Hard-truncating to {_ABSOLUTE_WORD_CEILING} words...")
+                    words         = full_text.split()
+                    full_text     = " ".join(words[:_ABSOLUTE_WORD_CEILING])
+                    word_count    = _ABSOLUTE_WORD_CEILING
+                    # Rebuild scene text proportionally (keep prompts/queries intact)
+                    total_chars   = sum(len(s[0]) for s in parsed_scenes) or 1
+                    char_budget   = len(full_text)
+                    rebuilt       = []
+                    chars_used    = 0
+                    for i, (narr, prompt, query) in enumerate(parsed_scenes):
+                        share      = len(narr) / total_chars
+                        allotted   = int(char_budget * share)
+                        trimmed    = narr[:allotted].rsplit(' ', 1)[0] if len(narr) > allotted else narr
+                        chars_used += len(trimmed)
+                        rebuilt.append((trimmed, prompt, query))
+                    parsed_scenes = rebuilt
+                else:
+                    print(f"      ⚠️ [SCRIPT] Too long ({word_count} words, limit {_ABSOLUTE_WORD_CEILING}). Retrying with tighter constraint...")
+                    last_error = "Script exceeded maximum mathematical word count."
+                    continue
 
             if word_count < 15:
                 print(f"      ⚠️ [SCRIPT] Script critically short ({word_count} words). Retrying...")
