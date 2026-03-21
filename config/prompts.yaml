@@ -99,11 +99,28 @@ script_gen:
     }}
 
 script_validation:
-  system_prompt: "You are a ruthless YouTube Retention Analyst."
+  system_prompt: "You are a YouTube Shorts content quality checker. Your job is to
+    catch broken, incoherent, or empty scripts — NOT to judge viral potential.
+    Narrative storytelling scripts and fast-paced factual scripts are BOTH valid outputs."
   user_template: |
     Review this script: "{script_text}"
-    Does it have a strong 3-second hook? Is the pacing fast?
-    Reply ONLY with a number between 1 and 10 representing viral potential.
+
+    Score it 1-10 using ONLY these criteria:
+    - Is the script coherent and readable? (not random words or gibberish)
+    - Does it say something meaningful from start to finish?
+    - Is it at least 4 sentences and on a single focused topic?
+    - Is it advertiser-safe? (no violence, hate speech, explicit content)
+
+    SCORING GUIDE:
+    1-3 = Broken: incoherent, empty, repeated phrases, or completely off-topic.
+    4-6 = Decent: clear, complete, and watchable — even if slow or quiet.
+    7-10 = Strong: compelling, well-structured, and engaging.
+
+    IMPORTANT: A quiet, poetic, or slow-paced narrative script can still score 7+.
+    A fast-paced factual script can also score 7+. Both formats are valid.
+    Only score 1-3 if the script is genuinely broken or unusable.
+
+    Reply ONLY with a single number between 1 and 10.
 
 seo_gen:
   system_prompt: "You are a YouTube SEO Expert. Your titles earn 10%+ CTR by combining emotional hooks and strategic emojis."
