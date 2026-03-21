@@ -12,7 +12,11 @@ from PIL import Image, ImageDraw
 from scripts.quota_manager import quota_manager
 from engine.guardian import guardian
 
-SIMULATE_CASCADE_TEST = False
+# ── BUG #8 FIX: SIMULATE_CASCADE_TEST was hardcoded False — never activated
+# even in TEST_MODE. Now reads from the same TEST_MODE env var used everywhere
+# else. In test runs this skips real CF/HF calls, saving quota.
+SIMULATE_CASCADE_TEST = os.environ.get("TEST_MODE", "false").lower() == "true"
+
 _HF_MODELS_CACHE = []
 
 # ── Minimum acceptable image file size ────────────────────────────────────────
@@ -135,7 +139,9 @@ def discover_hf_image_models():
         trace = traceback.format_exc()
         print(f"⚠️ [HF] Discovery failed:\n{trace}")
 
-    # Do NOT set _HF_MODELS_CACHE here — keep it empty so next run retries discovery
+    # Do NOT set _HF_MODELS_CACHE here — keep it empty so next run retries discovery.
+    # ── BUG #5 NOTE: These fallbacks are also PRO-tier on the current HF free
+    # plan. If 403s persist after upgrading, swap in smaller open-weight models.
     return ["black-forest-labs/FLUX.1-schnell", "stabilityai/stable-diffusion-xl-base-1.0"]
 
 
@@ -183,7 +189,26 @@ def generate_cloudflare_image(prompt, output_path):
                 continue
             elif response.status_code == 400:
                 return False, "HTTP 400 (Safety Filter)"
+            # ── BUG #3 FIX: auth/billing failures were silently returned with
+            # no log output — operator had zero visibility into why CF was failing.
+            # Now we log the status code and a clear action item.
+            elif response.status_code in [401, 403]:
+                try:
+                    err_body = response.json()
+                    err_msg  = err_body.get("errors", [{}])[0].get("message", response.text[:120])
+                except Exception:
+                    err_msg  = response.text[:120]
+                print(f"      ❌ [CF {response.status_code}] Auth/billing failure: {err_msg}")
+                print(f"      ⛔ Check CF_API_TOKEN secret and Cloudflare AI Workers billing.")
+                return False, f"CF Auth Error ({response.status_code})"
+            elif response.status_code == 429:
+                print(f"      ⚠️ [CF 429] Rate limit hit. Backing off...")
+                if retry < 2:
+                    _execute_jitter_backoff(retry, "CF AI")
+                    continue
+                return False, "CF Rate Limited"
             else:
+                print(f"      ❌ [CF {response.status_code}] Unexpected response.")
                 return False, f"HTTP {response.status_code}"
         except Exception:
             trace = traceback.format_exc()
@@ -229,19 +254,53 @@ def generate_huggingface_cascade(prompt, output_path):
                         break  # skip to next model — don't retry same bad response
                     quota_manager.consume_points("huggingface", 1)
                     return True, f"HF ({short_name})"
-                elif response.status_code in [401, 402, 403, 404]:
-                    break  # skip to next model
+
+                # ── BUG #1 FIX: 401/402/403/404 were silently `break`-ing with
+                # zero log output. The caller (fetch_scene_images) checked:
+                #   any(x in err for x in ["401","402","403"])
+                # but the error returned was always "HF Exhausted" — so
+                # tier2_active was never set to False, causing HF to be retried
+                # for EVERY remaining scene (14× today). Now:
+                #   • Auth failures (401/402/403) → log + bail entire cascade
+                #   • 404 (model not found) → log + try next model only
+                elif response.status_code in [401, 402, 403]:
+                    try:
+                        err_body = response.json()
+                        err_msg  = err_body.get("error", response.text[:200])
+                    except Exception:
+                        err_msg  = response.text[:200]
+                    print(f"      ❌ [HF {response.status_code}] {short_name}: {err_msg}")
+                    print(f"      ⛔ HF auth/billing failure. Bailing entire cascade.")
+                    print(f"      💡 Check HF_TOKEN expiry and account plan (PRO required for FLUX/SDXL).")
+                    return False, f"HF Auth Error ({response.status_code})"
+
+                elif response.status_code == 404:
+                    print(f"      ⚠️ [HF 404] {short_name} not found — trying next model.")
+                    break  # 404 = this specific model gone, try the next one
+
                 elif response.status_code >= 500:
                     try:
-                        data      = response.json()
-                        wait_time = min(int(data.get("estimated_time", 13)) + 2, 60)
-                        print(f"      ⏳ [HF LOAD] Model booting. Waiting {wait_time}s...")
+                        data = response.json()
+                        # ── BUG #9 FIX: int() cast on estimated_time fails when
+                        # HF returns a float (e.g. 42.5) or null value. Use
+                        # float() with an explicit None guard for safety.
+                        raw_wait  = data.get("estimated_time")
+                        wait_time = min(float(raw_wait or 13) + 2, 60)
+                        print(f"      ⏳ [HF LOAD] Model booting. Waiting {wait_time:.0f}s...")
                         time.sleep(wait_time)
                         continue
                     except Exception:
                         if retry < 2:
                             _execute_jitter_backoff(retry, "HF AI")
                             continue
+
+                elif response.status_code == 429:
+                    print(f"      ⚠️ [HF 429] Rate limit on {short_name}. Backing off...")
+                    if retry < 2:
+                        _execute_jitter_backoff(retry, "HF AI")
+                        continue
+                    break  # rate limited even after retries — try next model
+
             except Exception:
                 trace = traceback.format_exc()
                 print(f"🚨 [HF AI ERROR]:\n{trace}")
@@ -267,7 +326,18 @@ def fallback_pexels_image(search_query, output_path, is_retry=False):
             f"https://api.pexels.com/v1/search"
             f"?query={urllib.parse.quote(safe_query)}&orientation=portrait&per_page=15"
         )
-        res = requests.get(url, headers={"Authorization": api_key}, timeout=(10, 30)).json()
+        # ── BUG #6 FIX: response status was never checked before calling .json().
+        # A 429 (rate limit) or 401 (bad key) returns a JSON error body, and the
+        # old code would silently treat missing 'photos' as "no results", then
+        # recurse with 'cinematic aesthetic' — hitting the rate limit a second time.
+        pexels_resp = requests.get(url, headers={"Authorization": api_key}, timeout=(10, 30))
+        if pexels_resp.status_code == 429:
+            print(f"      ⚠️ [PEXELS 429] Rate limit hit. Skipping Pexels for this scene.")
+            return False, "Pexels Rate Limited"
+        if pexels_resp.status_code in [401, 403]:
+            print(f"      ❌ [PEXELS {pexels_resp.status_code}] Auth failure — check PEXELS_API_KEY secret.")
+            return False, f"Pexels Auth Error ({pexels_resp.status_code})"
+        res = pexels_resp.json()
         if res.get('photos'):
             img_data = requests.get(
                 random.choice(res['photos'])['src']['large2x'], timeout=(10, 30)
@@ -322,6 +392,24 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
     if safe_mode:
         print("🛡️ [SAFE MODE] API Quota critically low for this channel. Bypassing AI generation.")
 
+    # ── BUG #2 FIX: The original disable check only matched "401"/"402"/"403"
+    # fragments. But CF quota exhaustion returns "Quota Reached" and missing
+    # credentials returns "Missing CF Credentials" — neither matched. This caused
+    # both tiers to be retried for EVERY scene even after a definitive failure,
+    # wasting ~200ms × N scenes on guaranteed-to-fail requests.
+    # Now all permanent failure signals are listed explicitly per tier.
+    _CF_DISABLE_SIGNALS = [
+        "CF Auth Error",            # BUG #3 fix: 401/403 auth/billing
+        "Quota Reached",            # CF daily limit exhausted (or SIMULATE_CASCADE_TEST)
+        "Missing CF Credentials",   # env vars not set
+        "CF Rate Limited",          # 429 after all retries
+    ]
+    _HF_DISABLE_SIGNALS = [
+        "HF Auth Error",            # BUG #1 fix: 401/402/403
+        "HF Quota Reached",         # internal quota_manager daily limit
+        "No Token",                 # HF_TOKEN env var not set
+    ]
+
     final_provider = "Unknown"
     for i, original_prompt in enumerate(prompts_list):
         output_path    = f"{base_filename}_{i}.jpg"
@@ -340,7 +428,8 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
                     current_prompt = _regenerate_safe_prompt(current_prompt)
                     safety_retries += 1
                     continue
-                elif any(x in err for x in ["401", "402", "403"]):
+                elif any(sig in err for sig in _CF_DISABLE_SIGNALS):
+                    print(f"      🚫 [TIER 1] Permanently disabling Cloudflare for remaining scenes. Reason: {err}")
                     tier1_active = False
 
             if not success and tier2_active:
@@ -353,7 +442,8 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
                     current_prompt = _regenerate_safe_prompt(current_prompt)
                     safety_retries += 1
                     continue
-                elif any(x in err for x in ["401", "402", "403"]):
+                elif any(sig in err for sig in _HF_DISABLE_SIGNALS):
+                    print(f"      🚫 [TIER 2] Permanently disabling HuggingFace for remaining scenes. Reason: {err}")
                     tier2_active = False
             break
 
