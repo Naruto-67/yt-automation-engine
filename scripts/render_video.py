@@ -133,20 +133,20 @@ _MOOD_COLOR_GRADE = {
 # ── Post-grade overlays (applied same pass, after color grade) ─────────────────
 # vignette: subtle edge darkening — focuses viewer attention on center
 #   angle=PI/5 is the default (moderate, not heavy)
-# noise: film grain — makes AI renders look shot, not generated
-#   alls=5 = very subtle (0-100 scale), allf=t = temporal (organic, changes per frame)
+# noise filter removed — temporal grain (allf=t) prevents H.264 inter-frame compression
+# and inflates CRF-18 file sizes by 25-35% with minimal visible benefit.
+# Vignette and color grade are kept; they have negligible file size impact.
 _VIGNETTE = "vignette=angle=PI/5"
-_FILM_GRAIN = "noise=alls=5:allf=t"
 
 
 def _get_visual_filter_chain(mood: str) -> str:
     """
     Build the complete visual filter chain for the final FFmpeg pass.
-    Order: color grade → vignette → film grain → [then ass+watermark appended by caller]
+    Order: color grade → vignette → [then ass+watermark appended by caller]
     Color grade and vignette run BEFORE subtitle burn-in so captions stay pure white.
     """
     grade = _MOOD_COLOR_GRADE.get(mood, _MOOD_COLOR_GRADE["neutral"])
-    return f"{grade},{_VIGNETTE},{_FILM_GRAIN}"
+    return f"{grade},{_VIGNETTE}"
 
 
 def get_style_config(caption_style: str = None):
@@ -442,13 +442,14 @@ def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=30):
     cx = (SRC_W - OUT_W) // 2   # 540px
     cy = (SRC_H - OUT_H) // 2   # 960px
 
-    # Pan travel: 40% of available headroom → cinematic, not distracting
-    pan_x = int((SRC_W - OUT_W) * 0.40)   # 432px horizontal travel
-    pan_y = int((SRC_H - OUT_H) * 0.40)   # 768px vertical travel
+    # Pan travel: 12% → ~130px over ~4s = ~1px/frame step
+    # This eliminates visible wobble (floor() alternation becomes invisible at 1px)
+    pan_x = int((SRC_W - OUT_W) * 0.12)   # 130px horizontal travel
+    pan_y = int((SRC_H - OUT_H) * 0.12)   # 230px vertical travel
 
-    # Diagonal travel: 30% on both axes simultaneously
-    pan_dx = int((SRC_W - OUT_W) * 0.30)  # 324px diagonal x
-    pan_dy = int((SRC_H - OUT_H) * 0.30)  # 576px diagonal y
+    # Diagonal travel: 8% on both axes simultaneously
+    pan_dx = int((SRC_W - OUT_W) * 0.08)  # 86px diagonal x
+    pan_dy = int((SRC_H - OUT_H) * 0.08)  # 154px diagonal y
 
     # Base prep: scale to SRC, crop exact, fix SAR
     prep = (
@@ -464,66 +465,66 @@ def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=30):
     # eq per-clip: base contrast/saturation before mood-grade in final pass
     base_eq = "eq=contrast=1.05:saturation=1.15"
 
-    # 8 smooth motion patterns using crop with perfectly linear floor() expressions
+    # 8 smooth motion patterns using crop with float expressions (no floor())
     # `n` = input frame number starting at 0
     effects = [
         # 0: Pan left → right, center vertically
         (
             f"{prep},"
-            f"crop={OUT_W}:{OUT_H}:'floor({pan_x}*n/{frames})':{cy},"
+            f"crop={OUT_W}:{OUT_H}:'{pan_x}*n/{frames}':{cy},"
             f"scale={OUT_W}:{OUT_H},"
             f"{sharpen},{base_eq}"
         ),
         # 1: Pan right → left, center vertically
         (
             f"{prep},"
-            f"crop={OUT_W}:{OUT_H}:'floor({pan_x}*(1-n/{frames}))':{cy},"
+            f"crop={OUT_W}:{OUT_H}:'{pan_x}*(1-n/{frames})':{cy},"
             f"scale={OUT_W}:{OUT_H},"
             f"{sharpen},{base_eq}"
         ),
         # 2: Pan top → bottom, center horizontally
         (
             f"{prep},"
-            f"crop={OUT_W}:{OUT_H}:{cx}:'floor({pan_y}*n/{frames})',"
+            f"crop={OUT_W}:{OUT_H}:{cx}:'{pan_y}*n/{frames}',"
             f"scale={OUT_W}:{OUT_H},"
             f"{sharpen},{base_eq}"
         ),
         # 3: Pan bottom → top, center horizontally
         (
             f"{prep},"
-            f"crop={OUT_W}:{OUT_H}:{cx}:'floor({pan_y}*(1-n/{frames}))',"
+            f"crop={OUT_W}:{OUT_H}:{cx}:'{pan_y}*(1-n/{frames})',"
             f"scale={OUT_W}:{OUT_H},"
             f"{sharpen},{base_eq}"
         ),
         # 4: Diagonal TL → BR
         (
             f"{prep},"
-            f"crop={OUT_W}:{OUT_H}:'floor({pan_dx}*n/{frames})':"
-            f"'floor({pan_dy}*n/{frames})',"
+            f"crop={OUT_W}:{OUT_H}:'{pan_dx}*n/{frames}':"
+            f"'{pan_dy}*n/{frames}',"
             f"scale={OUT_W}:{OUT_H},"
             f"{sharpen},{base_eq}"
         ),
         # 5: Diagonal TR → BL
         (
             f"{prep},"
-            f"crop={OUT_W}:{OUT_H}:'floor({pan_dx}*(1-n/{frames}))':"
-            f"'floor({pan_dy}*n/{frames})',"
+            f"crop={OUT_W}:{OUT_H}:'{pan_dx}*(1-n/{frames})':"
+            f"'{pan_dy}*n/{frames}',"
             f"scale={OUT_W}:{OUT_H},"
             f"{sharpen},{base_eq}"
         ),
         # 6: Diagonal BL → TR
         (
             f"{prep},"
-            f"crop={OUT_W}:{OUT_H}:'floor({pan_dx}*n/{frames})':"
-            f"'floor({pan_dy}*(1-n/{frames}))',"
+            f"crop={OUT_W}:{OUT_H}:'{pan_dx}*n/{frames}':"
+            f"'{pan_dy}*(1-n/{frames})',"
             f"scale={OUT_W}:{OUT_H},"
             f"{sharpen},{base_eq}"
         ),
         # 7: Diagonal BR → TL
         (
             f"{prep},"
-            f"crop={OUT_W}:{OUT_H}:'floor({pan_dx}*(1-n/{frames}))':"
-            f"'floor({pan_dy}*(1-n/{frames}))',"
+            f"crop={OUT_W}:{OUT_H}:'{pan_dx}*(1-n/{frames})':"
+            f"'{pan_dy}*(1-n/{frames})',"
             f"scale={OUT_W}:{OUT_H},"
             f"{sharpen},{base_eq}"
         ),
