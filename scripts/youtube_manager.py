@@ -122,7 +122,19 @@ def upload_to_youtube_vault(youtube, video_path, topic, metadata, niche="", chan
         media = MediaFileUpload(video_path, chunksize=1024*1024*5, resumable=True, mimetype="video/mp4")
 
         safe_title = (metadata.get("title") or f"{topic} #shorts")[:100]
-        safe_desc = metadata.get("description") or ""
+        safe_desc  = metadata.get("description") or ""
+
+        # ── AI Disclosure ─────────────────────────────────────────────────────
+        # YouTube policy (May 2025): creators must disclose realistic synthetic
+        # content to avoid policy strikes. We append a short disclosure line.
+        # Note: YouTube API v3 does not expose a programmatic toggle for the
+        # "Contains AI-generated content" checkbox — this text disclosure is the
+        # recommended alternative per YouTube's current guidance.
+        from engine.config_manager import config_manager
+        settings = config_manager.get_settings()
+        if settings.get("ai_disclosure", False):
+            safe_desc = safe_desc.rstrip() + "\n\n[AI-generated content]"
+
         raw_tags = metadata.get("tags") or ["shorts"]
 
         safe_tags = []
