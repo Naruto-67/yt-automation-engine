@@ -53,6 +53,21 @@ class Orchestrator:
                 try: os.remove(f)
                 except: pass
 
+    def _get_test_topics(self) -> dict:
+        """
+        Load per-channel test topics from settings.yaml.
+        Returns {channel_id: topic_string}
+        Falls back to safe generic topics if settings block is missing.
+        """
+        settings     = config_manager.get_settings()
+        test_topics  = settings.get("test_mode", {}).get("test_topics", {})
+        fallbacks    = {
+            "CH_01": "A small leaf discovers it holds an entire forgotten world on its surface",
+            "CH_02": "The human brain generates enough electricity to power a small LED light bulb",
+        }
+        # Merge: settings values take priority over built-in fallbacks
+        return {**fallbacks, **test_topics}
+
     def run_pipeline(self):
         if TEST_MODE: notify_summary(True, "🧪 **TEST MODE** — End-to-End system simulation initiated.")
 
@@ -60,7 +75,12 @@ class Orchestrator:
         global_failed = False  # 🚨 FIX: Initialized here to prevent NameError on sys.exit
 
         for channel in self.channels:
-            if TEST_MODE and global_produced >= 1: break
+            # ── In TEST_MODE, produce exactly one video per channel ────────────
+            # The `global_produced >= 1` guard was removed: in the previous
+            # implementation it caused the second channel to be skipped entirely,
+            # meaning only CH_01 ever got a dry-run test video. We now let both
+            # channels run their full pipeline. `max_videos = 1` below already
+            # limits each channel to one video.
             
             # 🚨 V25 FIX: Isolate tracking variables per channel
             channel_produced = 0
@@ -71,7 +91,7 @@ class Orchestrator:
             logger.engine(f"🚀 Processing: {channel.channel_name}")
 
             if TEST_MODE:
-                logger.engine(f"🧪 [TEST MODE] Bypassing YouTube Auth. Executing full logic simulation.")
+                logger.engine(f"🧪 [TEST MODE] Bypassing YouTube Auth. Full pipeline executing with real AI/FFmpeg.")
                 yt_client = None
             else:
                 yt_client = get_youtube_client(channel)
@@ -83,19 +103,89 @@ class Orchestrator:
             live_name = get_channel_name(yt_client) if yt_client else None
             if live_name: self.sync_channel_identity(channel, live_name.replace("@", ""))
 
-            vault_count = get_actual_vault_count(yt_client) if yt_client else (0 if TEST_MODE else 0)
-            vault_max = config_manager.get_settings().get("vault", {}).get("max_videos", 14)
-            if vault_count >= vault_max:
-                logger.engine(f"🛑 Vault full ({vault_count}/{vault_max}). Skipping.")
+            # ── VAULT CAPACITY CHECK ──────────────────────────────────────────
+            # BUG FIX: Previous implementation always set max_videos=4 regardless
+            # of how many slots were actually available in the vault. This caused
+            # vault overflow (e.g. 13/14 → produced 4 → vault became 17/14).
+            #
+            # FIXED LOGIC:
+            #   slots_available = vault_max - vault_count
+            #   max_videos = min(4, slots_available)
+            #
+            # In TEST_MODE: vault_count=0 (no YouTube auth), max_videos=1.
+            vault_count = get_actual_vault_count(yt_client) if yt_client else 0
+            vault_max   = config_manager.get_settings().get("vault", {}).get("max_videos", 14)
+
+            if not TEST_MODE and vault_count >= vault_max:
+                logger.engine(f"🛑 Vault full ({vault_count}/{vault_max}). Skipping {channel.channel_id}.")
                 continue
 
-            if not guardian.pre_flight_check():
+            slots_available = vault_max - vault_count
+            logger.engine(f"📦 Vault: {vault_count}/{vault_max} — {slots_available} slot(s) available.")
+
+            # max_videos: in TEST_MODE always 1; in production capped by actual vault space.
+            # max(1, slots_available) ensures we never try 0 (vault_full guard above handles that case).
+            max_videos = 1 if TEST_MODE else min(4, max(1, slots_available))
+            logger.engine(f"🎬 Will produce up to {max_videos} video(s) for {channel.channel_id}.")
+
+            if not TEST_MODE and not guardian.pre_flight_check():
                 logger.error(f"Guardian halted run for {channel.channel_id}.")
                 channel_failed = True
-                global_failed = True # 🚨 FIX: Sync global state
+                global_failed = True
                 notify_summary(False, "❌ Run aborted by Quota Guardian. API limits reached.")
                 continue
 
+            # ── DRY RUN PATH: synthetic in-memory jobs, zero DB interaction ───
+            if TEST_MODE:
+                test_topics = self._get_test_topics()
+                test_topic  = test_topics.get(channel.channel_id, f"Amazing fact about {channel.niche}")
+
+                logger.engine(
+                    f"🧪 [TEST MODE] Creating synthetic in-memory job for {channel.channel_id}:\n"
+                    f"   Topic: {test_topic}"
+                )
+
+                # Synthetic VideoJob — id=-1 is sentinel: never inserted to DB
+                synthetic_job = VideoJob(
+                    id=-1,
+                    channel_id=channel.channel_id,
+                    topic=test_topic,
+                    niche=channel.niche,
+                    state=JobState.QUEUED,
+                )
+
+                self.cleanup()
+                try:
+                    # dry_run=True: JobRunner will not call db.upsert_job() at any point
+                    runner  = JobRunner(
+                        synthetic_job,
+                        youtube_client=None,
+                        channel_name=channel.channel_name,
+                        channel_config=channel,
+                        dry_run=True,
+                    )
+                    success = runner.process()
+                    if success:
+                        channel_produced += 1
+                        global_produced  += 1
+                    else:
+                        channel_failed = True
+                        global_failed  = True
+                except Exception as e:
+                    channel_failed = True
+                    global_failed  = True
+                    trace = traceback.format_exc()
+                    print(f"\n🚨 [ORCHESTRATOR ERROR] Dry-run job failed for {channel.channel_id}:\n{trace}\n")
+
+                self.cleanup()
+
+                if channel_failed:
+                    notify_summary(False, f"❌ [TEST MODE] Dry-run failed for `{channel.channel_id}`.")
+                elif channel_produced > 0:
+                    notify_summary(True, f"✅ [TEST MODE] Dry-run complete. Produced **{channel_produced}** test video(s) for `{channel.channel_id}`.")
+                continue   # ← skip the production path below for this channel
+
+            # ── PRODUCTION PATH ───────────────────────────────────────────────
             unprocessed = db.get_unprocessed_count(channel.channel_id)
             if unprocessed < 3: run_dynamic_research(channel, yt_client)
 
@@ -107,33 +197,38 @@ class Orchestrator:
                 jobs_in_state.sort(key=lambda j: j.attempts) 
                 batch.extend(jobs_in_state)
 
-            max_videos = 1 if TEST_MODE else 4
             processed_this_run = 0
 
             for job in batch:
                 if processed_this_run >= max_videos: break
-                if not TEST_MODE and guardian.get_run_forecast() < 1:
+                if guardian.get_run_forecast() < 1:
                     logger.engine("🛑 [GUARDIAN] Quota depleted mid-run. Halting batch to protect AI resources.")
                     break
                     
                 self.cleanup()
                 try:
-                    runner = JobRunner(job, youtube_client=yt_client, channel_name=channel.channel_name, channel_config=channel)
+                    runner = JobRunner(
+                        job,
+                        youtube_client=yt_client,
+                        channel_name=channel.channel_name,
+                        channel_config=channel,
+                        dry_run=False,   # production: always write to DB
+                    )
                     success = runner.process()
                     if success: 
                         channel_produced += 1
                         global_produced += 1
                     else: 
                         channel_failed = True
-                        global_failed = True # 🚨 FIX: Sync global state
+                        global_failed = True
                     processed_this_run += 1
                 except Exception as e:
                     channel_failed = True
-                    global_failed = True # 🚨 FIX: Sync global state
+                    global_failed = True
                     trace = traceback.format_exc()
                     print(f"\n🚨 [ORCHESTRATOR ERROR] Job Runner failed:\n{trace}\n")
                     action = guardian.report_incident(job.state.name, e)
-                    if action == "FATAL" and not TEST_MODE:
+                    if action == "FATAL":
                         logger.error(f"🛑 [ORCHESTRATOR] Fatal incident reported. Halting batch for {channel.channel_id}.")
                         break
 
