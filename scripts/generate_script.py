@@ -32,24 +32,54 @@ def extract_scene_data(scene_dict, fallback_topic: str):
 
 
 def validate_script_quality(script_text: str, prompts_cfg: dict) -> bool:
+    """
+    Quality gate: reject only genuinely bad scripts (score 1-3 out of 10).
+
+    Threshold is intentionally LOW (4) because:
+    - Storytelling scripts (AnimeRise) naturally score lower on "viral hook" criteria
+    - A score of 4-5 is "decent" — not worth discarding and wasting 2 more LLM calls
+    - Only score 1-3 indicates a truly broken or incoherent script
+    - If the validation API fails or returns no number: always PASS (fail-safe)
+
+    Root cause of previous over-rejection: threshold was 6, which caused 128-word
+    well-structured storytelling scripts to fail 3/3 times and trigger fallback.
+    """
     sys_msg  = prompts_cfg["script_validation"]["system_prompt"]
     user_msg = prompts_cfg["script_validation"]["user_template"].format(
         script_text=script_text
     )
-    raw, _ = quota_manager.generate_text(user_msg, task_type="analysis", system_prompt=sys_msg)
+
     try:
-        numbers = [int(n) for n in re.findall(r'\b\d+\b', raw or "")]
-        if numbers:
-            if len(numbers) >= 2 and numbers[-1] == 10 and numbers[-2] <= 10:
-                score = numbers[-2]
-            else:
-                score = numbers[-1]
-            return score >= 6
+        raw, _ = quota_manager.generate_text(user_msg, task_type="analysis", system_prompt=sys_msg)
+    except Exception:
+        # If validation API call itself fails, pass the script — don't waste retries
         return True
-    except Exception as e:
+
+    if not raw:
+        return True  # Empty response → pass (fail-safe)
+
+    try:
+        numbers = [int(n) for n in re.findall(r'\b\d+\b', raw)]
+        if not numbers:
+            return True  # No number found → pass (fail-safe, not a failure)
+
+        # Handle "7/10" or "Score: 7 out of 10" format → take the score, not the denominator
+        if len(numbers) >= 2 and numbers[-1] == 10 and numbers[-2] <= 10:
+            score = numbers[-2]
+        else:
+            score = numbers[-1]
+
+        # Only reject truly bad scripts (1, 2, or 3 out of 10)
+        # Scores 4-10 all pass — we trust the LLM's generation over the validator's harsh rating
+        passed = score >= 4
+        if not passed:
+            print(f"⚠️ [SCRIPT] Quality validator returned {score}/10 — below rejection threshold of 4. Retrying...")
+        return passed
+
+    except Exception:
         trace = traceback.format_exc()
         logger.error(f"Validation parsing error:\n{trace}")
-        return True
+        return True  # Parsing failure → pass (fail-safe)
 
 
 # ── Valid mood and caption_style values (must match settings.yaml) ─────────────
@@ -367,8 +397,7 @@ def generate_script(niche: str, topic: str):
                 continue
 
             if not validate_script_quality(full_text, prompts_cfg):
-                print("⚠️ [SCRIPT] Quality validation failed. Retrying...")
-                last_error = "Failed ruthless retention quality check."
+                last_error = "Failed quality check (score < 4/10)."
                 continue
 
             total_chars   = sum(len(s[0]) for s in parsed_scenes)
@@ -400,9 +429,7 @@ def generate_script(niche: str, topic: str):
 
     fb = random.choice(_FALLBACK_SCRIPTS)
 
-    fallback_weights = (
-        [1.0 / len(fb["prompts"])] * len(fb["prompts"])
-    )
+    fallback_weights = [1.0 / len(fb["prompts"])] * len(fb["prompts"])
     # Make last weight absorb rounding error
     if fallback_weights:
         fallback_weights[-1] = 1.0 - sum(fallback_weights[:-1])
