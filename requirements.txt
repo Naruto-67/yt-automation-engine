@@ -11,7 +11,7 @@ pydub>=0.25.0
 Pillow>=10.0.0
 pytz
 python-dotenv>=1.2.2
-google-genai>=0.1.0
+google-genai>=1.73.1
 torch>=2.2.0
 pydantic>=2.0.0
 PyYAML>=6.0.3
