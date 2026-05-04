@@ -7,7 +7,7 @@ requests>=2.33.1
 kokoro>=0.3.0
 soundfile>=0.12.0
 faster-whisper>=1.0.0
-pydub>=0.25.0
+pydub>=0.25.1
 Pillow>=12.2.0
 pytz
 python-dotenv>=1.2.2
