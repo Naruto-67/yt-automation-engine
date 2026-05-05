@@ -19,4 +19,4 @@ pytest==9.0.3
 pytest-mock==3.15.1
 en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
 
-# Ghost Engine V5.0 - Multi-Channel Enterprise Edition
+# Ghost Engine - Multi-Channel Enterprise Edition
