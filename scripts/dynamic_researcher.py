@@ -143,13 +143,54 @@ def _generate_topics_and_evolve_niche(channel_config: ChannelConfig, needed: int
     intel = db.get_channel_intelligence(channel_config.channel_id)
     competitor_section = f"\n\n🏆 COMPETITOR INSIGHTS:\n{competitor_context}" if competitor_context else ""
 
+    # ── BUG FIX: Anchor topic generation to the CONFIGURED niche ──────────────
+    # The research prompt used to be built from `active_niche` which came from
+    # `intel.get("evolved_niche")`. Once the evolved_niche drifted (e.g. to
+    # "cosmic abyss dossiers"), every subsequent research run compounded the
+    # drift — the only topics generated were more cosmic/abyss/light content.
+    #
+    # Fix:
+    #   • `prompt_niche` — the niche string fed to the LLM. For FACTUAL channels
+    #     this is ALWAYS the configured niche from channels.yaml, so the researcher
+    #     produces varied educational/random fun facts.
+    #   • The evolved_niche (if any) is passed as *additional context* so the
+    #     LLM can still use learnings, but it cannot hijack the anchor.
+    #   • For FICTIONAL channels (which benefit from creative evolution), the
+    #     evolved_niche remains the primary anchor as before.
+    is_factual = getattr(channel_config, "content_type", None) == "factual"
+
+    if is_factual:
+        # `active_niche` is already anchored to the configured niche (set in
+        # run_dynamic_research) — this is a sub-niche like "trending facts".
+        # Use it directly so each sub-niche gets a distinct research pass
+        # instead of re-sending the full comma-separated niche string.
+        prompt_niche = active_niche
+        evolved      = intel.get("evolved_niche")
+        if evolved and evolved != active_niche and evolved != channel_config.niche:
+            print(f"📌 [RESEARCH] Factual channel — anchoring to configured sub-niche: '{active_niche}'")
+            print(f"   (Evolved niche '{evolved[:80]}…' ignored.)")
+    else:
+        prompt_niche = active_niche
+
     sys_msg  = prompts_cfg["researcher"]["system_prompt"]
     user_msg = prompts_cfg["researcher"]["user_template"].format(
         needed_count=max(5, needed + 5),
-        niche=active_niche,
+        niche=prompt_niche,
         channel_context=channel_context + competitor_section,
         history_string=", ".join(historical_topics[-300:]) if historical_topics else "None"
     )
+
+    # For factual channels, add a diversity instruction so topics aren't all
+    # ocean/space/sea — the operator wants varied random fun facts.
+    if is_factual:
+        user_msg += (
+            f"\n\nVARIETY REQUIREMENT: The topics you generate MUST be diverse. "
+            f"Do NOT focus on a single theme (no all-ocean, all-space, all-animals runs). "
+            f"Cover a broad mix of categories: psychology, history, food, technology, "
+            f"biology, physics, geography, economy, pop culture, nature, human body, "
+            f"ordinary objects, weird world records, strange laws, everyday science. "
+            f"Avoid repeating a topic category more than twice in this batch."
+        )
     
     if channel_config.creative_lenses:
         lens = random.choice(channel_config.creative_lenses)
@@ -219,7 +260,25 @@ def run_dynamic_research(channel_config: ChannelConfig, yt_client):
     channel_context = get_deep_channel_context(yt_client)
 
     intel = db.get_channel_intelligence(channel_config.channel_id)
-    active_niche_string = intel.get("evolved_niche") or channel_config.niche
+
+    # ── BUG FIX: Anchor sub-niche research to the CONFIGURED niche ────────────
+    # Previously this used `intel.get("evolved_niche") or channel_config.niche`.
+    # Once the evolved niche drifted (e.g. "trending facts" → "cosmic abyss"),
+    # every research run split that drifted string into sub-niches and generated
+    # only more cosmic content — a self-reinforcing loop.
+    #
+    # For FACTUAL channels we now ALWAYS anchor to the configured niche from
+    # channels.yaml. This guarantees the researcher produces varied educational /
+    # random fun-fact topics regardless of any stored evolved_niche drift.
+    # The evolved niche is shown as context but never as the anchor.
+    is_factual = getattr(channel_config, "content_type", None) == "factual"
+    if is_factual:
+        active_niche_string = channel_config.niche.strip()
+        drifted = intel.get("evolved_niche")
+        if drifted and drifted != active_niche_string:
+            logger.engine(f"📌 [RESEARCH] '{channel_config.channel_name}' — ignoring drifted evolved niche, anchoring to configured niche: '{active_niche_string}'")
+    else:
+        active_niche_string = intel.get("evolved_niche") or channel_config.niche
     
     sub_niches = [n.strip() for n in active_niche_string.split(', ')] if ',' in active_niche_string else [active_niche_string]
     added_count = 0
@@ -294,9 +353,25 @@ def run_dynamic_research(channel_config: ChannelConfig, yt_client):
                 break
 
     if overall_evolved or competitor_summary:
+        # ── BUG FIX: Do NOT persist evolved_niche for FACTUAL channels ─────────
+        # The evolution mechanism was designed to let the LLM reshape the niche
+        # based on content performance. But for factual channels this caused a
+        # compounding drift loop: early cosmic/sea topics made the LLM think the
+        # channel's niche was "cosmic abyss", which then anchored all future
+        # research to that theme, producing only cosmic/sea content.
+        #
+        # Fix: factual channels ALWAYS keep their configured niche. The LLM's
+        # evolved_niche is logged and discarded — only competitor tags and the
+        # other intelligence fields persist.
+        is_factual = getattr(channel_config, "content_type", None) == "factual"
+
         if overall_evolved and overall_evolved != channel_config.niche:
-            intel["evolved_niche"] = overall_evolved
-            logger.engine(f"🧬 Niche evolved: '{channel_config.niche}' → '{overall_evolved}'")
+            if is_factual:
+                logger.engine(f"🧬 [RESEARCH] Discarding evolved niche for factual channel: '{overall_evolved[:100]}'")
+                logger.engine(f"   → Kept configured niche: '{channel_config.niche[:100]}'")
+            else:
+                intel["evolved_niche"] = overall_evolved
+                logger.engine(f"🧬 Niche evolved: '{channel_config.niche}' → '{overall_evolved}'")
 
         if competitor_summary:
             comp_tags = re.findall(r"#(\w+)", competitor_summary)
