@@ -240,7 +240,7 @@ def generate_huggingface_cascade(prompt, output_path):
         if SIMULATE_CASCADE_TEST and "FLUX" in model:
             continue
 
-        url = f"https://api-inference.huggingface.co/models/{model}"
+        url = f"https://router.huggingface.co/hf-inference/models/{model}"
 
         for retry in range(3):
             try:
