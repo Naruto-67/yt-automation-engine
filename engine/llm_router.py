@@ -39,13 +39,32 @@ class LLMRouter:
             all_models = list(client.models.list())
             model_names = [m.name.replace("models/", "") for m in all_models if hasattr(m, "name")]
 
+            import re as _re
+
             def _score(name: str) -> int:
+                """
+                Score Gemini models by version number automatically.
+                Uses dynamic version parsing so any newer model (e.g. gemini-3.0-flash,
+                gemini-4.5-flash-lite) is preferred over older ones without code changes.
+                """
                 n = name.lower()
-                if any(x in n for x in ["vision", "audio", "tts"]): return -1
-                score = 0
-                if "2.5" in n: score += 100
-                elif "2.0" in n: score += 80
-                elif "1.5" in n: score += 60
+                # Exclude non-text models — they break the text generation chain
+                if any(x in n for x in ["vision", "audio", "tts", "embedding", "imagen"]):
+                    return -1
+
+                # Extract the major.minor version number from the model name
+                # e.g. "gemini-2.5-flash" → 2.5, "gemini-1.5-flash-8b" → 1.5
+                m = _re.search(r"gemini[-\s]?(\d+)\.(\d+)", n)
+                if not m:
+                    return 0  # unknown format — rank lowest
+
+                major = int(m.group(1))
+                minor = int(m.group(2))
+
+                # Score = (major * 100) + minor
+                # This ensures: 3.0 > 2.5 > 2.0 > 1.5 > 1.0
+                # So newer free models (e.g. 3.0-flash, 3.5-flash-lite) are always preferred.
+                score = (major * 100) + minor
                 return score
 
             self._gemini_stable_chain = sorted([m for m in model_names if "exp" not in m and "preview" not in m], key=_score, reverse=True)[:4]
