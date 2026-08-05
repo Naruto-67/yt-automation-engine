@@ -317,9 +317,20 @@ def generate_huggingface_cascade(prompt, output_path):
                         return False, f"HF Auth Error ({response.status_code})"
                     break  # unknown status — try next model
 
-            except Exception:
+            except Exception as e:
                 trace = traceback.format_exc()
                 print(f"🚨 [HF AI ERROR]:\n{trace}")
+                # ── BUG #10 FIX: DNS/connection failures (e.g. GitHub Actions
+                # runner can't resolve api-inference.huggingface.co) are NOT
+                # transient per-model issues — they affect ALL models and ALL
+                # retries. Retrying 3× per model × 2 models × 14 scenes wastes
+                # ~10 minutes of backoff on guaranteed-to-fail requests.
+                # Detect the failure class and bail the entire cascade immediately.
+                err_str = str(e).lower()
+                if any(x in err_str for x in ["name resolution", "getaddrinfo", "gaierror", "failed to resolve", "no address associated"]):
+                    print(f"      ⛔ [HF DNS] DNS resolution failure for api-inference.huggingface.co. Bailing entire cascade.")
+                    print(f"      💡 This is a network/environment issue (e.g. GitHub Actions runner DNS).")
+                    return False, "HF DNS Error"
                 if retry < 2:
                     _execute_jitter_backoff(retry, "HF AI")
                     continue
@@ -424,6 +435,8 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
         "HF Auth Error",            # BUG #1 fix: 401/402/403
         "HF Quota Reached",         # internal quota_manager daily limit
         "No Token",                 # HF_TOKEN env var not set
+        "HF Exhausted",             # BUG #10 fix: all models failed (DNS, timeout, 5xx, etc.)
+        "HF DNS Error",             # BUG #10 fix: DNS resolution failure (e.g. GitHub Actions runner)
     ]
 
     final_provider = "Unknown"
