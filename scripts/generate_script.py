@@ -306,13 +306,54 @@ def generate_script(niche: str, topic: str):
         if hooks else ""
     )
 
-    evolved      = intel.get("evolved_niche")
-    active_niche = evolved or niche
-    if evolved and evolved != niche:
-        print(f"🧬 [SCRIPT] Using evolved niche: {evolved}")
+    # ── BUG FIX: Use the channel's configured content_type as the PRIMARY signal ──
+    # The old code only checked if the niche STRING contained keywords like "fact".
+    # Problem: the channel_intelligence `evolved_niche` can drift far from the
+    # original configured niche (e.g. "trending facts" → "cosmic abyss dossiers").
+    # Once drifted, the string no longer matches "fact" and the engine incorrectly
+    # switches to fictional/storytelling mode — producing cinematic story scripts
+    # instead of factual shorts. This compounds over time.
+    #
+    # Fix: read the channel's configured `content_type` from channels.yaml so
+    # factual channels always get factual treatment regardless of niche drift.
+    configured_content_type = None
+    configured_niche        = None
+    for _ch in config_manager.get_active_channels():
+        if _ch.channel_id == channel_id:
+            configured_content_type = getattr(_ch, "content_type", None)
+            configured_niche        = _ch.niche
+            break
 
-    niche_lower  = active_niche.lower()
-    is_fact      = any(x in niche_lower for x in ["fact", "hack", "tip", "news", "top", "brainrot"])
+    evolved      = intel.get("evolved_niche")
+    niche_lower  = (evolved or niche or "").lower()
+
+    # Primary signal: content_type ("factual") — set in channels.yaml.
+    # Fallback: keyword detection on the niche string (backward compatible).
+    is_fact = configured_content_type == "factual"
+    if configured_content_type is None:
+        is_fact = any(x in niche_lower for x in ["fact", "hack", "tip", "news", "top", "brainrot"])
+
+    # ── Niche selection for prompting ──────────────────────────────────────────
+    # BUG FIX: For FACUTAL channels, always prompt with the CONFIGURED niche,
+    # NOT the evolved_niche. The evolved_niche accumulates LLM drift over time
+    # (e.g. "trending facts" → "cosmic abyss dossiers: alien tech & optical
+    # warfare"), which hijacks every future topic generation and production.
+    # We reset the prompt anchor to the operator's intended niche so the LLM
+    # produces the educational/random-fun-facts content the channel was built for.
+    # The evolved_niche is still used as *supplementary context* so the system
+    # doesn't fully ignore learnings — it just can't override the configured anchor.
+    if is_fact and configured_niche:
+        active_niche = configured_niche.strip()
+        print(f"📌 [SCRIPT] Factual channel — anchoring prompt to configured niche: '{active_niche}'")
+        if evolved and evolved != active_niche:
+            print(f"   🧬 [SCRIPT] (Evolved niche '{evolved}' used as context only.)")
+    else:
+        active_niche = evolved or niche or configured_niche or "General content"
+
+    if is_fact:
+        print(f"📌 [SCRIPT] Content type: factual — using short/educational format ({active_niche})")
+    else:
+        print(f"🎬 [SCRIPT] Content type: fictional — using storytelling format ({active_niche})")
 
     target_scenes = random.randint(6, 9) if is_fact else random.randint(8, 12)
     target_dur    = "30-40 seconds"     if is_fact else "45-55 seconds"
