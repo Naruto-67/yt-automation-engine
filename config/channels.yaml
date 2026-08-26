@@ -25,7 +25,7 @@ channels:
       - "A misunderstanding between a gentle monster and a terrified human"
 
   - id: "CH_02"
-    name: "Topato"
+    name: "GhostEngine_Channel"
     niche: "trending facts, interesting facts, seasonal facts, educational facts, mind-blowing facts, random facts"
     target_audience: "US"
     category_id: "27"          # Education — highest-RPM tier for fact/educational content
