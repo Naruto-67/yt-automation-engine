@@ -44,6 +44,8 @@ class ConfigManager:
                     category_id=str(ch.get("category_id", "22")),
                     language=ch.get("language", "en"),
                     content_type=ch.get("content_type", "factual"),
+                    brand_voice=ch.get("brand_voice", ""),
+                    personality=ch.get("personality", []),
                 ))
         return active_channels
 

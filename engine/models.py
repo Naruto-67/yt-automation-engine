@@ -30,6 +30,9 @@ class ChannelConfig(BaseModel):
     category_id: str = "22"        # YouTube category. Default 22=People&Blogs. Set per channel in channels.yaml.
     language: str = "en"           # Audio/video language for ad targeting
     content_type: str = "factual"  # "factual" or "fictional" — controls script_gen prompt behaviour
+    # Brand identity — injected into script prompts to give each channel a consistent voice
+    brand_voice: str = ""          # One sentence describing how the channel talks (tone, style)
+    personality: List[str] = Field(default_factory=list)  # 3 personality traits e.g. ["curious", "dry-wit", "direct"]
 
 class VideoJob(BaseModel):
     id: Optional[int] = None

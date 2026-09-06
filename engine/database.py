@@ -182,6 +182,17 @@ class SQLiteDB:
             c.execute('SELECT title FROM topic_archive WHERE channel_id=?', (channel_id,))
             return [r[0].lower().strip() for r in c.fetchall()]
 
+    def get_job_by_topic(self, channel_id: str, topic: str) -> Optional[VideoJob]:
+        """Fetch a single job by channel_id + topic. Returns None if not found."""
+        with contextlib.closing(self._connect()) as conn:
+            c = conn.cursor()
+            c.execute(
+                'SELECT * FROM jobs WHERE channel_id=? AND topic=? LIMIT 1',
+                (channel_id, topic)
+            )
+            row = c.fetchone()
+            return self._row_to_job(row) if row else None
+
     def log_failure(self, failure: FailureLog):
         with contextlib.closing(self._connect()) as conn:
             with conn:

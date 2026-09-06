@@ -87,7 +87,8 @@ class LLMRouter:
         if gemini_quota_ok and self.gemini_key:
             execution_plan.append(("Gemini Stable", self._gemini_stable_chain, "gemini"))
         if self.groq_key:
-            execution_plan.append(("Groq Llama 3.3", ["llama-3.3-70b-versatile"], "groq"))
+            # Discovered, ranked Groq text-model chain (never hardcoded single model)
+            execution_plan.append(("Groq Chain", ["__groq__"], "groq"))
         if gemini_quota_ok and self.gemini_key:
             execution_plan.append(("Gemini Preview", self._gemini_preview_chain, "gemini"))
 
@@ -95,25 +96,44 @@ class LLMRouter:
             if "Gemini" in stage_name:
                 stage_hard_failed = False
                 for model in models:
-                    if stage_hard_failed: break
+                    if stage_hard_failed:
+                        break
                     for attempt in range(3):
                         self._enforce_rpm_throttle()
                         try:
                             from google import genai
+                            from google.genai import types
                             client = genai.Client(api_key=self.gemini_key)
+                            # Use the recommended Chat API instead of the
+                            # (deprecated-recommendation) Models.generate_content.
+                            # system_instruction still travels via the config.
                             cfg = {"system_instruction": system_prompt} if system_prompt else {}
-                            response = client.models.generate_content(model=model, contents=prompt, config=cfg or None)
+                            chat = client.chats.create(
+                                model=model,
+                                config=cfg or None,
+                            )
+                            response = chat.send_message(
+                                message=prompt,
+                                config=types.GenerateContentConfig(
+                                    temperature=0.3,
+                                    max_output_tokens=8000,
+                                ) if cfg else None,
+                            )
                             return response.text, f"Gemini ({model})", provider_key
                         except Exception as e:
                             if any(x in str(e).lower() for x in ["quota", "exhausted", "403"]):
                                 stage_hard_failed = True
                                 break
                             continue
-            elif stage_name == "Groq Llama 3.3":
+            elif stage_name == "Groq Chain":
+                # groq_client.generate_text already iterates the full discovered
+                # model chain internally and its own API returns text.
                 try:
                     res = self._get_groq_client().generate_text(prompt, system_prompt=system_prompt)
-                    if res: return res, "Groq (Llama 3.3)", provider_key
-                except Exception: continue
+                    if res:
+                        return res, "Groq (Auto Chain)", provider_key
+                except Exception:
+                    continue
 
         return None, "All Providers Exhausted", "none"
 

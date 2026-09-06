@@ -15,6 +15,7 @@ from scripts.generate_voice    import generate_audio
 from scripts.generate_visuals  import fetch_scene_images
 from scripts.render_video      import render_video
 from scripts.generate_metadata import generate_seo_metadata
+from scripts.generate_thumbnail import generate_thumbnail, upload_thumbnail
 from scripts.discord_notifier  import notify_step, notify_production_success, notify_vault_secure
 
 TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
@@ -35,6 +36,10 @@ class JobRunner:
 
     def process(self) -> bool:
         ctx.set_channel_id(self.job.channel_id)
+        from scripts.discord_notifier import set_channel_context
+        if self.channel_config:
+            set_channel_context(self.channel_config)
+            
         logger.engine(
             f"Processing Job {self.job.id} | Topic: {self.job.topic} | "
             f"State: {self.job.state.name}"
@@ -250,6 +255,16 @@ class JobRunner:
         logger.success(f"Rendered: {output_path} ({size_mb:.1f} MB, {duration:.1f}s)")
         notify_step(self.job.topic, "RENDERED", f"Size: {size_mb:.1f} MB | Duration: {duration:.1f}s", 0x9b59b6)
 
+        # ── Thumbnail generation (non-fatal) ──────────────────────────────────
+        try:
+            images   = json.loads(self.job.image_paths) if self.job.image_paths else []
+            metadata = json.loads(self.job.metadata)    if self.job.metadata    else {}
+            title    = metadata.get("title", self.job.topic)
+            thumb_path = f"thumbnail_{self.base_filename}.jpg"
+            self._thumbnail_path = generate_thumbnail(images, title, output_path=thumb_path)
+        except Exception:
+            self._thumbnail_path = None
+
         self._execute_upload()
 
     def _execute_upload(self):
@@ -294,6 +309,13 @@ class JobRunner:
         self._transition_to(JobState.VAULTED)
         notify_vault_secure(self.job.topic, self.job.youtube_id, vault_id or "unknown")
 
+        # ── Thumbnail upload (non-fatal) ──────────────────────────────────────
+        # Tries to set a custom thumbnail. Requires youtube.force-ssl scope OR
+        # channel verification (10K+ lifetime views). Fails silently if missing.
+        thumbnail_path = getattr(self, "_thumbnail_path", None)
+        if thumbnail_path:
+            upload_thumbnail(self.youtube, self.job.youtube_id, thumbnail_path)
+
         try:
             if os.path.exists(self.job.video_path) and not os.environ.get("GITHUB_ACTIONS"):
                 os.remove(self.job.video_path)
@@ -308,3 +330,4 @@ class JobRunner:
             metadata=metadata, duration=self.final_duration, size=self.final_size_mb,
             video_id=self.job.youtube_id
         )
+
