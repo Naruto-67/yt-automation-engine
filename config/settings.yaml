@@ -48,6 +48,23 @@ video:
   max_duration: 59 # HARDCODED
   min_disk_gb: 2.5 # Minimum free disk before rendering (GB). Auto-scales with scene count.
 
+# ─── RENDER MOTION / TRANSITION CONFIG ────────────────────────────────────────
+# Tune the Ken Burns animation and scene transitions. All values here are read
+# by scripts/render_video.py at render time — no code changes needed to tune.
+render:
+  # Crossfade duration (seconds) between scenes. 0 disables transitions entirely.
+  xfade_duration: 0.3
+  # Ken Burns pan travel as a fraction of the crop headroom (0.05 = 5%).
+  # Lower = more subtle drift; higher = more movement.
+  pan_percent: 0.05
+  # Diagonal pan travel fraction (slightly less than pan_percent for balance).
+  diagonal_percent: 0.04
+  # unsharp luma strength applied per clip (0.15 = subtle, 0.3 = stronger).
+  sharpen_luma: 0.15
+  # Base per-clip contrast / saturation before the mood-grade final pass.
+  base_contrast: 1.03
+  base_saturation: 1.10
+
 # ─── VAULT MANAGEMENT ─────────────────────────────────────────────────────────
 vault:
   max_videos: 14      # Max private vault size before pausing production
@@ -252,11 +269,11 @@ intelligence:
 # This list is the FALLBACK if discovery fails.
 # Priority: stable > experimental > preview. Free-tier always preferred.
 gemini_model_fallback_chain:
-  - "gemini-2.0-flash"           # Stable, latest, free tier
-  - "gemini-2.0-flash-lite"      # Stable, faster/cheaper, free tier
-  - "gemini-1.5-flash-8b"        # Stable, very fast, free tier
-  - "gemini-1.5-flash"           # Stable fallback
-  - "gemini-1.0-pro"             # Last resort
+  - "gemini-2.5-flash"           # Latest, best free-tier quality
+  - "gemini-2.5-flash-lite"      # Fast, efficient, free tier
+  - "gemini-2.0-flash"           # Stable fallback
+  - "gemini-2.0-flash-lite"      # Lighter stable fallback
+  - "gemini-1.5-flash"           # Last resort
 
 # ─── GROQ MODEL PRIORITY (stable free-tier first) ───────────────────────────
 groq_model_fallback_chain:
