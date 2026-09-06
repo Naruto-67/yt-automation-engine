@@ -98,6 +98,8 @@ def research_competitors(youtube, niche: str, top_n: int = 3) -> str:
             return ""
 
         insights = []
+        all_competitor_titles = []
+
         for ch_id in competitor_ids[:top_n]:
             try:
                 ch_res = youtube.channels().list(part="contentDetails,snippet", id=ch_id).execute()
@@ -129,12 +131,28 @@ def research_competitors(youtube, niche: str, top_n: int = 3) -> str:
                 ], key=lambda x: x["views"], reverse=True)[:3]
 
                 if top_titles:
+                    all_competitor_titles.extend([t["title"] for t in top_titles])
                     insights.append(
                         f"Channel: {ch_name}\n" + "\n".join([f"  - '{t['title']}' | {t['views']:,} views" for t in top_titles])
                     )
             except Exception:
                 continue
-        return "\n\n".join(insights)
+
+        result = "\n\n".join(insights)
+
+        # ── GAP ANALYSIS: surface what competitors are NOT covering ──────────
+        # Pass the competitor titles back so the researcher prompt can ask the
+        # LLM to find underserved angles. This is appended as a separate section.
+        if all_competitor_titles:
+            titles_block = "\n".join([f"  - {t}" for t in all_competitor_titles[:15]])
+            result += (
+                f"\n\n🕳️ COMPETITOR CONTENT GAPS — these are topics competitors ARE covering.\n"
+                f"When generating topics, look for angles these videos MISSED, sub-topics they\n"
+                f"glossed over, or counterarguments to their most-viewed content:\n"
+                f"{titles_block}"
+            )
+
+        return result
     except Exception as e:
         logger.error(f"Competitor research failed: {e}")
         return ""
@@ -160,10 +178,6 @@ def _generate_topics_and_evolve_niche(channel_config: ChannelConfig, needed: int
     is_factual = getattr(channel_config, "content_type", None) == "factual"
 
     if is_factual:
-        # `active_niche` is already anchored to the configured niche (set in
-        # run_dynamic_research) — this is a sub-niche like "trending facts".
-        # Use it directly so each sub-niche gets a distinct research pass
-        # instead of re-sending the full comma-separated niche string.
         prompt_niche = active_niche
         evolved      = intel.get("evolved_niche")
         if evolved and evolved != active_niche and evolved != channel_config.niche:
@@ -172,12 +186,69 @@ def _generate_topics_and_evolve_niche(channel_config: ChannelConfig, needed: int
     else:
         prompt_niche = active_niche
 
+    # ── Pillar performance context ────────────────────────────────────────────
+    # title_templates field repurposed as pillar_performance storage (JSON dict).
+    # Format: {"psychology": {"videos": 5, "total_views": 48000}, ...}
+    # Tells the researcher to make more videos in pillars that are winning.
+    pillar_context = ""
+    pillar_data    = intel.get("title_templates", [])  # repurposed field
+    if isinstance(pillar_data, dict) and pillar_data:
+        sorted_pillars = sorted(
+            pillar_data.items(),
+            key=lambda x: (x[1].get("total_views", 0) / max(x[1].get("videos", 1), 1)),
+            reverse=True
+        )
+        top    = [p for p, _ in sorted_pillars[:3]]
+        bottom = [p for p, _ in sorted_pillars[-2:]] if len(sorted_pillars) > 3 else []
+        pillar_context = (
+            f"📊 PILLAR PERFORMANCE DATA (from your channel's actual videos):\n"
+            f"  Top performing pillars (prioritise these): {', '.join(top)}\n"
+        )
+        if bottom:
+            pillar_context += f"  Underperforming pillars (use sparingly): {', '.join(bottom)}\n"
+        print(f"🏛️  [RESEARCH] Prioritising pillars: {', '.join(top)}")
+
+    # ── Growth phase context ──────────────────────────────────────────────────
+    # Detects the channel's current growth stage from sub count and adjusts
+    # topic strategy: launch → variety, growth → double down on winners,
+    # monetization → high-RPM education topics.
+    phase_context  = ""
+    phase_data     = intel.get("rule_timestamps", {})
+    sub_count      = phase_data.get("__sub_count__", 0)
+    if sub_count < 500:
+        growth_phase = "launch"
+        phase_context = (
+            "🚀 GROWTH PHASE: LAUNCH (< 500 subs)\n"
+            "Strategy: Maximum variety — cover many different pillars to find what resonates.\n"
+            "Avoid repeating any pillar more than twice in this batch.\n"
+            "Prioritise topics with the widest possible curiosity appeal."
+        )
+    elif sub_count < 1000:
+        growth_phase = "growth"
+        phase_context = (
+            "📈 GROWTH PHASE: GROWTH (500–1000 subs)\n"
+            "Strategy: Double down on proven pillars. Include 60% topics from top-performing\n"
+            "categories and 40% exploratory topics to find new winners.\n"
+            "Favour quiz and story formats to boost retention."
+        )
+    else:
+        growth_phase = "monetization"
+        phase_context = (
+            "💰 GROWTH PHASE: MONETIZATION (1000+ subs)\n"
+            "Strategy: Focus on high-RPM education categories: psychology, economics, technology,\n"
+            "health/body, history. These attract premium advertisers.\n"
+            "Prioritise 'story' and 'quiz' formats for maximum retention and RPM."
+        )
+    print(f"📍 [RESEARCH] Growth phase: {growth_phase} ({sub_count} subs)")
+
     sys_msg  = prompts_cfg["researcher"]["system_prompt"]
     user_msg = prompts_cfg["researcher"]["user_template"].format(
         needed_count=max(5, needed + 5),
         niche=prompt_niche,
         channel_context=channel_context + competitor_section,
-        history_string=", ".join(historical_topics[-300:]) if historical_topics else "None"
+        history_string=", ".join(historical_topics[-300:]) if historical_topics else "None",
+        pillar_context=pillar_context,
+        phase_context=phase_context,
     )
 
     # For factual channels, add a diversity instruction so topics aren't all
@@ -192,10 +263,48 @@ def _generate_topics_and_evolve_niche(channel_config: ChannelConfig, needed: int
             f"Avoid repeating a topic category more than twice in this batch."
         )
     
+    # ── FICTIONAL channels: force STORY LOGLINES, not abstract topics ─────
+    # Root cause of AnimeRise nonsense: the researcher treated fiction lenses
+    # like "the secret lives of everyday objects" as literal topics and the LLM
+    # emitted one-word/single-noun ideas ("a fork", "a leaf") that the script
+    # writer then turned into incoherent vignettes. Fiction needs character-driven
+    # loglines with a goal + obstacle + emotional payoff (Pixar formula).
+    is_fictional = getattr(channel_config, "content_type", None) == "fictional"
+
+    if is_fictional:
+        user_msg += (
+            f"\n\n🎭 STORY LOGLINE REQUIREMENT (fiction channel):\n"
+            f"Each topic MUST be a complete, character-driven story logline — "
+            f"ONE enticing sentence in the Pixar style:\n"
+            f"  • Has a named or clearly-imagined PROTAGONIST\n"
+            f"  • Gives them a clear GOAL or DESIRE\n"
+            f"  • Adds an OBSTACLE or conflict\n"
+            f"  • Ends with an emotional/moral payoff (warmth, wonder, irony)\n"
+            f"Example: 'A shy robot who collects broken toys learns that "
+            f"imperfection is what makes things lovable.'\n"
+            f"Example: 'A tiny lighthouse keeper must keep a storm lantern lit "
+            f"to guide a lost paper boat home.'\n\n"
+            f"STRICTLY FORBIDDEN topics:\n"
+            f"  • Single nouns / single words ('a leaf', 'a fork', 'the ocean')\n"
+            f"  • Abstract one-liners without a character or event\n"
+            f"  • 'The life of X' / 'what if X' factual musings with no story arc\n"
+            f"  • Random trivia or facts — this channel tells STORIES\n"
+            f"Every topic MUST contain a protagonist, a want, and a conflict."
+        )
+
     if channel_config.creative_lenses:
         lens = random.choice(channel_config.creative_lenses)
         print(f"      🎨 Injecting Channel-Specific Lens: {lens}")
-        user_msg += f"\n\nCRITICAL: You MUST filter all {needed} ideas through this specific Creative Lens: '{lens}'. Make them bizarre and fascinating."
+        if is_fictional:
+            user_msg += (
+                f"\n\nCRITICAL: Transform this Creative Lens into a warm "
+                f"character-driven moral-story premise: '{lens}'. "
+                f"Use it to seed the PROTAGONIST and WORLD, then invent a "
+                f"specific little adventure with a conflict and a resolution. "
+                f"Never list the lens as a literal topic."
+            )
+        else:
+            user_msg += f"\n\nCRITICAL: You MUST filter all {needed} ideas through this specific Creative Lens: '{lens}'. Make them bizarre and fascinating."
 
     raw, _ = quota_manager.generate_text(user_msg, task_type="research", system_prompt=sys_msg)
     if not raw:
@@ -272,6 +381,9 @@ def run_dynamic_research(channel_config: ChannelConfig, yt_client):
     # random fun-fact topics regardless of any stored evolved_niche drift.
     # The evolved niche is shown as context but never as the anchor.
     is_factual = getattr(channel_config, "content_type", None) == "factual"
+    # FICTIONAL channel flag — used downstream for the story-logl ine quality gate
+    # on generated topics and the fiction arc enforcement in script generation.
+    is_fictional = getattr(channel_config, "content_type", None) == "fictional"
     if is_factual:
         active_niche_string = channel_config.niche.strip()
         drifted = intel.get("evolved_niche")
@@ -326,8 +438,16 @@ def run_dynamic_research(channel_config: ChannelConfig, yt_client):
                     break
                 
                 topic_clean = ""
+                topic_hook  = ""
+                topic_fmt   = "fact"
+                topic_pillar = ""
                 if isinstance(item, dict):
-                    topic_clean = item.get("topic", "").strip()
+                    topic_clean  = item.get("topic",  "").strip()
+                    topic_hook   = item.get("hook",   "").strip()
+                    topic_fmt    = item.get("format", "fact").strip().lower()
+                    topic_pillar = item.get("pillar", "").strip().lower()
+                    if topic_fmt not in ("fact", "quiz", "story"):
+                        topic_fmt = "fact"
                 elif isinstance(item, str):
                     topic_clean = item.strip()
                     
@@ -337,11 +457,45 @@ def run_dynamic_research(channel_config: ChannelConfig, yt_client):
                 if any(_jaccard_similarity(topic_clean, h) > 0.6 for h in historical_topics):
                     continue
 
+                # ── FICTIONAL quality gate: reject abstract/nonsense topics ──
+                # A fiction channel's topic MUST read like a character-driven
+                # logline — ≥5 words, contains an actor/goal verb, and is NOT a
+                # bare noun or a 'life of X' musing. Short one-noun topics are
+                # exactly the AnimeRise "nonsense" failure mode.
+                if is_fictional:
+                    if len(topic_clean.split()) < 5:
+                        print(f"      ⏭️  Skipping too-short fictional topic: '{topic_clean[:60]}'")
+                        continue
+                    _low = topic_clean.lower()
+                    _bare_noun = (
+                        _low.startswith(("a ", "an ", "the ")) and
+                        len(_low.split()) <= 3
+                    )
+                    _fact_musing = any(x in _low for x in (
+                        "the life of", "what if", "a fact about", "random fact",
+                        "did you know", "interesting fact",
+                    ))
+                    if _bare_noun or _fact_musing:
+                        print(f"      ⏭️  Rejecting non-story fictional topic: '{topic_clean[:60]}'")
+                        continue
+
                 validated_niche = active_niche
+                import json as _json
+                job_metadata = {}
+                if topic_hook:
+                    job_metadata["hook"] = topic_hook
+                    print(f"      🎣 Hook attached: {topic_hook[:80]}")
+                if topic_fmt and topic_fmt != "fact":
+                    job_metadata["content_format"] = topic_fmt
+                    print(f"      📋 Format: {topic_fmt}")
+                if topic_pillar:
+                    job_metadata["pillar"] = topic_pillar
+                    print(f"      🏛️  Pillar: {topic_pillar}")
                 db.upsert_job(VideoJob(
                     channel_id=channel_config.channel_id,
                     topic=topic_clean,
-                    niche=validated_niche
+                    niche=validated_niche,
+                    metadata=_json.dumps(job_metadata) if job_metadata else None,
                 ))
                 db.archive_topic(channel_config.channel_id, topic_clean, validated_niche)
                 historical_topics.append(topic_clean.lower())

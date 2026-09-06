@@ -31,7 +31,8 @@ def extract_scene_data(scene_dict, fallback_topic: str):
     return narr, prompt, query
 
 
-def validate_script_quality(script_text: str, prompts_cfg: dict) -> bool:
+def validate_script_quality(script_text: str, prompts_cfg: dict,
+                            is_fictional: bool = False) -> bool:
     """
     Quality gate: reject only genuinely bad scripts (score 1-3 out of 10).
 
@@ -41,9 +42,27 @@ def validate_script_quality(script_text: str, prompts_cfg: dict) -> bool:
     - Only score 1-3 indicates a truly broken or incoherent script
     - If the validation API fails or returns no number: always PASS (fail-safe)
 
-    Root cause of previous over-rejection: threshold was 6, which caused 128-word
-    well-structured storytelling scripts to fail 3/3 times and trigger fallback.
+    For FICTIONAL channels a cheap deterministic arc check runs first: it rejects
+    scripts that read like disconnected facts (the AnimeRise "nonsense" failure)
+    without ever rejecting a coherent slow/quiet story.
     """
+    # ── FICTION DETERMINISTIC ARC GATE (no extra LLM call) ──────────────────
+    if is_fictional:
+        words = script_text.split()
+        if len(words) < 20:
+            print("⚠️ [SCRIPT] Fiction too short to have an arc — retry.")
+            return False
+        # Character/actor markers: pronouns + action verbs suggest a protagonist.
+        import re as _re
+        actor_markers = ["he ", "she ", "it ", "they ", "wants", "tries", "must",
+                         "learns", "discovers", "finds", "helps", "meets",
+                         "flees", "crosses", "searches", "escapes", "saves"]
+        marker_hits = sum(1 for m in actor_markers if _re.search(rf"\b{m}\b", script_text.lower()))
+        # A story needs SOME protagonist/action signal; hard-fail only when zero.
+        if marker_hits == 0:
+            print("⚠️ [SCRIPT] Fiction script has no protagonist/action signal — retry.")
+            return False
+
     sys_msg  = prompts_cfg["script_validation"]["system_prompt"]
     user_msg = prompts_cfg["script_validation"]["user_template"].format(
         script_text=script_text
@@ -295,6 +314,22 @@ def generate_script(niche: str, topic: str):
     intel        = db.get_channel_intelligence(channel_id)
     prompts_cfg  = load_config_prompts()
 
+    # ── Read pre-written hook and content_format from job metadata ────────────
+    # The researcher stores a pre-written hook sentence and a format hint
+    # (fact/quiz/story) in the job's metadata JSON. If present, we inject the
+    # hook into the script prompt so the LLM uses it as its opening line
+    # instead of generating a weaker generic opener.
+    researcher_hook   = ""
+    researcher_format = "fact"
+    try:
+        current_job = db.get_job_by_topic(channel_id, topic)
+        if current_job and current_job.metadata:
+            job_meta = json.loads(current_job.metadata)
+            researcher_hook   = job_meta.get("hook", "")
+            researcher_format = job_meta.get("content_format", "fact")
+    except Exception:
+        pass  # If metadata is missing or malformed, continue normally
+
     emp  = "\n".join([f"- {r}" for r in intel.get("emphasize", [])[-3:]])
     avo  = "\n".join([f"- {r}" for r in intel.get("avoid",     [])[-3:]])
     vis  = ", ".join(intel.get("preferred_visuals", ["Cinematic"])[:3])
@@ -332,6 +367,15 @@ def generate_script(niche: str, topic: str):
     is_fact = configured_content_type == "factual"
     if configured_content_type is None:
         is_fact = any(x in niche_lower for x in ["fact", "hack", "tip", "news", "top", "brainrot"])
+    is_fictional = configured_content_type == "fictional"
+
+    # Override is_fact/is_fictional based on researcher's format hint if present
+    if researcher_format == "story" and not is_fictional:
+        is_fictional = True
+        is_fact      = False
+        print(f"📋 [SCRIPT] Researcher requested story format — using storytelling mode.")
+    elif researcher_format == "quiz":
+        print(f"📋 [SCRIPT] Researcher requested quiz format.")
 
     # ── Niche selection for prompting ──────────────────────────────────────────
     # BUG FIX: For FACUTAL channels, always prompt with the CONFIGURED niche,
@@ -359,6 +403,15 @@ def generate_script(niche: str, topic: str):
     target_dur    = "30-40 seconds"     if is_fact else "45-55 seconds"
     target_words  = "~75 words"         if is_fact else "~120 words"
 
+    # ── Load brand identity for this channel ─────────────────────────────────
+    channel_brand_voice   = ""
+    channel_personality   = []
+    for _ch in config_manager.get_active_channels():
+        if _ch.channel_id == channel_id:
+            channel_brand_voice = getattr(_ch, "brand_voice", "")
+            channel_personality = getattr(_ch, "personality", [])
+            break
+
     base_user_prompt = prompts_cfg["script_gen"]["user_template"].format(
         niche=active_niche,
         topic=topic,
@@ -370,10 +423,63 @@ def generate_script(niche: str, topic: str):
         word_ceiling=_ABSOLUTE_WORD_CEILING
     )
 
+    # ── Brand identity injection ──────────────────────────────────────────────
+    if channel_brand_voice or channel_personality:
+        brand_block = "\n\n🎙️ CHANNEL BRAND VOICE (write in this style — every word):\n"
+        if channel_brand_voice:
+            brand_block += f"Voice: {channel_brand_voice}\n"
+        if channel_personality:
+            brand_block += "Personality traits: " + " | ".join(channel_personality) + "\n"
+        brand_block += (
+            "Every sentence should sound like THIS channel, not like a generic AI. "
+            "If reading it aloud doesn't match this voice, rewrite it."
+        )
+        base_user_prompt += brand_block
+
     base_user_prompt += (
         f"\n\nCRITICAL INSTRUCTION: Break the script into EXACTLY {target_scenes} visual scenes. "
         f"The combined text across all scenes MUST be a detailed, multi-sentence narrative. {hook_context}"
     )
+
+    # ── Inject researcher's pre-written hook if available ────────────────────
+    if researcher_hook:
+        base_user_prompt += (
+            f"\n\n🎣 OPENING HOOK (USE THIS AS SCENE 1's FIRST SENTENCE — do not change it):\n"
+            f"\"{researcher_hook}\"\n"
+            f"Build the rest of the script to deliver on the promise this hook makes."
+        )
+        print(f"🎣 [SCRIPT] Injecting researcher hook: {researcher_hook[:80]}")
+
+    # ── Quiz format: add extra instructions for quiz-style Shorts ────────────
+    if researcher_format == "quiz":
+        base_user_prompt += (
+            f"\n\n❓ QUIZ FORMAT INSTRUCTIONS:\n"
+            f"• Scene 1: Open with a direct question to the viewer (from the hook above).\n"
+            f"• Scenes 2-4: Build suspense. Give 1-2 wrong guesses most people make.\n"
+            f"• Scene 5+: Reveal the real answer dramatically. Then deliver the surprising context.\n"
+            f"• Final scene: End with a mind-expanding 'and here's why that matters' kicker.\n"
+            f"This is a QUIZ Short — viewer is playing along, not just listening."
+        )
+
+
+    if is_fictional:
+        base_user_prompt += (
+            f"\n\n🎬 FICTION STORY ARC (this is a STORY channel — a mini-movie, "
+            f"not a fact narration):\n"
+            f"• The topic IS a logline — dramatize it as a real short story.\n"
+            f"• Open MID-ACTION on the protagonist and their obstacle "
+            f"(no 'once upon a time', no throat-clearing).\n"
+            f"• Follow a 3-beat arc: setup → escalating conflict → earned "
+            f"RESOLUTION that lands the emotional/moral payoff.\n"
+            f"• ONE clear protagonist with a want. Every scene advances the "
+            f"conflict or deepens the character.\n"
+            f"• End with a single, felt emotional beat — the lesson is shown, "
+            f"never stated as a lecture.\n"
+            f"• Keep it WARM and cinematic. Vary sentence rhythm. "
+            f"No AI filler words ('remarkable', 'fascinating', 'truly').\n"
+            f"• Visuals (image_prompt fields) MUST match the story scenes: "
+            f"3D-Pixar-style animation stills of the actual characters/setting."
+        )
 
     last_error = "Unknown Error"
 
@@ -495,7 +601,7 @@ def generate_script(niche: str, topic: str):
                 last_error = "Script generated below functional minimum."
                 continue
 
-            if not validate_script_quality(full_text, prompts_cfg):
+            if not validate_script_quality(full_text, prompts_cfg, is_fictional=is_fictional):
                 last_error = "Failed quality check (score < 4/10)."
                 continue
 

@@ -15,45 +15,97 @@ class GroqAPIClient:
         self.api_key = os.environ.get("GROQ_API_KEY")
         self.base_url = "https://api.groq.com/openai/v1"
         self.headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
-        self.TEXT_MODEL = "llama-3.3-70b-versatile"
+        # Ordered fallback chain — first available model is used for text gen.
+        self.TEXT_MODELS = ["llama-3.3-70b-versatile"]
         self._models_discovered = False
 
+    # ── Groq text-model discovery (auto-add newest free models) ─────────────
+    # Score known-good models by a preference ladder and treat ANY unknown
+    # text model as usable (ranked below known ones). This means when Groq
+    # ships a new free Llama/Qwen/DeepSeek model we pick it up automatically
+    # without code changes.
+    _TEXT_PREFERENCE = [
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "llama3-70b-8192",
+        "llama3-8b-8192",
+        "mixtral-8x7b-32768",
+        "gemma2-9b-it",
+    ]
+    # Lightweight / task-specific models we never use for script generation.
+    _NON_TEXT_MARKERS = ["whisper", "tts", "playai", "embed", "rerank", "vision", "guard"]
+
+    def _score_text_model(self, model_id: str) -> int:
+        n = model_id.lower()
+        if any(marker in n for marker in self._NON_TEXT_MARKERS):
+            return -1  # excluded from text generation
+        for i, pref in enumerate(self._TEXT_PREFERENCE):
+            if n == pref:
+                return 1000 - i
+        # Unknown but likely a text-in/text-out model — usable, ranked after known ones.
+        return 10
+
     def _discover_models(self):
-        if self._models_discovered or not self.api_key: return
+        if self._models_discovered or not self.api_key:
+            return
+        from engine.config_manager import config_manager
         try:
+            settings = config_manager.get_settings()
+            fallback_chain = settings.get("groq_model_fallback_chain", []) or \
+                ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
             res = requests.get(f"{self.base_url}/models", headers=self.headers, timeout=10)
             if res.status_code == 200:
-                available = {m["id"] for m in res.json().get("data", [])}
-                if "llama-3.3-70b-versatile" in available:
-                    self.TEXT_MODEL = "llama-3.3-70b-versatile"
-        except Exception: pass
+                raw_ids = [m["id"] for m in res.json().get("data", [])]
+                scored = [(m, self._score_text_model(m)) for m in raw_ids]
+                text_models = sorted([m for m, s in scored if s >= 0],
+                                     key=lambda mid: self._score_text_model(mid), reverse=True)
+                if text_models:
+                    # Always ensure the static fallback chain is present at the end
+                    # in case discovery misses a preferred model.
+                    self.TEXT_MODELS = text_models + [
+                        f for f in fallback_chain if f not in text_models
+                    ]
+                    print(f"🔍 [GROQ] Text model chain discovered: {self.TEXT_MODELS[:5]} ...")
+                else:
+                    self.TEXT_MODELS = fallback_chain
+            else:
+                self.TEXT_MODELS = fallback_chain
+        except Exception:
+            self.TEXT_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
         self._models_discovered = True
 
     def generate_text(self, prompt: str, role: str = "creative",
                       system_prompt: str = None,
                       throttle: bool = False) -> str | None:
         self._discover_models()
-        if throttle: time.sleep(2)
+        if throttle:
+            time.sleep(2)
 
         # Ensure system_prompt is never None
         effective_system = system_prompt or "You are a viral YouTube Shorts scriptwriter."
 
-        payload = {
-            "model": self.TEXT_MODEL,
-            "messages": [
-                {"role": "system", "content": effective_system},
-                {"role": "user", "content": prompt}
-            ],
-            "temperature": 0.7,
-        }
-
-        try:
-            res = requests.post(f"{self.base_url}/chat/completions", headers=self.headers, json=payload, timeout=45)
-            if res.status_code == 200:
-                return res.json()["choices"][0]["message"]["content"]
-            return None
-        except Exception:
-            return None
+        # Try each model in the discovered chain until one returns valid text.
+        for model in self.TEXT_MODELS:
+            payload = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": effective_system},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.7,
+            }
+            try:
+                res = requests.post(f"{self.base_url}/chat/completions", headers=self.headers,
+                                    json=payload, timeout=45)
+                if res.status_code == 200:
+                    content = res.json()["choices"][0]["message"]["content"]
+                    if content:
+                        print(f"🤖 [GROQ] Used {model}")
+                        return content
+                # 401/429/503 → move to next model; don't spam
+            except Exception:
+                continue
+        return None
 
     def generate_audio(self, text: str, output_path: str, voice_override: str = None) -> bool:
         """

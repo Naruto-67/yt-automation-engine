@@ -145,8 +145,63 @@ def discover_hf_image_models():
     return ["black-forest-labs/FLUX.1-schnell", "stabilityai/stable-diffusion-xl-base-1.0"]
 
 
+_CF_MODEL_CACHE = None
+
+
+def discover_cf_image_model() -> str:
+    """
+    Auto-discover the best available Cloudflare Workers-AI text-to-image model.
+
+    Queries CF's model catalog, prefers FLUX/SDXL image models, and caches the
+    result. Falls back to the proven default (@cf/black-forest-labs/flux-1-schnell)
+    if discovery fails. Returns the fully-qualified '@cf/...' model id.
+    """
+    global _CF_MODEL_CACHE
+    if _CF_MODEL_CACHE:
+        return _CF_MODEL_CACHE
+
+    default = "@cf/black-forest-labs/flux-1-schnell"
+    account_id = os.environ.get("CF_ACCOUNT_ID")
+    api_token = os.environ.get("CF_API_TOKEN")
+    if not account_id or not api_token:
+        return default
+
+    try:
+        headers = {"Authorization": f"Bearer {api_token}"}
+        url = (f"https://api.cloudflare.com/client/v4/accounts/{account_id}"
+               f"/ai/models/search?task=Text-to-Image&per_page=50")
+        res = requests.get(url, headers=headers, timeout=15)
+        if res.status_code == 200:
+            data = res.json().get("result", [])
+            if isinstance(data, list) and data:
+                # Prefer modern image gen models, prioritize FLUX
+                def _cf_score(model_id):
+                    n = model_id.lower()
+                    s = 0
+                    if "flux" in n:
+                        s += 40
+                    if "schnell" in n:
+                        s += 20
+                    if "stable-diffusion" in n or "sd3" in n or "sd-3" in n:
+                        s += 10
+                    if "chat" in n or "llama" in n or "text-" in n:
+                        return -1  # not an image model
+                    return s
+
+                scored = [(m, _cf_score(m)) for m in data if _cf_score(m) >= 0]
+                if scored:
+                    scored.sort(key=lambda x: x[1], reverse=True)
+                    _CF_MODEL_CACHE = scored[0][0]
+                    print(f"🔍 [CF] Image model discovered: {_CF_MODEL_CACHE}")
+                    return _CF_MODEL_CACHE
+    except Exception as e:
+        print(f"⚠️ [CF] Model discovery failed ({e}) — using default.")
+
+    return default
+
+
 def generate_cloudflare_image(prompt, output_path):
-    print("      [Tier 1: Cloudflare AI] Attempting Official FLUX...")
+    print("      [Tier 1: Cloudflare AI] Attempting FLUX/Text-to-Image...")
     if SIMULATE_CASCADE_TEST or quota_manager.is_provider_exhausted("cloudflare"):
         return False, "Quota Reached"
 
@@ -155,7 +210,8 @@ def generate_cloudflare_image(prompt, output_path):
     if not account_id or not api_token:
         return False, "Missing CF Credentials"
 
-    url     = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/@cf/black-forest-labs/flux-1-schnell"
+    cf_model = discover_cf_image_model()
+    url     = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{cf_model}"
     headers = {"Authorization": f"Bearer {api_token}", "Content-Type": "application/json"}
 
     # Trim base to leave room for the quality suffix (CF hard-limits total prompt)
