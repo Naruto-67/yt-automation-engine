@@ -206,7 +206,8 @@ def _clean_caption_text(text: str) -> str:
     # Remove leading comma
     result = re.sub(r"^,\s*", "", result)
 
-    return result.strip()
+    # Viral Shorts look much better in ALL CAPS (Anton font looks best uppercase)
+    return result.strip().upper()
 
 
 # ── ASS caption generation with word-by-word highlighting + two-layer glow ────
@@ -250,7 +251,7 @@ def _build_ass_style_section(style: dict, glow_color: str) -> str:
         "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
         "Alignment, MarginL, MarginR, MarginV, Encoding\n"
         f"Style: Glow,{font},{size},"
-        f"&H00000000,&H000000FF,"
+        f"&HFF000000,&H000000FF,"
         f"{safe_glow},&H00000000,"
         f"1,0,0,0,100,100,0,0,1,{glow_size},0,{alignment},10,10,{margin_v},1\n"
         f"Style: Default,{font},{size},"
@@ -338,31 +339,35 @@ def srt_to_ass(srt_path, ass_path, style, glow_color="&H0000D700"):
                 start_ass = _sec_to_ass(w_start)
                 end_ass = _sec_to_ass(w_end)
 
-                # Build the line: dim white for spoken words, yellow for active
-                line_parts = []
+                glow_parts = []
+                default_parts = []
+                
                 for j, w in enumerate(words):
                     if j == i:
-                        # Active word: yellow highlight
-                        line_parts.append(
-                            f"{{\\c&H0000FFFF&\\3c&H00333333&\\blur4}}{w}"
-                            f"{{\\c&H00FFFFFF&\\3c&H00000000&\\blur0}}"
+                        # Active word: Bright Yellow on Default layer.
+                        glow_parts.append(w)
+                        default_parts.append(
+                            f"{{\\c&H0000FFFF&\\3c&H00222222&}}{w}{{\\c&H00FFFFFF&\\3c&H00000000&}}"
                         )
                     elif j < i:
-                        # Spoken word: dim white
-                        line_parts.append(f"{{\\c&H00BBBBBB&}}{w}{{\\c&H00FFFFFF&}}")
+                        # Spoken word: Dim white
+                        glow_parts.append(w)
+                        default_parts.append(f"{{\\c&H00AAAAAA&}}{w}{{\\c&H00FFFFFF&}}")
                     else:
-                        # Upcoming word: white
-                        line_parts.append(w)
+                        # Upcoming word: White
+                        glow_parts.append(w)
+                        default_parts.append(w)
 
-                text = " ".join(line_parts)
+                glow_text = " ".join(glow_parts)
+                default_text = " ".join(default_parts)
 
                 # Glow layer (layer 0): transparent text with colored blur
                 events.append(
-                    f"Dialogue: 0,{start_ass},{end_ass},Glow,,0,0,0,,{blur_tag}{text}"
+                    f"Dialogue: 0,{start_ass},{end_ass},Glow,,0,0,0,,{blur_tag}{glow_text}"
                 )
                 # Default layer (layer 1): sharp white text with black outline
                 events.append(
-                    f"Dialogue: 1,{start_ass},{end_ass},Default,,0,0,0,,{text}"
+                    f"Dialogue: 1,{start_ass},{end_ass},Default,,0,0,0,,{default_text}"
                 )
 
         with open(ass_path, "w", encoding="utf-8") as f:

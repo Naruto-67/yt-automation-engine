@@ -34,11 +34,17 @@ def _check_gemini() -> tuple:
     if not key:
         return False, "GEMINI_API_KEY secret not set"
     try:
-        url  = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}"
+        url  = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}"
         body = {"contents": [{"parts": [{"text": "Say OK"}]}]}
         r    = requests.post(url, json=body, timeout=15)
+        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={key}"
+        r   = requests.get(url, timeout=15)
         if r.status_code == 200:
             return True, "API key valid, model responding"
+            models = [m.get("name", "").replace("models/", "") for m in r.json().get("models", []) if "gemini" in m.get("name", "")]
+            # Just grab top 3 for the log
+            model_list = ", ".join(models[:3]) if models else "Unknown"
+            return True, f"API key valid | Available: {model_list}"
         elif r.status_code == 401 or r.status_code == 403:
             return False, f"Key rejected (HTTP {r.status_code}) — key may be expired or revoked"
         elif r.status_code == 429:

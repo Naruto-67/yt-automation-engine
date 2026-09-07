@@ -142,7 +142,7 @@ def discover_hf_image_models():
     # Do NOT set _HF_MODELS_CACHE here — keep it empty so next run retries discovery.
     # ── BUG #5 NOTE: These fallbacks are also PRO-tier on the current HF free
     # plan. If 403s persist after upgrading, swap in smaller open-weight models.
-    return ["black-forest-labs/FLUX.1-schnell", "stabilityai/stable-diffusion-xl-base-1.0"]
+    return ["black-forest-labs/FLUX.1-schnell", "runwayml/stable-diffusion-v1-5", "prompthero/openjourney"]
 
 
 _CF_MODEL_CACHE = None

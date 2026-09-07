@@ -399,7 +399,6 @@ def run_daily_analysis():
             _print_growth_diagnosis(channel.channel_name, subs, analytics, growth_7d)
 
             db.upsert_channel_intelligence(channel.channel_id, intel)
-            notify_daily_pulse(views, subs, growth_7d, intel)
             notify_daily_pulse(views, subs, growth_7d, intel, analytics)
             logger.success(f"Strategy updated for {channel.channel_name}.")
 
