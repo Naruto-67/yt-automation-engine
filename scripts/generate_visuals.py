@@ -111,6 +111,12 @@ def discover_hf_image_models():
     try:
         url = "https://huggingface.co/api/models?pipeline_tag=text-to-image&sort=trending&limit=20"
         res = requests.get(url, timeout=10)
+        headers = {}
+        token = os.environ.get("HF_TOKEN", "")
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+            
+        res = requests.get(url, headers=headers, timeout=10)
         if res.status_code == 200:
             models_data = res.json()
             candidates  = [m['id'] for m in models_data]
@@ -134,10 +140,14 @@ def discover_hf_image_models():
                 _HF_MODELS_CACHE = valid_models[:4]
                 print(f"✅ [HF] Model cascade dynamically updated: {_HF_MODELS_CACHE}")
                 return _HF_MODELS_CACHE
+        else:
+            print(f"⚠️ [HF] Discovery failed (HTTP {res.status_code}): {res.text[:100]}")
 
     except Exception:
         trace = traceback.format_exc()
         print(f"⚠️ [HF] Discovery failed:\n{trace}")
+    except Exception as e:
+        print(f"⚠️ [HF] Discovery exception: {e}")
 
     # Do NOT set _HF_MODELS_CACHE here — keep it empty so next run retries discovery.
     # ── BUG #5 NOTE: These fallbacks are also PRO-tier on the current HF free

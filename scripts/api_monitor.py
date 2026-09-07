@@ -104,7 +104,7 @@ def _check_huggingface() -> tuple:
         return False, "HF_TOKEN secret not set"
     try:
         r = requests.get(
-            "https://huggingface.co/api/whoami",
+            "https://huggingface.co/api/whoami-v2",
             headers={"Authorization": f"Bearer {token}"},
             timeout=10
         )
@@ -232,7 +232,6 @@ def run_audit():
         print("⚠️ [MONITOR] Some checks failed — see report above.")
 
     report = "\n".join(lines)
-    notify_summary(all_ok, report)
     notify_summary(all_ok, report, title="API Health Report", broadcast=True)
     print("📡 [MONITOR] Report dispatched to Discord.")
 
