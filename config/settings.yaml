@@ -36,7 +36,7 @@ engagement:
 # Word ceiling for ≤59s: floor(59 × (143/60)) = 140 words
 tts:
   base_wpm: 130
-  kokoro_speed_multiplier: 1.1
+  kokoro_speed_multiplier: 1.0
   max_duration_seconds: 59   # HARDCODED — do not change
 
 # ─── VIDEO PRODUCTION ─────────────────────────────────────────────────────────
@@ -121,7 +121,7 @@ caption_style_presets:
 
   cinematic:           # Subtle, filmic presentation — wonder/discovery content
     FontName:      "Anton"
-    FontSize:      "82"
+    FontSize:      "97"
     Alignment:     "2"
     MarginV:       "380"
     GlowSize:      "22"
@@ -129,7 +129,7 @@ caption_style_presets:
 
   horror_tight:        # High-tension horror style — dark/unsettling content
     FontName:      "Anton"
-    FontSize:      "88"
+    FontSize:      "103"
     Alignment:     "2"
     MarginV:       "620"
     GlowSize:      "34"
@@ -137,7 +137,7 @@ caption_style_presets:
 
   minimal_clean:       # Clean educational look — factual/neutral content
     FontName:      "Liberation Sans"
-    FontSize:      "76"
+    FontSize:      "91"
     Alignment:     "2"
     MarginV:       "460"
     GlowSize:      "18"
@@ -145,7 +145,7 @@ caption_style_presets:
 
   dynamic_upper:       # Upper-screen energetic captions — excitement content
     FontName:      "Anton"
-    FontSize:      "85"
+    FontSize:      "100"
     Alignment:     "8"
     MarginV:       "180"
     GlowSize:      "24"
@@ -153,7 +153,7 @@ caption_style_presets:
 
   bold_lower:          # Maximum lower-third impact — punchy viral content
     FontName:      "Anton"
-    FontSize:      "94"
+    FontSize:      "109"
     Alignment:     "2"
     MarginV:       "550"
     GlowSize:      "30"
@@ -161,7 +161,7 @@ caption_style_presets:
 
   storytelling:        # Warm narrative presentation — story/emotional content
     FontName:      "Anton"
-    FontSize:      "80"
+    FontSize:      "95"
     Alignment:     "2"
     MarginV:       "420"
     GlowSize:      "20"

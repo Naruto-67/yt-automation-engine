@@ -183,7 +183,7 @@ seo_gen:
 
     STEP 4 — Tags: 12-15 highly relevant tags. No # symbol.
 
-    Format: JSON {"title": "...", "title_alternatives": ["...", "..."], "description": "...", "tags": []}
+    Format: JSON {{"title": "...", "title_alternatives": ["...", "..."], "description": "...", "tags": []}}
 
 visual_safety:
   system_prompt: "You are an AI Safety Filter & Creative Prompt Engineer."
