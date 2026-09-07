@@ -25,11 +25,12 @@ class LLMRouter:
     def _discover_gemini_models(self):
         if self._gemini_models_discovered: return
         
-        fallback_stable = ["gemini-2.0-flash", "gemini-1.5-flash"]
-        fallback_preview = ["gemini-2.0-flash-exp"]
+        # Failsafe fallback if discovery endpoint goes down or changes format.
+        # gemini-1.5-flash is Google's declared long-term stable tier.
+        fallback_stable = ["gemini-1.5-flash"]
+        fallback_preview = []
 
         if not self.gemini_key:
-            self._gemini_stable_chain, self._gemini_preview_chain = fallback_stable, fallback_preview
             self._gemini_models_discovered = True
             return
 
@@ -69,8 +70,10 @@ class LLMRouter:
 
             self._gemini_stable_chain = sorted([m for m in model_names if "exp" not in m and "preview" not in m], key=_score, reverse=True)[:4]
             self._gemini_preview_chain = sorted([m for m in model_names if "exp" in m or "preview" in m], key=_score, reverse=True)[:2]
-        except Exception:
-            self._gemini_stable_chain, self._gemini_preview_chain = fallback_stable, fallback_preview
+        except Exception as e:
+            print(f"⚠️ [GEMINI] Model discovery failed: {e}. Using fallback stable models.")
+            self._gemini_stable_chain = fallback_stable
+            self._gemini_preview_chain = fallback_preview
 
         self._gemini_models_discovered = True
 
