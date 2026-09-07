@@ -1,10 +1,10 @@
 {
   "CH_01": {
-    "last_success_iso": "2026-09-06T22:32:03.003190",
+    "last_success_iso": "2026-09-07T04:21:24.353416",
     "consecutive_failures": 0
   },
   "CH_02": {
-    "last_success_iso": "2026-08-02T21:43:32.005422",
-    "consecutive_failures": 1
+    "last_success_iso": "2026-09-07T04:21:24.353416",
+    "consecutive_failures": 0
   }
 }
