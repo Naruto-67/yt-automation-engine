@@ -3,6 +3,11 @@ import os
 import re
 import random
 import traceback
+import subprocess
+import warnings
+
+# Silence the torch deprecation warnings inside third-party packages
+warnings.filterwarnings("ignore", category=FutureWarning, module="torch")
 
 if os.environ.get("HF_TOKEN"):
     os.environ["HUGGING_FACE_HUB_TOKEN"] = os.environ["HF_TOKEN"]
@@ -321,7 +326,76 @@ def generate_audio(text: str, output_base: str = "temp_audio",
     if kokoro_voice not in valid_kokoro:
         kokoro_voice = "am_adam"
 
-    # ── Primary: Kokoro TTS with emotion preprocessing ────────────────────────
+    # ── Primary: EdgeTTS (Microsoft Azure Neural Voices) ──────────────────────
+    try:
+        # 1-to-1 mapping to maintain strict consistency with the script generator's chosen actor
+        edge_voice_map = {
+            "am_adam": "en-US-ChristopherNeural", # Deep / Serious / Documentary
+            "am_michael": "en-US-AndrewNeural",   # Energetic / Fast / Punchy
+            "af_bella": "en-US-AnaNeural",        # Warm / Storytelling / Friendly
+            "af_sarah": "en-US-AriaNeural"        # Bright / Professional / Clear
+        }
+        edge_voice = edge_voice_map.get(target_voice, "en-US-ChristopherNeural")
+        print(f"🎙️ [VOICE] Attempting EdgeTTS ({edge_voice})...")
+        
+        # We save directly to wav_path. pydub in trim_audio_precision will read the MP3-encoded file natively and export as true WAV.
+        res = subprocess.run(
+            ["edge-tts", "--voice", edge_voice, "--text", clean_text, "--write-media", wav_path],
+            capture_output=True, text=True, timeout=60
+        )
+        if res.returncode == 0 and os.path.exists(wav_path):
+            ok, duration = trim_audio_precision(wav_path)
+            if ok and duration > 0:
+                try:
+                    print("📝 [VOICE] Transcribing and Chunking Captions (Max 3 words)...")
+                    whisper = get_whisper_model()
+                    segments, _ = whisper.transcribe(wav_path, language="en", word_timestamps=True)
+
+                    srt_lines = []
+                    idx = 1
+                    for segment in segments:
+                        chunk       = []
+                        chunk_start = None
+                        for word in (segment.words or []):
+                            if chunk_start is None:
+                                chunk_start = word.start
+                            chunk.append(word.word.strip().upper())
+
+                            if len(chunk) >= 3:
+                                end = word.end
+                                srt_lines.append(
+                                    f"{idx}\n{format_time(chunk_start)} --> {format_time(end)}\n"
+                                    f"{' '.join(chunk)}\n"
+                                )
+                                idx         += 1
+                                chunk        = []
+                                chunk_start  = None
+
+                        if chunk:
+                            srt_lines.append(
+                                f"{idx}\n{format_time(chunk_start)} --> {format_time(segment.words[-1].end)}\n"
+                                f"{' '.join(chunk)}\n"
+                            )
+                            idx += 1
+
+                    if srt_lines:
+                        with open(srt_path, "w", encoding="utf-8") as f:
+                            f.write("\n".join(srt_lines))
+                    else:
+                        generate_fallback_srt(clean_text, duration, srt_path)
+
+                except Exception as e:
+                    print(f"⚠️ [VOICE] Whisper failed: {e}")
+                    generate_fallback_srt(clean_text, duration, srt_path)
+
+                print(f"✅ [TTS] EdgeTTS — {duration:.1f}s | Voice: {edge_voice} | Mood: {mood}")
+                return True, "EdgeTTS", duration
+        else:
+            print(f"⚠️ [TTS] EdgeTTS failed. Fallback to Kokoro. Error: {res.stderr}")
+    except Exception as e:
+        print(f"⚠️ [TTS] EdgeTTS exception: {e}. Fallback to Kokoro.")
+
+    # ── Fallback 1: Kokoro TTS with emotion preprocessing ─────────────────────
     try:
         import numpy as np
         import soundfile as sf

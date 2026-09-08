@@ -94,6 +94,9 @@ class GroqAPIClient:
                 ],
                 "temperature": 0.7,
             }
+            # Enforce strict JSON output if the prompt explicitly demands it
+            if "json" in prompt.lower() or "json" in effective_system.lower():
+                payload["response_format"] = {"type": "json_object"}
             try:
                 res = requests.post(f"{self.base_url}/chat/completions", headers=self.headers,
                                     json=payload, timeout=45)

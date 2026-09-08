@@ -344,10 +344,12 @@ def srt_to_ass(srt_path, ass_path, style, glow_color="&H0000D700"):
                 
                 for j, w in enumerate(words):
                     if j == i:
-                        # Active word: Bright Yellow on Default layer.
-                        glow_parts.append(w)
+                        # Active word: Pop scale + Bright Yellow
+                        pop = "{\\fscx115\\fscy115\\t(0,100,\\fscx100\\fscy100)}"
+                        reset = "{\\fscx100\\fscy100}"
+                        glow_parts.append(f"{pop}{w}{reset}")
                         default_parts.append(
-                            f"{{\\c&H0000FFFF&\\3c&H00222222&}}{w}{{\\c&H00FFFFFF&\\3c&H00000000&}}"
+                            f"{pop}{{\\c&H0000FFFF&\\3c&H00222222&}}{w}{reset}{{\\c&H00FFFFFF&\\3c&H00000000&}}"
                         )
                     elif j < i:
                         # Spoken word: Dim white
@@ -627,70 +629,62 @@ def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=30):
         # 0: Pan left → right, eased, center vertically
         (
             f"{prep},"
-            f"crop={OUT_W}:{OUT_H}:"
-            f"'{pan_x}*((n*n)*({3*fr}-2*n)/({fr}*{fr}*{fr}))':{cy},"
-            f"scale={OUT_W}:{OUT_H},"
-            f"{sharpen},{base_eq}"
+            f"zoompan=z='2':d={fr}:s={OUT_W}x{OUT_H}:fps={fps}:"
+            f"x='{pan_x}*((on*on)*({3*fr}-2*on)/({fr}*{fr}*{fr}))':y='{cy}',"
+            f"{sharpen},{base_eq},format=yuv420p"
         ),
         # 1: Pan right → left, eased, center vertically
         (
             f"{prep},"
-            f"crop={OUT_W}:{OUT_H}:"
-            f"'{pan_x}*(1-((n*n)*({3*fr}-2*n)/({fr}*{fr}*{fr})))':{cy},"
-            f"scale={OUT_W}:{OUT_H},"
-            f"{sharpen},{base_eq}"
+            f"zoompan=z='2':d={fr}:s={OUT_W}x{OUT_H}:fps={fps}:"
+            f"x='{pan_x}*(1-((on*on)*({3*fr}-2*on)/({fr}*{fr}*{fr})))':y='{cy}',"
+            f"{sharpen},{base_eq},format=yuv420p"
         ),
         # 2: Pan top → bottom, eased, center horizontally
         (
             f"{prep},"
-            f"crop={OUT_W}:{OUT_H}:{cx}:"
-            f"'{pan_y}*((n*n)*({3*fr}-2*n)/({fr}*{fr}*{fr}))',"
-            f"scale={OUT_W}:{OUT_H},"
-            f"{sharpen},{base_eq}"
+            f"zoompan=z='2':d={fr}:s={OUT_W}x{OUT_H}:fps={fps}:"
+            f"x='{cx}':y='{pan_y}*((on*on)*({3*fr}-2*on)/({fr}*{fr}*{fr}))',"
+            f"{sharpen},{base_eq},format=yuv420p"
         ),
         # 3: Pan bottom → top, eased, center horizontally
         (
             f"{prep},"
-            f"crop={OUT_W}:{OUT_H}:{cx}:"
-            f"'{pan_y}*(1-((n*n)*({3*fr}-2*n)/({fr}*{fr}*{fr})))',"
-            f"scale={OUT_W}:{OUT_H},"
-            f"{sharpen},{base_eq}"
+            f"zoompan=z='2':d={fr}:s={OUT_W}x{OUT_H}:fps={fps}:"
+            f"x='{cx}':y='{pan_y}*(1-((on*on)*({3*fr}-2*on)/({fr}*{fr}*{fr})))',"
+            f"{sharpen},{base_eq},format=yuv420p"
         ),
         # 4: Diagonal TL → BR, eased
         (
             f"{prep},"
-            f"crop={OUT_W}:{OUT_H}:"
-            f"'{pan_dx}*((n*n)*({3*fr}-2*n)/({fr}*{fr}*{fr}))':"
-            f"'{pan_dy}*((n*n)*({3*fr}-2*n)/({fr}*{fr}*{fr}))',"
-            f"scale={OUT_W}:{OUT_H},"
-            f"{sharpen},{base_eq}"
+            f"zoompan=z='2':d={fr}:s={OUT_W}x{OUT_H}:fps={fps}:"
+            f"x='{pan_dx}*((on*on)*({3*fr}-2*on)/({fr}*{fr}*{fr}))':"
+            f"y='{pan_dy}*((on*on)*({3*fr}-2*on)/({fr}*{fr}*{fr}))',"
+            f"{sharpen},{base_eq},format=yuv420p"
         ),
         # 5: Diagonal TR → BL, eased
         (
             f"{prep},"
-            f"crop={OUT_W}:{OUT_H}:"
-            f"'{pan_dx}*(1-((n*n)*({3*fr}-2*n)/({fr}*{fr}*{fr})))':"
-            f"'{pan_dy}*((n*n)*({3*fr}-2*n)/({fr}*{fr}*{fr}))',"
-            f"scale={OUT_W}:{OUT_H},"
-            f"{sharpen},{base_eq}"
+            f"zoompan=z='2':d={fr}:s={OUT_W}x{OUT_H}:fps={fps}:"
+            f"x='{pan_dx}*(1-((on*on)*({3*fr}-2*on)/({fr}*{fr}*{fr})))':"
+            f"y='{pan_dy}*((on*on)*({3*fr}-2*on)/({fr}*{fr}*{fr}))',"
+            f"{sharpen},{base_eq},format=yuv420p"
         ),
         # 6: Diagonal BL → TR, eased
         (
             f"{prep},"
-            f"crop={OUT_W}:{OUT_H}:"
-            f"'{pan_dx}*((n*n)*({3*fr}-2*n)/({fr}*{fr}*{fr}))':"
-            f"'{pan_dy}*(1-((n*n)*({3*fr}-2*n)/({fr}*{fr}*{fr})))',"
-            f"scale={OUT_W}:{OUT_H},"
-            f"{sharpen},{base_eq}"
+            f"zoompan=z='2':d={fr}:s={OUT_W}x{OUT_H}:fps={fps}:"
+            f"x='{pan_dx}*((on*on)*({3*fr}-2*on)/({fr}*{fr}*{fr}))':"
+            f"y='{pan_dy}*(1-((on*on)*({3*fr}-2*on)/({fr}*{fr}*{fr})))',"
+            f"{sharpen},{base_eq},format=yuv420p"
         ),
         # 7: Diagonal BR → TL, eased
         (
             f"{prep},"
-            f"crop={OUT_W}:{OUT_H}:"
-            f"'{pan_dx}*(1-((n*n)*({3*fr}-2*n)/({fr}*{fr}*{fr})))':"
-            f"'{pan_dy}*(1-((n*n)*({3*fr}-2*n)/({fr}*{fr}*{fr})))',"
-            f"scale={OUT_W}:{OUT_H},"
-            f"{sharpen},{base_eq}"
+            f"zoompan=z='2':d={fr}:s={OUT_W}x{OUT_H}:fps={fps}:"
+            f"x='{pan_dx}*(1-((on*on)*({3*fr}-2*on)/({fr}*{fr}*{fr})))':"
+            f"y='{pan_dy}*(1-((on*on)*({3*fr}-2*on)/({fr}*{fr}*{fr})))',"
+            f"{sharpen},{base_eq},format=yuv420p"
         ),
     ]
 

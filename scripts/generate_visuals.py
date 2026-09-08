@@ -109,8 +109,7 @@ def discover_hf_image_models():
 
     print("🔍 [HF] Auto-discovering trending text-to-image models...")
     try:
-        url = "https://huggingface.co/api/models?pipeline_tag=text-to-image&sort=trending&limit=20"
-        res = requests.get(url, timeout=10)
+        url = "https://huggingface.co/api/models?pipeline_tag=text-to-image&sort=likes&limit=20"
         headers = {}
         token = os.environ.get("HF_TOKEN", "")
         if token:
