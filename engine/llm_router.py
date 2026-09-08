@@ -124,6 +124,7 @@ class LLMRouter:
                             )
                             return response.text, f"Gemini ({model})", provider_key
                         except Exception as e:
+                            print(f"⚠️ [GEMINI] Attempt {attempt+1} failed for {model}: {e}")
                             if any(x in str(e).lower() for x in ["quota", "exhausted", "403"]):
                                 stage_hard_failed = True
                                 break
