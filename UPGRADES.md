@@ -98,6 +98,35 @@ These changes were made in the **copy** at
 `d:\Github\yt-automation-engine-main_1\yt-automation-engine-main`.
 Apply the same diffs in your original:
 1. `.github/workflows/01_daily_pipeline.yml`
+
+---
+
+## 2026-09 — The Quality Rework
+
+### 1. Buttery Smooth Transitions (`render_video.py`)
+- **What:** Replaced the FFmpeg `crop` filter with `zoompan` and appended `format=yuv420p` normalization before crossfades.
+- **Why:** The `crop` filter rounds to whole integer pixels, creating severe stuttering (judder) during the Ken Burns panning effect. `zoompan` calculates sub-pixels for perfectly smooth motion. Additionally, `xfade` (crossfade) requires all input clips to have perfectly matched formats. Pre-normalizing them prevents `xfade` from crashing and falling back to harsh cuts.
+- **Files:** `scripts/render_video.py`
+
+### 2. Premium Captions (`render_video.py`)
+- **What:** Upgraded the `_srt_to_ass_word_by_word` function to inject `\fscx115\fscy115\t(0,100,\fscx100\fscy100)` ASS tags on the active spoken word.
+- **Why:** Replaces the static glowing word with a dynamic, CapCut-style "pop" animation where the word scales to 115% and shrinks back, making the Shorts dramatically more engaging.
+- **Files:** `scripts/render_video.py`
+
+### 3. EdgeTTS Voice Engine (`generate_voice.py`)
+- **What:** Integrated Microsoft Azure Neural Voices (`edge-tts`) as the primary text-to-speech engine. Relegated Kokoro-82M to a fallback layer.
+- **Why:** The free Kokoro model lacked emotional pacing and sounded robotic. EdgeTTS provides completely free, premium Azure neural voices (`en-US-ChristopherNeural`, `en-US-AndrewNeural`, etc.) with 1-to-1 mapping to the LLM's chosen voice persona.
+- **Files:** `scripts/generate_voice.py`, `requirements.txt`
+
+### 4. Hugging Face Auto-Discovery Fix (`generate_visuals.py`)
+- **What:** Swapped API query parameter from `sort=trending` to `sort=likes`.
+- **Why:** HuggingFace removed the `trending` parameter from their public API, causing models discovery to 400 error and fail down to stock footage.
+- **Files:** `scripts/generate_visuals.py`
+
+### 5. JSON Format Enforcement (`groq_client.py`)
+- **What:** Added logic to strictly inject `response_format={"type": "json_object"}` into the Groq API payload if the prompt demands JSON.
+- **Why:** Prevented the LLM from outputting raw text instead of JSON during script generation, eliminating `JSONDecodeError` exhaustion loops.
+- **Files:** `scripts/groq_client.py`
 2. `engine/llm_router.py`
 3. `scripts/groq_client.py`
 4. `scripts/generate_visuals.py`
