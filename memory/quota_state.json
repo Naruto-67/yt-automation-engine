@@ -1,8 +1,8 @@
 {
   "date": "2026-09-10",
-  "channel_id": "CH_02",
-  "youtube_points": 6611,
-  "gemini_calls": 6,
+  "channel_id": "default_channel",
+  "youtube_points": 10,
+  "gemini_calls": 8,
   "cf_images": 29,
   "hf_images": 0
 }
