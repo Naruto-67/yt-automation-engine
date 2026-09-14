@@ -106,10 +106,18 @@ class LLMRouter:
                         try:
                             from google import genai
                             from google.genai import types
-                            client = genai.Client(api_key=self.gemini_key)
-                            # Use the recommended Chat API instead of the
-                            # (deprecated-recommendation) Models.generate_content.
-                            # system_instruction still travels via the config.
+                            # 25s timeout: Gemini holds connections for 2-3 min when
+                            # overloaded before returning 503. Fail fast, skip to next model.
+                            # Split timeouts:
+                            #   connect=15s — catches the overload-hang (Gemini LB holds TCP open
+                            #                 for 2-3 min before returning 503 when overloaded)
+                            #   read=90s    — once Gemini starts streaming, give it plenty of
+                            #                 time for any length of response (our prompts: 5-15s)
+                            client = genai.Client(
+                                api_key=self.gemini_key,
+                                http_options={"timeout": 25},
+                                http_options={"timeout": {"connect": 15, "read": 90}},
+                            )
                             cfg = {"system_instruction": system_prompt} if system_prompt else {}
                             chat = client.chats.create(
                                 model=model,
@@ -129,9 +137,8 @@ class LLMRouter:
                             if any(x in err_str for x in ["quota", "exhausted", "403"]):
                                 stage_hard_failed = True
                                 break
-                            # 503 / UNAVAILABLE: model endpoint is down — skip to next model immediately.
-                            # No point burning 3 retries on a model that's declared unavailable.
-                            if "503" in err_str or "unavailable" in err_str:
+                            # 503 / UNAVAILABLE / timeout: skip to next model immediately.
+                            if "503" in err_str or "unavailable" in err_str or "timeout" in err_str or "timed out" in err_str:
                                 break
                             continue
             elif stage_name == "Groq Chain":
