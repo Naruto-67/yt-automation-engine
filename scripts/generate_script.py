@@ -12,8 +12,10 @@ from engine.context import ctx
 from engine.logger import logger
 
 _WORDS_PER_SECOND_TTS = 143 / 60.0
-_MAX_VIDEO_SECONDS = 59.0
-_ABSOLUTE_WORD_CEILING = int(_MAX_VIDEO_SECONDS * _WORDS_PER_SECOND_TTS)
+# EdgeTTS runs at --rate=-10% which is ~10% slower than bare Kokoro/Whisper WPM.
+# Using 55s (not 59s) as the effective ceiling prevents audio overflow after TTS synthesis.
+_MAX_VIDEO_SECONDS = 55.0
+_ABSOLUTE_WORD_CEILING = int(_MAX_VIDEO_SECONDS * _WORDS_PER_SECOND_TTS)  # → 131 words
 
 
 def load_config_prompts():

@@ -30,8 +30,13 @@ def _print_growth_diagnosis(channel_name: str, subs: int, analytics: dict, growt
     else:
         print(f"   📍 Phase: MONETIZATION ({subs} subs) — optimise for RPM and retention")
 
-    # 7-day trend
-    if growth_7d == 0:
+    # 7-day trend — distinguish API failure from real zero views
+    if analytics.get("_api_unavailable"):
+        print("   ⚠️  7-day views: unavailable — YouTube Analytics API not enabled in GCP project.")
+        print("       Action required: enable at https://console.developers.google.com/apis/api/youtubeanalytics.googleapis.com/overview")
+    elif analytics.get("_api_bad_request"):
+        print("   ⚠️  7-day views: unavailable — Analytics API returned a bad request (check metric names in performance_analyst.py).")
+    elif growth_7d == 0:
         print("   ⚠️  7-day views: 0 — channel has no public videos yet or videos are still private")
     elif growth_7d < 500:
         print(f"   🔴 7-day views: {growth_7d:,} — very low. Check if videos are public and indexed.")
@@ -40,10 +45,11 @@ def _print_growth_diagnosis(channel_name: str, subs: int, analytics: dict, growt
     else:
         print(f"   🟢 7-day views: {growth_7d:,} — strong growth.")
 
-    # CTR + Retention
-    if analytics:
-        ctr         = analytics.get("ctr", 0)
-        avg_view_pct = analytics.get("avg_view_pct", 0)
+    # CTR + Retention — only show if real analytics data is present (not error sentinels)
+    real_analytics = {k: v for k, v in analytics.items() if not k.startswith("_api_")}
+    if real_analytics:
+        ctr         = real_analytics.get("ctr", 0)
+        avg_view_pct = real_analytics.get("avg_view_pct", 0)
         if ctr < 3:
             print(f"   🔴 CTR: {ctr:.2f}% — CRITICAL. Thumbnails and titles need urgent rework.")
         elif ctr < 5:
@@ -56,9 +62,10 @@ def _print_growth_diagnosis(channel_name: str, subs: int, analytics: dict, growt
             print(f"   🟡 Retention: {avg_view_pct:.1f}% — acceptable. Add more open loops mid-video.")
         else:
             print(f"   🟢 Retention: {avg_view_pct:.1f}% — excellent.")
-    else:
+    elif not analytics.get("_api_unavailable") and not analytics.get("_api_bad_request"):
         print("   ℹ️  Analytics data not available yet (need at least 1 public video).")
     print()
+
 
 
 def load_config_prompts():
@@ -146,6 +153,10 @@ def _fetch_analytics_metrics(channel_id: str) -> dict:
     Fetch CTR, average view duration, and retention from YouTube Analytics API.
     Requires yt-analytics.readonly scope (already authorized).
     Returns a dict with the metrics, or empty dict on any failure.
+
+    Special keys:
+      _api_unavailable: True  → API 403/disabled — do NOT diagnose as "no views"
+      _api_bad_request:  True → API 400 (wrong param) — log and skip
     """
     try:
         from google.oauth2.credentials import Credentials
@@ -176,11 +187,14 @@ def _fetch_analytics_metrics(channel_id: str) -> dict:
         end_date   = datetime.utcnow().strftime("%Y-%m-%d")
         start_date = (datetime.utcnow() - timedelta(days=28)).strftime("%Y-%m-%d")
 
+        # NOTE: impressionClickThroughRate is NOT a valid YT Analytics v2 metric.
+        # The correct name is clickThroughRate. impressions-based CTR requires the
+        # YouTube Reporting API (content-owner level), not the Analytics API.
         response = analytics.reports().query(
             ids="channel==MINE",
             startDate=start_date,
             endDate=end_date,
-            metrics="views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,impressionClickThroughRate",
+            metrics="views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,clickThroughRate",
             dimensions="",
         ).execute()
 
@@ -198,9 +212,24 @@ def _fetch_analytics_metrics(channel_id: str) -> dict:
         }
 
     except Exception as e:
-        # Analytics API failure is non-fatal — analyst continues with basic stats
+        err_str = str(e)
+        # Distinguish between "API not enabled" (403) and other errors so the
+        # growth diagnosis function doesn't falsely report "no public videos".
+        if "403" in err_str or "disabled" in err_str.lower():
+            logger.error(
+                f"Analytics metrics fetch failed — YouTube Analytics API not enabled "
+                f"in GCP project. Enable it at: "
+                f"https://console.developers.google.com/apis/api/youtubeanalytics.googleapis.com/overview "
+                f"| Error: {e}"
+            )
+            return {"_api_unavailable": True}
+        elif "400" in err_str or "unknown identifier" in err_str.lower():
+            logger.error(f"Analytics metrics fetch failed — bad API request (check metric names): {e}")
+            return {"_api_bad_request": True}
+        # Other failures (network, auth token expired, etc.)
         logger.error(f"Analytics metrics fetch failed (non-fatal): {e}")
         return {}
+
 
 
 def run_daily_analysis():
@@ -262,7 +291,8 @@ def run_daily_analysis():
 
             # ── Build analytics context block for the analyst prompt ──────────
             analytics_block = ""
-            if analytics:
+            real_analytics = {k: v for k, v in analytics.items() if not k.startswith("_api_")}
+            if real_analytics:
                 ctr_diagnosis = (
                     "🔴 POOR (<3%) — hook and title need urgent rework."      if ctr < 3 else
                     "🟡 AVERAGE (3–5%) — room to improve titles and thumbnails." if ctr < 5 else
