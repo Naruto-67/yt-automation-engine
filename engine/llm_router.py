@@ -115,7 +115,6 @@ class LLMRouter:
                             #                 time for any length of response (our prompts: 5-15s)
                             client = genai.Client(
                                 api_key=self.gemini_key,
-                                http_options={"timeout": 25},
                                 http_options={"timeout": {"connect": 15, "read": 90}},
                             )
                             cfg = {"system_instruction": system_prompt} if system_prompt else {}
