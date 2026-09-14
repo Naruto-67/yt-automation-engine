@@ -10,9 +10,9 @@ faster-whisper>=1.0.0
 pydub>=0.25.1
 Pillow>=12.3.0
 pytz
-python-dotenv>=1.2.2
-google-genai>=2.19.0
-edge-tts>=0.0.0
+python-dotenv>=1.2.3
+google-genai>=2.23.0
+edge-tts>=7.2.8
 torch>=2.2.0
 pydantic>=2.13.4
 PyYAML>=6.0.3
