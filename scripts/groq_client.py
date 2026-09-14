@@ -33,7 +33,11 @@ class GroqAPIClient:
         "gemma2-9b-it",
     ]
     # Lightweight / task-specific models we never use for script generation.
-    _NON_TEXT_MARKERS = ["whisper", "tts", "playai", "embed", "rerank", "vision", "guard"]
+    _NON_TEXT_MARKERS = [
+        "whisper", "tts", "playai", "embed", "rerank", "vision", "guard",
+        # Speech/audio synthesis models — score -1 so they never enter the text chain
+        "orpheus", "canopylabs", "allam", "audio", "speech",
+    ]
 
     def _score_text_model(self, model_id: str) -> int:
         n = model_id.lower()
@@ -106,7 +110,8 @@ class GroqAPIClient:
                         print(f"🤖 [GROQ] Used {model}")
                         return content
                 # 401/429/503 → move to next model; don't spam
-            except Exception:
+            except Exception as e:
+                print(f"⚠️ [GROQ] {model} failed: {e}")
                 continue
         return None
 

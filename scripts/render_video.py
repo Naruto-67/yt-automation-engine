@@ -230,19 +230,15 @@ def _srt_time_to_sec(srt_time: str) -> float:
     return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000.0
 
 
-def _build_ass_style_section(style: dict, glow_color: str) -> str:
+def _build_ass_style_section(style: dict) -> str:
     """
-    Build the ASS [V4+ Styles] section with two layers:
-      Glow layer    — transparent text, thick colored outline + blur for neon halo
-      Default layer — white text, thin black outline, sharp
+    Build the ASS [V4+ Styles] section for a clean, modern, single-layer look.
+    Bold white text, thick black outline, and soft drop shadow.
     """
     font          = style.get("FontName",      "Anton")
-    size          = style.get("FontSize",      "90")
+    size          = style.get("FontSize",      "95")
     alignment     = style.get("Alignment",     "2")
-    margin_v      = style.get("MarginV",       "500")
-    glow_size     = style.get("GlowSize",      "28")
-    blur_strength = style.get("BlurStrength",  "15")
-    safe_glow     = _resolve_glow_color(glow_color)
+    margin_v      = style.get("MarginV",       "450")
 
     return (
         "[V4+ Styles]\n"
@@ -250,33 +246,21 @@ def _build_ass_style_section(style: dict, glow_color: str) -> str:
         "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
         "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
         "Alignment, MarginL, MarginR, MarginV, Encoding\n"
-        f"Style: Glow,{font},{size},"
-        f"&HFF000000,&H000000FF,"
-        f"{safe_glow},&H00000000,"
-        f"1,0,0,0,100,100,0,0,1,{glow_size},0,{alignment},10,10,{margin_v},1\n"
         f"Style: Default,{font},{size},"
-        f"&H00FFFFFF,&H000000FF,"
-        f"&H00000000,&H00000000,"
-        f"1,0,0,0,100,100,0,0,1,5,0,{alignment},10,10,{margin_v},1\n"
-        f"Style: Highlight,{font},{size},"
-        f"&H0000FFFF,&H000000FF,"
-        f"&H00000000,&H00000000,"
-        f"1,0,0,0,100,100,0,0,1,5,0,{alignment},10,10,{margin_v},1\n\n"
+        f"&H00FFFFFF,&H000000FF,"       # Primary: White
+        f"&H00000000,&H99000000,"       # Outline: Black, Back: Semi-transparent Black shadow
+        f"1,0,0,0,100,100,0,0,1,6,4,{alignment},30,30,{margin_v},1\n\n"
     )
 
 
-def srt_to_ass(srt_path, ass_path, style, glow_color="&H0000D700"):
+def srt_to_ass(srt_path, ass_path, style, glow_color=None):
     """
     Convert SRT → ASS with:
-    1. Two-layer glow system (neon halo + sharp white text)
-    2. Word-by-word highlighting (active word pulses yellow)
-    3. Caption cleaning (filler words stripped, commas cleaned)
-    4. Smart line breaking at phrase boundaries
+    1. Clean, single-layer modern Hormozi-style text.
+    2. Word-by-word highlighting (active word turns bright yellow).
+    3. Caption cleaning (filler words stripped, commas cleaned).
+    4. Smooth, no scaling popups or neon glows.
     """
-    safe_glow     = _resolve_glow_color(glow_color)
-    blur_strength = style.get("BlurStrength", "15")
-    blur_tag      = f"{{\\blur{blur_strength}}}"
-
     header = (
         "[Script Info]\n"
         "ScriptType: v4.00+\n"
@@ -284,7 +268,7 @@ def srt_to_ass(srt_path, ass_path, style, glow_color="&H0000D700"):
         "PlayResY: 1920\n\n"
     )
 
-    ass_header = header + _build_ass_style_section(style, glow_color)
+    ass_header = header + _build_ass_style_section(style)
 
     ass_header += (
         "[Events]\n"
@@ -295,7 +279,6 @@ def srt_to_ass(srt_path, ass_path, style, glow_color="&H0000D700"):
         with open(srt_path, "r", encoding="utf-8") as f:
             content = f.read()
 
-        # Parse SRT blocks
         srt_blocks = []
         for block in content.strip().split("\n\n"):
             lines = block.split("\n")
@@ -322,8 +305,6 @@ def srt_to_ass(srt_path, ass_path, style, glow_color="&H0000D700"):
 
         events = []
 
-        # Strategy: for each SRT block, create word-by-word highlight events
-        # using the two-layer system (Glow + Default + Highlight)
         for block in srt_blocks:
             words = block["words"]
             if not words:
@@ -339,47 +320,29 @@ def srt_to_ass(srt_path, ass_path, style, glow_color="&H0000D700"):
                 start_ass = _sec_to_ass(w_start)
                 end_ass = _sec_to_ass(w_end)
 
-                glow_parts = []
                 default_parts = []
                 
                 for j, w in enumerate(words):
                     if j == i:
-                        # Active word: Pop scale + Bright Yellow
-                        pop = "{\\fscx115\\fscy115\\t(0,100,\\fscx100\\fscy100)}"
-                        reset = "{\\fscx100\\fscy100}"
-                        glow_parts.append(f"{pop}{w}{reset}")
-                        default_parts.append(
-                            f"{pop}{{\\c&H0000FFFF&\\3c&H00222222&}}{w}{reset}{{\\c&H00FFFFFF&\\3c&H00000000&}}"
-                        )
+                        # Active word: Clean bright Yellow
+                        default_parts.append(f"{{\\c&H0000D7FF&}}{w}{{\\c&H00FFFFFF&}}")
                     elif j < i:
-                        # Spoken word: Dim white
-                        glow_parts.append(w)
-                        default_parts.append(f"{{\\c&H00AAAAAA&}}{w}{{\\c&H00FFFFFF&}}")
+                        # Spoken word: Dimmed slightly or kept white
+                        default_parts.append(f"{w}")
                     else:
                         # Upcoming word: White
-                        glow_parts.append(w)
                         default_parts.append(w)
 
-                glow_text = " ".join(glow_parts)
                 default_text = " ".join(default_parts)
-
-                # Glow layer (layer 0): transparent text with colored blur
-                events.append(
-                    f"Dialogue: 0,{start_ass},{end_ass},Glow,,0,0,0,,{blur_tag}{glow_text}"
-                )
-                # Default layer (layer 1): sharp white text with black outline
-                events.append(
-                    f"Dialogue: 1,{start_ass},{end_ass},Default,,0,0,0,,{default_text}"
-                )
+                events.append(f"Dialogue: 0,{start_ass},{end_ass},Default,,0,0,0,,{default_text}")
 
         with open(ass_path, "w", encoding="utf-8") as f:
             f.write(ass_header + "\n".join(events))
 
         print(
             f"🎨 [RENDERER] ASS subtitles built — "
-            f"word-by-word + glow: {safe_glow} | font: {style.get('FontName','Anton')} {style.get('FontSize','90')}pt | "
-            f"align: {style.get('Alignment','2')} | margin: {style.get('MarginV','500')} | "
-            f"glow_size: {style.get('GlowSize','28')}px | blur: {blur_strength}"
+            f"word-by-word highlight | font: {style.get('FontName','Anton')} {style.get('FontSize','95')}pt | "
+            f"align: {style.get('Alignment','2')} | margin: {style.get('MarginV','450')}"
         )
         return True
 
@@ -524,7 +487,7 @@ def _smoothstep(t: float) -> float:
     return t * t * (3.0 - 2.0 * t)
 
 
-def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=30):
+def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=60):
     """
     Create a smooth Ken Burns animation clip from a still image.
 
@@ -629,35 +592,35 @@ def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=30):
         # 0: Pan left → right, eased, center vertically
         (
             f"{prep},"
-            f"zoompan=z='2':d={fr}:s={OUT_W}x{OUT_H}:fps={fps}:"
+            f"zoompan=z='1.05':d={fr}:s={OUT_W}x{OUT_H}:fps=60:"
             f"x='{pan_x}*((on*on)*({3*fr}-2*on)/({fr}*{fr}*{fr}))':y='{cy}',"
             f"{sharpen},{base_eq},format=yuv420p"
         ),
         # 1: Pan right → left, eased, center vertically
         (
             f"{prep},"
-            f"zoompan=z='2':d={fr}:s={OUT_W}x{OUT_H}:fps={fps}:"
+            f"zoompan=z='1.05':d={fr}:s={OUT_W}x{OUT_H}:fps=60:"
             f"x='{pan_x}*(1-((on*on)*({3*fr}-2*on)/({fr}*{fr}*{fr})))':y='{cy}',"
             f"{sharpen},{base_eq},format=yuv420p"
         ),
         # 2: Pan top → bottom, eased, center horizontally
         (
             f"{prep},"
-            f"zoompan=z='2':d={fr}:s={OUT_W}x{OUT_H}:fps={fps}:"
+            f"zoompan=z='1.05':d={fr}:s={OUT_W}x{OUT_H}:fps=60:"
             f"x='{cx}':y='{pan_y}*((on*on)*({3*fr}-2*on)/({fr}*{fr}*{fr}))',"
             f"{sharpen},{base_eq},format=yuv420p"
         ),
         # 3: Pan bottom → top, eased, center horizontally
         (
             f"{prep},"
-            f"zoompan=z='2':d={fr}:s={OUT_W}x{OUT_H}:fps={fps}:"
+            f"zoompan=z='1.05':d={fr}:s={OUT_W}x{OUT_H}:fps=60:"
             f"x='{cx}':y='{pan_y}*(1-((on*on)*({3*fr}-2*on)/({fr}*{fr}*{fr})))',"
             f"{sharpen},{base_eq},format=yuv420p"
         ),
         # 4: Diagonal TL → BR, eased
         (
             f"{prep},"
-            f"zoompan=z='2':d={fr}:s={OUT_W}x{OUT_H}:fps={fps}:"
+            f"zoompan=z='1.05':d={fr}:s={OUT_W}x{OUT_H}:fps=60:"
             f"x='{pan_dx}*((on*on)*({3*fr}-2*on)/({fr}*{fr}*{fr}))':"
             f"y='{pan_dy}*((on*on)*({3*fr}-2*on)/({fr}*{fr}*{fr}))',"
             f"{sharpen},{base_eq},format=yuv420p"
@@ -665,7 +628,7 @@ def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=30):
         # 5: Diagonal TR → BL, eased
         (
             f"{prep},"
-            f"zoompan=z='2':d={fr}:s={OUT_W}x{OUT_H}:fps={fps}:"
+            f"zoompan=z='1.05':d={fr}:s={OUT_W}x{OUT_H}:fps=60:"
             f"x='{pan_dx}*(1-((on*on)*({3*fr}-2*on)/({fr}*{fr}*{fr})))':"
             f"y='{pan_dy}*((on*on)*({3*fr}-2*on)/({fr}*{fr}*{fr}))',"
             f"{sharpen},{base_eq},format=yuv420p"
@@ -673,7 +636,7 @@ def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=30):
         # 6: Diagonal BL → TR, eased
         (
             f"{prep},"
-            f"zoompan=z='2':d={fr}:s={OUT_W}x{OUT_H}:fps={fps}:"
+            f"zoompan=z='1.05':d={fr}:s={OUT_W}x{OUT_H}:fps=60:"
             f"x='{pan_dx}*((on*on)*({3*fr}-2*on)/({fr}*{fr}*{fr}))':"
             f"y='{pan_dy}*(1-((on*on)*({3*fr}-2*on)/({fr}*{fr}*{fr})))',"
             f"{sharpen},{base_eq},format=yuv420p"
@@ -681,7 +644,7 @@ def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=30):
         # 7: Diagonal BR → TL, eased
         (
             f"{prep},"
-            f"zoompan=z='2':d={fr}:s={OUT_W}x{OUT_H}:fps={fps}:"
+            f"zoompan=z='1.05':d={fr}:s={OUT_W}x{OUT_H}:fps=60:"
             f"x='{pan_dx}*(1-((on*on)*({3*fr}-2*on)/({fr}*{fr}*{fr})))':"
             f"y='{pan_dy}*(1-((on*on)*({3*fr}-2*on)/({fr}*{fr}*{fr})))',"
             f"{sharpen},{base_eq},format=yuv420p"
@@ -702,6 +665,7 @@ def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=30):
                 "-pix_fmt", "yuv420p",
                 "-preset",  "fast",
                 "-crf",     "18",
+                "-r",       "60",
                 output_path,
             ],
             stdout=subprocess.DEVNULL,
@@ -849,7 +813,10 @@ def render_video(image_paths, audio_path, output_path,
             filter_parts = []
             input_maps = []
             for i in range(len(clip_files)):
-                filter_parts.append(f"[{i}:v]settb=AVTB[{i}v]")
+                # Normalize each clip to exactly 60fps, reset PTS to 0, and fix timebase.
+                # xfade requires identical framerate AND contiguous PTS — without this,
+                # it crashes with 'PTS is not monotonically increasing' or 'DTS out of order'.
+                filter_parts.append(f"[{i}:v]fps=60,settb=AVTB,setpts=PTS-STARTPTS[{i}v]")
                 input_maps.append(f"-i {clip_files[i]}")
 
             # Chain xfade filters
@@ -866,14 +833,15 @@ def render_video(image_paths, audio_path, output_path,
             final_output = current_input
             filter_complex = ";".join(filter_parts)
 
+            audio_input_idx = len(clip_files)
             xfade_cmd = (
                 f"ffmpeg -y "
                 + " ".join(input_maps)
+                + f" -i {audio_path}"
                 + f" -filter_complex \"{filter_complex}\""
                 + f" -map \"[{final_output}]\""
-                + f" -i {audio_path}"
-                + f" -map 1:a"
-                + f" -c:v libx264 -preset fast -crf 18"
+                + f" -map {audio_input_idx}:a"
+                + f" -c:v libx264 -preset fast -crf 18 -r 60"
                 + f" -c:a aac -b:a 192k -shortest {temp_merged}"
             )
 
@@ -927,6 +895,7 @@ def render_video(image_paths, audio_path, output_path,
                 "-pix_fmt","yuv420p",
                 "-preset","fast",
                 "-crf",   "18",
+                "-r",     "60",
                 "-c:a",   "copy",
                 output_path,
             ],

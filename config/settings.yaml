@@ -44,7 +44,7 @@ tts:
 video:
   width: 1080      # HARDCODED
   height: 1920     # HARDCODED
-  fps: 30          # HARDCODED
+  fps: 60          # HARDCODED — matches render_video.py (was incorrectly 30)
   max_duration: 59 # HARDCODED
   min_disk_gb: 2.5 # Minimum free disk before rendering (GB). Auto-scales with scene count.
 

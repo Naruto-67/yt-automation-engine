@@ -145,8 +145,6 @@ def discover_hf_image_models():
     except Exception:
         trace = traceback.format_exc()
         print(f"⚠️ [HF] Discovery failed:\n{trace}")
-    except Exception as e:
-        print(f"⚠️ [HF] Discovery exception: {e}")
 
     # Do NOT set _HF_MODELS_CACHE here — keep it empty so next run retries discovery.
     # ── BUG #5 NOTE: These fallbacks are also PRO-tier on the current HF free
@@ -155,6 +153,7 @@ def discover_hf_image_models():
 
 
 _CF_MODEL_CACHE = None
+_CF_DISCOVERY_FAILED = False   # session flag: True after 2 consecutive discovery failures
 
 
 def discover_cf_image_model() -> str:
@@ -164,15 +163,23 @@ def discover_cf_image_model() -> str:
     Queries CF's model catalog, prefers FLUX/SDXL image models, and caches the
     result. Falls back to the proven default (@cf/black-forest-labs/flux-1-schnell)
     if discovery fails. Returns the fully-qualified '@cf/...' model id.
+
+    After 2 consecutive failures the session flag _CF_DISCOVERY_FAILED is set so
+    every subsequent scene skips the HTTP round-trip entirely.
     """
-    global _CF_MODEL_CACHE
+    global _CF_MODEL_CACHE, _CF_DISCOVERY_FAILED
+
+    # Fast paths: already cached or disabled for this run
     if _CF_MODEL_CACHE:
         return _CF_MODEL_CACHE
+    if _CF_DISCOVERY_FAILED:
+        return "@cf/black-forest-labs/flux-1-schnell"
 
     default = "@cf/black-forest-labs/flux-1-schnell"
     account_id = os.environ.get("CF_ACCOUNT_ID")
     api_token = os.environ.get("CF_API_TOKEN")
     if not account_id or not api_token:
+        _CF_DISCOVERY_FAILED = True
         return default
 
     try:
@@ -184,7 +191,7 @@ def discover_cf_image_model() -> str:
             data = res.json().get("result", [])
             if isinstance(data, list) and data:
                 # Prefer modern image gen models, prioritize FLUX
-                def _cf_score(model_id):
+                def _cf_score(model_id: str) -> int:
                     n = model_id.lower()
                     s = 0
                     if "flux" in n:
@@ -197,16 +204,32 @@ def discover_cf_image_model() -> str:
                         return -1  # not an image model
                     return s
 
-                scored = [(m, _cf_score(m)) for m in data if _cf_score(m) >= 0]
+                # CF API returns a list of dicts like {"name": "@cf/...", "task": {...}}
+                # Extract the model id string from each item safely.
+                model_ids = []
+                for item in data:
+                    if isinstance(item, dict):
+                        name = item.get("name", "")
+                    else:
+                        name = str(item)
+                    if name:
+                        model_ids.append(name)
+
+                scored = [(m, _cf_score(m)) for m in model_ids if _cf_score(m) >= 0]
                 if scored:
                     scored.sort(key=lambda x: x[1], reverse=True)
                     _CF_MODEL_CACHE = scored[0][0]
                     print(f"🔍 [CF] Image model discovered: {_CF_MODEL_CACHE}")
                     return _CF_MODEL_CACHE
     except Exception as e:
-        print(f"⚠️ [CF] Model discovery failed ({e}) — using default.")
+        print(f"⚠️ [CF] Model discovery failed ({e}) — using default for this run.")
 
+    # Discovery failed — disable for rest of run to avoid per-scene HTTP calls
+    _CF_DISCOVERY_FAILED = True
+    print("⚠️ [CF] Model discovery disabled for this run after failure. Using hardcoded default.")
     return default
+
+
 
 
 def generate_cloudflare_image(prompt, output_path):

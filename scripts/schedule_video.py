@@ -206,8 +206,11 @@ def publish_vault_videos():
         time.sleep(2)
 
     if published_total > 0:
+        print(f"✅ [PUBLISHER] Done — scheduled {published_total} video(s) for release.")
         notify_summary(True, f"🚀 Scheduled **{published_total}** video(s) for release.")
     else:
+        # Emit a GitHub Actions warning annotation so the run shows yellow, not silent green
+        print("::warning::Publisher ran but scheduled 0 videos — vault may be empty or LLM unavailable.")
         notify_summary(True, "└ No videos published this run — vault may be empty.")
 
 if __name__ == "__main__":

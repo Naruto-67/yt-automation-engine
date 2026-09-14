@@ -340,7 +340,7 @@ def generate_audio(text: str, output_base: str = "temp_audio",
         
         # We save directly to wav_path. pydub in trim_audio_precision will read the MP3-encoded file natively and export as true WAV.
         res = subprocess.run(
-            ["edge-tts", "--voice", edge_voice, "--text", clean_text, "--write-media", wav_path],
+            ["edge-tts", "--voice", edge_voice, "--rate=-10%", "--text", clean_text, "--write-media", wav_path],
             capture_output=True, text=True, timeout=60
         )
         if res.returncode == 0 and os.path.exists(wav_path):

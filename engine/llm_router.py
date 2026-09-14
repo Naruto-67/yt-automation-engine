@@ -125,8 +125,13 @@ class LLMRouter:
                             return response.text, f"Gemini ({model})", provider_key
                         except Exception as e:
                             print(f"⚠️ [GEMINI] Attempt {attempt+1} failed for {model}: {e}")
-                            if any(x in str(e).lower() for x in ["quota", "exhausted", "403"]):
+                            err_str = str(e).lower()
+                            if any(x in err_str for x in ["quota", "exhausted", "403"]):
                                 stage_hard_failed = True
+                                break
+                            # 503 / UNAVAILABLE: model endpoint is down — skip to next model immediately.
+                            # No point burning 3 retries on a model that's declared unavailable.
+                            if "503" in err_str or "unavailable" in err_str:
                                 break
                             continue
             elif stage_name == "Groq Chain":
