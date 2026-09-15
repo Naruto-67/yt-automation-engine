@@ -150,20 +150,28 @@ def _fetch_recent_video_stats(youtube, channel_id: str) -> list:
 
 def _fetch_analytics_metrics(channel_id: str) -> dict:
     """
-    Fetch CTR, average view duration, and retention from YouTube Analytics API.
-    Requires yt-analytics.readonly scope (already authorized).
-    Returns a dict with the metrics, or empty dict on any failure.
+    Fetch core engagement metrics from YouTube Analytics API v2.
 
-    Special keys:
-      _api_unavailable: True  → API 403/disabled — do NOT diagnose as "no views"
-      _api_bad_request:  True → API 400 (wrong param) — log and skip
+    Metrics returned:
+      views, watch_minutes, avg_view_duration, avg_view_pct,
+      subscribers_gained, subscribers_lost
+
+    CTR / Impressions NOTE:
+      CTR is NOT available via the YouTube Analytics API v2 for channel owners.
+      It requires the YouTube Reporting API v1 (channel_reach_basic_a1 report),
+      which generates async daily CSV files that must be downloaded and parsed.
+      This is a meaningful addition once channels have >1000 subs / consistent
+      traffic — implement then via a separate `_fetch_ctr_from_reporting_api()`.
+
+    Special sentinel keys:
+      _api_unavailable: True  → 403 / API not enabled — do NOT diagnose as "no views"
+      _api_bad_request: True  → 400 (wrong metric/param) — log and skip entirely
     """
     try:
         from google.oauth2.credentials import Credentials
         from googleapiclient.discovery import build
-
-        # Get credentials from the same env vars used for the YouTube client
         from engine.config_manager import config_manager
+
         channels = config_manager.get_active_channels()
         ch_cfg   = next((c for c in channels if c.channel_id == channel_id), None)
         if not ch_cfg:
@@ -187,18 +195,17 @@ def _fetch_analytics_metrics(channel_id: str) -> dict:
         end_date   = datetime.utcnow().strftime("%Y-%m-%d")
         start_date = (datetime.utcnow() - timedelta(days=28)).strftime("%Y-%m-%d")
 
-        # NOTE: impressionClickThroughRate is NOT a valid YT Analytics v2 metric.
-        # The correct name is clickThroughRate. impressions-based CTR requires the
-        # YouTube Reporting API (content-owner level), not the Analytics API.
-        response = analytics.reports().query(
+        # Core engagement metrics — all valid in Analytics API v2 for channel owners.
+        # Do NOT add CTR here: it only exists in Reporting API v1 (async CSV jobs).
+        resp = analytics.reports().query(
             ids="channel==MINE",
             startDate=start_date,
             endDate=end_date,
-            metrics="views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,clickThroughRate",
+            metrics="views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,subscribersGained,subscribersLost",
             dimensions="",
         ).execute()
 
-        rows = response.get("rows", [])
+        rows = resp.get("rows", [])
         if not rows:
             return {}
 
@@ -208,13 +215,12 @@ def _fetch_analytics_metrics(channel_id: str) -> dict:
             "watch_minutes":      float(row[1]) if len(row) > 1 else 0,
             "avg_view_duration":  float(row[2]) if len(row) > 2 else 0,
             "avg_view_pct":       float(row[3]) if len(row) > 3 else 0,
-            "ctr":                float(row[4]) if len(row) > 4 else 0,
+            "subscribers_gained": int(row[4])   if len(row) > 4 else 0,
+            "subscribers_lost":   int(row[5])   if len(row) > 5 else 0,
         }
 
     except Exception as e:
         err_str = str(e)
-        # Distinguish between "API not enabled" (403) and other errors so the
-        # growth diagnosis function doesn't falsely report "no public videos".
         if "403" in err_str or "disabled" in err_str.lower():
             logger.error(
                 f"Analytics metrics fetch failed — YouTube Analytics API not enabled "
@@ -224,11 +230,12 @@ def _fetch_analytics_metrics(channel_id: str) -> dict:
             )
             return {"_api_unavailable": True}
         elif "400" in err_str or "unknown identifier" in err_str.lower():
-            logger.error(f"Analytics metrics fetch failed — bad API request (check metric names): {e}")
+            logger.error(f"Analytics metrics fetch failed — bad API request: {e}")
             return {"_api_bad_request": True}
-        # Other failures (network, auth token expired, etc.)
         logger.error(f"Analytics metrics fetch failed (non-fatal): {e}")
         return {}
+
+
 
 
 
