@@ -104,32 +104,69 @@ class LLMRouter:
                     for attempt in range(3):
                         self._enforce_rpm_throttle()
                         try:
+                            import threading
                             from google import genai
                             from google.genai import types
-                            # 25s timeout: Gemini holds connections for 2-3 min when
-                            # overloaded before returning 503. Fail fast, skip to next model.
-                            # Split timeouts:
-                            #   connect=15s — catches the overload-hang (Gemini LB holds TCP open
-                            #                 for 2-3 min before returning 503 when overloaded)
-                            #   read=90s    — once Gemini starts streaming, give it plenty of
-                            #                 time for any length of response (our prompts: 5-15s)
-                            client = genai.Client(
-                                api_key=self.gemini_key,
-                                http_options={"timeout": {"connect": 15, "read": 90}},
-                            )
+
+                            client = genai.Client(api_key=self.gemini_key)
                             cfg = {"system_instruction": system_prompt} if system_prompt else {}
-                            chat = client.chats.create(
-                                model=model,
-                                config=cfg or None,
-                            )
-                            response = chat.send_message(
-                                message=prompt,
-                                config=types.GenerateContentConfig(
-                                    temperature=0.3,
-                                    max_output_tokens=8000,
-                                ) if cfg else None,
-                            )
-                            return response.text, f"Gemini ({model})", provider_key
+                            chat = client.chats.create(model=model, config=cfg or None)
+                            gen_cfg = types.GenerateContentConfig(
+                                temperature=0.3, max_output_tokens=8000,
+                            ) if cfg else None
+
+                            # ── Streaming with first-token deadline ──────────────────
+                            # When Gemini is overloaded it hangs for 2-3 min BEFORE
+                            # returning 503 — it never starts streaming.
+                            # When healthy it starts streaming within 1-5 seconds.
+                            #
+                            # Strategy:
+                            #   first_token_event: set as soon as any chunk arrives
+                            #   15s deadline for first token → fast-fail on overload
+                            #   90s total deadline → safe for any length of response
+                            #
+                            # daemon=True: abandoned threads clean up on process exit.
+                            first_token_event = threading.Event()
+                            done_event        = threading.Event()
+                            chunks: list      = []
+                            stream_exc: list  = []
+
+                            def _stream():
+                                try:
+                                    for chunk in chat.send_message_stream(
+                                        message=prompt, config=gen_cfg
+                                    ):
+                                        if chunk.text:
+                                            chunks.append(chunk.text)
+                                            first_token_event.set()
+                                except Exception as exc:
+                                    stream_exc.append(exc)
+                                finally:
+                                    first_token_event.set()  # unblock waiter on error too
+                                    done_event.set()
+
+                            t = threading.Thread(target=_stream, daemon=True)
+                            t.start()
+
+                            # Wait for first token (15s) — overload hangs never get past here
+                            if not first_token_event.wait(timeout=15):
+                                raise TimeoutError(
+                                    f"No first token from {model} within 15s — likely overloaded"
+                                )
+                            if stream_exc:
+                                raise stream_exc[0]
+
+                            # First token arrived — wait for full response (90s total)
+                            done_event.wait(timeout=90)
+                            if stream_exc:
+                                raise stream_exc[0]
+
+                            text = "".join(chunks)
+                            if not text:
+                                raise ValueError(f"Empty response from {model}")
+
+                            return text, f"Gemini ({model})", provider_key
+
                         except Exception as e:
                             print(f"⚠️ [GEMINI] Attempt {attempt+1} failed for {model}: {e}")
                             err_str = str(e).lower()
