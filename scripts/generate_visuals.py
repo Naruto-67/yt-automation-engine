@@ -18,6 +18,8 @@ from engine.guardian import guardian
 SIMULATE_CASCADE_TEST = os.environ.get("TEST_MODE", "false").lower() == "true"
 
 _HF_MODELS_CACHE = []
+# Models that returned 410 (deprecated/removed) this session — skip without retrying
+_HF_SESSION_BLACKLIST: set = set()
 
 # ── Minimum acceptable image file size ────────────────────────────────────────
 # HuggingFace and Cloudflare occasionally return HTTP 200 with:
@@ -124,10 +126,16 @@ def discover_hf_image_models():
                 s = 0
                 n = name.lower()
                 if 'flux'         in n: s += 50
-                if 'schnell'      in n: s += 30
+                if 'schnell'      in n: s += 40   # free tier, fast — highest priority
+                # FLUX.1-dev and dev-gguf require HF Pro subscription.
+                # They always 403 on free accounts → penalise so schnell wins.
+                if 'flux.1-dev'   in n or 'flux-1-dev' in n: s -= 60
+                if 'gguf'         in n: s -= 80   # GGUF quantized — not runnable on HF Inference API
                 if 'stable-diffusion' in n: s += 20
                 if 'turbo'        in n or 'lightning' in n: s += 15
                 if 'lora'         in n or 'controlnet' in n or 'adapter' in n or 'ip-adapter' in n: s -= 100
+                # Deprecated models (known to 410): penalise hard so they sort to bottom
+                if 'xl-base-1.0' in n or 'v1-5' in n or 'v1-4' in n: s -= 200
                 return s
 
             valid_models = [m for m in candidates if _score_hf(m) > 0]
@@ -323,6 +331,10 @@ def generate_huggingface_cascade(prompt, output_path):
     payload    = {"inputs": f"{clean_base}{_QUALITY_SUFFIX}"}
 
     for model in dynamic_models:
+        # Skip models already known to be deprecated/removed this session
+        if model in _HF_SESSION_BLACKLIST:
+            continue
+
         short_name = model.split('/')[-1]
         print(f"      -> Routing to {short_name}...")
         if SIMULATE_CASCADE_TEST and "FLUX" in model:
@@ -365,6 +377,14 @@ def generate_huggingface_cascade(prompt, output_path):
                 elif response.status_code == 404:
                     print(f"      ⚠️ [HF 404] {short_name} not found — trying next model.")
                     break  # 404 = this specific model gone, try the next one
+
+                elif response.status_code == 410:
+                    # 410 = model deprecated/removed from HF Inference API.
+                    # Add to session blacklist so future scenes skip it immediately.
+                    # Do NOT bail the entire HF tier — next model may still work.
+                    _HF_SESSION_BLACKLIST.add(model)
+                    print(f"      ⚠️ [HF 410] {short_name}: deprecated — blacklisted for this run, trying next model.")
+                    break  # skip to next model only
 
                 elif response.status_code >= 500:
                     try:
@@ -418,6 +438,7 @@ def generate_huggingface_cascade(prompt, output_path):
                 if any(x in err_str for x in ["name resolution", "getaddrinfo", "gaierror", "failed to resolve", "no address associated"]):
                     print(f"      ⛔ [HF DNS] DNS resolution failure for api-inference.huggingface.co. Bailing entire cascade.")
                     print(f"      💡 This is a network/environment issue (e.g. GitHub Actions runner DNS).")
+
                     return False, "HF DNS Error"
                 if retry < 2:
                     _execute_jitter_backoff(retry, "HF AI")
