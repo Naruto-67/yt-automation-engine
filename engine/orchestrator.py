@@ -16,7 +16,8 @@ from scripts.discord_notifier import set_channel_context, notify_summary
 from scripts.youtube_manager import get_youtube_client, get_actual_vault_count, get_channel_name
 from scripts.dynamic_researcher import run_dynamic_research
 
-TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
+def is_test_mode():
+    return os.environ.get("TEST_MODE", "false").lower() == "true"
 
 class Orchestrator:
     def __init__(self):
@@ -47,7 +48,7 @@ class Orchestrator:
     def cleanup(self):
         logger.engine("🧹 Workspace cleanup...")
         patterns = ["*.wav", "*.srt", "*.ass", "*.jpg", "*.png", "temp_*", "concat_list.txt", "temp_merged_*.mp4"]
-        if not os.environ.get("GITHUB_ACTIONS") and not TEST_MODE: patterns.append("final_*.mp4")
+        if not os.environ.get("GITHUB_ACTIONS") and not is_test_mode(): patterns.append("final_*.mp4")
         for p in patterns:
             for f in glob.glob(p):
                 try: os.remove(f)
@@ -69,7 +70,7 @@ class Orchestrator:
         return {**fallbacks, **test_topics}
 
     def run_pipeline(self):
-        if TEST_MODE: notify_summary(True, "🧪 **TEST MODE** — End-to-End system simulation initiated.")
+        if is_test_mode(): notify_summary(True, "🧪 **TEST MODE** — End-to-End system simulation initiated.")
 
         global_produced = 0  
         global_failed = False  # 🚨 FIX: Initialized here to prevent NameError on sys.exit
@@ -90,7 +91,7 @@ class Orchestrator:
             ctx.set_channel_id(channel.channel_id)
             logger.engine(f"🚀 Processing: {channel.channel_name}")
 
-            if TEST_MODE:
+            if is_test_mode():
                 logger.engine(f"🧪 [TEST MODE] Bypassing YouTube Auth. Full pipeline executing with real AI/FFmpeg.")
                 yt_client = None
             else:
@@ -116,7 +117,7 @@ class Orchestrator:
             vault_count = get_actual_vault_count(yt_client) if yt_client else 0
             vault_max   = config_manager.get_settings().get("vault", {}).get("max_videos", 14)
 
-            if not TEST_MODE and vault_count >= vault_max:
+            if not is_test_mode() and vault_count >= vault_max:
                 logger.engine(f"🛑 Vault full ({vault_count}/{vault_max}). Skipping {channel.channel_id}.")
                 continue
 
@@ -125,10 +126,10 @@ class Orchestrator:
 
             # max_videos: in TEST_MODE always 1; in production capped by actual vault space.
             # max(1, slots_available) ensures we never try 0 (vault_full guard above handles that case).
-            max_videos = 1 if TEST_MODE else min(4, max(1, slots_available))
+            max_videos = 1 if is_test_mode() else min(4, max(1, slots_available))
             logger.engine(f"🎬 Will produce up to {max_videos} video(s) for {channel.channel_id}.")
 
-            if not TEST_MODE and not guardian.pre_flight_check():
+            if not is_test_mode() and not guardian.pre_flight_check():
                 logger.error(f"Guardian halted run for {channel.channel_id}.")
                 channel_failed = True
                 global_failed = True
@@ -136,7 +137,7 @@ class Orchestrator:
                 continue
 
             # ── DRY RUN PATH: synthetic in-memory jobs, zero DB interaction ───
-            if TEST_MODE:
+            if is_test_mode():
                 test_topics = self._get_test_topics()
                 test_topic  = test_topics.get(channel.channel_id, f"Amazing fact about {channel.niche}")
 

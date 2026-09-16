@@ -28,7 +28,7 @@ class JobRunner:
         self.youtube        = youtube_client
         self.channel_name   = channel_name or job.channel_id
         self.channel_config = channel_config   # ChannelConfig — used for category_id, language etc.
-        self.dry_run        = dry_run          # True in TEST_MODE — no DB reads/writes
+        self.dry_run        = dry_run          # True in is_test_mode() — no DB reads/writes
         self.max_attempts   = 3
         self.base_filename  = f"job_{job.id}_{job.channel_id.replace(' ', '_')}"
         self.final_duration = 0.0
@@ -271,7 +271,7 @@ class JobRunner:
         metadata    = json.loads(self.job.metadata)    if self.job.metadata else {}
         script_data = json.loads(self.job.script)      if self.job.script   else {}
 
-        if TEST_MODE:
+        if is_test_mode():
             logger.success("🧪 [TEST MODE] Bypassing YouTube Upload. Simulating success.")
             self.job.youtube_id = "test_mode_dummy_video_id"
             # ── DRY RUN GUARD: _transition_to handles the DB write guard internally ──

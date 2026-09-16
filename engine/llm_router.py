@@ -180,7 +180,7 @@ class LLMRouter:
                         if "503" in err_str or "unavailable" in err_str or "timeout" in err_str or "timed out" in err_str:
                             logger.error(f"⚠️ [GEMINI] 503/Timeout on {model}. Blacklisting for 15 minutes.")
                             self._failed_models[model] = time.time() + 900
-                            break # Move to next model instantly
+                            continue # Move to next model instantly
                         
                         continue
             elif stage_name == "Groq Chain":
