@@ -66,7 +66,6 @@ jobs:
           
           git add memory/ghost_engine.db || true
           git add memory/quota_state.json || true
-          git add memory/replied_comments_*.json || true
           git add memory/token_health.json || true
           git add config/channels.yaml || true
           git add assets/lessons_learned.json || true
@@ -82,3 +81,4 @@ jobs:
               }
             done
           fi
+

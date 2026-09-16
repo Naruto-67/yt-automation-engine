@@ -1,3 +1,7 @@
+Total Lines: 120
+Total Bytes: 4412
+Showing lines 1 to 120
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
 # .github/workflows/01_daily_pipeline.yml
 name: 01_Ghost_Daily_Production
 
@@ -46,33 +50,27 @@ jobs:
       - name: Install Python Dependencies
         run: |
           pip install -r requirements.txt
-          python -m spacy download en_core_web_sm
 
       - name: Run Ghost Engine
         run: python main.py
         env:
           PYTHONUNBUFFERED: 1
           GHOST_ENGINE_ENABLED: ${{ vars.GHOST_ENGINE_ENABLED }}
-          # When triggered via workflow_dispatch with test_mode=true → TEST_MODE=true
-          # When triggered by schedule (cron) → github.event.inputs.test_mode is empty
-          # → expression evaluates to 'false' → production runs normally, untouched
-          TEST_MODE: ${{ github.event.inputs.test_mode || 'false' }}
-
-          GEMINI_API_KEY:       ${{ secrets.GEMINI_API_KEY }}
-          GROQ_API_KEY:         ${{ secrets.GROQ_API_KEY }}
-          PEXELS_API_KEY:       ${{ secrets.PEXELS_API_KEY }}
-          PIXABAY_API_KEY:      ${{ secrets.PIXABAY_API_KEY }}
-          HF_TOKEN:             ${{ secrets.HF_TOKEN }}
-          CF_ACCOUNT_ID:        ${{ secrets.CF_ACCOUNT_ID }}
-          CF_API_TOKEN:         ${{ secrets.CF_API_TOKEN }}
-          GCP_CREDENTIALS_JSON: ${{ secrets.GCP_CREDENTIALS_JSON }}
-          GOOGLE_SHEETS_ID:     ${{ secrets.GOOGLE_SHEETS_ID }}
-
+          GEMINI_API_KEY:        ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY:          ${{ secrets.GROQ_API_KEY }}
+          HF_TOKEN:              ${{ secrets.HF_TOKEN }}
+          CF_ACCOUNT_ID:         ${{ secrets.CF_ACCOUNT_ID }}
+          CF_API_TOKEN:          ${{ secrets.CF_API_TOKEN }}
+          PEXELS_API_KEY:        ${{ secrets.PEXELS_API_KEY }}
+          PIXABAY_API_KEY:       ${{ secrets.PIXABAY_API_KEY }}
+          
+          # Channel 1 Infrastructure
           YOUTUBE_CLIENT_ID_CH1:       ${{ secrets.YOUTUBE_CLIENT_ID_CH1 }}
           YOUTUBE_CLIENT_SECRET_CH1:   ${{ secrets.YOUTUBE_CLIENT_SECRET_CH1 }}
           YOUTUBE_REFRESH_TOKEN_CH1:   ${{ secrets.YOUTUBE_REFRESH_TOKEN_CH1 }}
           DISCORD_WEBHOOK_CH1:         ${{ secrets.DISCORD_WEBHOOK_CH1 }}
 
+          # Channel 2 Infrastructure
           YOUTUBE_CLIENT_ID_CH2:       ${{ secrets.YOUTUBE_CLIENT_ID_CH2 }}
           YOUTUBE_CLIENT_SECRET_CH2:   ${{ secrets.YOUTUBE_CLIENT_SECRET_CH2 }}
           YOUTUBE_REFRESH_TOKEN_CH2:   ${{ secrets.YOUTUBE_REFRESH_TOKEN_CH2 }}
@@ -86,7 +84,6 @@ jobs:
           # 🚨 V25 FIX: Safely ignore non-existent memory files to keep GitHub logs clean
           git add memory/ghost_engine.db 2>/dev/null || true
           git add memory/quota_state.json 2>/dev/null || true
-          git add memory/replied_comments_*.json 2>/dev/null || true
           git add memory/token_health.json 2>/dev/null || true
           git add config/channels.yaml 2>/dev/null || true
           git add assets/lessons_learned.json 2>/dev/null || true
@@ -110,10 +107,3 @@ jobs:
           name: ghost-engine-shorts-${{ github.run_number }}
           path: final_*.mp4
           if-no-files-found: warn
-          retention-days: 3
-
-      - name: Cleanup Runner Disk
-        if: always()
-        run: |
-          rm -rf *.mp4 *.wav *.mp3 *.srt *.ass temp_* concat_list.txt
-          pip cache purge

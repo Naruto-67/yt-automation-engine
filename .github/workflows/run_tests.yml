@@ -28,3 +28,4 @@ jobs:
           TEST_MODE: "true"
         run: |
           python -m pytest tests/ -v
+

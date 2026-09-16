@@ -63,12 +63,11 @@ jobs:
           git config --global user.name  "Ghost-Engine-Bot"
           git config --global user.email "bot@ghostengine.ai"
           
-          git add memory/ghost_engine.db 2>/dev/null || true
-          git add memory/quota_state.json 2>/dev/null || true
-          git add memory/replied_comments_*.json 2>/dev/null || true
-          git add memory/token_health.json 2>/dev/null || true
-          git add config/channels.yaml 2>/dev/null || true
-          git add assets/lessons_learned.json 2>/dev/null || true
+          git add memory/ghost_engine.db || true
+          git add memory/quota_state.json || true
+          git add memory/token_health.json || true
+          git add config/channels.yaml || true
+          git add assets/lessons_learned.json || true
           
           if ! git diff --staged --quiet; then
             git commit -m "Auto-state update: Pipeline synchronization [skip ci]"
@@ -82,3 +81,5 @@ jobs:
             done
           fi
 
+Created At: 2026-09-05T08:35:59+05:30
+Completed At: 2026-09-05T08:36:01+05:30
