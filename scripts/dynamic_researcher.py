@@ -368,6 +368,26 @@ def run_dynamic_research(channel_config: ChannelConfig, yt_client):
 
     channel_context = get_deep_channel_context(yt_client)
 
+    # ── Google Trends Injection ──
+    def fetch_google_trends() -> str:
+        import requests
+        import xml.etree.ElementTree as ET
+        try:
+            res = requests.get("https://trends.google.com/trends/trendingsearches/daily/rss?geo=US", timeout=10)
+            res.raise_for_status()
+            root = ET.fromstring(res.text)
+            trends = []
+            for item in root.findall(".//item")[:5]:
+                title = item.find("title").text if item.find("title") is not None else ""
+                if title: trends.append(title)
+            if trends:
+                return "\n\n🔥 CURRENT GOOGLE TRENDS (US Daily):\n" + ", ".join(trends) + "\n(Find creative ways to bridge these trends into the channel's niche if possible.)"
+        except Exception as e:
+            logger.error(f"Failed to fetch Google Trends: {e}")
+        return ""
+    
+    channel_context += fetch_google_trends()
+
     intel = db.get_channel_intelligence(channel_config.channel_id)
 
     # ── BUG FIX: Anchor sub-niche research to the CONFIGURED niche ────────────

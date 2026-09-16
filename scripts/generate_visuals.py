@@ -551,6 +551,7 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
     final_provider = "Unknown"
     for i, original_prompt in enumerate(prompts_list):
         output_path    = f"{base_filename}_{i}.jpg"
+        actual_path    = output_path
         success        = False
         current_prompt = original_prompt
         safety_retries = 0
@@ -586,7 +587,43 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
             break
 
         if not success:
-            # Guard against IndexError when pexels_queries is shorter than prompts_list
+            safe_query = pexels_queries[i] if i < len(pexels_queries) else original_prompt
+            
+            # Tier 3: Pixabay Video B-Roll
+            api_key = os.environ.get("PIXABAY_API_KEY")
+            if api_key:
+                try:
+                    print(f"      [Tier 3: Pixabay Video] Searching: '{safe_query[:30]}'...")
+                    v_url = f"https://pixabay.com/api/videos/?key={api_key}&q={urllib.parse.quote(safe_query)}&video_type=film&orientation=vertical"
+                    v_res = requests.get(v_url, timeout=10)
+                    if v_res.status_code == 200 and v_res.json().get('hits'):
+                        vid_url = v_res.json()['hits'][0]['videos']['large']['url']
+                        vid_data = requests.get(vid_url, timeout=30).content
+                        actual_path = output_path.replace('.jpg', '.mp4')
+                        with open(actual_path, 'wb') as f:
+                            f.write(vid_data)
+                        success = True
+                        final_provider = "Pixabay Video"
+                except Exception as e:
+                    print(f"      ⚠️ [PIXABAY] Failed: {e}")
+
+        if not success:
+            # Tier 4: Pollinations.ai
+            print("      [Tier 4: Pollinations.ai] Attempting FLUX endpoint...")
+            try:
+                safe_prompt = urllib.parse.quote(current_prompt + _QUALITY_SUFFIX)
+                url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1080&height=1920&nologo=true"
+                res = requests.get(url, timeout=(10, 45))
+                res.raise_for_status()
+                with open(output_path, 'wb') as f:
+                    f.write(res.content)
+                if _validate_image(output_path):
+                    success = True
+                    final_provider = "Pollinations.ai"
+            except Exception as e:
+                print(f"      ⚠️ [POLLINATIONS] Failed: {e}")
+
+        if not success:
             safe_query = pexels_queries[i] if i < len(pexels_queries) else original_prompt
             success, err = fallback_pexels_image(safe_query, output_path)
             if success:
@@ -598,7 +635,7 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
                 final_provider = "Offline Generator"
 
         if success:
-            successful_images.append(output_path)
+            successful_images.append(actual_path)
         time.sleep(2)
 
     return successful_images, final_provider

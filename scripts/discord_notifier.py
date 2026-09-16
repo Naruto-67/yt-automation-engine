@@ -1,4 +1,4 @@
-﻿# scripts/discord_notifier.py — Ghost Engine
+# scripts/discord_notifier.py — Ghost Engine
 """
 Discord notification system. Design principles:
 
@@ -211,48 +211,28 @@ def notify_production_success(
     preview    = (script[:350] + "…") if len(script) > 350 else script
     url        = f"https://youtu.be/{video_id}" if video_id and "test" not in video_id else None
 
-    embeds = []
+    desc = (
+        f"Successfully rendered and vaulted new video.\n\n"
+        f"**Link** - [Watch on YouTube]({url})\n\n" if url else "**Link** - Test Mode\n\n"
+    )
+    desc += (
+        f"**Duration** - {duration:.1f}s\n\n"
+        f"**Size** - {size:.1f} MB\n\n"
+        f"**Description**\n{safe_desc}\n\n"
+        f"**Tags**\n{tags}\n\n"
+        f"**Script Preview**\n{preview}\n\n"
+        f"**AI Stack**\n"
+        f"Writer: {script_ai} | SEO: {seo_ai} | Voice: {voice_ai} | Vision: {visual_ai}"
+    )
 
-    # 1. Main Header
-    embeds.append({
-        "author": {"name": "✨ GHOST ENGINE PRODUCTION COMPLETE"},
-        "title": f"🎬 {safe_title}",
+    embeds = [{
+        "author": {"name": "GHOST ENGINE PRODUCTION COMPLETE"},
+        "title": safe_title,
         "url": url,
         "color": _COLOR["green"],
-        "description": f"Successfully rendered and vaulted new video.",
-        "fields": [
-            {"name": "📺 Link", "value": f"[Watch on YouTube]({url})" if url else "Test Mode", "inline": True},
-            {"name": "⏱️ Duration", "value": f"{duration:.1f}s", "inline": True},
-            {"name": "💾 Size", "value": f"{size:.1f} MB", "inline": True},
-        ]
-    })
-
-    # 2. SEO & Packaging
-    embeds.append({
-        "author": {"name": "🔍 SEO & PACKAGING"},
-        "color": _COLOR["dark"],
-        "description": f"**Description Preview:**\n`yaml\n{safe_desc}\n`\n**Tags:**\n{tags}",
-    })
-
-    # 3. Script Preview
-    embeds.append({
-        "author": {"name": "📜 SCRIPT PREVIEW"},
-        "color": _COLOR["dark"],
-        "description": f"> *{preview}*",
-    })
-
-    # 4. AI Stack Telemetry
-    embeds.append({
-        "author": {"name": "🧠 AI STACK TELEMETRY"},
-        "color": _COLOR["dark"],
-        "fields": [
-            {"name": "Writer", "value": f"🔹 {script_ai}", "inline": True},
-            {"name": "SEO", "value": f"🔹 {seo_ai}", "inline": True},
-            {"name": "Voice", "value": f"🔹 {voice_ai}", "inline": True},
-            {"name": "Vision", "value": f"🔹 {visual_ai}", "inline": True},
-        ],
-        "footer": {"text": f"Ghost Engine  •  {_ACTIVE_CHANNEL}  •  {_ts()}"}
-    })
+        "description": desc,
+        "footer": {"text": f"Ghost Engine • {_ACTIVE_CHANNEL} • {_ts()}"}
+    }]
 
     _send(_ACTIVE_WEBHOOK, {"embeds": embeds})
 
@@ -281,55 +261,42 @@ def notify_research_complete(channel_name: str, added_count: int, niche: str, co
 def notify_daily_pulse(views: int, subs: int, growth_7d: int, intel: dict, analytics: dict = None):
     # Growth phase label
     if subs < 500:
-        phase = "🚀 LAUNCH PHASE"
+        phase = "LAUNCH PHASE"
         phase_desc = "Focusing on broad variety and finding winning pillars."
     elif subs < 1000:
-        phase = "📈 GROWTH PHASE"
+        phase = "GROWTH PHASE"
         phase_desc = "Doubling down on proven categories and high retention."
     else:
-        phase = "💰 MONETIZATION"
+        phase = "MONETIZATION"
         phase_desc = "Optimizing for RPM and advertiser-friendly topics."
 
     ctr = analytics.get('ctr', 0.0) if analytics else 0.0
     ret = analytics.get('avg_view_pct', 0.0) if analytics else 0.0
+    top_pillar = max(intel.get("title_templates", {}), key=lambda k: intel.get("title_templates", {})[k].get("total_views", 0)) if intel.get("title_templates") else "Need more data"
     
-    embeds = []
+    desc = (
+        f"**{phase}**\n"
+        f"{phase_desc}\n\n"
+        f"**Subscribers** - {subs:,}\n\n"
+        f"**Total Views** - {views:,}\n\n"
+        f"**Growth (7D)** - +{growth_7d:,}\n\n"
+    )
+    if analytics:
+        desc += (
+            f"**Click-Through Rate** - {ctr:.2f}%\n\n"
+            f"**Avg Retention** - {ret:.1f}%\n\n"
+        )
+    desc += (
+        f"**Top Performing Pillar** - {top_pillar.upper()}\n\n"
+        f"**Active Niche** - {intel.get('evolved_niche') or 'Default'}"
+    )
 
-    # 1. Header & Topline Metrics
-    embeds.append({
-        "author": {"name": f"📊 WEEKLY CHANNEL REPORT  •  {_ACTIVE_CHANNEL}"},
+    embeds = [{
+        "author": {"name": f"WEEKLY CHANNEL REPORT • {_ACTIVE_CHANNEL}"},
         "color": _COLOR["yellow"],
-        "description": f"**{phase}**\n{phase_desc}",
-        "fields": [
-            {"name": "👥 Subscribers", "value": f"`yaml\n{subs:,}\n`", "inline": True},
-            {"name": "👀 Total Views", "value": f"`yaml\n{views:,}\n`", "inline": True},
-            {"name": "🚀 7-Day Growth", "value": f"`yaml\n+{growth_7d:,}\n`", "inline": True},
-        ]
-    })
-    
-    # 2. Analytics Performance
-    embeds.append({
-        "author": {"name": "📈 ENGAGEMENT METRICS (28D)"},
-        "color": _COLOR["dark"],
-        "fields": [
-            {"name": "🖱️ Click-Through Rate", "value": f"{ctr:.2f}%" if ctr else "No data", "inline": True},
-            {"name": "⏳ Avg Retention", "value": f"{ret:.1f}%" if ret else "No data", "inline": True},
-        ]
-    })
-    
-    # 3. Channel Intelligence
-    pillar_data = intel.get("title_templates", {})
-    top_pillar = max(pillar_data, key=lambda k: pillar_data[k].get("total_views", 0)) if (isinstance(pillar_data, dict) and pillar_data) else "Need more data"
-    
-    embeds.append({
-        "author": {"name": "🧠 CHANNEL INTELLIGENCE"},
-        "color": _COLOR["dark"],
-        "fields": [
-            {"name": "📌 Top Performing Pillar", "value": f"**{top_pillar.upper()}**", "inline": True},
-            {"name": "🎯 Active Niche", "value": f"*{intel.get('evolved_niche') or 'Default'}*", "inline": True},
-        ],
-        "footer": {"text": f"Ghost Engine Analysis  •  {_ts()}"}
-    })
+        "description": desc,
+        "footer": {"text": f"Ghost Engine • {_ts()}"}
+    }]
 
     _send(_ACTIVE_WEBHOOK, {"embeds": embeds, "content": _MENTION_HERE})
 

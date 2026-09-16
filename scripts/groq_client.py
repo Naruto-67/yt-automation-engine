@@ -85,8 +85,14 @@ class GroqAPIClient:
         if throttle:
             time.sleep(2)
 
+        # Dynamic Tuning based on role
+        temperature = 0.85 if role == "creative" else 0.2
+
         # Ensure system_prompt is never None
         effective_system = system_prompt or "You are a viral YouTube Shorts scriptwriter."
+
+        from tenacity import retry, wait_exponential, stop_after_attempt
+        from engine.logger import logger
 
         # Try each model in the discovered chain until one returns valid text.
         for model in self.TEXT_MODELS:
@@ -96,22 +102,26 @@ class GroqAPIClient:
                     {"role": "system", "content": effective_system},
                     {"role": "user", "content": prompt}
                 ],
-                "temperature": 0.7,
+                "temperature": temperature,
             }
             # Enforce strict JSON output if the prompt explicitly demands it
-            if "json" in prompt.lower() or "json" in effective_system.lower():
+            if ("json" in prompt.lower() or "json" in effective_system.lower()) and "<THINKING>" not in effective_system:
                 payload["response_format"] = {"type": "json_object"}
-            try:
+            
+            @retry(wait=wait_exponential(min=4, max=10), stop=stop_after_attempt(5))
+            def _call_groq():
                 res = requests.post(f"{self.base_url}/chat/completions", headers=self.headers,
                                     json=payload, timeout=45)
-                if res.status_code == 200:
-                    content = res.json()["choices"][0]["message"]["content"]
-                    if content:
-                        print(f"🤖 [GROQ] Used {model}")
-                        return content
-                # 401/429/503 → move to next model; don't spam
+                res.raise_for_status()
+                return res.json()["choices"][0]["message"]["content"]
+
+            try:
+                content = _call_groq()
+                if content:
+                    logger.generation(f"🤖 [GROQ] Used {model}")
+                    return content
             except Exception as e:
-                print(f"⚠️ [GROQ] {model} failed: {e}")
+                logger.error(f"⚠️ [GROQ] {model} failed after retries: {e}")
                 continue
         return None
 

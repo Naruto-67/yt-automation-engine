@@ -489,15 +489,25 @@ def _smoothstep(t: float) -> float:
 
 def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=60):
     """
-    Create a smooth Ken Burns animation clip from a still image.
-
-    IMPROVEMENTS:
-    - Reduced pan travel (5% instead of 12%) for more subtle, professional drift
-    - Smoothstep easing (ease-in/ease-out) instead of linear motion
-    - Reduced sharpen (0.15 instead of 0.3) to avoid halos
-    - Subtle zoom (1.0 → 1.03) combined with pan for cinematic feel
-    - Crossfade-friendly (no hard cuts)
+    Create a smooth Ken Burns animation clip from a still image, OR format a video clip.
     """
+    import subprocess
+    is_video = str(image_path).lower().endswith(".mp4")
+    if is_video:
+        cmd = [
+            "ffmpeg", "-y", "-stream_loop", "-1", "-i", image_path,
+            "-vf", f"scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,fps={fps}",
+            "-t", str(duration), "-c:v", "libx264", "-preset", "fast",
+            "-crf", "18", "-pix_fmt", "yuv420p", output_path
+        ]
+        try:
+            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True, timeout=120)
+            return True
+        except subprocess.CalledProcessError as e:
+            from engine.logger import logger
+            logger.error(f"[FFmpeg Video] {e.stderr.decode('utf-8', errors='ignore') if e.stderr else str(e)}")
+            return False
+
     frames = int(duration * fps)
 
     # Source dimensions: 2x output for smooth pan headroom
@@ -822,7 +832,7 @@ def render_video(image_paths, audio_path, output_path,
             # Chain xfade filters
             current_input = "0v"
             for i in range(1, len(clip_files)):
-                offset = sum(clip_durations[:i]) - xfade_duration
+                offset = sum(clip_durations[:i]) - (i * xfade_duration)
                 next_input = f"v{i}"
                 filter_parts.append(
                     f"[{current_input}][{i}v]xfade=transition=fade:"

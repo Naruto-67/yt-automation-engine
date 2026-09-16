@@ -37,7 +37,7 @@ def _print_growth_diagnosis(channel_name: str, subs: int, analytics: dict, growt
     elif analytics.get("_api_bad_request"):
         print("   ⚠️  7-day views: unavailable — Analytics API returned a bad request (check metric names in performance_analyst.py).")
     elif growth_7d == 0:
-        print("   ⚠️  7-day views: 0 — channel has no public videos yet or videos are still private")
+        print("   ⚠️  7-day views: 0 — no recent views, or videos are not public yet")
     elif growth_7d < 500:
         print(f"   🔴 7-day views: {growth_7d:,} — very low. Check if videos are public and indexed.")
     elif growth_7d < 5000:
@@ -45,23 +45,21 @@ def _print_growth_diagnosis(channel_name: str, subs: int, analytics: dict, growt
     else:
         print(f"   🟢 7-day views: {growth_7d:,} — strong growth.")
 
-    # CTR + Retention — only show if real analytics data is present (not error sentinels)
+    # Retention — only show if real analytics data is present (not error sentinels)
     real_analytics = {k: v for k, v in analytics.items() if not k.startswith("_api_")}
     if real_analytics:
-        ctr         = real_analytics.get("ctr", 0)
         avg_view_pct = real_analytics.get("avg_view_pct", 0)
-        if ctr < 3:
-            print(f"   🔴 CTR: {ctr:.2f}% — CRITICAL. Thumbnails and titles need urgent rework.")
-        elif ctr < 5:
-            print(f"   🟡 CTR: {ctr:.2f}% — average. Test different title angles.")
-        else:
-            print(f"   🟢 CTR: {ctr:.2f}% — strong packaging.")
+        subs_gained = real_analytics.get("subscribers_gained", 0)
+        
         if avg_view_pct < 40:
             print(f"   🔴 Retention: {avg_view_pct:.1f}% — CRITICAL. Hook or pacing is broken.")
         elif avg_view_pct < 70:
             print(f"   🟡 Retention: {avg_view_pct:.1f}% — acceptable. Add more open loops mid-video.")
         else:
             print(f"   🟢 Retention: {avg_view_pct:.1f}% — excellent.")
+            
+        if subs_gained > 0:
+            print(f"   📈 Subs Gained (28d): {subs_gained}")
     elif not analytics.get("_api_unavailable") and not analytics.get("_api_bad_request"):
         print("   ℹ️  Analytics data not available yet (need at least 1 public video).")
     print()
@@ -270,17 +268,18 @@ def run_daily_analysis():
             subs    = ch_stats["subs"]
 
             # ── Analytics metrics (28-day) ────────────────────────────────────
-            ctr              = analytics.get("ctr", 0.0)
             avg_view_pct     = analytics.get("avg_view_pct", 0.0)
             avg_view_sec     = analytics.get("avg_view_duration", 0.0)
             watch_minutes    = analytics.get("watch_minutes", 0.0)
+            subs_gained      = analytics.get("subscribers_gained", 0)
+            subs_lost        = analytics.get("subscribers_lost", 0)
 
             # Log analytics so they're visible in Actions output
             if analytics:
                 print(
                     f"📊 [ANALYTICS] {channel.channel_name} (28d): "
-                    f"CTR={ctr:.2f}% | Retention={avg_view_pct:.1f}% | "
-                    f"AvgDuration={avg_view_sec:.1f}s | WatchTime={watch_minutes:,.0f}min"
+                    f"Retention={avg_view_pct:.1f}% | AvgDuration={avg_view_sec:.1f}s | "
+                    f"WatchTime={watch_minutes:,.0f}min | Subs={subs_gained}-{subs_lost}"
                 )
 
             recent_7d  = db.get_recent_performance(channel.channel_id, days=7)
@@ -300,25 +299,22 @@ def run_daily_analysis():
             analytics_block = ""
             real_analytics = {k: v for k, v in analytics.items() if not k.startswith("_api_")}
             if real_analytics:
-                ctr_diagnosis = (
-                    "🔴 POOR (<3%) — hook and title need urgent rework."      if ctr < 3 else
-                    "🟡 AVERAGE (3–5%) — room to improve titles and thumbnails." if ctr < 5 else
-                    "🟢 STRONG (>5%) — packaging is working."
-                )
                 retention_diagnosis = (
                     "🔴 LOW (<40%) — pacing too slow or hook weak, viewers leaving early." if avg_view_pct < 40 else
                     "🟡 AVERAGE (40–70%) — decent but improve script structure."            if avg_view_pct < 70 else
                     "🟢 STRONG (>70%) — viewers watching most of the video."
                 )
+                net_subs = subs_gained - subs_lost
+                subs_diagnosis = "Growing" if net_subs > 0 else ("Shrinking" if net_subs < 0 else "Flat")
+
                 analytics_block = (
                     f"\n\n📊 ANALYTICS (last 28 days):\n"
-                    f"- CTR: {ctr:.2f}% → {ctr_diagnosis}\n"
                     f"- Average retention: {avg_view_pct:.1f}% → {retention_diagnosis}\n"
                     f"- Avg view duration: {avg_view_sec:.1f}s\n"
                     f"- Total watch time: {watch_minutes:,.0f} minutes\n"
+                    f"- Subscribers: +{subs_gained} / -{subs_lost} (Net: {net_subs} - {subs_diagnosis})\n"
                     f"\nBased on these metrics, your new_emphasize and new_avoid rules MUST address "
-                    f"the specific weaknesses above. If CTR is poor, focus on hook/title. "
-                    f"If retention is low, focus on pacing and open loops."
+                    f"the specific weaknesses above. If retention is low, focus on pacing and open loops."
                 )
 
             sys_msg  = prompts_cfg["analyst"]["system_prompt"]
