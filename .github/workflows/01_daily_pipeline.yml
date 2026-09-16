@@ -1,8 +1,3 @@
-Total Lines: 120
-Total Bytes: 4412
-Showing lines 1 to 120
-The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
-# .github/workflows/01_daily_pipeline.yml
 name: 01_Ghost_Daily_Production
 
 on:
