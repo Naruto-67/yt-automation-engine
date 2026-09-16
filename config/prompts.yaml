@@ -114,7 +114,12 @@ script_gen:
     - "bold_lower"     → Maximum lower-third impact (punchy viral)
     - "storytelling"   → Warm narrative style (emotional stories)
 
-    Return ONLY valid JSON. No preamble. No explanation outside JSON.
+    CRITICAL REQUIREMENT: You MUST output a <THINKING> block evaluating the hook, pacing, and visual progression before you output the JSON.
+    After closing </THINKING>, return ONLY valid JSON. No preamble. No explanation outside JSON.
+    
+    <THINKING>
+    (Evaluate hook quality, vocabulary level, and visual rhythm here)
+    </THINKING>
     {{
       "voice_actor": "...",
       "glow_color": "...",
