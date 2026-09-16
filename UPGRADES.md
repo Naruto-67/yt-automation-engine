@@ -127,8 +127,10 @@ Apply the same diffs in your original:
 - **What:** Added logic to strictly inject `response_format={"type": "json_object"}` into the Groq API payload if the prompt demands JSON.
 - **Why:** Prevented the LLM from outputting raw text instead of JSON during script generation, eliminating `JSONDecodeError` exhaustion loops.
 - **Files:** `scripts/groq_client.py`
-2. `engine/llm_router.py`
-3. `scripts/groq_client.py`
-4. `scripts/generate_visuals.py`
-5. `scripts/dynamic_researcher.py`
-6. `scripts/generate_script.py`
+
+---
+
+### 6. Ghost Engine v2.1 (Resilience & Virality Upgrade)
+- **What:** Implemented Tenacity `@retry` decorators system-wide for 503/429 HTTP status handling, dynamic LLM temperature scaling based on `task_type`, forced `<THINKING>` blocks for enhanced Gemini/Groq chain-of-thought, Google Trends RSS injection for viral logline generation, and Pixabay B-Roll/Pollinations.ai visual fallback cascades.
+- **Why:** Massive stability upgrade. Eliminates intermittent API crashes across all external integrations (Gemini, Groq, CF) and drastically improves the quality and virality of generated concepts.
+- **Files:** `engine/llm_router.py`, `scripts/groq_client.py`, `config/prompts.yaml`, `scripts/generate_script.py`, `scripts/dynamic_researcher.py`, `scripts/generate_visuals.py`

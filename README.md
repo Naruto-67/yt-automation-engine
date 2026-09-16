@@ -10,11 +10,13 @@ The pipeline runs silently in the background via GitHub Actions (`01_daily_pipel
 
 1. **🧠 Ideation & Research (`dynamic_researcher.py`)**
    - Fetches historical data from your channel using the YouTube API.
+   - Injects the **Top 5 US Google Trends** dynamically to bridge educational facts with pop-culture for maximum virality.
    - Analyzes competitor performance and generates 5 highly optimized video concepts using **Google Gemini (Flash)**.
    - Outputs factual insights or character-driven story loglines based on the channel type.
 
 2. **📜 Scriptwriting (`generate_script.py`)**
    - Expands the chosen concept into a 60-second script.
+   - Enforces a mandatory `<THINKING>` block for high-level Chain-of-Thought reasoning prior to output.
    - Uses **Gemini** (or **Groq** via fallback) with strict `json_object` enforcement to structure scenes, visual prompts, and metadata.
 
 3. **🎙️ Voiceover Synthesis (`generate_voice.py`)**
@@ -56,7 +58,8 @@ Your channel rules are defined in the engine.
 
 The engine is designed to **never crash**. Every task has a fallback:
 - **LLM / Scripting:** Gemini API ➡️ Groq Llama/Mixtral ➡️ Hardcoded Emergency Script.
-- **Images:** HuggingFace FLUX ➡️ Cloudflare AI ➡️ Pexels Stock Footage.
+- **API Resilience:** All API calls are wrapped in `tenacity` exponential backoff (`@retry`) to gracefully survive 429s and 503s.
+- **Images:** HuggingFace FLUX ➡️ Cloudflare AI ➡️ Pixabay Video (B-Roll) ➡️ Pollinations.ai (Zero-Key) ➡️ Pexels Stock Footage.
 - **Voiceover:** EdgeTTS Azure Neural ➡️ Local Kokoro-82M.
 - **Rendering:** `xfade` Crossfade ➡️ Hard Cuts (Simple Concat).
 
