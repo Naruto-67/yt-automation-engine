@@ -84,13 +84,19 @@ class LLMRouter:
 
     def execute_generation(self, prompt: str, system_prompt: Optional[str], gemini_quota_ok: bool, task_type: str = "creative") -> Tuple[Optional[str], str, str]:
         self._discover_gemini_models()
+        
+        # Dynamic Tuning
+        temperature = 0.85 if task_type == "creative" else 0.2
+        
+        # Initialize Circuit Breaker blacklist (models mapped to their unban timestamp)
+        if not hasattr(self, "_failed_models"):
+            self._failed_models = {}
 
         # ROUTING: Stable -> Groq -> Preview
         execution_plan = []
         if gemini_quota_ok and self.gemini_key:
             execution_plan.append(("Gemini Stable", self._gemini_stable_chain, "gemini"))
         if self.groq_key:
-            # Discovered, ranked Groq text-model chain (never hardcoded single model)
             execution_plan.append(("Groq Chain", ["__groq__"], "groq"))
         if gemini_quota_ok and self.gemini_key:
             execution_plan.append(("Gemini Preview", self._gemini_preview_chain, "gemini"))
@@ -101,87 +107,85 @@ class LLMRouter:
                 for model in models:
                     if stage_hard_failed:
                         break
-                    for attempt in range(3):
-                        self._enforce_rpm_throttle()
-                        try:
-                            import threading
-                            from google import genai
-                            from google.genai import types
-
-                            client = genai.Client(api_key=self.gemini_key)
-                            cfg = {"system_instruction": system_prompt} if system_prompt else {}
-                            chat = client.chats.create(model=model, config=cfg or None)
-                            gen_cfg = types.GenerateContentConfig(
-                                temperature=0.3, max_output_tokens=8000,
-                            ) if cfg else None
-
-                            # ── Streaming with first-token deadline ──────────────────
-                            # When Gemini is overloaded it hangs for 2-3 min BEFORE
-                            # returning 503 — it never starts streaming.
-                            # When healthy it starts streaming within 1-5 seconds.
-                            #
-                            # Strategy:
-                            #   first_token_event: set as soon as any chunk arrives
-                            #   15s deadline for first token → fast-fail on overload
-                            #   90s total deadline → safe for any length of response
-                            #
-                            # daemon=True: abandoned threads clean up on process exit.
-                            first_token_event = threading.Event()
-                            done_event        = threading.Event()
-                            chunks: list      = []
-                            stream_exc: list  = []
-
-                            def _stream():
-                                try:
-                                    for chunk in chat.send_message_stream(
-                                        message=prompt, config=gen_cfg
-                                    ):
-                                        if chunk.text:
-                                            chunks.append(chunk.text)
-                                            first_token_event.set()
-                                except Exception as exc:
-                                    stream_exc.append(exc)
-                                finally:
-                                    first_token_event.set()  # unblock waiter on error too
-                                    done_event.set()
-
-                            t = threading.Thread(target=_stream, daemon=True)
-                            t.start()
-
-                            # Wait for first token (15s) — overload hangs never get past here
-                            if not first_token_event.wait(timeout=15):
-                                raise TimeoutError(
-                                    f"No first token from {model} within 15s — likely overloaded"
-                                )
-                            if stream_exc:
-                                raise stream_exc[0]
-
-                            # First token arrived — wait for full response (90s total)
-                            done_event.wait(timeout=90)
-                            if stream_exc:
-                                raise stream_exc[0]
-
-                            text = "".join(chunks)
-                            if not text:
-                                raise ValueError(f"Empty response from {model}")
-
-                            return text, f"Gemini ({model})", provider_key
-
-                        except Exception as e:
-                            print(f"⚠️ [GEMINI] Attempt {attempt+1} failed for {model}: {e}")
-                            err_str = str(e).lower()
-                            if any(x in err_str for x in ["quota", "exhausted", "403"]):
-                                stage_hard_failed = True
-                                break
-                            # 503 / UNAVAILABLE / timeout: skip to next model immediately.
-                            if "503" in err_str or "unavailable" in err_str or "timeout" in err_str or "timed out" in err_str:
-                                break
+                    
+                    # ── Circuit Breaker Check ──
+                    if model in self._failed_models:
+                        if time.time() < self._failed_models[model]:
+                            # Model is currently blacklisted, skip instantly
                             continue
+                        else:
+                            # Blacklist expired, unban
+                            del self._failed_models[model]
+
+                    # ── Tenacity Retry Block for 429s and Network Glitches ──
+                    from tenacity import retry, wait_exponential, stop_after_attempt
+                    import threading
+                    
+                    @retry(wait=wait_exponential(min=4, max=10), stop=stop_after_attempt(5))
+                    def _call_gemini_with_retry():
+                        self._enforce_rpm_throttle()
+                        from google import genai
+                        from google.genai import types
+                        client = genai.Client(api_key=self.gemini_key)
+                        cfg = {"system_instruction": system_prompt} if system_prompt else {}
+                        chat = client.chats.create(model=model, config=cfg or None)
+                        gen_cfg = types.GenerateContentConfig(
+                            temperature=temperature, max_output_tokens=8000,
+                        ) if cfg else None
+                        
+                        first_token_event = threading.Event()
+                        done_event = threading.Event()
+                        chunks = []
+                        stream_exc = []
+
+                        def _stream():
+                            try:
+                                for chunk in chat.send_message_stream(message=prompt, config=gen_cfg):
+                                    if chunk.text:
+                                        chunks.append(chunk.text)
+                                        first_token_event.set()
+                            except Exception as exc:
+                                stream_exc.append(exc)
+                            finally:
+                                first_token_event.set()
+                                done_event.set()
+
+                        t = threading.Thread(target=_stream, daemon=True)
+                        t.start()
+
+                        if not first_token_event.wait(timeout=15):
+                            raise TimeoutError(f"No first token from {model} within 15s")
+                        if stream_exc:
+                            raise stream_exc[0]
+
+                        done_event.wait(timeout=90)
+                        if stream_exc:
+                            raise stream_exc[0]
+
+                        text = "".join(chunks)
+                        if not text:
+                            raise ValueError(f"Empty response from {model}")
+                        return text
+                        
+                    try:
+                        text = _call_gemini_with_retry()
+                        return text, f"Gemini ({model})", provider_key
+                    except Exception as e:
+                        err_str = str(e).lower()
+                        from engine.logger import logger
+                        if any(x in err_str for x in ["quota", "exhausted", "403"]):
+                            stage_hard_failed = True
+                            break
+                        # ── Circuit Breaker Trigger ──
+                        if "503" in err_str or "unavailable" in err_str or "timeout" in err_str or "timed out" in err_str:
+                            logger.error(f"⚠️ [GEMINI] 503/Timeout on {model}. Blacklisting for 15 minutes.")
+                            self._failed_models[model] = time.time() + 900
+                            break # Move to next model instantly
+                        
+                        continue
             elif stage_name == "Groq Chain":
-                # groq_client.generate_text already iterates the full discovered
-                # model chain internally and its own API returns text.
                 try:
-                    res = self._get_groq_client().generate_text(prompt, system_prompt=system_prompt)
+                    res = self._get_groq_client().generate_text(prompt, role=task_type, system_prompt=system_prompt)
                     if res:
                         return res, "Groq (Auto Chain)", provider_key
                 except Exception:

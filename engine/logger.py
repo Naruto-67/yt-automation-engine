@@ -1,12 +1,20 @@
 # engine/logger.py
+import os
 from datetime import datetime
+from engine.__version__ import __version__
+
+_IS_GITHUB = os.environ.get("GITHUB_ACTIONS") == "true"
 
 class StructuredLogger:
     @staticmethod
     def _log(tag: str, message: str, level: str = "INFO"):
-        timestamp = datetime.utcnow().isoformat() + "Z"
-        icon = "✅" if level == "SUCCESS" else "⚠️" if level == "WARN" else "🚨" if level == "ERROR" else "⚙️"
-        print(f"{icon} [{timestamp}] [{tag}] [{level}] {message}")
+        if _IS_GITHUB:
+            # GitHub UI adds timestamps natively, keeping it clean
+            print(f"[{tag}] [{level}] {message}")
+        else:
+            # Local runs need minimal timestamps
+            timestamp = datetime.utcnow().strftime("%H:%M:%S")
+            print(f"[{timestamp}] [{tag}] [{level}] {message}")
 
     @classmethod
     def engine(cls, msg: str, level="INFO"): cls._log("ENGINE", msg, level)
@@ -30,3 +38,4 @@ class StructuredLogger:
     def success(cls, msg: str): cls._log("SYSTEM", msg, "SUCCESS")
 
 logger = StructuredLogger()
+
