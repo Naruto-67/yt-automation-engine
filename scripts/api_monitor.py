@@ -21,6 +21,23 @@ from datetime import datetime
 from scripts.discord_notifier import notify_summary, notify_error, set_channel_context
 from engine.config_manager import config_manager
 
+import sys, os
+_SYSTEM_ENABLED = os.environ.get("GHOST_ENGINE_ENABLED", "true").strip().lower()
+if _SYSTEM_ENABLED == "false":
+    print("🔴 [KILL SWITCH] GHOST_ENGINE_ENABLED=false. System halted by operator.")
+    sys.exit(0)
+elif _SYSTEM_ENABLED == "test":
+    if os.environ.get("GITHUB_EVENT_NAME", "unknown") == "schedule":
+        print("🔴 [TEST MODE] Scheduled cron run detected while in Test Mode. Halting automatically to prevent unintended runs.")
+        sys.exit(0)
+    else:
+        os.environ["is_test_mode()"] = "true"
+
+def is_test_mode():
+    return os.environ.get("is_test_mode()", "false").lower() == "true"
+
+
+
 
 # ── Colour codes for Discord embed ──────────────────────────────────────────
 _GREEN = "🟢"

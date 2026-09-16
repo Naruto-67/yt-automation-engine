@@ -12,7 +12,24 @@ from engine.database import db
 from engine.logger import logger
 from engine.models import JobState
 
-TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
+import sys, os
+_SYSTEM_ENABLED = os.environ.get("GHOST_ENGINE_ENABLED", "true").strip().lower()
+if _SYSTEM_ENABLED == "false":
+    print("🔴 [KILL SWITCH] GHOST_ENGINE_ENABLED=false. System halted by operator.")
+    sys.exit(0)
+elif _SYSTEM_ENABLED == "test":
+    if os.environ.get("GITHUB_EVENT_NAME", "unknown") == "schedule":
+        print("🔴 [TEST MODE] Scheduled cron run detected while in Test Mode. Halting automatically to prevent unintended runs.")
+        sys.exit(0)
+    else:
+        os.environ["is_test_mode()"] = "true"
+
+def is_test_mode():
+    return os.environ.get("is_test_mode()", "false").lower() == "true"
+
+
+
+is_test_mode() = os.environ.get("is_test_mode()", "false").lower() == "true"
 
 
 def _print_growth_diagnosis(channel_name: str, subs: int, analytics: dict, growth_7d: int):
@@ -250,12 +267,12 @@ def run_daily_analysis():
     for channel in config_manager.get_active_channels():
         set_channel_context(channel)
         
-        youtube = None if TEST_MODE else get_youtube_client(channel)
-        if not youtube and not TEST_MODE:
+        youtube = None if is_test_mode() else get_youtube_client(channel)
+        if not youtube and not is_test_mode():
             continue
 
         try:
-            if TEST_MODE:
+            if is_test_mode():
                 ch_stats    = {"views": 15000, "subs": 1200, "videos": 45}
                 recent_vids = [{"title": "Test Video Performance", "views": 5000, "published_at": datetime.utcnow().isoformat()}]
                 analytics   = {}

@@ -16,7 +16,20 @@ from engine.models import JobState
 from engine.config_manager import config_manager
 from engine.logger import logger
 
-TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
+import sys
+_SYSTEM_ENABLED = os.environ.get("GHOST_ENGINE_ENABLED", "true").strip().lower()
+if _SYSTEM_ENABLED == "false":
+    print("🔴 [KILL SWITCH] GHOST_ENGINE_ENABLED=false. System halted by operator.")
+    sys.exit(0)
+elif _SYSTEM_ENABLED == "test":
+    if os.environ.get("GITHUB_EVENT_NAME", "unknown") == "schedule":
+        print("🔴 [TEST MODE] Scheduled cron run detected while in Test Mode. Halting automatically to prevent unintended runs.")
+        sys.exit(0)
+    else:
+        os.environ["TEST_MODE"] = "true"
+
+def is_test_mode():
+    return os.environ.get("TEST_MODE", "false").lower() == "true"
 
 def load_config_prompts():
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -96,8 +109,8 @@ def publish_vault_videos():
     for channel in config_manager.get_active_channels():
         set_channel_context(channel)
         
-        youtube = None if TEST_MODE else get_youtube_client(channel)
-        if not youtube and not TEST_MODE:
+        youtube = None if is_test_mode() else get_youtube_client(channel)
+        if not youtube and not is_test_mode():
             continue
 
         jobs = db.get_jobs_by_state(channel.channel_id, JobState.VAULTED, limit=publish_limit)
@@ -105,7 +118,7 @@ def publish_vault_videos():
             logger.engine(f"No vaulted videos for {channel.channel_id}.")
             continue
 
-        if TEST_MODE:
+        if is_test_mode():
             vid_to_item = {}
         else:
             vault_id = get_or_create_playlist(youtube, "Vault Backup")
@@ -128,7 +141,7 @@ def publish_vault_videos():
             vid_id = job.youtube_id
 
             if not vid_id or vid_id in ["test_mode_dummy_id", "test_mode_dummy_video_id"]:
-                if not TEST_MODE:
+                if not is_test_mode():
                     logger.error(f"Job {job.id} has no valid youtube_id. Marking FAILED.")
                     job.state = JobState.FAILED
                     db.upsert_job(job)
@@ -145,7 +158,7 @@ def publish_vault_videos():
                 target_dt += timedelta(days=1)
             publish_time_str = target_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
-            if TEST_MODE:
+            if is_test_mode():
                 job.state      = JobState.PUBLISHED
                 job.updated_at = datetime.utcnow().isoformat()
                 db.upsert_job(job)
