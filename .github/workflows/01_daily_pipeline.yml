@@ -51,6 +51,7 @@ jobs:
         env:
           PYTHONUNBUFFERED: 1
           GHOST_ENGINE_ENABLED: ${{ vars.GHOST_ENGINE_ENABLED }}
+          TEST_MODE:            ${{ inputs.test_mode || 'false' }}
           GEMINI_API_KEY:        ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY:          ${{ secrets.GROQ_API_KEY }}
           HF_TOKEN:              ${{ secrets.HF_TOKEN }}
