@@ -45,6 +45,9 @@ def main():
             # We must explicitly set TEST_MODE for job_runner.py to read
             os.environ["TEST_MODE"] = "true"
             logger.engine("🧪 Test Mode active. Manual trigger detected.")
+    elif os.environ.get("TEST_MODE", "").strip().lower() == "true":
+        os.environ["TEST_MODE"] = "true"
+        logger.engine("🧪 Test Mode active (explicit TEST_MODE=true).")
     # ──────────────────────────────────────────────────────────────────────────
 
     try:

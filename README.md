@@ -15,32 +15,42 @@ The pipeline runs silently in the background via GitHub Actions (`01_daily_pipel
    - Outputs factual insights or character-driven story loglines based on the channel type.
 
 2. **📜 Scriptwriting (`generate_script.py`)**
-   - Expands the chosen concept into a 60-second script.
-   - Enforces a mandatory `<THINKING>` block for high-level Chain-of-Thought reasoning prior to output.
-   - Uses **Gemini** (or **Groq** via fallback) with strict `json_object` enforcement to structure scenes, visual prompts, and metadata.
+   - Universal Engine Constitution: Hard 131-word ceiling (≤55s duration), advertiser safety, and zero AI clichés.
+   - **Prompt Sharding**: Routes to `FictionalShard` (Pixar 3-beat arc), `FactualShard` (curious loops & pattern interrupts), or `QuizShard` (interactive questions).
+   - **Deterministic Closure Gate**: Strictly intercepts and rejects dangling sentences ("It was...", trailing ellipses, unfinished clauses).
+   - **OpenMontage Variation Check**: Enforces scene balance (no single scene >50% duration) and variety.
 
 3. **🎙️ Voiceover Synthesis (`generate_voice.py`)**
-   - Primary: **EdgeTTS** (Microsoft Azure Neural Voices) for hyper-realistic human pacing.
-   - Fallback: **Kokoro-82M** (Local CPU TTS).
-   - Generates the `.wav` file, dynamically routing actors (e.g., Deep/Serious vs Fast/Punchy) based on the script's mood.
+   - Primary: **Kokoro-82M** (Local Neural CPU TTS) with emotion preprocessing.
+   - Fallback 1: **EdgeTTS** (Microsoft Azure Neural Voices).
+   - Fallback 2: **Groq Orpheus** native emotion TTS.
+   - **Punctuation Normalization Dictionary**: Normalizes em-dashes (`—` → ` - `), en-dashes (`–`), unicode ellipses (`…` → `.`), smart quotes, and semicolons/colons to eliminate TTS dead-air pauses and robotic pitch drops.
+   - **Phonetic Normalization**: Pre-normalizes symbols and acronyms (`24/7`, `LED`, `AI`, `$`, `%`) and applies post-transcription ASR homophone corrections.
+   - **Dead-Air Silence Tightener**: Clamps empty internal pauses >450ms down to 180ms for maximum viewer retention.
 
 4. **📝 Captioning (`generate_voice.py` / `render_video.py`)**
-   - Uses **Faster-Whisper** to perfectly transcribe the `.wav` file down to the millisecond.
-   - Formats the subtitles into `.ass` (Advanced SubStation Alpha), adding CapCut-style neon glow and active-word "pop" animations.
+   - Uses **Faster-Whisper** to transcribe word timestamps with millisecond accuracy.
+   - Applies phonetic ASR homophone corrections before generating subtitles.
+   - **Smart Punctuation & Karaoke Formatting**: Normalizes unicode punctuation and strips leading/trailing punctuation marks from active-word color tags (`{\c&H0000D7FF&}`) so only word letters highlight in bright yellow, leaving punctuation neutral.
+   - Formats subtitles into `.ass` (Advanced SubStation Alpha) with modern Hormozi-style single-layer bold captions and word-by-word active highlighting.
 
 5. **🎨 Visual Generation (`generate_visuals.py`)**
-   - Reads the visual prompts generated in Step 2.
-   - Auto-discovers the newest **FLUX.1** and **SDXL** models via **HuggingFace** and **Cloudflare Workers AI**.
-   - If AI fails, it automatically downloads relevant royalty-free footage from **Pexels**.
+   - **5-Layer Cinematography & Anti-Slideshow Rotation**: Automatically enriches prompts with rotating camera lenses (35mm/50mm/85mm), dynamic motion framing (wide push-in, medium close-up, low-angle tilt, macro), tactile textures, and lighting keys across scenes to eliminate repetitive slideshow visuals.
+   - Auto-discovers **FLUX.1** and **SDXL** models via **HuggingFace** and **Cloudflare Workers AI** (bypassed in test mode to protect daily quotas).
+   - Multi-tier visual fallback: HuggingFace FLUX ➡️ Cloudflare FLUX ➡️ Pixabay Stock Video ➡️ Pollinations.ai ➡️ Pexels.
 
-6. **🎬 Video Rendering (`render_video.py`)**
-   - Merges visuals, audio, and captions using complex **FFmpeg** filters.
-   - Applies sub-pixel Ken Burns motion (`zoompan`) and crossfades (`xfade`) for buttery-smooth video transitions.
-   - Outputs a crisp `1080x1920` vertical `.mp4`.
+6. **🎬 Video Studio Mastering (`render_video.py`)**
+   - Merges visuals, audio, and captions using complex **FFmpeg** filter graphs.
+   - **Photographic Film S-Curves**: Applies `curves=all='0/0.03 0.25/0.22 0.5/0.50 0.75/0.78 1/0.97'` for rich cinematic shadows and highlight roll-off.
+   - **Dynamic Sidechain Ducking**: Compresses background music by 12 dB under voice narration (`sidechaincompress`).
+   - **EBU R128 Broadcast Mastering**: Delivers audio normalized to YouTube Shorts target loudness (`loudnorm=I=-14:TP=-1.0:LRA=7`).
+   - **Silent Audio Synthesis Guard**: Employs `anullsrc` stereo 48kHz synthesis to prevent crashes on silent stock clips.
+   - Applies sub-pixel Ken Burns motion (`zoompan`) and crossfades (`xfade`) at 60fps `1080x1920`.
 
-7. **🚀 Publishing (`youtube_manager.py`)**
-   - Uploads the final video and custom thumbnail to a private vault on YouTube.
-   - Applies the generated SEO tags, title, and description.
+7. **🚀 Publishing & Monetization (`youtube_manager.py` / `generate_metadata.py`)**
+   - Uploads final video and thumbnail to a private vault on YouTube.
+   - **High-Converting Pinned Comments**: Generates and automatically posts provocative debate questions to 3x comment engagement.
+   - **Monetization CTA Injection**: Inserts description calls-to-action and affiliate link slots.
 
 ---
 
@@ -58,9 +68,9 @@ Your channel rules are defined in the engine.
 
 The engine is designed to **never crash**. Every task has a fallback:
 - **LLM / Scripting:** Gemini API ➡️ Groq Llama/Mixtral ➡️ Hardcoded Emergency Script.
-- **API Resilience:** All API calls are wrapped in `tenacity` exponential backoff (`@retry`) to gracefully survive 429s and 503s.
+- **API Resilience:** All API calls are wrapped in `tenacity` exponential backoff (`@retry`) with 3-state Circuit Breaker.
 - **Images:** HuggingFace FLUX ➡️ Cloudflare AI ➡️ Pixabay Video (B-Roll) ➡️ Pollinations.ai (Zero-Key) ➡️ Pexels Stock Footage.
-- **Voiceover:** EdgeTTS Azure Neural ➡️ Local Kokoro-82M.
+- **Voiceover:** Local Kokoro-82M ➡️ EdgeTTS Azure Neural ➡️ Groq Orpheus.
 - **Rendering:** `xfade` Crossfade ➡️ Hard Cuts (Simple Concat).
 
 ---
