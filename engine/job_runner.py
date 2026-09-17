@@ -18,7 +18,11 @@ from scripts.generate_metadata import generate_seo_metadata
 from scripts.generate_thumbnail import generate_thumbnail, upload_thumbnail
 from scripts.discord_notifier  import notify_step, notify_production_success, notify_vault_secure
 
-TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
+def is_test_mode() -> bool:
+    """Return True if TEST_MODE is active via environment variable."""
+    return os.environ.get("TEST_MODE", "false").lower() == "true"
+
+TEST_MODE = is_test_mode()
 
 
 class JobRunner:

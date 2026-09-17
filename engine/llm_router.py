@@ -118,51 +118,26 @@ class LLMRouter:
                             del self._failed_models[model]
 
                     # ── Tenacity Retry Block for 429s and Network Glitches ──
-                    from tenacity import retry, wait_exponential, stop_after_attempt
-                    import threading
+                    from tenacity import retry, wait_random_exponential, stop_after_attempt
                     
-                    @retry(wait=wait_exponential(min=4, max=10), stop=stop_after_attempt(5))
+                    @retry(wait=wait_random_exponential(min=2, max=10), stop=stop_after_attempt(4), reraise=True)
                     def _call_gemini_with_retry():
                         self._enforce_rpm_throttle()
                         from google import genai
                         from google.genai import types
                         client = genai.Client(api_key=self.gemini_key)
-                        cfg = {"system_instruction": system_prompt} if system_prompt else {}
-                        chat = client.chats.create(model=model, config=cfg or None)
                         gen_cfg = types.GenerateContentConfig(
-                            temperature=temperature, max_output_tokens=8000,
-                        ) if cfg else None
-                        
-                        first_token_event = threading.Event()
-                        done_event = threading.Event()
-                        chunks = []
-                        stream_exc = []
-
-                        def _stream():
-                            try:
-                                for chunk in chat.send_message_stream(message=prompt, config=gen_cfg):
-                                    if chunk.text:
-                                        chunks.append(chunk.text)
-                                        first_token_event.set()
-                            except Exception as exc:
-                                stream_exc.append(exc)
-                            finally:
-                                first_token_event.set()
-                                done_event.set()
-
-                        t = threading.Thread(target=_stream, daemon=True)
-                        t.start()
-
-                        if not first_token_event.wait(timeout=15):
-                            raise TimeoutError(f"No first token from {model} within 15s")
-                        if stream_exc:
-                            raise stream_exc[0]
-
-                        done_event.wait(timeout=90)
-                        if stream_exc:
-                            raise stream_exc[0]
-
-                        text = "".join(chunks)
+                            system_instruction=system_prompt if system_prompt else None,
+                            temperature=temperature,
+                            max_output_tokens=8000,
+                            http_options={"timeout": 60}
+                        )
+                        response = client.models.generate_content(
+                            model=model,
+                            contents=prompt,
+                            config=gen_cfg
+                        )
+                        text = response.text if response and response.text else ""
                         if not text:
                             raise ValueError(f"Empty response from {model}")
                         return text
@@ -173,15 +148,15 @@ class LLMRouter:
                     except Exception as e:
                         err_str = str(e).lower()
                         from engine.logger import logger
-                        if any(x in err_str for x in ["quota", "exhausted", "403"]):
+                        if any(x in err_str for x in ["quota", "exhausted", "403", "resourceexhausted"]):
                             stage_hard_failed = True
                             break
-                        # ── Circuit Breaker Trigger ──
-                        if "503" in err_str or "unavailable" in err_str or "timeout" in err_str or "timed out" in err_str:
-                            logger.error(f"⚠️ [GEMINI] 503/Timeout on {model}. Blacklisting for 15 minutes.")
-                            self._failed_models[model] = time.time() + 900
-                            continue # Move to next model instantly
-                        
+                        # ── Circuit Breaker Trigger (genuine 503 or unavailable) ──
+                        if "503" in err_str or "unavailable" in err_str:
+                            logger.error(f"⚠️ [GEMINI] 503/Unavailable on {model}. Blacklisting for 5 minutes.")
+                            self._failed_models[model] = time.time() + 300
+                            continue
+                        logger.error(f"⚠️ [GEMINI] {model} call failed: {e}. Trying next candidate.")
                         continue
             elif stage_name == "Groq Chain":
                 try:

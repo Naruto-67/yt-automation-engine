@@ -19,6 +19,8 @@ from scripts.dynamic_researcher import run_dynamic_research
 def is_test_mode():
     return os.environ.get("TEST_MODE", "false").lower() == "true"
 
+TEST_MODE = is_test_mode()
+
 class Orchestrator:
     def __init__(self):
         self.channels = config_manager.get_active_channels()
@@ -63,8 +65,8 @@ class Orchestrator:
         settings     = config_manager.get_settings()
         test_topics  = settings.get("test_mode", {}).get("test_topics", {})
         fallbacks    = {
-            "CH_01": "A small leaf discovers it holds an entire forgotten world on its surface",
-            "CH_02": "The human brain generates enough electricity to power a small LED light bulb",
+            "CH_01": "A discarded brass compass in an antique shop refuses to point North, guiding a lonely wooden marionette toward something far more important",
+            "CH_02": "The immortal jellyfish can hit rewind on its own lifecycle and revert back into a baby whenever it gets sick or injured",
         }
         # Merge: settings values take priority over built-in fallbacks
         return {**fallbacks, **test_topics}
@@ -240,4 +242,4 @@ class Orchestrator:
             elif channel_produced > 0:
                 notify_summary(True, f"🌙 Pipeline cycle complete. Produced **{channel_produced}** video(s) for this channel.")
                 
-        if global_failed and TEST_MODE: sys.exit(1)
+        if global_failed and is_test_mode(): sys.exit(1)
