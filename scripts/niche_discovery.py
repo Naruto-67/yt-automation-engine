@@ -14,10 +14,12 @@ elif _SYSTEM_ENABLED == "test":
         print("🔴 [TEST MODE] Scheduled cron run detected while in Test Mode. Halting automatically to prevent unintended runs.")
         sys.exit(0)
     else:
-        os.environ["is_test_mode()"] = "true"
+        os.environ["TEST_MODE"] = "true"
 
-def is_test_mode():
-    return os.environ.get("is_test_mode()", "false").lower() == "true"
+def is_test_mode() -> bool:
+    return os.environ.get("TEST_MODE", "false").lower() == "true"
+
+TEST_MODE = is_test_mode()
 
 
 

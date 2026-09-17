@@ -11,10 +11,13 @@ from googleapiclient.errors import HttpError
 from scripts.quota_manager import quota_manager
 from scripts.discord_notifier import notify_vault_secure, notify_error
 
-TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
+def is_test_mode() -> bool:
+    return os.environ.get("TEST_MODE", "false").lower() == "true"
+
+TEST_MODE = is_test_mode()
 
 def get_youtube_client(channel_config):
-    if TEST_MODE: return None
+    if is_test_mode(): return None
     if isinstance(channel_config, dict):
         token_env = channel_config.get("youtube_refresh_token_env")
     else:
@@ -192,9 +195,10 @@ def upload_to_youtube_vault(youtube, video_path, topic, metadata, niche="", chan
             print(f"⚠️ [VAULT] Video uploaded, but playlist assignment failed:\n{trace}")
             vault_playlist_id = "Failed to Assign"
 
-        comment_text = _get_creator_comment(niche)
+        comment_text = metadata.get("pinned_comment") or _get_creator_comment(niche)
         if post_creator_comment(youtube, video_id, comment_text):
             quota_manager.consume_points("youtube", 50)
+            print(f"📌 [VAULT] Creator engagement comment posted for video {video_id}.")
 
         notify_vault_secure(safe_title, video_id, vault_playlist_id)
         return True, video_id

@@ -8,8 +8,11 @@ from engine.database import db
 from engine.config_manager import config_manager
 from engine.context import ctx
 
-TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
-_FILE_NAME = "quota_state_test.json" if TEST_MODE else "quota_state.json"
+def is_test_mode() -> bool:
+    return os.environ.get("TEST_MODE", "false").lower() == "true"
+
+TEST_MODE = is_test_mode()
+_FILE_NAME = "quota_state_test.json" if is_test_mode() else "quota_state.json"
 _QUOTA_JSON_PATH = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")), "memory", _FILE_NAME)
 
 class MasterQuotaManager:

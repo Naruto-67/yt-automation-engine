@@ -87,17 +87,36 @@ def generate_seo_metadata(niche, script):
                     else:
                         break
                 
+                # Extract high-converting pinned engagement comment
+                raw_pinned = data.get("pinned_comment", "")
+                pinned_comment = str(raw_pinned).replace("<", "").replace(">", "").strip() if raw_pinned else "What surprised you the most? Share below! 👇"
+
+                # Monetization description CTA injection
+                from engine.config_manager import config_manager
+                settings = config_manager.get_settings()
+                monetization = settings.get("monetization", {})
+                is_monetization_enabled = monetization.get("enabled", True)
+                cta_slot = monetization.get("description_cta", "") or monetization.get("cta_text", "")
+                affiliate_link = monetization.get("affiliate_link", "") or monetization.get("cta_url", "")
+
+                cta_text = ""
+                if is_monetization_enabled and cta_slot:
+                    cta_text = f"\n\n{cta_slot}"
+                    if affiliate_link:
+                        cta_text += f"\n🔗 {affiliate_link}"
+
                 # Append hashtags to description — YouTube uses these for hashtag search surfacing
                 raw_desc = str(data.get("description", "")).replace("<", "").replace(">", "").strip()
-                if raw_desc and not raw_desc.endswith(hashtags):
-                    full_desc = f"{raw_desc}\n\n{hashtags}"
+                if raw_desc:
+                    full_desc = f"{raw_desc}{cta_text}\n\n{hashtags}"
                 else:
-                    full_desc = raw_desc or hashtags
+                    full_desc = f"{cta_text}\n\n{hashtags}".strip() or hashtags
 
                 return {
                     "title": final_title, 
                     "description": full_desc[:4900], 
-                    "tags": valid_tags
+                    "tags": valid_tags,
+                    "pinned_comment": pinned_comment
                 }, provider
     except Exception as e:
         # GOD-TIER FIX: Do not silently pass on extraction errors. Log them before falling back.
@@ -113,5 +132,6 @@ def generate_seo_metadata(niche, script):
     return {
         "title": f"{niche} #shorts"[:95], 
         "description": fallback_desc, 
-        "tags": ["shorts", niche, "viral", "facts", "fyp"]
+        "tags": ["shorts", niche, "viral", "facts", "fyp"],
+        "pinned_comment": "What surprised you the most? Share below! 👇"
     }, "Fallback"

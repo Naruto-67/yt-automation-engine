@@ -31,6 +31,8 @@ elif _SYSTEM_ENABLED == "test":
 def is_test_mode():
     return os.environ.get("TEST_MODE", "false").lower() == "true"
 
+TEST_MODE = is_test_mode()
+
 def load_config_prompts():
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     with open(os.path.join(root_dir, "config", "prompts.yaml"), "r") as f:

@@ -34,20 +34,64 @@ def extract_scene_data(scene_dict, fallback_topic: str):
 
 
 def validate_script_quality(script_text: str, prompts_cfg: dict,
-                            is_fictional: bool = False) -> bool:
+                            is_fictional: bool = False,
+                            parsed_scenes: list = None) -> bool:
     """
     Quality gate: reject only genuinely bad scripts (score 1-3 out of 10).
-
-    Threshold is intentionally LOW (4) because:
-    - Storytelling scripts (AnimeRise) naturally score lower on "viral hook" criteria
-    - A score of 4-5 is "decent" — not worth discarding and wasting 2 more LLM calls
-    - Only score 1-3 indicates a truly broken or incoherent script
-    - If the validation API fails or returns no number: always PASS (fail-safe)
-
-    For FICTIONAL channels a cheap deterministic arc check runs first: it rejects
-    scripts that read like disconnected facts (the AnimeRise "nonsense" failure)
-    without ever rejecting a coherent slow/quiet story.
+    Enforces deterministic gates before calling the LLM validator:
+    1. SentenceClosureCheck: Reject scripts ending in ellipsis, dashes, dangling conjunctions.
+    2. AI Cliché Gate: Reject scripts with heavy AI filler words.
+    3. Scene Variation Gate: Reject multi-scene scripts where 1 scene monopolizes >50% words.
+    4. Fiction Arc Gate: Check for protagonist markers.
+    5. LLM Validation: Require score >= 4/10.
     """
+    trimmed = script_text.strip()
+    if not trimmed:
+        print("⚠️ [SCRIPT] Script is empty — retry.")
+        return False
+
+    # ── DETERMINISTIC SENTENCE CLOSURE GATE ─────────────────────────────────
+    if trimmed[-1] not in {'.', '!', '?', '"', "'", '”', '’'}:
+        print(f"⚠️ [SCRIPT] SentenceClosureCheck failed: does not end with terminal punctuation (ends with '{trimmed[-1]}') — retry.")
+        return False
+
+    if trimmed.endswith("...") or trimmed.endswith("…") or trimmed.endswith("--") or trimmed.endswith("-"):
+        print("⚠️ [SCRIPT] SentenceClosureCheck failed: ends with ellipsis or trailing dash — retry.")
+        return False
+
+    clean_end = re.sub(r'["\'”’\.!?]+$', '', trimmed).strip().lower()
+    last_words = clean_end.split()
+    if last_words:
+        last_1 = last_words[-1]
+        last_2 = " ".join(last_words[-2:]) if len(last_words) >= 2 else ""
+        dangling_terms = {
+            "and", "but", "or", "because", "so", "that", "which", "as", "like",
+            "if", "when", "although", "though", "while", "until", "it was",
+            "there was", "and then", "such as", "leading to", "resulting in"
+        }
+        if last_1 in dangling_terms or last_2 in dangling_terms:
+            print(f"⚠️ [SCRIPT] SentenceClosureCheck failed: dangling fragment ('{last_2 or last_1}') — retry.")
+            return False
+
+    # ── AI CLICHÉ GATE (OpenMontage vocabulary check) ───────────────────────
+    ai_cliches = {"delve", "testament", "tapestry", "beacon", "in conclusion"}
+    words_lower = set(re.findall(r'\b[a-z]+\b', script_text.lower()))
+    found_cliches = ai_cliches.intersection(words_lower)
+    if found_cliches:
+        print(f"⚠️ [SCRIPT] AI cliché check failed: detected {found_cliches} — retry.")
+        return False
+
+    # ── SCENE VARIATION GATE (OpenMontage variation_checker) ────────────────
+    if parsed_scenes and len(parsed_scenes) >= 3:
+        total_words = len(script_text.split())
+        if total_words > 0:
+            for idx, scene in enumerate(parsed_scenes):
+                narr = scene[0] if isinstance(scene, (list, tuple)) else str(scene)
+                s_words = len(narr.split())
+                if (s_words / total_words) > 0.50:
+                    print(f"⚠️ [SCRIPT] Variation check failed: scene {idx+1} consumes {s_words}/{total_words} words (>50%) — retry.")
+                    return False
+
     # ── FICTION DETERMINISTIC ARC GATE (no extra LLM call) ──────────────────
     if is_fictional:
         words = script_text.split()
@@ -55,11 +99,10 @@ def validate_script_quality(script_text: str, prompts_cfg: dict,
             print("⚠️ [SCRIPT] Fiction too short to have an arc — retry.")
             return False
         # Character/actor markers: pronouns + action verbs suggest a protagonist.
-        import re as _re
         actor_markers = ["he ", "she ", "it ", "they ", "wants", "tries", "must",
                          "learns", "discovers", "finds", "helps", "meets",
                          "flees", "crosses", "searches", "escapes", "saves"]
-        marker_hits = sum(1 for m in actor_markers if _re.search(rf"\b{m}\b", script_text.lower()))
+        marker_hits = sum(1 for m in actor_markers if re.search(rf"\b{m}\b", script_text.lower()))
         # A story needs SOME protagonist/action signal; hard-fail only when zero.
         if marker_hits == 0:
             print("⚠️ [SCRIPT] Fiction script has no protagonist/action signal — retry.")
@@ -414,6 +457,17 @@ def generate_script(niche: str, topic: str):
             channel_personality = getattr(_ch, "personality", [])
             break
 
+    # ── Prompt Sharding & Constitution Injection ─────────────────────────────
+    shards_cfg = prompts_cfg.get("script_gen", {}).get("shards", {})
+    constitution_cfg = prompts_cfg.get("script_gen", {}).get("constitution", "")
+
+    if researcher_format == "quiz":
+        active_shard = shards_cfg.get("quiz", "")
+    elif is_fictional:
+        active_shard = shards_cfg.get("fictional", "")
+    else:
+        active_shard = shards_cfg.get("factual", "")
+
     base_user_prompt = prompts_cfg["script_gen"]["user_template"].format(
         niche=active_niche,
         topic=topic,
@@ -424,6 +478,12 @@ def generate_script(niche: str, topic: str):
         target_word_count=target_words,
         word_ceiling=_ABSOLUTE_WORD_CEILING
     )
+
+    if constitution_cfg:
+        base_user_prompt += f"\n\n{constitution_cfg.strip()}\n"
+
+    if active_shard:
+        base_user_prompt += f"\n\n{active_shard.strip()}\n"
 
     # ── Brand identity injection ──────────────────────────────────────────────
     if channel_brand_voice or channel_personality:
@@ -583,10 +643,15 @@ def generate_script(niche: str, topic: str):
             # cleanly at the word boundary and continue with a valid (shorter) script.
             if word_count > _ABSOLUTE_WORD_CEILING:
                 if attempt == 2:
-                    print(f"      ✂️ [SCRIPT] Last attempt still too long ({word_count} words). Hard-truncating to {_ABSOLUTE_WORD_CEILING} words...")
+                    print(f"      ✂️ [SCRIPT] Last attempt still too long ({word_count} words). Truncating cleanly to {_ABSOLUTE_WORD_CEILING} words...")
                     words         = full_text.split()
-                    full_text     = " ".join(words[:_ABSOLUTE_WORD_CEILING])
-                    word_count    = _ABSOLUTE_WORD_CEILING
+                    candidate     = " ".join(words[:_ABSOLUTE_WORD_CEILING])
+                    last_punct    = max(candidate.rfind('.'), candidate.rfind('!'), candidate.rfind('?'))
+                    if last_punct > int(len(candidate) * 0.6):
+                        full_text = candidate[:last_punct + 1]
+                    else:
+                        full_text = candidate.rstrip(' ,;:-') + "."
+                    word_count    = len(full_text.split())
                     # Rebuild scene text proportionally (keep prompts/queries intact)
                     total_chars   = sum(len(s[0]) for s in parsed_scenes) or 1
                     char_budget   = len(full_text)
@@ -609,8 +674,8 @@ def generate_script(niche: str, topic: str):
                 last_error = "Script generated below functional minimum."
                 continue
 
-            if not validate_script_quality(full_text, prompts_cfg, is_fictional=is_fictional):
-                last_error = "Failed quality check (score < 4/10)."
+            if not validate_script_quality(full_text, prompts_cfg, is_fictional=is_fictional, parsed_scenes=parsed_scenes):
+                last_error = "Failed quality check (score < 4/10 or failed variation/closure)."
                 continue
 
             total_chars   = sum(len(s[0]) for s in parsed_scenes)

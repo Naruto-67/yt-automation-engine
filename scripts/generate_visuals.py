@@ -12,10 +12,13 @@ from PIL import Image, ImageDraw
 from scripts.quota_manager import quota_manager
 from engine.guardian import guardian
 
-# ── BUG #8 FIX: SIMULATE_CASCADE_TEST was hardcoded False — never activated
-# even in TEST_MODE. Now reads from the same TEST_MODE env var used everywhere
-# else. In test runs this skips real CF/HF calls, saving quota.
-SIMULATE_CASCADE_TEST = os.environ.get("TEST_MODE", "false").lower() == "true"
+def is_test_mode() -> bool:
+    return (
+        os.environ.get("TEST_MODE", "false").lower() == "true"
+        or os.environ.get("GHOST_ENGINE_ENABLED", "").lower() == "test"
+    )
+
+SIMULATE_CASCADE_TEST = is_test_mode()
 
 _HF_MODELS_CACHE = []
 # Models that returned 410 (deprecated/removed) this session — skip without retrying
@@ -67,6 +70,130 @@ _QUALITY_SUFFIX = (
 )
 # Cloudflare has a 200-char prompt limit — leave room for suffix
 _PROMPT_MAX_BASE = 180
+
+# ─── OpenMontage 5-Layer Cinematography Shot Prompt Framework ─────────────────
+_SHOT_SIZE_PHRASES = {
+    "extreme_wide": "extreme wide shot showing vast environment",
+    "wide": "wide shot capturing full scene",
+    "medium_wide": "medium-wide shot framing subject with surroundings",
+    "medium": "medium shot from waist up",
+    "medium_close": "medium close-up from chest up",
+    "close_up": "close-up focusing on face or detail",
+    "extreme_close_up": "extreme close-up on fine detail",
+    "insert": "insert shot of specific detail",
+    "establishing": "establishing shot setting the location",
+}
+
+_MOVEMENT_PHRASES = {
+    "static": "locked-off static camera",
+    "pan_left": "smooth pan to the left",
+    "pan_right": "smooth pan to the right",
+    "tilt_up": "gentle tilt upward",
+    "tilt_down": "gentle tilt downward",
+    "dolly_in": "slow dolly in toward subject",
+    "dolly_out": "slow dolly out from subject",
+    "tracking_left": "tracking shot moving left alongside subject",
+    "tracking_right": "tracking shot moving right alongside subject",
+    "orbital": "orbital camera circling subject",
+    "zoom_in": "slow zoom in",
+    "zoom_out": "slow zoom out",
+}
+
+_LIGHTING_PHRASES = {
+    "high_key": "bright high-key lighting, minimal shadows",
+    "low_key": "dramatic low-key lighting with deep shadows",
+    "natural": "natural ambient lighting",
+    "golden_hour": "warm golden hour sunlight",
+    "blue_hour": "cool blue hour twilight",
+    "volumetric": "volumetric light with visible rays",
+    "neon": "neon-lit with vibrant color spill",
+}
+
+def build_cinematography_prompt(scene_data, style_hint: str = "", index: int = 0, total_scenes: int = 1) -> str:
+    """
+    OpenMontage 5-Layer Cinematography & Anti-Slideshow Framework:
+    Layer 1: Camera (lens, DOF)
+    Layer 2: Movement (shot size, dynamic camera motion)
+    Layer 3: Subject (description + tactile texture keywords)
+    Layer 4: Lighting (lighting key, color temperature)
+    Layer 5: Style context (vertical 9:16, cinematic composition)
+
+    If scene_data is a dict with 'shot_language', maps explicitly.
+    If scene_data is a string, dynamically enriches it with progressive
+    shot variation (rotating camera framing and lenses across scene indices)
+    to eliminate repetitive slideshow risk.
+    """
+    if not scene_data:
+        return ""
+
+    if isinstance(scene_data, dict):
+        sl = scene_data.get("shot_language", {})
+        layers = []
+
+        # Layer 1: Camera
+        cam = []
+        if sl.get("lens_mm"): cam.append(f"{sl['lens_mm']}mm lens")
+        if sl.get("depth_of_field"): cam.append(f"{sl['depth_of_field']} depth of field")
+        if cam: layers.append(", ".join(cam))
+
+        # Layer 2: Movement
+        mov = []
+        if sl.get("shot_size"): mov.append(_SHOT_SIZE_PHRASES.get(sl["shot_size"], sl["shot_size"]))
+        if sl.get("camera_movement") and sl["camera_movement"] != "static":
+            mov.append(_MOVEMENT_PHRASES.get(sl["camera_movement"], sl["camera_movement"]))
+        if mov: layers.append(", ".join(mov))
+
+        # Layer 3: Subject & Textures
+        subj = [scene_data.get("description", scene_data.get("visual_prompt", ""))]
+        if scene_data.get("texture_keywords"):
+            subj.append(", ".join(scene_data["texture_keywords"]))
+        layers.append(". ".join(filter(None, subj)))
+
+        # Layer 4: Lighting
+        lit = []
+        if sl.get("lighting_key"): lit.append(_LIGHTING_PHRASES.get(sl["lighting_key"], sl["lighting_key"]))
+        if sl.get("color_temperature"): lit.append(f"{sl['color_temperature']} color palette")
+        if lit: layers.append(", ".join(lit))
+
+        # Layer 5: Style
+        if style_hint: layers.append(f"Style: {style_hint}")
+
+        built = ". ".join(filter(None, layers))
+        return built or scene_data.get("description", scene_data.get("visual_prompt", ""))
+
+    # When scene_data is a raw string prompt
+    raw_prompt = str(scene_data).strip()
+    if not raw_prompt:
+        return raw_prompt
+
+    # Rotational shot sizes and dynamic camera motion for variety (anti-slideshow)
+    shot_rotations = [
+        ("35mm lens, subtle depth of field", "establishing wide shot, slow cinematic push-in", "dramatic low-key lighting with deep shadows"),
+        ("50mm prime lens, shallow depth of field", "medium close-up from chest up, steady camera", "warm golden hour side-lighting"),
+        ("85mm portrait lens, deep optical bokeh", "close-up focusing on key subject details, slow dolly in", "volumetric light rays with atmospheric dust"),
+        ("24mm wide-angle lens, deep focus", "dynamic low-angle shot looking up, subtle camera tilt", "high-contrast cinematic chiaroscuro"),
+        ("100mm macro lens, ultra-shallow depth of field", "extreme close-up on fine surface textures", "cool blue hour ambient fill with rim light"),
+        ("35mm anamorphic lens, cinematic oval bokeh", "tracking shot moving smoothly alongside subject", "neon-lit atmospheric glow with soft reflections"),
+    ]
+    cam_lens, mov_phrase, light_phrase = shot_rotations[index % len(shot_rotations)]
+
+    lower_p = raw_prompt.lower()
+    layers = []
+
+    if not any(k in lower_p for k in ["lens", "mm", "depth of field", "bokeh"]):
+        layers.append(cam_lens)
+    if not any(k in lower_p for k in ["close-up", "wide shot", "tracking", "dolly", "angle", "pan"]):
+        layers.append(mov_phrase)
+
+    layers.append(raw_prompt)
+
+    if not any(k in lower_p for k in ["lighting", "light", "golden hour", "shadow", "neon", "chiaroscuro"]):
+        layers.append(light_phrase)
+
+    if style_hint and f"style: {style_hint.lower()}" not in lower_p:
+        layers.append(f"Style: {style_hint}")
+
+    return ", ".join(filter(None, layers))
 
 
 def load_config_prompts():
@@ -523,9 +650,12 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
     successful_images = []
 
     safe_mode    = guardian.is_safe_mode()
-    tier1_active = not safe_mode
+    test_active  = is_test_mode()
+    tier1_active = not safe_mode and not test_active
     tier2_active = not safe_mode
-    if safe_mode:
+    if test_active:
+        print("🧪 [TEST MODE] Bypassing Cloudflare FLUX API (Tier 1) to conserve daily neurons. Sourcing via HuggingFace / Pixabay / Pexels.")
+    elif safe_mode:
         print("🛡️ [SAFE MODE] API Quota critically low for this channel. Bypassing AI generation.")
 
     # ── BUG #2 FIX: The original disable check only matched "401"/"402"/"403"
@@ -553,7 +683,7 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
         output_path    = f"{base_filename}_{i}.jpg"
         actual_path    = output_path
         success        = False
-        current_prompt = original_prompt
+        current_prompt = build_cinematography_prompt(original_prompt, index=i, total_scenes=len(prompts_list))
         safety_retries = 0
 
         while True:

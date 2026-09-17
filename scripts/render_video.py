@@ -105,11 +105,12 @@ _MOOD_COLOR_GRADE = {
 }
 
 _VIGNETTE = "vignette=angle=PI/5"
+_FILM_S_CURVE = "curves=all='0/0.03 0.25/0.22 0.5/0.50 0.75/0.78 1/0.97'"
 
 
 def _get_visual_filter_chain(mood: str) -> str:
     grade = _MOOD_COLOR_GRADE.get(mood, _MOOD_COLOR_GRADE["neutral"])
-    return f"{grade},{_VIGNETTE}"
+    return f"{grade},{_FILM_S_CURVE},{_VIGNETTE}"
 
 
 def get_style_config(caption_style: str = None):
@@ -161,10 +162,24 @@ _FILLER_WORDS = {
 # (remove commas before "and", "but", "so", "or", "yet", "nor", "for")
 _NO_COMMA_BEFORE = {"and", "but", "so", "or", "yet", "nor", "for"}
 
+# Punctuation Normalization Dictionary (OpenMontage smart punctuation mapping)
+PUNCTUATION_NORMALIZATION = {
+    "—": " - ",      # Em-dash
+    "–": " - ",      # En-dash
+    "…": "...",      # Unicode ellipsis
+    "“": '"',        # Smart double quote left
+    "”": '"',        # Smart double quote right
+    "‘": "'",        # Smart single quote left
+    "’": "'",        # Smart single quote right
+    ";": ",",        # Semicolon to comma
+    ":": ",",        # Colon to comma
+}
+
 
 def _clean_caption_text(text: str) -> str:
     """
     Clean caption text for cleaner, more readable display.
+    - Normalize smart quotes, em-dashes, and unicode punctuation
     - Strip filler words at the start of lines
     - Remove mid-sentence commas before 'and', 'but', 'so', etc.
     - Collapse multiple spaces
@@ -174,6 +189,10 @@ def _clean_caption_text(text: str) -> str:
     t = text.strip()
     if not t:
         return t
+
+    # Normalize smart quotes, dashes, and unicode punctuation
+    for char, replacement in PUNCTUATION_NORMALIZATION.items():
+        t = t.replace(char, replacement)
 
     # Preserve case for proper nouns but lowercase for consistency
     # (don't UPPERCASE everything — keep original casing)
@@ -324,8 +343,13 @@ def srt_to_ass(srt_path, ass_path, style, glow_color=None):
                 
                 for j, w in enumerate(words):
                     if j == i:
-                        # Active word: Clean bright Yellow
-                        default_parts.append(f"{{\\c&H0000D7FF&}}{w}{{\\c&H00FFFFFF&}}")
+                        # Active word: Clean bright Yellow (strip trailing/leading punctuation from color tag)
+                        m = re.match(r"^([^\w]*)(.*?)([.,!?:;\"'”’\-]*)$", w)
+                        if m:
+                            pre, core, post = m.groups()
+                            default_parts.append(f"{pre}{{\\c&H0000D7FF&}}{core}{{\\c&H00FFFFFF&}}{post}")
+                        else:
+                            default_parts.append(f"{{\\c&H0000D7FF&}}{w}{{\\c&H00FFFFFF&}}")
                     elif j < i:
                         # Spoken word: Dimmed slightly or kept white
                         default_parts.append(f"{w}")
@@ -406,24 +430,42 @@ def _mix_background_music(output_path: str, mood: str = "neutral") -> bool:
 
     try:
         probe_result = subprocess.run(
-            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", output_path],
+            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", "-show_streams", output_path],
             capture_output=True, timeout=30,
         )
         video_duration = 59.0
+        has_audio = False
         if probe_result.returncode == 0:
             probe_data = json.loads(probe_result.stdout)
             video_duration = float(probe_data.get("format", {}).get("duration", 59.0))
+            for st in probe_data.get("streams", []):
+                if st.get("codec_type") == "audio":
+                    has_audio = True
+                    break
 
         fade_out_start = max(0, video_duration - fade_out)
 
-        music_filter = (
-            f"[1:a]"
-            f"volume={volume},"
-            f"afade=t=in:st=0:d={fade_in},"
-            f"afade=t=out:st={fade_out_start:.2f}:d={fade_out}"
-            f"[music];"
-            f"[0:a][music]amix=inputs=2:duration=first:dropout_transition=3[aout]"
-        )
+        # Dynamic sidechain ducking (12 dB ducking under narration) + EBU R128 broadcast loudness mastering
+        if has_audio:
+            music_filter = (
+                f"[0:a]asplit=2[voice_main][voice_sc];"
+                f"[1:a]volume={volume},"
+                f"afade=t=in:st=0:d={fade_in},"
+                f"afade=t=out:st={fade_out_start:.2f}:d={fade_out}[music_faded];"
+                f"[music_faded][voice_sc]sidechaincompress=threshold=0.12:ratio=4:attack=200:release=800[ducked_music];"
+                f"[voice_main][ducked_music]amix=inputs=2:duration=first:dropout_transition=3[pre_master];"
+                f"[pre_master]loudnorm=I=-14:TP=-1.0:LRA=7[aout]"
+            )
+        else:
+            # Fallback guard: video has no audio stream, synthesize stereo silence via anullsrc
+            music_filter = (
+                f"anullsrc=channel_layout=stereo:sample_rate=48000[silence];"
+                f"[1:a]volume={volume},"
+                f"afade=t=in:st=0:d={fade_in},"
+                f"afade=t=out:st={fade_out_start:.2f}:d={fade_out}[music_faded];"
+                f"[silence][music_faded]amix=inputs=2:duration=first:dropout_transition=3[pre_master];"
+                f"[pre_master]loudnorm=I=-14:TP=-1.0:LRA=7[aout]"
+            )
 
         result = subprocess.run(
             [

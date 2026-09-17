@@ -85,12 +85,29 @@ def trim_audio_precision(file_path: str):
         else:
             print(f"✂️  [VOICE] No trim needed (leading silence: {leading_silence_ms}ms).")
 
+        # ── Dead-Air Silence Tightener (OpenMontage silence_cutter logic) ───
+        try:
+            chunks = pydub_silence.split_on_silence(
+                audio,
+                min_silence_len=450,
+                silence_thresh=-36.0,
+                keep_silence=90
+            )
+            if len(chunks) > 1:
+                tightened = chunks[0]
+                for c in chunks[1:]:
+                    tightened += c
+                audio = tightened
+                print(f"✂️  [VOICE] Tightened {len(chunks)-1} interior dead-air pauses.")
+        except Exception:
+            pass
+
         audio = effects.normalize(audio)
 
-        # 300ms lead silence: professional breathing room before first word
-        # 500ms tail silence: natural decay after last word before video ends
-        sil_start = AudioSegment.silent(duration=300, frame_rate=audio.frame_rate).set_channels(audio.channels)
-        sil_end   = AudioSegment.silent(duration=500, frame_rate=audio.frame_rate).set_channels(audio.channels)
+        # 250ms lead silence: professional breathing room before first word
+        # 400ms tail silence: natural decay after last word before video ends
+        sil_start = AudioSegment.silent(duration=250, frame_rate=audio.frame_rate).set_channels(audio.channels)
+        sil_end   = AudioSegment.silent(duration=400, frame_rate=audio.frame_rate).set_channels(audio.channels)
 
         final = sil_start + audio + sil_end
         final.export(file_path, format="wav")
@@ -126,16 +143,74 @@ def _fix_caps_word(m: re.Match) -> str:
     return word.title()      # CRICKET→Cricket, TICK→Tick, HERO→Hero
 
 
+# ── Punctuation Normalization Dictionary (OpenMontage prosody & pause control) ───
+PUNCTUATION_NORMALIZATION = {
+    "—": " - ",      # Em-dash: replaces 1.5s dead pause with natural breath pause
+    "–": " - ",      # En-dash: normalized to standard hyphen
+    "…": ".",        # Unicode ellipsis: eliminates trailing TTS freeze
+    "“": '"',        # Smart double quote left
+    "”": '"',        # Smart double quote right
+    "‘": "'",        # Smart single quote left
+    "’": "'",        # Smart single quote right
+    ";": ",",        # Semicolon to comma: prevents unnatural pitch drop
+    ":": ",",        # Colon to comma: keeps speech fluid
+    " (": ", ",      # Parentheses to natural breath pause
+    ")": ", ",
+    "[": ", ",
+    "]": ", ",
+}
+
+
+# ── Pronunciation & Phonetic Pre-TTS Normalization ────────────────────────────
+_PHONETIC_EXPANSIONS = [
+    (re.compile(r"\b24/7\b", re.IGNORECASE), "twenty-four seven"),
+    (re.compile(r"\bLED\b"), "L-E-D"),
+    (re.compile(r"\bAI\b"), "A-I"),
+    (re.compile(r"\bkm/h\b", re.IGNORECASE), "kilometers per hour"),
+    (re.compile(r"\$([0-9]+)"), r"\1 dollars"),
+    (re.compile(r"([0-9]+)%"), r"\1 percent"),
+]
+
+# ── ASR Post-Transcription Correction Dictionary ──────────────────────────────
+ASR_CORRECTIONS = {
+    "247": "24/7",
+    "LEAD BULB": "LED BULB",
+    "LEAD LIGHT": "LED LIGHT",
+    "LEAD": "LED",
+    "A I": "AI",
+    "AI": "AI",
+    "NASA": "NASA",
+    "KMH": "km/h",
+    "KM/H": "km/h",
+    "PERCENT": "%",
+    "DOLLARS": "$",
+}
+
+
 def sanitize_for_tts(text: str) -> str:
     # 1. Strip stage directions ("INTENSE CLOSE-UP:", "WIDE SHOT:", "CUT TO:")
-    #    These are screenplay conventions — not words to be spoken.
     text = _STAGE_DIR_RE.sub("", text)
-    # 2. Title-case remaining ALL-CAPS emphasis words so TTS reads them as
-    #    whole words instead of spelling each letter (T-I-C-K → "Tick").
+    # 2. Punctuation normalization (replaces dead-air em-dashes and pitch-drop semicolons)
+    for char, replacement in PUNCTUATION_NORMALIZATION.items():
+        text = text.replace(char, replacement)
+    # 3. Collapse repeated punctuation marks to single marks
+    text = re.sub(r"[!]+", "!", text)
+    text = re.sub(r"[?]+", "?", text)
+    text = re.sub(r"\.{2,}", ".", text)
+    # 4. Phonetic symbol and acronym expansions
+    for pattern, replacement in _PHONETIC_EXPANSIONS:
+        text = pattern.sub(replacement, text)
+    # 5. Title-case remaining ALL-CAPS emphasis words so TTS reads them as whole words
     text = _ALLCAPS_RE.sub(_fix_caps_word, text)
-    # 3. Strip characters TTS engines choke on, collapse whitespace.
-    clean = re.sub(r"[^\w\s.,!?'\"−]", "", text)
+    # 6. Strip non-standard characters, preserving standard hyphens and apostrophes
+    clean = re.sub(r"[^\w\s.,!?'\"−\-]", "", text)
     return re.sub(r"\s+", " ", clean).strip()
+
+
+def apply_asr_corrections(token: str) -> str:
+    """Correct phonetic misrecognitions from Whisper transcription."""
+    t_clean = token.strip().upper()
+    return ASR_CORRECTIONS.get(t_clean, token)
 
 
 def generate_fallback_srt(text: str, duration: float, srt_path: str) -> bool:
@@ -171,6 +246,61 @@ def generate_fallback_srt(text: str, duration: float, srt_path: str) -> bool:
         return True
     except Exception:
         return False
+
+
+def transcribe_and_create_srt(wav_path: str, srt_path: str, clean_text: str, duration: float) -> bool:
+    """
+    Transcribe wav_path with Faster-Whisper, apply ASR phonetic corrections,
+    and export max-3-word chunked subtitles in SRT format.
+    Falls back to generate_fallback_srt if transcription fails.
+    """
+    try:
+        print("📝 [VOICE] Transcribing and Chunking Captions (Max 3 words)...")
+        whisper = get_whisper_model()
+        segments, _ = whisper.transcribe(wav_path, language="en", word_timestamps=True)
+
+        srt_lines = []
+        idx = 1
+        for segment in segments:
+            chunk = []
+            chunk_start = None
+            for word in (segment.words or []):
+                if chunk_start is None:
+                    chunk_start = word.start
+                corrected_word = apply_asr_corrections(word.word.strip().upper())
+                chunk.append(corrected_word)
+
+                if len(chunk) >= 3:
+                    end = word.end
+                    srt_lines.append(
+                        f"{idx}\n{format_time(chunk_start)} --> {format_time(end)}\n"
+                        f"{' '.join(chunk)}\n"
+                    )
+                    idx += 1
+                    chunk = []
+                    chunk_start = None
+
+            if chunk:
+                srt_lines.append(
+                    f"{idx}\n{format_time(chunk_start)} --> {format_time(segment.words[-1].end)}\n"
+                    f"{' '.join(chunk)}\n"
+                )
+                idx += 1
+
+        if srt_lines:
+            with open(srt_path, "w", encoding="utf-8") as f:
+                f.write("\n".join(srt_lines))
+            return True
+        else:
+            generate_fallback_srt(clean_text, duration, srt_path)
+            return False
+
+    except Exception as e:
+        trace = traceback.format_exc()
+        print(f"⚠️ [VOICE] Whisper failed:\n{trace}")
+        generate_fallback_srt(clean_text, duration, srt_path)
+        return False
+
 
 
 def _get_kokoro_to_groq_map() -> dict:
@@ -326,76 +456,7 @@ def generate_audio(text: str, output_base: str = "temp_audio",
     if kokoro_voice not in valid_kokoro:
         kokoro_voice = "am_adam"
 
-    # ── Primary: EdgeTTS (Microsoft Azure Neural Voices) ──────────────────────
-    try:
-        # 1-to-1 mapping to maintain strict consistency with the script generator's chosen actor
-        edge_voice_map = {
-            "am_adam": "en-US-ChristopherNeural", # Deep / Serious / Documentary
-            "am_michael": "en-US-AndrewNeural",   # Energetic / Fast / Punchy
-            "af_bella": "en-US-AnaNeural",        # Warm / Storytelling / Friendly
-            "af_sarah": "en-US-AriaNeural"        # Bright / Professional / Clear
-        }
-        edge_voice = edge_voice_map.get(target_voice, "en-US-ChristopherNeural")
-        print(f"🎙️ [VOICE] Attempting EdgeTTS ({edge_voice})...")
-        
-        # We save directly to wav_path. pydub in trim_audio_precision will read the MP3-encoded file natively and export as true WAV.
-        res = subprocess.run(
-            ["edge-tts", "--voice", edge_voice, "--rate=-10%", "--text", clean_text, "--write-media", wav_path],
-            capture_output=True, text=True, timeout=60
-        )
-        if res.returncode == 0 and os.path.exists(wav_path):
-            ok, duration = trim_audio_precision(wav_path)
-            if ok and duration > 0:
-                try:
-                    print("📝 [VOICE] Transcribing and Chunking Captions (Max 3 words)...")
-                    whisper = get_whisper_model()
-                    segments, _ = whisper.transcribe(wav_path, language="en", word_timestamps=True)
-
-                    srt_lines = []
-                    idx = 1
-                    for segment in segments:
-                        chunk       = []
-                        chunk_start = None
-                        for word in (segment.words or []):
-                            if chunk_start is None:
-                                chunk_start = word.start
-                            chunk.append(word.word.strip().upper())
-
-                            if len(chunk) >= 3:
-                                end = word.end
-                                srt_lines.append(
-                                    f"{idx}\n{format_time(chunk_start)} --> {format_time(end)}\n"
-                                    f"{' '.join(chunk)}\n"
-                                )
-                                idx         += 1
-                                chunk        = []
-                                chunk_start  = None
-
-                        if chunk:
-                            srt_lines.append(
-                                f"{idx}\n{format_time(chunk_start)} --> {format_time(segment.words[-1].end)}\n"
-                                f"{' '.join(chunk)}\n"
-                            )
-                            idx += 1
-
-                    if srt_lines:
-                        with open(srt_path, "w", encoding="utf-8") as f:
-                            f.write("\n".join(srt_lines))
-                    else:
-                        generate_fallback_srt(clean_text, duration, srt_path)
-
-                except Exception as e:
-                    print(f"⚠️ [VOICE] Whisper failed: {e}")
-                    generate_fallback_srt(clean_text, duration, srt_path)
-
-                print(f"✅ [TTS] EdgeTTS — {duration:.1f}s | Voice: {edge_voice} | Mood: {mood}")
-                return True, "EdgeTTS", duration
-        else:
-            print(f"⚠️ [TTS] EdgeTTS failed. Fallback to Kokoro. Error: {res.stderr}")
-    except Exception as e:
-        print(f"⚠️ [TTS] EdgeTTS exception: {e}. Fallback to Kokoro.")
-
-    # ── Fallback 1: Kokoro TTS with emotion preprocessing ─────────────────────
+    # ── Primary: Kokoro TTS with emotion preprocessing ───────────────────────
     try:
         import numpy as np
         import soundfile as sf
@@ -403,6 +464,7 @@ def generate_audio(text: str, output_base: str = "temp_audio",
         kokoro_text  = _inject_kokoro_emotion(clean_text, mood)
         pipeline     = get_kokoro_pipeline()
         audio_chunks = []
+        print(f"🎙️ [VOICE] Attempting Kokoro TTS ({kokoro_voice})...")
 
         for _, _, audio in pipeline(kokoro_text, voice=kokoro_voice, speed=tts_speed):
             if audio is not None:
@@ -413,57 +475,47 @@ def generate_audio(text: str, output_base: str = "temp_audio",
             sf.write(wav_path, full_audio, 24000)
             ok, duration = trim_audio_precision(wav_path)
             if ok and duration > 0:
-                try:
-                    print("📝 [VOICE] Transcribing and Chunking Captions (Max 3 words)...")
-                    whisper = get_whisper_model()
-                    segments, _ = whisper.transcribe(wav_path, language="en", word_timestamps=True)
-
-                    srt_lines = []
-                    idx = 1
-                    for segment in segments:
-                        chunk       = []
-                        chunk_start = None
-                        for word in (segment.words or []):
-                            if chunk_start is None:
-                                chunk_start = word.start
-                            chunk.append(word.word.strip().upper())
-
-                            if len(chunk) >= 3:
-                                end = word.end
-                                srt_lines.append(
-                                    f"{idx}\n{format_time(chunk_start)} --> {format_time(end)}\n"
-                                    f"{' '.join(chunk)}\n"
-                                )
-                                idx         += 1
-                                chunk        = []
-                                chunk_start  = None
-
-                        if chunk:
-                            srt_lines.append(
-                                f"{idx}\n{format_time(chunk_start)} --> {format_time(segment.words[-1].end)}\n"
-                                f"{' '.join(chunk)}\n"
-                            )
-                            idx += 1
-
-                    if srt_lines:
-                        with open(srt_path, "w", encoding="utf-8") as f:
-                            f.write("\n".join(srt_lines))
-                    else:
-                        generate_fallback_srt(clean_text, duration, srt_path)
-
-                except Exception as e:
-                    trace = traceback.format_exc()
-                    print(f"⚠️ [VOICE] Whisper failed:\n{trace}")
-                    generate_fallback_srt(clean_text, duration, srt_path)
-
+                transcribe_and_create_srt(wav_path, srt_path, clean_text, duration)
                 print(f"✅ [TTS] Kokoro — {duration:.1f}s | Voice: {kokoro_voice} | Mood: {mood}")
                 return True, "Kokoro", duration
+            else:
+                print("⚠️ [TTS] Kokoro produced empty/invalid audio. Fallback to EdgeTTS.")
+        else:
+            print("⚠️ [TTS] Kokoro produced no audio chunks. Fallback to EdgeTTS.")
 
     except Exception as e:
         trace = traceback.format_exc()
-        print(f"⚠️ [TTS] Kokoro failed:\n{trace}")
+        print(f"⚠️ [TTS] Kokoro failed:\n{trace}\nFallback to EdgeTTS.")
 
-    # ── Fallback: Groq Orpheus TTS with native emotion tags ───────────────────
+    # ── Fallback 1: EdgeTTS (Microsoft Azure Neural Voices) ───────────────────
+    try:
+        # 1-to-1 mapping to maintain strict consistency with the script generator's chosen actor
+        edge_voice_map = {
+            "am_adam": "en-US-ChristopherNeural", # Deep / Serious / Documentary
+            "am_michael": "en-US-AndrewNeural",   # Energetic / Fast / Punchy
+            "af_bella": "en-US-AnaNeural",        # Warm / Storytelling / Friendly
+            "af_sarah": "en-US-AriaNeural"        # Bright / Professional / Clear
+        }
+        edge_voice = edge_voice_map.get(target_voice, "en-US-ChristopherNeural")
+        print(f"🎙️ [VOICE] Attempting EdgeTTS ({edge_voice})...")
+
+        # pydub in trim_audio_precision will read the MP3-encoded file natively and export as true WAV.
+        res = subprocess.run(
+            ["edge-tts", "--voice", edge_voice, "--rate=-10%", "--text", clean_text, "--write-media", wav_path],
+            capture_output=True, text=True, timeout=60
+        )
+        if res.returncode == 0 and os.path.exists(wav_path):
+            ok, duration = trim_audio_precision(wav_path)
+            if ok and duration > 0:
+                transcribe_and_create_srt(wav_path, srt_path, clean_text, duration)
+                print(f"✅ [TTS] EdgeTTS — {duration:.1f}s | Voice: {edge_voice} | Mood: {mood}")
+                return True, "EdgeTTS", duration
+        else:
+            print(f"⚠️ [TTS] EdgeTTS failed. Fallback to Groq Orpheus. Error: {res.stderr}")
+    except Exception as e:
+        print(f"⚠️ [TTS] EdgeTTS exception: {e}. Fallback to Groq Orpheus.")
+
+    # ── Fallback 2: Groq Orpheus TTS with native emotion tags ─────────────────
     try:
         voice_map     = _get_kokoro_to_groq_map()
         groq_voice    = voice_map.get(target_voice) if target_voice else None
