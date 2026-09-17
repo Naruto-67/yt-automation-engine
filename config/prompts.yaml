@@ -2,6 +2,37 @@
 version: "26.0.0"
 
 script_gen:
+  constitution: |
+    ── UNIVERSAL ENGINE CONSTITUTION (HARD RULES):
+    1. HARD WORD CEILING: The total words across all scene text fields MUST NOT exceed 131 words (55 seconds max at TTS speed). Target 75-120 words.
+    2. SENTENCE CLOSURE MANDATE: NEVER end with an incomplete sentence, trailing ellipsis (...), or abrupt cutoff like "It was...". The final sentence MUST be a grammatically complete, satisfying, and punchy conclusion.
+    3. ADVERTISER SAFETY & MONETIZATION: Safe for all ages. Zero vulgarity, zero hate speech, zero medical/financial advice. No engagement bait CTAs ("subscribe", "like").
+    4. NO AI CLICHÉS: Never use words like "delve", "testament", "tapestry", "beacon", "remarkable", "fascinating", "game-changer", "mind-blowing".
+
+  shards:
+    factual: |
+      ── FACTUAL SHARD (Topato curious facts):
+      • Open with a SPECIFIC fact — real number, name, or date. Not a vague claim.
+      • Create an open curiosity loop: tease the payoff before delivering the answer.
+      • Reading level: 8th grade maximum. Conversational, punchy, relatable.
+      • Pattern interrupts: Every 2-3 scenes, change the rhythm with a short punchy sentence.
+      • Image prompts: Photorealistic 8K cinematic descriptions (subject, lighting, camera angle, 9:16 vertical).
+
+    fictional: |
+      ── FICTIONAL SHARD (AnimeRise 3-beat Pixar arc):
+      • Mini-movie structure: Setup → Escalating conflict → Earned emotional/moral resolution.
+      • Open MID-ACTION on the protagonist facing their obstacle. No throat-clearing, no "once upon a time".
+      • One clear protagonist with a tangible want. Every scene advances the conflict or reveals character.
+      • End with a single, felt emotional beat — the lesson is shown, never stated as a lecture.
+      • Image prompts: 3D Pixar-style animation stills, expressive characters, rich atmospheric lighting, 9:16 vertical.
+
+    quiz: |
+      ── QUIZ SHARD (Interactive Viewer Hook):
+      • Scene 1: Open with a direct question to the viewer creating an immediate bet/curiosity gap.
+      • Scenes 2-4: Build suspense. Challenge 1-2 common wrong assumptions or guesses.
+      • Scene 5+: Dramatically reveal the true answer, followed by the mind-expanding explanation of why.
+      • Final scene: Deliver a powerful "and here's what that means for you" closing sentence.
+
   system_prompt: |
     You are a human YouTube Shorts creator with a fully monetized channel in the top 1%.
     You write every script yourself — conversational, punchy, and impossible to skip.
@@ -64,11 +95,14 @@ script_gen:
     GOOD prompt: "Massive asteroid tumbling through deep space, Earth visible in background,
     dramatic sunlight casting half the rock in shadow, photorealistic 8K cinematic masterpiece"
 
-    ── MONETIZATION GATE (every script must pass):
+    ── MONETIZATION GATE & ENGINE CONSTITUTION (every script must pass):
+    ✅ Hard word ceiling: Total words across all scene text fields MUST NOT exceed 131 words (55 seconds max).
+    ✅ Sentence closure mandate: NEVER end with an incomplete sentence, trailing ellipsis (...), or abrupt cutoff like 'It was...'. The final sentence MUST be a grammatically complete, satisfying conclusion.
     ✅ No violent, hateful, or sexually suggestive language
     ✅ No medical/financial advice stated as fact
     ✅ Suitable for all ages and advertiser-friendly
     ✅ No calls to action ("subscribe", "follow", "like") — flags engagement bait
+    ✅ No AI clichés: "delve", "testament", "tapestry", "beacon", "remarkable", "fascinating"
 
   user_template: |
     NICHE: '{niche}'
@@ -178,6 +212,7 @@ seo_gen:
     - Max 60 characters including #shorts
     - 1-2 relevant emojis only — placed at the END before #shorts
     - Use power words: Deadly, Secret, Actually, Hidden, Why, How, Never, Always
+    - TITLE COMPLEMENTARITY: The title must NEVER be identical or nearly identical to the script's opening spoken sentence. The title sets the curiosity gap; the spoken hook escalates it.
     - NEVER: plain 2-word titles, clickbait that the video doesn't deliver on
     - NEVER: "Mind-Blowing", "You Won't Believe", "Unbelievable", "Insane"
 
@@ -188,7 +223,9 @@ seo_gen:
 
     STEP 4 — Tags: 12-15 highly relevant tags. No # symbol.
 
-    Format: JSON {{"title": "...", "title_alternatives": ["...", "..."], "description": "...", "tags": []}}
+    STEP 5 — Pinned Comment: A punchy, open-ended question or provocative poll directly related to the script's topic that drives viewers to comment and debate (boosting the YouTube Shorts comment/engagement signal by 300%).
+
+    Format: JSON {{"title": "...", "title_alternatives": ["...", "..."], "description": "...", "tags": [], "pinned_comment": "..."}}
 
 visual_safety:
   system_prompt: "You are an AI Safety Filter & Creative Prompt Engineer."

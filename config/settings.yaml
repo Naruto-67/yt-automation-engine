@@ -293,5 +293,17 @@ research:
 # One video per channel is produced as a downloadable GitHub Actions artifact.
 test_mode:
   test_topics:
-    CH_01: "A small leaf discovers it holds an entire forgotten world on its surface"
-    CH_02: "The human brain generates enough electricity to power a small LED light bulb"
+    CH_01: "A discarded brass compass in an antique shop refuses to point North, guiding a lonely wooden marionette toward something far more important"
+    CH_02: "The immortal jellyfish can hit rewind on its own lifecycle and revert back into a baby whenever it gets sick or injured"
+
+# ─── MONETIZATION & CONVERSION ────────────────────────────────────────────────
+# Configures affiliate links, description CTAs, and pinned comment strategy
+# for YouTube Shorts monetization and RPM optimization ($0.05 - $0.28+).
+monetization:
+  enabled: true
+  description_cta: "Discover more curiosities and tools below:"
+  cta_text: "Discover more curiosities and tools below:"
+  affiliate_link: "" # Add your affiliate/store link here
+  cta_url: ""        # Alias for affiliate_link
+  pinned_comment_enabled: true
+
