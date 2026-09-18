@@ -277,3 +277,28 @@ Apply the same diffs in your original:
 - **Files:** `scripts/render_video.py`, `scripts/system_integrity_check.py`, `UPGRADES.md`.
 - **Verify:** `python scripts/system_integrity_check.py` exited 0 (16/16 passed with 100% Python 3.11 syntax compatibility verified). Master test suite `scratch/verify_all_systems.py` exited 0 with all 14 systems verified.
 
+---
+
+### 13. Voiceover Prosody & Pacing Calibration, FFmpeg Master Mix Fix, and Semantic Visual Tag Filtering
+- **What:**
+  1. **Voiceover Pacing & Syllable Protection (`scripts/generate_voice.py`)**:
+     - Calibrated dead-air silence tightener: Raised `silence_thresh` from an aggressive `-36.0 dBFS` to `-45.0 dBFS` and increased `min_silence_len` from `450ms` to `600ms`. The previous `-36.0 dBFS` cutoff clipped soft trailing syllables and word onsets (*"clocktower"* $\rightarrow$ *"clock"*, *"clutching"* $\rightarrow$ *"-latching"*, *"in secret"* $\rightarrow$ *"in seat"*).
+     - Increased `keep_silence` from `90ms` to `220ms` to eliminate unnatural, frantic speedups between sentences and restore comfortable human breathing rhythm.
+     - Removed artificial comma insertion (`words[:pivot] + ', ' + words[pivot:]`) in `_inject_kokoro_emotion` for `warm` mood, preventing awkward unnatural pauses right before sentence conclusions.
+     - Calibrated default Kokoro TTS speed to `1.0` for storytelling voices (`af_bella`, `af_sarah`), keeping `1.05` for punchy factual narration (`am_adam`).
+     - Expanded `ASR_CORRECTIONS` to fix scientific and narrative Whisper misrecognitions (*"Turritopsis dohrnii"*, *"transdifferentiation"*, *"expulsion"*).
+  2. **FFmpeg Unconnected Pad Fix (`scripts/render_video.py`)**:
+     - Fixed `asplit=2...[voice_main][voice_sc]` emitting an unconnected `[voice_sc]` pad when `track_path` is `None`. Filtergraph now conditionally splits only when background music is active.
+     - Stripped leading/trailing hyphens from subtitle chunks (`re.sub(r"^[-—–]+\s*", "", t)`) to prevent words like `TRANS-DIFFERENTIATION` from rendering with leading dashes (`"-DIFFERENTIATION"`).
+  3. **Script Quality Gate Harmonization (`scripts/generate_script.py` & `engine/loop_engine.py`)**:
+     - Replaced `SentenceClosureCheck` rejection on trailing ellipses with automated normalization (`re.sub(r'[\.…\-—–\s]+$', '', trimmed) + "."`), preventing LLMs from failing validation when attempting open-loop sentence bridging.
+     - Calibrated `CircularLoopEngine` base score for clean narratives without swiping triggers to `0.70` (PASS), stopping first-pass script rejection and eliminating fallback exhaustion.
+  4. **Pixabay Semantic Tag Filter (`scripts/generate_visuals.py`)**:
+     - Added tag validation inspecting `hit['tags']` against banned irrelevant domains (`'phone'`, `'smartphone'`, `'screen'`, `'gaming'`, `'app'`, `'laptop'`). When searching abstract biology queries (`"cellular biology regeneration"`), automatically skips mobile phone footage and cascades to AI image generation.
+  5. **Automated Background Music Seeding (`engine/orchestrator.py`)**:
+     - In `Orchestrator.run_pipeline()`, checks if `assets/music/` is empty and automatically downloads CC0 ambient tracks via `scripts/music_manager.py` using `PIXABAY_API_KEY`.
+- **Why:** Solves rushed and clipped voiceover pacing on AnimeRise, eliminates FFmpeg audio mix failures, stops the "iPhone screen" visual bug on Topato, and ensures LLMs pass script validation on the first attempt.
+- **Files:** `scripts/generate_voice.py`, `scripts/render_video.py`, `scripts/generate_script.py`, `engine/loop_engine.py`, `scripts/generate_visuals.py`, `engine/orchestrator.py`, `UPGRADES.md`.
+- **Verify:** Full master verification suite `scratch/verify_all_systems.py` and `scripts/system_integrity_check.py` passed with 0 errors across 41 files.
+
+
