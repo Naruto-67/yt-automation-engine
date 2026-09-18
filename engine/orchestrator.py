@@ -76,13 +76,17 @@ class Orchestrator:
 
         # ── Ensure Background Music Cache ─────────────────────────────────────
         try:
-            from scripts.music_manager import seed_music_library, _MUSIC_ROOT
-            music_files = glob.glob(os.path.join(_MUSIC_ROOT, "*", "*.mp3"))
-            if not music_files and os.environ.get("PIXABAY_API_KEY"):
-                logger.engine("🎵 [MUSIC] Empty music library detected. Seeding from Pixabay...")
+            from scripts.music_manager import seed_music_library, _MUSIC_ROOT, AUDIO_EXTENSIONS
+            music_files = []
+            if os.path.isdir(_MUSIC_ROOT):
+                for ext in AUDIO_EXTENSIONS:
+                    music_files.extend(glob.glob(os.path.join(_MUSIC_ROOT, "*", ext)))
+            valid_music = [f for f in music_files if os.path.isfile(f) and os.path.getsize(f) > 4096]
+            if not valid_music:
+                logger.engine("🎵 [MUSIC] No background music detected. Synthesizing procedural fallback tracks...")
                 seed_music_library()
         except Exception as e:
-            logger.engine(f"⚠️ [MUSIC] Automatic music seed skipped: {e}")
+            logger.engine(f"ℹ️ [MUSIC] Background music check bypassed: {e}")
 
         global_produced = 0  
         global_failed = False  # 🚨 FIX: Initialized here to prevent NameError on sys.exit
