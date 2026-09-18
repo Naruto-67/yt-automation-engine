@@ -260,3 +260,20 @@ Apply the same diffs in your original:
 - **Why:** Delivers a modern 2026 YouTube Shorts retention architecture with seamless looping (>100% APV), verified empirical facts, zero-hallucination scriptwriting, pre-flight frame safety, contextual transition SFX, kinetic progress bars, C++ acceleration, native MCP tooling, and automated integrity validation.
 - **Files:** `engine/fact_grounding.py`, `engine/loop_engine.py`, `engine/vision_critic.py`, `engine/sfx_manager.py`, `engine/kinetic_overlays.py`, `render/kinetic_renderer.js`, `render/package.json`, `mcp/ghost_engine_server.py`, `mcp/README.md`, `scripts/system_integrity_check.py`, `.github/dependabot.yml`, `.github/workflows/01_daily_pipeline.yml`, `requirements.txt`, `config/prompts.yaml`, `scripts/generate_script.py`, `scripts/generate_visuals.py`, `scripts/render_video.py`, `scripts/generate_voice.py`, `engine/decision_log.py`, `README.md`, `UPGRADES.md`.
 - **Verify:** `python scripts/system_integrity_check.py` exited 0 (16/16 checks passed). Master test suite `scratch/verify_all_systems.py` exited 0 (14/14 systems passed). `python -m compileall -q .` exited 0 across all 41 Python files.
+
+---
+
+### 12. Python 3.11 Backward Compatibility Fix & Pre-Flight AST Syntax Guard
+- **What:**
+  1. **Python 3.11 f-string Syntax Fix (`scripts/render_video.py`)**:
+     - In Python 3.11 (the GitHub Actions CI runtime), backslashes inside f-string expression braces (`{...}`) are strictly illegal and raise `SyntaxError: f-string expression part cannot include a backslash` (PEP 701 only lifted this in Python 3.12+).
+     - In `scripts/render_video.py`, extracted the pattern interrupt zoom expression `initial_zoom_expr = r"if(lte(on\, 36)\, 1.15-(0.10*(on/36))\, 1.05)" if index == 0 else "1.05"` out of the inline f-string ternary expression into a dedicated variable.
+     - Zero backslashes remain inside `{...}` braces across the entire codebase.
+  2. **Automated Python 3.11 AST Compatibility Checker (`scripts/system_integrity_check.py`)**:
+     - Upgraded `check_python_syntax()` to not only compile via `py_compile`, but also parse the AST of all 41 Python files and inspect every `ast.FormattedValue` node.
+     - Guarantees that any accidental future Python 3.12+ f-string syntax (backslashes in `{...}`) is caught and flagged locally before reaching the GitHub Actions runner.
+     - Expanded error logging to display the exact offending file, line number, and error message instead of truncating at 80 characters.
+- **Why:** Resolves the GitHub Actions CI compilation failure on Ubuntu 24.04 / Python 3.11.16, ensuring 100% clean pre-flight integrity passes across all environments.
+- **Files:** `scripts/render_video.py`, `scripts/system_integrity_check.py`, `UPGRADES.md`.
+- **Verify:** `python scripts/system_integrity_check.py` exited 0 (16/16 passed with 100% Python 3.11 syntax compatibility verified). Master test suite `scratch/verify_all_systems.py` exited 0 with all 14 systems verified.
+
