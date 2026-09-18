@@ -1,0 +1,67 @@
+{
+  "CH_01": [
+    {
+      "pattern_id": "seed_ch01_clocktower_apprentice",
+      "channel_id": "CH_01",
+      "content_type": "fictional",
+      "topic": "A clockmaker apprentice risks everything to save the city's ancient clocktower",
+      "pillar": "character_hero_arc",
+      "hook_text": "Before dawn broke over the city of gears, a young apprentice named Leo slipped into the great clocktower.",
+      "full_script": "Before dawn broke over the city of gears, a young apprentice named Leo slipped into the great clocktower, clutching a brass wing he spent three months forging in secret. The master watchmaker stepped from the shadows, warning that testing unapproved machinery over the jagged canyon meant instant expulsion from the guild. Suddenly, an iron cable snapped with a deafening screech, sending a runaway passenger cart hurtling toward the cliff edge. Without hesitating, Leo strapped on his untested gliders, dove off the tower into the howling wind, and wedged the forged wing into the emergency brake track. The metal screamed, sparks showering the dawn sky as the wheels locked inches from the drop. Through the smoke, the master offered a silent, respectful nod. The apprentice was now a master.",
+      "word_count": 122,
+      "scene_count": 4,
+      "visual_style": "3D Pixar-style digital animation, expressive characters, volumetric dawn lighting, vertical 9:16",
+      "performance_score": 9.5,
+      "retention_pct": 78.4,
+      "created_at": "2026-09-18T00:00:00Z"
+    },
+    {
+      "pattern_id": "seed_ch01_lighthouse_keeper",
+      "channel_id": "CH_01",
+      "content_type": "fictional",
+      "topic": "A rookie lighthouse keeper braves a hurricane to relight the dying beacon",
+      "pillar": "perseverance_underdog",
+      "hook_text": "Sixty-foot waves battered the granite tower as fourteen-year-old Toby realized the beacon had gone dark.",
+      "full_script": "Sixty-foot waves battered the granite tower as fourteen-year-old Toby realized the primary beacon had gone dark. Three fishing boats were caught in the reef below, their frantic horns swallowed by the hurricane. The mechanical lift was completely smashed by seawater, leaving only an icy iron ladder scaling the exterior spire. Clutching a heavy spare quartz bulb inside his coat, Toby stepped out into the freezing gale, his fingers numb as seventy-mile-per-hour gusts threatened to tear him into the churning abyss. Step by agonizing step he climbed, locking the new bulb into the bronze socket with his last ounce of strength. A brilliant golden beam sliced through the darkness, illuminating safe water just in time for the fleet. True bravery is not the absence of fear, but moving forward when fear screams to stop.",
+      "word_count": 124,
+      "scene_count": 4,
+      "visual_style": "3D animated cinematic render, dramatic storm lighting, crashing ocean waves, vertical 9:16",
+      "performance_score": 9.3,
+      "retention_pct": 76.1,
+      "created_at": "2026-09-18T00:00:00Z"
+    }
+  ],
+  "CH_02": [
+    {
+      "pattern_id": "seed_ch02_immortal_jellyfish",
+      "channel_id": "CH_02",
+      "content_type": "factual",
+      "topic": "The immortal jellyfish can reverse its own aging cycle indefinitely",
+      "pillar": "biological_marvels",
+      "hook_text": "There is an organism on Earth that has achieved biological immortality, and it lives in the Mediterranean Sea.",
+      "full_script": "There is an organism on Earth that has achieved biological immortality, and it lives in the Mediterranean Sea. The tiny jellyfish Turritopsis dohrnii is only four millimeters wide, but when starved, injured, or facing old age, it does not die. Instead, it activates a rare cellular process called transdifferentiation. Its mature muscle and nerve cells actively reprogram themselves into undifferentiated stem cells. Over three days, the adult jellyfish completely absorbs its own tentacles and bells, sinking to the ocean floor as a blob. From this blob, a brand new polyp colony sprouts, producing dozens of genetically identical clones. In theory, this cellular reset can repeat indefinitely, making it biologically capable of living forever.",
+      "word_count": 111,
+      "scene_count": 4,
+      "visual_style": "Photorealistic 8K underwater macro, glowing Turritopsis dohrnii jellyfish, bioluminescence, vertical 9:16",
+      "performance_score": 9.7,
+      "retention_pct": 82.5,
+      "created_at": "2026-09-18T00:00:00Z"
+    },
+    {
+      "pattern_id": "seed_ch02_tardigrade_cryptobiosis",
+      "channel_id": "CH_02",
+      "content_type": "factual",
+      "topic": "Tardigrades survive the vacuum of space by turning their bodies into glass",
+      "pillar": "extreme_survival",
+      "hook_text": "Microscopic tardigrades have survived all five mass extinctions on Earth, and they can survive the vacuum of space.",
+      "full_script": "Microscopic tardigrades have survived all five mass extinctions on Earth, and they can survive the vacuum of space. When conditions turn lethal, tardigrades enter a state called cryptobiosis. They expel ninety-nine percent of the water from their bodies, shrink into a compact barrel shape called a tun, and replace liquid water with specialized protective proteins that turn their cytoplasm into biological glass. In this glass state, their metabolic activity drops to less than zero point zero one percent of normal. They have endured minus three hundred twenty-eight degrees, boiling temperatures, and cosmic radiation a thousand times stronger than human lethal limits. Add a single drop of water thirty years later, and within minutes, they wake up, eat, and continue living.",
+      "word_count": 118,
+      "scene_count": 4,
+      "visual_style": "Photorealistic electron microscope 8K, tardigrade tun state, deep cosmic background, vertical 9:16",
+      "performance_score": 9.6,
+      "retention_pct": 79.8,
+      "created_at": "2026-09-18T00:00:00Z"
+    }
+  ]
+}
+
