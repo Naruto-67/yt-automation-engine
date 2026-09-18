@@ -20,14 +20,14 @@ channels:
     discord_webhook_env: "DISCORD_WEBHOOK_CH1"
     active: true
     creative_lenses:
-      - "The secret, unseen lives of everyday inanimate objects"
-      - "Unlikely and dangerous animal friendships in harsh environments"
-      - "Miniature, hidden civilizations living right beneath human feet"
-      - "The emotional journey of a discarded, obsolete piece of technology"
-      - "Magical realism intersecting with a mundane, normal human life"
-      - "The personification of abstract concepts, elements, or emotions"
-      - "A massive, epic adventure undertaken by the smallest possible creature"
-      - "A misunderstanding between a gentle monster and a terrified human"
+      - "A determined young apprentice who takes a daring risk to fix a master's mistake"
+      - "Two sworn rivals forced to cooperate to escape an ancient subterranean labyrinth"
+      - "An outcast inventor whose rejected creation saves their entire village"
+      - "A fearless young scout venturing into forbidden territory to rescue a lost friend"
+      - "A rookie pilot navigating their first solo flight through an uncharted storm"
+      - "A stubborn street kid who discovers they possess a rare, untamed magical gift"
+      - "A solitary guardian protecting the last sanctuary from encroaching darkness"
+      - "An unlikely friendship between a gentle giant creature and a courageous child"
 
   - id: "CH_02"
     name: "Topato"

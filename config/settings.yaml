@@ -293,8 +293,47 @@ research:
 # One video per channel is produced as a downloadable GitHub Actions artifact.
 test_mode:
   test_topics:
-    CH_01: "A discarded brass compass in an antique shop refuses to point North, guiding a lonely wooden marionette toward something far more important"
-    CH_02: "The immortal jellyfish can hit rewind on its own lifecycle and revert back into a baby whenever it gets sick or injured"
+    CH_01: "A young blacksmith's apprentice secretly crafts a mechanical bird to save a trapped mountain climber, defying guild rules"
+    CH_02: "The immortal jellyfish Turritopsis dohrnii can revert its mature cells back into polyp cells, theoretically living forever"
+
+  channel_default_scripts:
+    CH_01:
+      mood: "warm"
+      caption_style: "storytelling"
+      glow_color: "&H00FFD700"
+      voice: "af_bella"
+      scenes:
+        - text: "Before dawn broke over the city of gears, a young apprentice named Leo slipped into the great clocktower, clutching a brass wing he spent three months forging in secret."
+          image_prompt: "3D Pixar-style digital animation, determined young boy holding mechanical brass wing inside enormous clocktower, glowing dawn sunlight through gears, vertical 9:16"
+          pexels_query: "clockwork gears antique"
+        - text: "The master watchmaker stepped from the shadows, warning that testing unapproved machinery over the jagged canyon meant instant expulsion from the guild."
+          image_prompt: "3D animated scene, stern elderly master watchmaker looking down at brave boy apprentice, atmospheric shadows, dramatic lighting, vertical 9:16"
+          pexels_query: "ancient workshop clockmaker"
+        - text: "Suddenly, an iron cable snapped with a deafening screech, sending a runaway passenger cart hurtling toward the cliff edge. Without hesitating, Leo strapped on his untested gliders and dove off the tower into the howling wind."
+          image_prompt: "3D Pixar render, young boy in leather aviator jacket soaring with brass mechanical wings through misty canyon winds, high speed motion blur, vertical 9:16"
+          pexels_query: "glider flying mountain canyon"
+        - text: "He wedged the forged wing directly into the emergency track, the metal screaming as the wheels locked inches from the drop. Through the smoke, the master offered a silent, proud nod. The apprentice was now a master."
+          image_prompt: "3D Pixar style emotional climax, smiling young boy apprentice and smiling master standing beside stopped steam cart, golden sunbeam breakthrough, vertical 9:16"
+          pexels_query: "sunrise over fantasy city"
+
+    CH_02:
+      mood: "wonder"
+      caption_style: "cinematic"
+      glow_color: "&H0000D7FF"
+      voice: "am_adam"
+      scenes:
+        - text: "There is an organism on Earth that has achieved biological immortality, and it lives in the Mediterranean Sea."
+          image_prompt: "Photorealistic 8K cinematic underwater, glowing transparent Turritopsis dohrnii jellyfish pulsing in deep blue ocean abyss, bioluminescent tentacles, vertical 9:16"
+          pexels_query: "jellyfish glowing underwater ocean"
+        - text: "The tiny jellyfish Turritopsis dohrnii is only four millimeters wide, but when starved, injured, or facing old age, it does not die."
+          image_prompt: "Extreme macro 8K photograph of tiny glowing immortal jellyfish drifting through dark clear sea water, volumetric sun rays, vertical 9:16"
+          pexels_query: "macro jellyfish tentacles deep sea"
+        - text: "Instead, it activates a rare cellular process called transdifferentiation, actively reprogramming its adult muscle and nerve cells directly back into juvenile stem cells."
+          image_prompt: "Photorealistic 3D scientific visualization of jellyfish cellular transdifferentiation, glowing biological cells transforming and dividing, 8K render, vertical 9:16"
+          pexels_query: "cellular biology regeneration micro"
+        - text: "Over three days, the entire organism absorbs its own tentacles, sinks to the seafloor as a blob, and regenerates a brand new polyp colony. In theory, this cellular reset can repeat indefinitely."
+          image_prompt: "Photorealistic 8K underwater shot of fresh polyp colony sprouting on ocean floor, glowing with vibrant life, deep blue marine background, vertical 9:16"
+          pexels_query: "underwater marine coral life ocean"
 
 # ─── MONETIZATION & CONVERSION ────────────────────────────────────────────────
 # Configures affiliate links, description CTAs, and pinned comment strategy
