@@ -57,25 +57,21 @@ class FactGroundingEngine:
         }
 
     def _verify_via_gemini_grounding(self, topic: str) -> Optional[Dict[str, Any]]:
-        """Call Gemini Flash with Google Search Grounding to verify scientific mechanisms."""
+        """Call Gemini Flash with Google Search Grounding to verify scientific mechanisms (Fix 1: Chat pattern)."""
         if not self.gemini_key:
             return None
 
         try:
             from google import genai
             from google.genai import types
+            from engine.dynamic_discovery import load_registry
 
-            client = genai.Client(api_key=self.gemini_key, http_options={"timeout": 60000})
+            client = genai.Client(api_key=self.gemini_key, http_options={"timeout": 20000})
 
-            # Check models or use fast Flash
-            model_name = "gemini-2.5-flash"
-            try:
-                from engine.llm_router import llm_router
-                discovered = llm_router._discover_gemini_models()
-                if discovered:
-                    model_name = discovered[0]
-            except Exception:
-                pass
+            # Prefer universal flash-lite anchor for tool grounding
+            registry = load_registry()
+            gold_gemini = registry.get("gold_anchors", {}).get("gemini", ["gemini-flash-lite-latest"])
+            model_name = gold_gemini[0] if gold_gemini else "gemini-flash-lite-latest"
 
             prompt = (
                 f"Verify the factual, scientific, and empirical truth of this topic: \"{topic}\".\n"
@@ -94,18 +90,15 @@ class FactGroundingEngine:
                 "If the topic is completely false or a debunked myth, set verified to false and explain in mechanism."
             )
 
-            # Enable Search Grounding tool
-            gen_cfg = types.GenerateContentConfig(
-                temperature=0.2,
-                tools=[types.Tool(google_search=types.GoogleSearch())],
-                http_options={"timeout": 60000},
-            )
-
-            response = client.models.generate_content(
+            # Fix 1: Use client.chats.create + chat.send_message to eliminate AFC warning
+            chat = client.chats.create(
                 model=model_name,
-                contents=prompt,
-                config=gen_cfg,
+                config=types.GenerateContentConfig(
+                    tools=[types.Tool(google_search=types.GoogleSearch())],
+                    http_options={"timeout": 20000},
+                )
             )
+            response = chat.send_message(prompt)
 
             text = response.text if response and response.text else ""
             if not text:
@@ -121,7 +114,7 @@ class FactGroundingEngine:
             return parsed
 
         except Exception as e:
-            # Non-fatal — fall back to Wikipedia/DuckDuckGo
+            # Non-fatal: Free tier search tool quota exhaustion or timeout falls back cleanly to Wikipedia/DuckDuckGo
             return None
 
     def _verify_via_wikipedia(self, topic: str) -> Optional[Dict[str, Any]]:
