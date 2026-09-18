@@ -15,8 +15,9 @@ TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
 
 def load_config_prompts():
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    with open(os.path.join(root_dir, "config", "prompts.yaml"), "r") as f:
+    with open(os.path.join(root_dir, "config", "prompts.yaml"), "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
+
 
 def _jaccard_similarity(a: str, b: str) -> float:
     ta = set(re.findall(r'[a-z0-9]{2,}', a.lower()))

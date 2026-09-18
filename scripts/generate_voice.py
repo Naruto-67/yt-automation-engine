@@ -19,6 +19,9 @@ _WHISPER_MODEL   = None
 def get_kokoro_pipeline():
     global _KOKORO_PIPELINE
     if _KOKORO_PIPELINE is None:
+        # C/C++ acceleration: configure OpenMP and ONNX CPU thread pool
+        os.environ["OMP_NUM_THREADS"] = "4"
+        os.environ["MKL_NUM_THREADS"] = "4"
         from kokoro import KPipeline
         _KOKORO_PIPELINE = KPipeline(lang_code="a", repo_id="hexgrad/Kokoro-82M")
     return _KOKORO_PIPELINE
@@ -28,7 +31,14 @@ def get_whisper_model():
     global _WHISPER_MODEL
     if _WHISPER_MODEL is None:
         from faster_whisper import WhisperModel
-        _WHISPER_MODEL = WhisperModel("tiny.en", device="cpu", compute_type="int8")
+        # CTranslate2 pure C++ SIMD AVX2 vectorization + 4 CPU threads + INT8 quantization
+        _WHISPER_MODEL = WhisperModel(
+            "tiny.en",
+            device="cpu",
+            compute_type="int8",
+            cpu_threads=4,
+            num_workers=2
+        )
     return _WHISPER_MODEL
 
 
@@ -145,8 +155,8 @@ def _fix_caps_word(m: re.Match) -> str:
 
 # ── Punctuation Normalization Dictionary (OpenMontage prosody & pause control) ───
 PUNCTUATION_NORMALIZATION = {
-    "—": " - ",      # Em-dash: replaces 1.5s dead pause with natural breath pause
-    "–": " - ",      # En-dash: normalized to standard hyphen
+    "—": ", ",       # Em-dash: natural comma breath pause in Kokoro TTS (prevents dead pause or hyphen readout)
+    "–": ", ",       # En-dash: natural comma breath pause in Kokoro TTS
     "…": ".",        # Unicode ellipsis: eliminates trailing TTS freeze
     "“": '"',        # Smart double quote left
     "”": '"',        # Smart double quote right
@@ -159,6 +169,7 @@ PUNCTUATION_NORMALIZATION = {
     "[": ", ",
     "]": ", ",
 }
+
 
 
 # ── Pronunciation & Phonetic Pre-TTS Normalization ────────────────────────────

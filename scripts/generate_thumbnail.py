@@ -1,4 +1,4 @@
-﻿# scripts/generate_thumbnail.py — Ghost Engine
+# scripts/generate_thumbnail.py — Ghost Engine
 """
 Generates a custom YouTube thumbnail for each video.
 
@@ -63,16 +63,47 @@ def generate_thumbnail(image_paths: list, title: str, output_path: str = "thumbn
         print("⚠️ [THUMBNAIL] No scene images available — skipping.")
         return None
 
-    source_image = image_paths[0]
-    if not os.path.exists(source_image):
-        print(f"⚠️ [THUMBNAIL] Source image not found: {source_image}")
+    # Find the first existing media file
+    valid_source = None
+    for candidate in image_paths:
+        if candidate and os.path.exists(candidate):
+            valid_source = candidate
+            break
+
+    if not valid_source:
+        print(f"⚠️ [THUMBNAIL] No existing media files found in: {image_paths}")
         return None
 
+    temp_extracted_frame = None
     try:
         from PIL import Image, ImageDraw
+        import subprocess
+
+        # If the source is a video file (e.g. from Pixabay video fallback), extract frame with ffmpeg
+        if valid_source.lower().endswith((".mp4", ".mov", ".webm", ".mkv", ".avi")):
+            temp_extracted_frame = f"temp_thumb_frame_{os.getpid()}.jpg"
+            cmd = [
+                "ffmpeg", "-y", "-ss", "00:00:01.000",
+                "-i", valid_source,
+                "-vframes", "1",
+                "-q:v", "2",
+                temp_extracted_frame
+            ]
+            res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if res.returncode != 0 or not os.path.exists(temp_extracted_frame):
+                # Fallback to start of video
+                cmd[3] = "00:00:00.000"
+                subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+            if os.path.exists(temp_extracted_frame):
+                source_to_open = temp_extracted_frame
+            else:
+                source_to_open = valid_source
+        else:
+            source_to_open = valid_source
 
         # 1. Load + crop to 16:9 from centre (scene images are 9:16 vertical)
-        img = Image.open(source_image).convert("RGB")
+        img = Image.open(source_to_open).convert("RGB")
         orig_w, orig_h = img.size
         target_ratio = 16 / 9
 
@@ -119,6 +150,12 @@ def generate_thumbnail(image_paths: list, title: str, output_path: str = "thumbn
     except Exception:
         print(f"⚠️ [THUMBNAIL] Generation failed:\n{traceback.format_exc()}")
         return None
+    finally:
+        if temp_extracted_frame and os.path.exists(temp_extracted_frame):
+            try:
+                os.remove(temp_extracted_frame)
+            except Exception:
+                pass
 
 
 def upload_thumbnail(youtube, video_id: str, thumbnail_path: str) -> bool:

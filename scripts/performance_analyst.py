@@ -83,8 +83,9 @@ def _print_growth_diagnosis(channel_name: str, subs: int, analytics: dict, growt
 
 def load_config_prompts():
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    with open(os.path.join(root_dir, "config", "prompts.yaml"), "r") as f:
+    with open(os.path.join(root_dir, "config", "prompts.yaml"), "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
+
 
 def _apply_time_decay(rules: list, timestamps: dict, prefix: str, decay_days: int = 30) -> tuple:
     if not timestamps or not rules:
@@ -431,6 +432,22 @@ def run_daily_analysis():
                             pillar_perf[pillar] = {"videos": 0, "total_views": 0}
                         pillar_perf[pillar]["videos"]      += 1
                         pillar_perf[pillar]["total_views"] += job_views
+
+                        # ── Record winning trajectories in Self-Learning store ─────────
+                        if job.script and (job_views >= 2000 or avg_view_pct >= 65.0):
+                            try:
+                                from engine.self_learning import self_learning
+                                self_learning.record_successful_trajectory(
+                                    channel_id=channel.channel_id,
+                                    topic=job.topic,
+                                    script_text=job.script,
+                                    content_type=getattr(channel, "content_type", "factual"),
+                                    pillar=pillar or "evergreen",
+                                    performance_score=9.2 if job_views >= 5000 else 8.5,
+                                    retention_pct=avg_view_pct if avg_view_pct > 0 else 72.0,
+                                )
+                            except Exception as sle_err:
+                                logger.debug(f"Self-learning record skipped: {sle_err}")
                     except Exception:
                         continue
 

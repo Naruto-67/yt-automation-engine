@@ -12,16 +12,17 @@ from engine.context import ctx
 from engine.logger import logger
 
 _WORDS_PER_SECOND_TTS = 143 / 60.0
-# EdgeTTS runs at --rate=-10% which is ~10% slower than bare Kokoro/Whisper WPM.
-# Using 55s (not 59s) as the effective ceiling prevents audio overflow after TTS synthesis.
+# EdgeTTS/Kokoro: 85 words = ~38s, 125 words = ~53s. 
 _MAX_VIDEO_SECONDS = 55.0
-_ABSOLUTE_WORD_CEILING = int(_MAX_VIDEO_SECONDS * _WORDS_PER_SECOND_TTS)  # → 131 words
+_MIN_WORD_FLOOR = 85       # Minimum 85 words ensures Short is at least 38-40s (monetization sweet spot)
+_ABSOLUTE_WORD_CEILING = 125  # Upper bound prevents exceeding 55s ceiling
 
 
 def load_config_prompts():
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    with open(os.path.join(root_dir, "config", "prompts.yaml"), "r") as f:
+    with open(os.path.join(root_dir, "config", "prompts.yaml"), "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
+
 
 
 def extract_scene_data(scene_dict, fallback_topic: str):
@@ -37,20 +38,33 @@ def validate_script_quality(script_text: str, prompts_cfg: dict,
                             is_fictional: bool = False,
                             parsed_scenes: list = None) -> bool:
     """
-    Quality gate: reject only genuinely bad scripts (score 1-3 out of 10).
-    Enforces deterministic gates before calling the LLM validator:
-    1. SentenceClosureCheck: Reject scripts ending in ellipsis, dashes, dangling conjunctions.
-    2. AI Cliché Gate: Reject scripts with heavy AI filler words.
-    3. Scene Variation Gate: Reject multi-scene scripts where 1 scene monopolizes >50% words.
-    4. Fiction Arc Gate: Check for protagonist markers.
-    5. LLM Validation: Require score >= 4/10.
+    Quality gate enforcing YouTube Shorts retention standards:
+    1. Word Floor & Ceiling: Strict 85-125 words (40-55s duration).
+    2. SentenceClosureCheck: Reject scripts ending in ellipsis, dashes, dangling conjunctions.
+    3. AI Cliché & Template Gate: Reject formulaic open-loop clichés and AI filler.
+    4. Scene Variation Gate: Reject multi-scene scripts where 1 scene monopolizes >50% words.
+    5. Fiction Arc Gate: Require living character protagonist (no inanimate object poetry) and agency.
+    6. Factual Integrity Gate: Require concrete mechanism, numbers, or verifiable scientific terminology.
+    7. LLM Validation: Require score >= 4/10.
     """
     trimmed = script_text.strip()
     if not trimmed:
         print("⚠️ [SCRIPT] Script is empty — retry.")
         return False
 
-    # ── DETERMINISTIC SENTENCE CLOSURE GATE ─────────────────────────────────
+    words = trimmed.split()
+    word_count = len(words)
+
+    # ── 1. HARD WORD FLOOR GATE (40-55s sweet spot) ────────────────────────
+    if word_count < _MIN_WORD_FLOOR:
+        print(f"⚠️ [SCRIPT] Script under word floor ({word_count} words < {_MIN_WORD_FLOOR} words, target 95-120 words for 40-55s) — retry.")
+        return False
+
+    if word_count > _ABSOLUTE_WORD_CEILING:
+        print(f"⚠️ [SCRIPT] Script exceeds word ceiling ({word_count} words > {_ABSOLUTE_WORD_CEILING} words) — retry.")
+        return False
+
+    # ── 2. DETERMINISTIC SENTENCE CLOSURE GATE ─────────────────────────────
     if trimmed[-1] not in {'.', '!', '?', '"', "'", '”', '’'}:
         print(f"⚠️ [SCRIPT] SentenceClosureCheck failed: does not end with terminal punctuation (ends with '{trimmed[-1]}') — retry.")
         return False
@@ -73,40 +87,86 @@ def validate_script_quality(script_text: str, prompts_cfg: dict,
             print(f"⚠️ [SCRIPT] SentenceClosureCheck failed: dangling fragment ('{last_2 or last_1}') — retry.")
             return False
 
-    # ── AI CLICHÉ GATE (OpenMontage vocabulary check) ───────────────────────
-    ai_cliches = {"delve", "testament", "tapestry", "beacon", "in conclusion"}
-    words_lower = set(re.findall(r'\b[a-z]+\b', script_text.lower()))
-    found_cliches = ai_cliches.intersection(words_lower)
-    if found_cliches:
-        print(f"⚠️ [SCRIPT] AI cliché check failed: detected {found_cliches} — retry.")
-        return False
+    # ── 3. AI CLICHÉ & FORMULAIC TEMPLATE GATE ─────────────────────────────
+    banned_phrases = [
+        "stranger than anything you'd expect",
+        "stranger than anything you expect",
+        "changes how you see",
+        "changes how you view",
+        "changes everything you know",
+        "you won't believe",
+        "delve", "testament", "tapestry", "beacon", "in conclusion",
+        "game-changer", "mind-blowing"
+    ]
+    script_lower = trimmed.lower()
+    for bp in banned_phrases:
+        if bp in script_lower:
+            print(f"⚠️ [SCRIPT] Banned formulaic cliché detected ('{bp}') — retry.")
+            return False
 
-    # ── SCENE VARIATION GATE (OpenMontage variation_checker) ────────────────
+    # ── 4. SCENE VARIATION GATE (OpenMontage variation_checker) ────────────
     if parsed_scenes and len(parsed_scenes) >= 3:
-        total_words = len(script_text.split())
-        if total_words > 0:
-            for idx, scene in enumerate(parsed_scenes):
-                narr = scene[0] if isinstance(scene, (list, tuple)) else str(scene)
-                s_words = len(narr.split())
-                if (s_words / total_words) > 0.50:
-                    print(f"⚠️ [SCRIPT] Variation check failed: scene {idx+1} consumes {s_words}/{total_words} words (>50%) — retry.")
-                    return False
+        for idx, scene in enumerate(parsed_scenes):
+            narr = scene[0] if isinstance(scene, (list, tuple)) else str(scene)
+            s_words = len(narr.split())
+            if (s_words / word_count) > 0.50:
+                print(f"⚠️ [SCRIPT] Variation check failed: scene {idx+1} consumes {s_words}/{word_count} words (>50%) — retry.")
+                return False
 
-    # ── FICTION DETERMINISTIC ARC GATE (no extra LLM call) ──────────────────
+    # ── 5. FICTION LIVING CHARACTER & ARC GATE ─────────────────────────────
     if is_fictional:
-        words = script_text.split()
-        if len(words) < 20:
-            print("⚠️ [SCRIPT] Fiction too short to have an arc — retry.")
+        # Require living character entities (human, apprentice, creature, animal) — NOT bare inanimate objects
+        living_entities = [
+            "he", "she", "they", "boy", "girl", "apprentice", "master", "inventor",
+            "keeper", "scout", "pilot", "guardian", "friend", "child", "traveler",
+            "warrior", "blacksmith", "sailor", "rival", "creature", "dog", "cat", "bird"
+        ]
+        has_living = any(re.search(rf"\b{m}\b", script_lower) for m in living_entities)
+        if not has_living:
+            print("⚠️ [SCRIPT] Fiction check failed: lacks living character protagonist (inanimate object poetry is banned) — retry.")
             return False
-        # Character/actor markers: pronouns + action verbs suggest a protagonist.
-        actor_markers = ["he ", "she ", "it ", "they ", "wants", "tries", "must",
-                         "learns", "discovers", "finds", "helps", "meets",
-                         "flees", "crosses", "searches", "escapes", "saves"]
-        marker_hits = sum(1 for m in actor_markers if re.search(rf"\b{m}\b", script_text.lower()))
-        # A story needs SOME protagonist/action signal; hard-fail only when zero.
-        if marker_hits == 0:
-            print("⚠️ [SCRIPT] Fiction script has no protagonist/action signal — retry.")
+
+        # Require protagonist action and decision verbs (present or past tense)
+        action_verbs = [
+            "wants", "wanted", "tries", "tried", "must", "leaps", "leaped", "climbs", "climbed",
+            "forges", "forged", "forging", "decides", "decided", "steps", "stepped", "discovers",
+            "discovered", "finds", "found", "helps", "helped", "meets", "met", "flees", "fled",
+            "crosses", "crossed", "searches", "searched", "escapes", "escaped", "saves", "saved",
+            "dives", "dove", "slipped", "strapped", "ran", "jumped", "built", "chose", "defied",
+            "risked", "confronted", "faced", "learned", "flew", "flies", "wedged"
+        ]
+        has_action = any(re.search(rf"\b{a}\b", script_lower) for a in action_verbs)
+        if not has_action:
+            print("⚠️ [SCRIPT] Fiction check failed: lacks active protagonist decision/action — retry.")
             return False
+
+
+    # ── 6. FACTUAL EMPIRICAL INTEGRITY GATE ────────────────────────────────
+    else:
+        # Require concrete terminology, numbers, or process markers
+        has_specifics = bool(re.search(r'\b\d+\b', trimmed)) or any(
+            k in script_lower for k in [
+                "percent", "species", "process", "cells", "temperature", "years",
+                "meters", "degrees", "called", "known as", "mechanism", "discovered"
+            ]
+        )
+        if not has_specifics:
+            print("⚠️ [SCRIPT] Factual check failed: lacks concrete numbers, entities, or scientific mechanisms — retry.")
+            return False
+
+    # ── 7. SEAMLESS CIRCULAR LOOP GATE (2026 Playbook) ─────────────────────
+    try:
+        from engine.loop_engine import loop_engine
+        sentences = [s.strip() for s in re.split(r'[.!?]+', trimmed) if s.strip()]
+        if len(sentences) >= 2:
+            hook_s = sentences[0]
+            ending_s = sentences[-1]
+            loop_verdict = loop_engine.validate_circular_loop(hook_s, ending_s)
+            if not loop_verdict.get("is_valid", True):
+                print(f"⚠️ [SCRIPT] Circular loop check failed: {loop_verdict.get('reason')} — retry.")
+                return False
+    except Exception as cl_err:
+        logger.debug(f"Circular loop check error: {cl_err}")
 
     sys_msg  = prompts_cfg["script_validation"]["system_prompt"]
     user_msg = prompts_cfg["script_validation"]["user_template"].format(
@@ -160,6 +220,57 @@ _MOOD_TO_CAPTION_STYLE = {
     "excitement": "dynamic_upper",
     "horror":     "horror_tight",
     "warm":       "storytelling",
+}
+
+# ── Channel-Tailored Default & Fallback Scripts (40-55s, 85-125 words) ─────────
+# Handcrafted reference scripts matching the exact narrative rules of each channel.
+_CHANNEL_FALLBACK_SCRIPTS = {
+    "CH_01": {
+        "text": (
+            "Before dawn broke over the city of gears, a young apprentice named Leo slipped into the great clocktower, "
+            "clutching a brass wing he spent three months forging in secret. "
+            "The master watchmaker stepped from the shadows, warning that testing unapproved machinery over the jagged canyon "
+            "meant instant expulsion from the guild. "
+            "Suddenly, an iron cable snapped with a deafening screech, sending a runaway passenger cart hurtling toward the cliff edge. "
+            "Without hesitating, Leo strapped on his untested gliders and dove off the tower into the howling wind. "
+            "He wedged the forged wing directly into the emergency track, the metal screaming as the wheels locked inches from the drop. "
+            "Through the smoke, the master offered a silent, proud nod. The apprentice was now a master."
+        ),
+        "mood": "warm",
+        "caption_style": "storytelling",
+        "glow_color": "&H00FFD700",
+        "voice": "af_bella",
+        "pexels": ["clockwork gears antique", "ancient workshop clockmaker", "glider flying mountain canyon", "sunrise over fantasy city"],
+        "prompts": [
+            "3D Pixar-style digital animation, determined young boy holding mechanical brass wing inside enormous clocktower, glowing dawn sunlight through gears, vertical 9:16",
+            "3D animated scene, stern elderly master watchmaker looking down at brave boy apprentice, atmospheric shadows, dramatic lighting, vertical 9:16",
+            "3D Pixar render, young boy in leather aviator jacket soaring with brass mechanical wings through misty canyon winds, high speed motion blur, vertical 9:16",
+            "3D Pixar style emotional climax, smiling young boy apprentice and smiling master standing beside stopped steam cart, golden sunbeam breakthrough, vertical 9:16",
+        ],
+    },
+    "CH_02": {
+        "text": (
+            "There is an organism on Earth that has achieved biological immortality, and it lives in the Mediterranean Sea. "
+            "The tiny jellyfish Turritopsis dohrnii is only four millimeters wide, but when starved, injured, or facing old age, "
+            "it does not die. "
+            "Instead, it activates a rare cellular process called transdifferentiation, actively reprogramming its adult muscle "
+            "and nerve cells directly back into juvenile stem cells. "
+            "Over three days, the entire organism absorbs its own tentacles, sinks to the seafloor as a blob, "
+            "and regenerates a brand new polyp colony. "
+            "In theory, this cellular reset can repeat indefinitely, making it biologically capable of living forever."
+        ),
+        "mood": "wonder",
+        "caption_style": "cinematic",
+        "glow_color": "&H0000D7FF",
+        "voice": "am_adam",
+        "pexels": ["jellyfish glowing underwater ocean", "macro jellyfish tentacles deep sea", "cellular biology regeneration micro", "underwater marine coral life ocean"],
+        "prompts": [
+            "Photorealistic 8K cinematic underwater, glowing transparent Turritopsis dohrnii jellyfish pulsing in deep blue ocean abyss, bioluminescent tentacles, vertical 9:16",
+            "Extreme macro 8K photograph of tiny glowing immortal jellyfish drifting through dark clear sea water, volumetric sun rays, vertical 9:16",
+            "Photorealistic 3D scientific visualization of jellyfish cellular transdifferentiation, glowing biological cells transforming and dividing, 8K render, vertical 9:16",
+            "Photorealistic 8K underwater shot of fresh polyp colony sprouting on ocean floor, glowing with vibrant life, deep blue marine background, vertical 9:16",
+        ],
+    },
 }
 
 # ── 8 varied emergency fallback scripts (advertiser-safe, no CTAs, mood-varied) ─
@@ -444,9 +555,9 @@ def generate_script(niche: str, topic: str):
     else:
         print(f"🎬 [SCRIPT] Content type: fictional — using storytelling format ({active_niche})")
 
-    target_scenes = random.randint(6, 9) if is_fact else random.randint(8, 12)
-    target_dur    = "30-40 seconds"     if is_fact else "45-55 seconds"
-    target_words  = "~75 words"         if is_fact else "~120 words"
+    target_scenes = random.randint(4, 5) if is_fact else random.randint(4, 5)
+    target_dur    = "40-50 seconds"     if is_fact else "45-55 seconds"
+    target_words  = "95-115 words"      if is_fact else "100-120 words"
 
     # ── Load brand identity for this channel ─────────────────────────────────
     channel_brand_voice   = ""
@@ -485,7 +596,35 @@ def generate_script(niche: str, topic: str):
     if active_shard:
         base_user_prompt += f"\n\n{active_shard.strip()}\n"
 
+    # ── Self-Learning Golden Trajectories (Empirical Few-Shot Injection) ─────
+    try:
+        from engine.self_learning import self_learning
+        trajectories_block = self_learning.format_trajectories_for_prompt(
+            channel_id=channel_id,
+            content_type="fictional" if is_fictional else "factual",
+            limit=2
+        )
+        if trajectories_block:
+            base_user_prompt += f"\n\n{trajectories_block.strip()}\n"
+            print(f"🧠 [SELF-LEARNING] Injected golden trajectory exemplars for {channel_id}")
+    except Exception as sle_err:
+        logger.debug(f"Self-learning prompt injection skipped: {sle_err}")
+
+    # ── Real-Time Fact Grounding & Anti-Hallucination Gate (Topato Mandate) ───
+    if is_fact:
+        try:
+            from engine.fact_grounding import fact_grounding
+            grounding_data = fact_grounding.verify_topic(topic)
+            if grounding_data and grounding_data.get("verified"):
+                grounding_block = fact_grounding.format_grounding_prompt_block(grounding_data)
+                if grounding_block:
+                    base_user_prompt += f"\n\n{grounding_block.strip()}\n"
+                    print(f"🔬 [FACT GROUNDING] Verified empirical mechanisms injected via {grounding_data.get('engine', 'Search')}")
+        except Exception as fg_err:
+            logger.debug(f"Fact grounding prompt injection skipped: {fg_err}")
+
     # ── Brand identity injection ──────────────────────────────────────────────
+
     if channel_brand_voice or channel_personality:
         brand_block = "\n\n🎙️ CHANNEL BRAND VOICE (write in this style — every word):\n"
         if channel_brand_voice:
@@ -542,6 +681,15 @@ def generate_script(niche: str, topic: str):
             f"• Visuals (image_prompt fields) MUST match the story scenes: "
             f"3D-Pixar-style animation stills of the actual characters/setting."
         )
+
+    # ── Circular Script Seamless Loop Engine (2026 Playbook) ─────────────────
+    try:
+        from engine.loop_engine import loop_engine
+        loop_block = loop_engine.get_loop_prompt_instructions()
+        if loop_block:
+            base_user_prompt += f"\n\n{loop_block.strip()}\n"
+    except Exception as le_err:
+        logger.debug(f"Loop engine prompt injection skipped: {le_err}")
 
     last_error = "Unknown Error"
 
@@ -705,7 +853,11 @@ def generate_script(niche: str, topic: str):
     # These are advertiser-safe, contain no CTAs, and cover all mood categories.
     logger.error("🚨 Script Generation Fatal Exhaustion. Injecting Emergency Fallback Script.")
 
-    fb = random.choice(_FALLBACK_SCRIPTS)
+    fb = _CHANNEL_FALLBACK_SCRIPTS.get(channel_id)
+    if not fb:
+        fb = _CHANNEL_FALLBACK_SCRIPTS.get("CH_01" if is_fictional else "CH_02")
+    if not fb:
+        fb = random.choice(_FALLBACK_SCRIPTS)
 
     fallback_weights = [1.0 / len(fb["prompts"])] * len(fb["prompts"])
     # Make last weight absorb rounding error

@@ -35,8 +35,9 @@ TEST_MODE = is_test_mode()
 
 def load_config_prompts():
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    with open(os.path.join(root_dir, "config", "prompts.yaml"), "r") as f:
+    with open(os.path.join(root_dir, "config", "prompts.yaml"), "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
+
 
 def get_historical_time_data(youtube) -> str:
     if not youtube:

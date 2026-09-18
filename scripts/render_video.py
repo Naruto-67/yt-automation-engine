@@ -10,6 +10,8 @@ import requests
 import traceback
 from pydub import AudioSegment
 from engine.config_manager import config_manager
+from engine.sfx_manager import sfx_manager
+from engine.kinetic_overlays import kinetic_engine
 
 
 MIN_RENDER_DISK_BYTES = 2 * 1024 * 1024 * 1024  # 2 GB
@@ -164,8 +166,8 @@ _NO_COMMA_BEFORE = {"and", "but", "so", "or", "yet", "nor", "for"}
 
 # Punctuation Normalization Dictionary (OpenMontage smart punctuation mapping)
 PUNCTUATION_NORMALIZATION = {
-    "—": " - ",      # Em-dash
-    "–": " - ",      # En-dash
+    "—": " ",        # Em-dash normalized to single clean space
+    "–": " ",        # En-dash normalized to single clean space
     "…": "...",      # Unicode ellipsis
     "“": '"',        # Smart double quote left
     "”": '"',        # Smart double quote right
@@ -182,6 +184,7 @@ def _clean_caption_text(text: str) -> str:
     - Normalize smart quotes, em-dashes, and unicode punctuation
     - Strip filler words at the start of lines
     - Remove mid-sentence commas before 'and', 'but', 'so', etc.
+    - Prevent detached hyphens (e.g. 're - winding' -> 're-winding')
     - Collapse multiple spaces
     - Trim leading/trailing whitespace
     - Keep sentence-ending punctuation (. ! ?)
@@ -194,9 +197,12 @@ def _clean_caption_text(text: str) -> str:
     for char, replacement in PUNCTUATION_NORMALIZATION.items():
         t = t.replace(char, replacement)
 
-    # Preserve case for proper nouns but lowercase for consistency
-    # (don't UPPERCASE everything — keep original casing)
-    # Ghost Engine currently does .upper() which is bad for readability
+    # Clean detached hyphens and preserve compound words (e.g. 'RE -WINDING' -> 'RE-WINDING')
+    t = re.sub(r"[—–]", " ", t)
+    t = re.sub(r"([a-zA-Z0-9])\s*-\s*([a-zA-Z0-9])", r"\1-\2", t)
+    t = re.sub(r"\s+-\s+", " ", t)
+    t = re.sub(r"\s+-([a-zA-Z0-9])", r" \1", t)
+    t = re.sub(r"([a-zA-Z0-9])-\s+", r"\1 ", t)
 
     # Strip leading filler words (check first word)
     parts = t.split()
@@ -227,6 +233,7 @@ def _clean_caption_text(text: str) -> str:
 
     # Viral Shorts look much better in ALL CAPS (Anton font looks best uppercase)
     return result.strip().upper()
+
 
 
 # ── ASS caption generation with word-by-word highlighting + two-layer glow ────
@@ -316,7 +323,7 @@ def srt_to_ass(srt_path, ass_path, style, glow_color=None):
                         "start": t0,
                         "end": t1,
                         "text": text,
-                        "words": text.split(),
+                        "words": [w for w in text.split() if w.strip(" -—–")],
                     })
 
         if not srt_blocks:
@@ -401,7 +408,14 @@ def _select_watermark_preset(mood: str = "neutral") -> dict:
     }
 
 
-def _mix_background_music(output_path: str, mood: str = "neutral") -> bool:
+def _mix_background_music(output_path: str, mood: str = "neutral", transition_timestamps: list = None) -> bool:
+    """
+    Master audio pipeline:
+    1. Voice Channel Mastering: 80Hz high-pass filter + de-esser.
+    2. Contextual SFX Layer: Transitional whooshes + hook swell at scene boundaries.
+    3. Dynamic Sidechain Ducking: Ducks background music by 12dB during speech.
+    4. C-Level Radio Mastering: Stereo widener (stereotools) + EBU R128 broadcast loudness.
+    """
     settings  = config_manager.get_settings()
     music_cfg = settings.get("music", {})
 
@@ -414,19 +428,14 @@ def _mix_background_music(output_path: str, mood: str = "neutral") -> bool:
     root_dir    = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     folder_path = os.path.join(root_dir, "assets", "music", folder_name)
 
-    if not os.path.isdir(folder_path):
-        print(f"🎵 [MUSIC] Folder not found: {folder_path}. Skipping music mix.")
-        return False
+    mp3_files = glob.glob(os.path.join(folder_path, "*.mp3")) if os.path.isdir(folder_path) else []
+    track_path = random.choice(mp3_files) if mp3_files else None
+    if track_path:
+        print(f"🎵 [MUSIC] Mixing track: {os.path.basename(track_path)} (mood={mood})")
+    else:
+        print(f"🎵 [AUDIO] Music track unavailable. Proceeding with voice mastering & SFX layer.")
 
-    mp3_files = glob.glob(os.path.join(folder_path, "*.mp3"))
-    if not mp3_files:
-        print(f"🎵 [MUSIC] No tracks in '{folder_name}/'. Skipping music mix.")
-        return False
-
-    track_path = random.choice(mp3_files)
-    print(f"🎵 [MUSIC] Mixing track: {os.path.basename(track_path)} (mood={mood})")
-
-    temp_path = output_path + ".music_mix.tmp.mp4"
+    temp_path = output_path + ".audio_mix.tmp.mp4"
 
     try:
         probe_result = subprocess.run(
@@ -445,43 +454,94 @@ def _mix_background_music(output_path: str, mood: str = "neutral") -> bool:
 
         fade_out_start = max(0, video_duration - fade_out)
 
-        # Dynamic sidechain ducking (12 dB ducking under narration) + EBU R128 broadcast loudness mastering
+        # ── Contextual SFX Filtergraph ────────────────────────────────────────
+        sfx_inputs = []
+        sfx_filter = ""
+        sfx_pad = ""
+        if transition_timestamps:
+            try:
+                base_idx = 2 if track_path else 1
+                sfx_inputs, sfx_filter, sfx_pad = sfx_manager.build_sfx_filtergraph_chain(
+                    transition_timestamps,
+                    base_input_index=base_idx,
+                    stem_type="whoosh",
+                    volume=0.20
+                )
+                if sfx_pad:
+                    print(f"🔊 [SFX] Layering {len(transition_timestamps)} transition whoosh stems.")
+            except Exception as sfx_err:
+                print(f"⚠️ [SFX] Filtergraph construction skipped: {sfx_err}")
+
+        # ── Construct Filtergraph ─────────────────────────────────────────────
+        filter_parts = []
         if has_audio:
-            music_filter = (
-                f"[0:a]asplit=2[voice_main][voice_sc];"
-                f"[1:a]volume={volume},"
-                f"afade=t=in:st=0:d={fade_in},"
-                f"afade=t=out:st={fade_out_start:.2f}:d={fade_out}[music_faded];"
-                f"[music_faded][voice_sc]sidechaincompress=threshold=0.12:ratio=4:attack=200:release=800[ducked_music];"
-                f"[voice_main][ducked_music]amix=inputs=2:duration=first:dropout_transition=3[pre_master];"
-                f"[pre_master]loudnorm=I=-14:TP=-1.0:LRA=7[aout]"
+            # Voice channel DSP: 80Hz rumble cut + de-esser + sidechain trigger split
+            filter_parts.append(
+                "[0:a]highpass=f=80,deesser=i=0.5:f=0.5,asplit=2[voice_main][voice_sc]"
             )
         else:
-            # Fallback guard: video has no audio stream, synthesize stereo silence via anullsrc
-            music_filter = (
-                f"anullsrc=channel_layout=stereo:sample_rate=48000[silence];"
-                f"[1:a]volume={volume},"
-                f"afade=t=in:st=0:d={fade_in},"
-                f"afade=t=out:st={fade_out_start:.2f}:d={fade_out}[music_faded];"
-                f"[silence][music_faded]amix=inputs=2:duration=first:dropout_transition=3[pre_master];"
-                f"[pre_master]loudnorm=I=-14:TP=-1.0:LRA=7[aout]"
+            filter_parts.append(
+                "anullsrc=channel_layout=stereo:sample_rate=48000[voice_main]"
             )
 
+        mix_inputs = ["[voice_main]"]
+
+        # Background music stream if present
+        if track_path:
+            filter_parts.append(
+                f"[1:a]volume={volume},"
+                f"afade=t=in:st=0:d={fade_in},"
+                f"afade=t=out:st={fade_out_start:.2f}:d={fade_out}[music_faded]"
+            )
+            if has_audio:
+                filter_parts.append(
+                    "[music_faded][voice_sc]sidechaincompress=threshold=0.12:ratio=4:attack=200:release=800[ducked_music]"
+                )
+                mix_inputs.append("[ducked_music]")
+            else:
+                mix_inputs.append("[music_faded]")
+
+        # Sound effects stream if present
+        if sfx_filter and sfx_pad:
+            filter_parts.append(sfx_filter)
+            mix_inputs.append(sfx_pad)
+
+        # Mix voice, music, and SFX
+        if len(mix_inputs) > 1:
+            inputs_str = "".join(mix_inputs)
+            filter_parts.append(
+                f"{inputs_str}amix=inputs={len(mix_inputs)}:duration=first:dropout_transition=3[mixed_audio]"
+            )
+            master_in = "[mixed_audio]"
+        else:
+            master_in = "[voice_main]"
+
+        # Broadcast Radio Master: stereotools widening + EBU R128 loudness
+        filter_parts.append(
+            f"{master_in}stereotools=mwidth=1.35,loudnorm=I=-14:TP=-1.0:LRA=7[aout]"
+        )
+
+        audio_filter = ";".join(filter_parts)
+
+        ffmpeg_cmd = ["ffmpeg", "-y", "-i", output_path]
+        if track_path:
+            ffmpeg_cmd.extend(["-stream_loop", "-1", "-i", track_path])
+        if sfx_inputs:
+            ffmpeg_cmd.extend(sfx_inputs)
+
+        ffmpeg_cmd.extend([
+            "-filter_complex", audio_filter,
+            "-map",         "0:v",
+            "-map",         "[aout]",
+            "-c:v",         "copy",
+            "-c:a",         "aac",
+            "-b:a",         "192k",
+            "-shortest",
+            temp_path,
+        ])
+
         result = subprocess.run(
-            [
-                "ffmpeg", "-y",
-                "-i",           output_path,
-                "-stream_loop", "-1",
-                "-i",           track_path,
-                "-filter_complex", music_filter,
-                "-map",         "0:v",
-                "-map",         "[aout]",
-                "-c:v",         "copy",
-                "-c:a",         "aac",
-                "-b:a",         "192k",
-                "-shortest",
-                temp_path,
-            ],
+            ffmpeg_cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             timeout=300,
@@ -489,7 +549,7 @@ def _mix_background_music(output_path: str, mood: str = "neutral") -> bool:
 
         if result.returncode != 0:
             err = result.stderr.decode("utf-8", errors="replace")[:400]
-            print(f"⚠️ [MUSIC] FFmpeg mix failed:\n{err}")
+            print(f"⚠️ [AUDIO] FFmpeg master mix failed:\n{err}")
             if os.path.exists(temp_path):
                 os.remove(temp_path)
             return False
@@ -501,18 +561,18 @@ def _mix_background_music(output_path: str, mood: str = "neutral") -> bool:
 
         os.replace(temp_path, output_path)
         size_mb = os.path.getsize(output_path) / (1024 * 1024)
-        print(f"✅ [MUSIC] Background music mixed in ({size_mb:.1f} MB final).")
+        print(f"✅ [AUDIO] Master audio & SFX mixed in ({size_mb:.1f} MB final).")
         return True
 
     except subprocess.TimeoutExpired:
-        print(f"⚠️ [MUSIC] FFmpeg music mix timed out. Skipping.")
+        print(f"⚠️ [AUDIO] FFmpeg audio mix timed out. Skipping.")
         if os.path.exists(temp_path):
             try: os.remove(temp_path)
             except: pass
         return False
     except Exception:
         trace = traceback.format_exc()
-        print(f"⚠️ [MUSIC] Music mix exception:\n{trace}")
+        print(f"⚠️ [AUDIO] Audio mix exception:\n{trace}")
         if os.path.exists(temp_path):
             try: os.remove(temp_path)
             except: pass
@@ -641,10 +701,10 @@ def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=60):
     # We use {{n}} in f-strings to emit a literal `n` for FFmpeg.
 
     effects = [
-        # 0: Pan left → right, eased, center vertically
+        # 0: Pan left → right, eased, center vertically (with initial 3s pattern interrupt zoom punch if index==0)
         (
             f"{prep},"
-            f"zoompan=z='1.05':d={fr}:s={OUT_W}x{OUT_H}:fps=60:"
+            f"zoompan=z='{'if(lte(on\\, 36)\\, 1.15-(0.10*(on/36))\\, 1.05)' if index == 0 else '1.05'}':d={fr}:s={OUT_W}x{OUT_H}:fps=60:"
             f"x='{pan_x}*((on*on)*({3*fr}-2*on)/({fr}*{fr}*{fr}))':y='{cy}',"
             f"{sharpen},{base_eq},format=yuv420p"
         ),
@@ -806,11 +866,14 @@ def render_video(image_paths, audio_path, output_path,
         return False, total_dur, 0
 
     # ── Concat with crossfade transitions ─────────────────────────────────────
-    # NEW: Use xfade filter between clips instead of hard cuts
-    # xfade=transition=fade:duration=0.5:offset=...
-    # This creates smooth 0.5s fade transitions between each scene
+    xfade_duration = float(
+        config_manager.get_settings().get("render", {}).get("xfade_duration", 0.3)
+    )
+    clip_durations = []
+
     if len(clip_files) == 1:
         # Single clip — no crossfade needed
+        clip_durations = [total_dur]
         subprocess.run(
             ["ffmpeg", "-y", "-i", clip_files[0], "-i", audio_path,
              "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
@@ -819,19 +882,6 @@ def render_video(image_paths, audio_path, output_path,
         )
     else:
         # Multiple clips — use xfade for smooth transitions
-        # Build complex xfade filter chain
-        # xfade requires input streams to be the same resolution/fps
-        # We'll use the concat demuxer for simplicity, then add crossfade
-        # Actually, let's use xfade directly:
-        # ffmpeg -i clip0 -i clip1 -i clip2 -filter_complex "
-        #   [0:v]settb=AVTB[0v]; [1:v]settb=AVTB[1v]; [2:v]settb=AVTB[2v];
-        #   [0v][1v]xfade=transition=fade:duration=0.5:offset={d0}[v01];
-        #   [v01][2v]xfade=transition=fade:duration=0.5:offset={d1}[vout]"
-        #  -map "[vout]" -map {audio} -c:v libx264 -preset fast -crf 18 ...
-
-        # We need to know the duration of each clip for offset calculation
-        # Use ffprobe to get durations
-        clip_durations = []
         for cf in clip_files:
             try:
                 probe = subprocess.run(
@@ -934,8 +984,21 @@ def render_video(image_paths, audio_path, output_path,
     visual_chain = _get_visual_filter_chain(mood)
     print(f"   Visual grade: {mood}")
 
-    # The ASS file now contains word-by-word events with two-layer glow
-    final_vf = f"{visual_chain},ass='{safe_ass}'{watermark_filter}"
+    # ── Contextual SFX Scene Transitions ────────────────────────────────────
+    scene_transitions = [0.0]  # Opening hook pattern interrupt
+    accum_t = 0.0
+    for cd in clip_durations[:-1]:
+        accum_t += cd - (xfade_duration if xfade_duration > 0 else 0.0)
+        scene_transitions.append(round(accum_t, 2))
+
+    # ── Kinetic Progress Bar Overlay (Hybrid Python/FFmpeg + Node.js) ────────
+    progress_bar_filter = kinetic_engine.get_progress_bar_filter(
+        duration=total_dur,
+        color_hex=resolved_glow or "FF3366"
+    )
+
+    # The ASS file now contains word-by-word events with two-layer glow + kinetic progress bar
+    final_vf = f"{visual_chain},ass='{safe_ass}'{watermark_filter},{progress_bar_filter}"
 
     try:
         subprocess.run(
@@ -968,8 +1031,8 @@ def render_video(image_paths, audio_path, output_path,
     if file_size_mb < 0.5:
         return False, total_dur, file_size_mb
 
-    # ── Background music mix ──────────────────────────────────────────────────
-    _mix_background_music(output_path, mood)
+    # ── Master Audio & Contextual SFX mix ────────────────────────────────────
+    _mix_background_music(output_path, mood, transition_timestamps=scene_transitions)
 
     final_size_mb = os.path.getsize(output_path) / (1024 * 1024)
     return True, total_dur, final_size_mb

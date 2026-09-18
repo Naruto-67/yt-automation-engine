@@ -8,9 +8,16 @@ import base64
 import re
 import yaml
 import traceback
+import logging
 from PIL import Image, ImageDraw
 from scripts.quota_manager import quota_manager
 from engine.guardian import guardian
+from engine.slideshow_risk import audit_and_remedy_prompts
+from engine.decision_log import decision_log
+from engine.vision_critic import vision_critic
+
+logger = logging.getLogger("yt_engine.visuals")
+
 
 def is_test_mode() -> bool:
     return (
@@ -645,8 +652,29 @@ def generate_offline_gradient(output_path):
         return False, "Fatal Render"
 
 
-def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene"):
-    print(f"🖼️ [VISUALS] Sourcing {len(prompts_list)} scenes...")
+def fetch_scene_images(
+    prompts_list,
+    pexels_queries,
+    base_filename="temp_scene",
+    content_type: str = "factual",
+    channel_id: str = "GLOBAL",
+):
+    is_fictional = (content_type or "").lower() == "fictional"
+    print(
+        f"🖼️ [VISUALS] Sourcing {len(prompts_list)} scenes "
+        f"[content_type={content_type.upper()}{' (ANIMATION_LED: Stock Video/Photos Banned)' if is_fictional else ''}]..."
+    )
+
+    # ── OpenMontage 6-Dimension Slideshow Risk Audit & Auto-Remedy ────────────
+    audited_prompts, risk_report = audit_and_remedy_prompts(prompts_list, is_fictional=is_fictional)
+    if risk_report.get("remedied"):
+        print(
+            f"      🎬 [OPENMONTAGE] High slideshow risk detected ({risk_report.get('initial_score', 0):.2f}). "
+            f"Remedied prompts with varied camera lenses, dynamic motions, and composition depth."
+        )
+    else:
+        print(f"      🎬 [OPENMONTAGE] Slideshow risk audit passed (score: {risk_report.get('average', 0):.2f}).")
+
     successful_images = []
 
     safe_mode    = guardian.is_safe_mode()
@@ -654,16 +682,10 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
     tier1_active = not safe_mode and not test_active
     tier2_active = not safe_mode
     if test_active:
-        print("🧪 [TEST MODE] Bypassing Cloudflare FLUX API (Tier 1) to conserve daily neurons. Sourcing via HuggingFace / Pixabay / Pexels.")
+        print("🧪 [TEST MODE] Bypassing Cloudflare FLUX API (Tier 1) to conserve daily neurons. Sourcing via HuggingFace / Fallback.")
     elif safe_mode:
         print("🛡️ [SAFE MODE] API Quota critically low for this channel. Bypassing AI generation.")
 
-    # ── BUG #2 FIX: The original disable check only matched "401"/"402"/"403"
-    # fragments. But CF quota exhaustion returns "Quota Reached" and missing
-    # credentials returns "Missing CF Credentials" — neither matched. This caused
-    # both tiers to be retried for EVERY scene even after a definitive failure,
-    # wasting ~200ms × N scenes on guaranteed-to-fail requests.
-    # Now all permanent failure signals are listed explicitly per tier.
     _CF_DISABLE_SIGNALS = [
         "CF Auth Error",            # BUG #3 fix: 401/403 auth/billing
         "Quota Reached",            # CF daily limit exhausted (or SIMULATE_CASCADE_TEST)
@@ -678,12 +700,19 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
         "HF DNS Error",             # BUG #10 fix: DNS resolution failure (e.g. GitHub Actions runner)
     ]
 
+    style_hint = "3D Pixar-style digital animation render, vibrant character lighting" if is_fictional else ""
     final_provider = "Unknown"
-    for i, original_prompt in enumerate(prompts_list):
+
+    for i, original_prompt in enumerate(audited_prompts):
         output_path    = f"{base_filename}_{i}.jpg"
         actual_path    = output_path
         success        = False
-        current_prompt = build_cinematography_prompt(original_prompt, index=i, total_scenes=len(prompts_list))
+        current_prompt = build_cinematography_prompt(
+            original_prompt,
+            style_hint=style_hint,
+            index=i,
+            total_scenes=len(audited_prompts),
+        )
         safety_retries = 0
 
         while True:
@@ -716,32 +745,35 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
                     tier2_active = False
             break
 
+        # ── Tier 3: Pixabay Video B-Roll (RESTRICTED: Factual Only) ──────────
         if not success:
-            safe_query = pexels_queries[i] if i < len(pexels_queries) else original_prompt
-            
-            # Tier 3: Pixabay Video B-Roll
-            api_key = os.environ.get("PIXABAY_API_KEY")
-            if api_key:
-                try:
-                    print(f"      [Tier 3: Pixabay Video] Searching: '{safe_query[:30]}'...")
-                    v_url = f"https://pixabay.com/api/videos/?key={api_key}&q={urllib.parse.quote(safe_query)}&video_type=film&orientation=vertical"
-                    v_res = requests.get(v_url, timeout=10)
-                    if v_res.status_code == 200 and v_res.json().get('hits'):
-                        vid_url = v_res.json()['hits'][0]['videos']['large']['url']
-                        vid_data = requests.get(vid_url, timeout=30).content
-                        actual_path = output_path.replace('.jpg', '.mp4')
-                        with open(actual_path, 'wb') as f:
-                            f.write(vid_data)
-                        success = True
-                        final_provider = "Pixabay Video"
-                except Exception as e:
-                    print(f"      ⚠️ [PIXABAY] Failed: {e}")
+            if not is_fictional:
+                safe_query = pexels_queries[i] if i < len(pexels_queries) else original_prompt
+                api_key = os.environ.get("PIXABAY_API_KEY")
+                if api_key:
+                    try:
+                        print(f"      [Tier 3: Pixabay Video] Searching: '{safe_query[:30]}'...")
+                        v_url = f"https://pixabay.com/api/videos/?key={api_key}&q={urllib.parse.quote(safe_query)}&video_type=film&orientation=vertical"
+                        v_res = requests.get(v_url, timeout=10)
+                        if v_res.status_code == 200 and v_res.json().get('hits'):
+                            vid_url = v_res.json()['hits'][0]['videos']['large']['url']
+                            vid_data = requests.get(vid_url, timeout=30).content
+                            actual_path = output_path.replace('.jpg', '.mp4')
+                            with open(actual_path, 'wb') as f:
+                                f.write(vid_data)
+                            success = True
+                            final_provider = "Pixabay Video"
+                    except Exception as e:
+                        print(f"      ⚠️ [PIXABAY] Failed: {e}")
+            else:
+                print("      🛡️ [ISOLATION] Bypassing Pixabay Video for fictional channel (ANIMATION_LED rule).")
 
+        # ── Tier 4: Pollinations.ai FLUX (Universal Free AI Generation) ───────
         if not success:
-            # Tier 4: Pollinations.ai
             print("      [Tier 4: Pollinations.ai] Attempting FLUX endpoint...")
             try:
-                safe_prompt = urllib.parse.quote(current_prompt + _QUALITY_SUFFIX)
+                style_prefix = "3D Pixar digital animation render, " if is_fictional and "pixar" not in current_prompt.lower() else ""
+                safe_prompt = urllib.parse.quote(style_prefix + current_prompt + _QUALITY_SUFFIX)
                 url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1080&height=1920&nologo=true"
                 res = requests.get(url, timeout=(10, 45))
                 res.raise_for_status()
@@ -753,19 +785,69 @@ def fetch_scene_images(prompts_list, pexels_queries, base_filename="temp_scene")
             except Exception as e:
                 print(f"      ⚠️ [POLLINATIONS] Failed: {e}")
 
+        # ── Tier 5: Pexels Stock Photos (RESTRICTED: Factual Only) ───────────
         if not success:
-            safe_query = pexels_queries[i] if i < len(pexels_queries) else original_prompt
-            success, err = fallback_pexels_image(safe_query, output_path)
-            if success:
-                final_provider = "Pexels Stock"
+            if not is_fictional:
+                safe_query = pexels_queries[i] if i < len(pexels_queries) else original_prompt
+                success, err = fallback_pexels_image(safe_query, output_path)
+                if success:
+                    final_provider = "Pexels Stock"
+            else:
+                print("      🛡️ [ISOLATION] Bypassing Pexels Stock for fictional channel (ANIMATION_LED rule).")
 
+        # ── Tier 6: Local Offline Gradient (Deterministic Safety Net) ─────────
         if not success:
             success, err = generate_offline_gradient(output_path)
             if success:
                 final_provider = "Offline Generator"
 
         if success:
+            # ── Vision Critic Pre-Flight Quality Audit ───────────────────────
+            try:
+                verdict = vision_critic.evaluate_frame(
+                    actual_path,
+                    prompt=current_prompt,
+                    scene_text=original_prompt,
+                    channel_id=channel_id
+                )
+                if verdict.get("approved"):
+                    print(f"      🔍 [VISION CRITIC] Frame {i+1} approved (score: {verdict.get('score', 0):.1f} via {verdict.get('engine', 'unknown')}).")
+                else:
+                    print(
+                        f"      ⚠️ [VISION CRITIC] Frame {i+1} flagged (score: {verdict.get('score', 0):.1f}). "
+                        f"Remedy hint: {verdict.get('remedy_hint')}"
+                    )
+            except Exception as vc_err:
+                logger.debug(f"Vision critic pre-flight check skipped: {vc_err}")
+
             successful_images.append(actual_path)
         time.sleep(2)
 
+    # ── Log Decision to CHAI Append-Only Ledger ───────────────────────────────
+    try:
+        decision_log.record(
+            category="VISUAL_CASCADE",
+            decision="Visual scene sourcing cascade completed",
+            chosen=final_provider,
+            options_considered=[
+                "Cloudflare FLUX API",
+                "HuggingFace FLUX",
+                "Pixabay Video" if not is_fictional else "Bypassed (Fictional)",
+                "Pollinations.ai",
+                "Pexels Stock" if not is_fictional else "Bypassed (Fictional)",
+                "Offline Generator",
+            ],
+            channel_id=channel_id,
+            extra={
+                "content_type": content_type,
+                "is_fictional": is_fictional,
+                "total_prompts": len(prompts_list),
+                "successful_scenes": len(successful_images),
+                "slideshow_risk": risk_report.get("average", 0),
+            },
+        )
+    except Exception as e:
+        print(f"      ⚠️ [DECISION LOG] Failed to record visual decision: {e}")
+
     return successful_images, final_provider
+
