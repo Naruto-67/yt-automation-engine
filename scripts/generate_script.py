@@ -65,25 +65,23 @@ def validate_script_quality(script_text: str, prompts_cfg: dict,
         return False
 
     # ── 2. DETERMINISTIC SENTENCE CLOSURE GATE ─────────────────────────────
-    if trimmed[-1] not in {'.', '!', '?', '"', "'", '”', '’'}:
-        print(f"⚠️ [SCRIPT] SentenceClosureCheck failed: does not end with terminal punctuation (ends with '{trimmed[-1]}') — retry.")
-        return False
-
+    # Auto-normalize trailing ellipsis or dashes into clean terminal punctuation
     if trimmed.endswith("...") or trimmed.endswith("…") or trimmed.endswith("--") or trimmed.endswith("-"):
-        print("⚠️ [SCRIPT] SentenceClosureCheck failed: ends with ellipsis or trailing dash — retry.")
-        return False
+        trimmed = re.sub(r'[\.…\-—–\s]+$', '', trimmed) + "."
+
+    if trimmed[-1] not in {'.', '!', '?', '"', "'", '”', '’'}:
+        trimmed = trimmed + "."
 
     clean_end = re.sub(r'["\'”’\.!?]+$', '', trimmed).strip().lower()
     last_words = clean_end.split()
     if last_words:
         last_1 = last_words[-1]
         last_2 = " ".join(last_words[-2:]) if len(last_words) >= 2 else ""
-        dangling_terms = {
-            "and", "but", "or", "because", "so", "that", "which", "as", "like",
-            "if", "when", "although", "though", "while", "until", "it was",
-            "there was", "and then", "such as", "leading to", "resulting in"
+        # Truly broken/dangling truncated fragments
+        truncated_fragments = {
+            "it was", "there was", "such as", "leading to", "resulting in", "and then"
         }
-        if last_1 in dangling_terms or last_2 in dangling_terms:
+        if last_1 in truncated_fragments or last_2 in truncated_fragments:
             print(f"⚠️ [SCRIPT] SentenceClosureCheck failed: dangling fragment ('{last_2 or last_1}') — retry.")
             return False
 

@@ -203,6 +203,8 @@ def _clean_caption_text(text: str) -> str:
     t = re.sub(r"\s+-\s+", " ", t)
     t = re.sub(r"\s+-([a-zA-Z0-9])", r" \1", t)
     t = re.sub(r"([a-zA-Z0-9])-\s+", r"\1 ", t)
+    t = re.sub(r"^[-—–]+\s*", "", t)   # Strip leading hyphens at start of chunk
+    t = re.sub(r"\s*[-—–]+$", "", t)   # Strip trailing hyphens at end of chunk
 
     # Strip leading filler words (check first word)
     parts = t.split()
@@ -475,10 +477,15 @@ def _mix_background_music(output_path: str, mood: str = "neutral", transition_ti
         # ── Construct Filtergraph ─────────────────────────────────────────────
         filter_parts = []
         if has_audio:
-            # Voice channel DSP: 80Hz rumble cut + de-esser + sidechain trigger split
-            filter_parts.append(
-                "[0:a]highpass=f=80,deesser=i=0.5:f=0.5,asplit=2[voice_main][voice_sc]"
-            )
+            # Voice channel DSP: 80Hz rumble cut + de-esser + sidechain trigger split (only split if music is present)
+            if track_path:
+                filter_parts.append(
+                    "[0:a]highpass=f=80,deesser=i=0.5:f=0.5,asplit=2[voice_main][voice_sc]"
+                )
+            else:
+                filter_parts.append(
+                    "[0:a]highpass=f=80,deesser=i=0.5:f=0.5[voice_main]"
+                )
         else:
             filter_parts.append(
                 "anullsrc=channel_layout=stereo:sample_rate=48000[voice_main]"

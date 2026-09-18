@@ -756,13 +756,26 @@ def fetch_scene_images(
                         v_url = f"https://pixabay.com/api/videos/?key={api_key}&q={urllib.parse.quote(safe_query)}&video_type=film&orientation=vertical"
                         v_res = requests.get(v_url, timeout=10)
                         if v_res.status_code == 200 and v_res.json().get('hits'):
-                            vid_url = v_res.json()['hits'][0]['videos']['large']['url']
-                            vid_data = requests.get(vid_url, timeout=30).content
-                            actual_path = output_path.replace('.jpg', '.mp4')
-                            with open(actual_path, 'wb') as f:
-                                f.write(vid_data)
-                            success = True
-                            final_provider = "Pixabay Video"
+                            hits = v_res.json().get('hits', [])
+                            banned_video_tags = {'phone', 'smartphone', 'screen', 'gaming', 'app', 'laptop', 'shopping', 'makeup', 'lipstick', 'store'}
+                            selected_hit = None
+                            for h in hits:
+                                h_tags = [t.strip().lower() for t in h.get('tags', '').split(',')]
+                                if not any(bt in h_tags for bt in banned_video_tags):
+                                    selected_hit = h
+                                    break
+
+                            if selected_hit:
+                                vid_url = selected_hit['videos'].get('large', {}).get('url') or selected_hit['videos'].get('medium', {}).get('url')
+                                if vid_url:
+                                    vid_data = requests.get(vid_url, timeout=30).content
+                                    actual_path = output_path.replace('.jpg', '.mp4')
+                                    with open(actual_path, 'wb') as f:
+                                        f.write(vid_data)
+                                    success = True
+                                    final_provider = "Pixabay Video"
+                            else:
+                                print(f"      ⚠️ [PIXABAY] All {len(hits)} hits contained irrelevant/mismatched tags. Cascading to AI generation.")
                     except Exception as e:
                         print(f"      ⚠️ [PIXABAY] Failed: {e}")
             else:

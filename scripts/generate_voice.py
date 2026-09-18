@@ -96,12 +96,14 @@ def trim_audio_precision(file_path: str):
             print(f"✂️  [VOICE] No trim needed (leading silence: {leading_silence_ms}ms).")
 
         # ── Dead-Air Silence Tightener (OpenMontage silence_cutter logic) ───
+        # Uses -45 dBFS threshold so soft phoneme tails/onsets are never clipped.
+        # Only clamps pauses >600ms down to a comfortable 220ms breathing pace.
         try:
             chunks = pydub_silence.split_on_silence(
                 audio,
-                min_silence_len=450,
-                silence_thresh=-36.0,
-                keep_silence=90
+                min_silence_len=600,
+                silence_thresh=-45.0,
+                keep_silence=220
             )
             if len(chunks) > 1:
                 tightened = chunks[0]
@@ -195,6 +197,15 @@ ASR_CORRECTIONS = {
     "KM/H": "km/h",
     "PERCENT": "%",
     "DOLLARS": "$",
+    "TERATOPSIS": "TURRITOPSIS",
+    "DONERE": "DOHRNII",
+    "DONERI": "DOHRNII",
+    "DOHRNI": "DOHRNII",
+    "TURITOPSIS": "TURRITOPSIS",
+    "TRANSDIFFERENTIATION": "TRANS-DIFFERENTIATION",
+    "-DIFFERENTIATION": "DIFFERENTIATION",
+    "EXPULSED": "EXPULSION",
+    "CLIFFHEAD": "CLIFF EDGE",
 }
 
 
@@ -377,18 +388,8 @@ def _inject_kokoro_emotion(text: str, mood: str) -> str:
         return ' '.join(result)
 
     elif mood == "warm":
-        sentences = re.split(r'(?<=[.!?])\s+', text)
-        result = []
-        for s in sentences:
-            s = s.strip()
-            if not s:
-                continue
-            words = s.split()
-            if len(words) > 12 and ',' not in s[-30:]:
-                pivot = len(words) - 3
-                s = ' '.join(words[:pivot]) + ', ' + ' '.join(words[pivot:])
-            result.append(s)
-        return ' '.join(result)
+        # Warm/fictional storytelling: Preserve natural phrasing and pauses without artificial comma splits
+        return text
 
     return text
 
@@ -459,9 +460,8 @@ def generate_audio(text: str, output_base: str = "temp_audio",
     duration   = 0.0
 
     from engine.config_manager import config_manager
-    settings     = config_manager.get_settings()
-    kokoro_voice = target_voice or "am_adam"
-    tts_speed    = settings.get("tts", {}).get("kokoro_speed_multiplier", 1.1)
+    default_speed = 1.0 if (mood in ("warm", "neutral") or "bella" in kokoro_voice or "sarah" in kokoro_voice) else 1.05
+    tts_speed    = settings.get("tts", {}).get("kokoro_speed_multiplier", default_speed)
     valid_kokoro = settings.get("voice_actors", {}).get("kokoro", ["am_adam"])
 
     if kokoro_voice not in valid_kokoro:
