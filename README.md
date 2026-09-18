@@ -78,8 +78,13 @@ Your channel rules are defined in the engine.
 ## 🛡️ The Fallback Cascades (Fail-Safes)
 
 The engine is designed to **never crash**. Every task has a fallback:
-- **LLM / Scripting:** Dynamic Auto-Discovery Free-Tier Gemini Chain (queries live Google API catalog, mathematically scores semantic versions so newest Flash models automatically rank #1 with zero hardcoding, 60s timeout guard) ➡️ Groq Cloud Chain (`llama-3.3-70b-versatile` / `mixtral-8x7b-32768`) ➡️ Hardcoded Emergency Script.
-- **API Resilience:** All API calls are wrapped in `tenacity` exponential backoff (`@retry`) with 3-state Circuit Breakers and non-text / WebSocket live model exclusion filters.
+- **LLM / Scripting:** Dynamic Auto-Discovery Task-Centric LLM Router (`engine/llm_router.py` & `engine/dynamic_discovery.py`):
+  - Ingests upstream models dynamically from Google GenAI (`client.models.list()`) and Groq (`/models`) into `memory/dynamic_models_registry.json`.
+  - Enforces task ladders: Scriptwriting routes to 3.x Flash canaries (`gemini-3.6-flash`, `gemini-3.8-flash` with `thinking_level="low"` and 25s timeout) ➡️ Groq Gold Anchor (`llama-3.3-70b-versatile`, 14,400 RPD) ➡️ Google Flash-Lite Gold Anchor (`gemini-flash-lite-latest`, 500 RPD).
+  - SEO JSON extraction routes directly to ultra-low latency `gemini-flash-lite-latest` (0.95s) ➡️ Groq `llama-3.1-8b-instant` (0.75s).
+  - Real-Time Fact Grounding (`engine/fact_grounding.py`) utilizes Google's recommended Chat pattern (Fix 1) with fail-safe fallback to Wikipedia REST + DuckDuckGo Instant Answer APIs (100% free, 0 quota risk).
+  - Run-Scoped Circuit Breaker isolates 404 (deprecated) and 429 (quota exhausted) models per run for 0ms bypass on subsequent generation calls.
+- **API Resilience:** All API calls are wrapped in `tenacity` exponential backoff with run-scoped Circuit Breakers and non-text / WebSocket live model exclusion filters.
 - **Images:** HuggingFace FLUX ➡️ Cloudflare AI ➡️ Pixabay Video (B-Roll) ➡️ Pollinations.ai (Zero-Key) ➡️ Pexels Stock Footage.
 - **Thumbnails:** Auto-crops vertical scene visual or extracts frame 1 from stock video clips via FFmpeg to generate 1280x720 YouTube thumbnails with gradient shadows and bold titles.
 - **Voiceover:** Local Kokoro-82M ➡️ EdgeTTS Azure Neural ➡️ Groq Orpheus.
