@@ -1,306 +1,221 @@
-# scripts/music_manager.py — Ghost Engine V7.2
+# scripts/music_manager.py — Ghost Engine V7.3
 """
-Pixabay Music Library Manager.
+Background Music Library Manager & Procedural Ambient Synthesizer.
 
-Downloads royalty-free background music tracks from Pixabay using the
-standard API with type=music parameter.
-
-CORRECT ENDPOINT: https://pixabay.com/api/?key=...&type=music&...
+Key Features:
+1. User-Supplied Music First: Automatically detects and prioritizes user-provided
+   audio files (*.mp3, *.wav, *.m4a, *.aac, *.ogg) placed in assets/music/{mood}/.
+2. Procedural Audio Synthesis Fallback: Pure Python standard library (wave, struct, math).
+   If a mood folder is empty, synthesizes a broadcast-quality 44.1kHz stereo ambient pad/drone
+   normalized to -24 dBFS with organic LFO breathing and stereo detuning.
+3. Zero External API Dependency: Eliminates fragile web scraping and image API calls.
+4. Total Fail-Safe: If music is missing or fails, the pipeline safely bypasses background
+   music without crashing FFmpeg.
 """
 import os
 import sys
-import time
-import random
-import subprocess
-import traceback
-import requests
 
-from engine.config_manager import config_manager
-from engine.logger import logger
+# Safe UTF-8 console output for Windows CLI environments
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+import glob
+import math
+import struct
+import wave
+import random
+import logging
+from typing import Dict, List, Optional
+from pathlib import Path
 
 _ROOT_DIR   = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if _ROOT_DIR not in sys.path:
+    sys.path.insert(0, _ROOT_DIR)
+
+from engine.logger import logger
+
 _MUSIC_ROOT = os.path.join(_ROOT_DIR, "assets", "music")
-_PIXABAY_API_BASE = "https://pixabay.com/api/"
 
-MOOD_SEARCH_QUERIES = {
-    "cinematic_sad": [
-        "cinematic sad",
-        "melancholic piano",
-        "emotional ambient",
-    ],
-    "dark_ambient": [
-        "dark ambient",
-        "mystery background",
-        "atmospheric drone",
-    ],
-    "dark_phonk": [
-        "dark phonk",
-        "dark trap",
-        "dark electronic",
-    ],
-    "horror_drones": [
-        "horror ambient",
-        "suspense horror",
-        "dark suspense",
-    ],
-    "upbeat_curiosity": [
-        "upbeat curious",
-        "playful background",
-        "light adventure",
-    ],
-}
+MOOD_FOLDERS = [
+    "cinematic_sad",
+    "dark_ambient",
+    "dark_phonk",
+    "horror_drones",
+    "upbeat_curiosity",
+]
+
+AUDIO_EXTENSIONS = ("*.mp3", "*.wav", "*.m4a", "*.aac", "*.ogg")
+SAMPLE_RATE = 44100
 
 
-def _get_api_key() -> str:
-    return os.environ.get("PIXABAY_API_KEY", "")
-
-
-def _search_pixabay_music(query: str, per_page: int = 8) -> list:
-    """Search Pixabay for music using type=music parameter."""
-    api_key = _get_api_key()
-    if not api_key:
-        return []
-
-    params = {
-        "key":        api_key,
-        "q":          query,
-        "type":       "music",
-        "per_page":   per_page,
-        "safesearch": "true",
-    }
-
-    try:
-        resp = requests.get(_PIXABAY_API_BASE, params=params, timeout=20)
-        if resp.status_code == 200:
-            data = resp.json()
-            hits = data.get("hits", [])
-            # Debug: log the field names of the first hit so we know the API structure
-            if hits:
-                first_keys = list(hits[0].keys())
-                logger.engine(f"[MUSIC] API response fields: {first_keys}")
-                logger.engine(f"[MUSIC] First hit sample: {hits[0]}")
-            return hits
-        else:
-            logger.error(f"[MUSIC] Pixabay search failed (HTTP {resp.status_code}): {query}")
-            return []
-    except Exception:
-        logger.error(f"[MUSIC] Pixabay search exception:\n{traceback.format_exc()}")
-        return []
-
-
-def _extract_audio_url(hit: dict) -> str:
+def synthesize_procedural_ambient(folder_path: str, mood: str, duration: float = 65.0) -> Optional[str]:
     """
-    Extract the audio URL from a Pixabay music hit.
-    Tries all known field name variants.
+    Synthesizes a seamless, low-gain ambient harmonic pad/drone loop.
+    Completely offline, deterministic, zero external dependencies.
     """
-    # Try all possible field names — we'll log which one works
-    candidates = [
-        "audio",       # most likely for music type
-        "audioURL",
-        "audioUrl",
-        "audio_url",
-        "music",
-        "musicURL",
-        "download",
-        "downloadURL",
-        "previewURL",
-        "preview",
-        "url",
-        "pageURL",
-    ]
-    for field in candidates:
-        val = hit.get(field)
-        if val and isinstance(val, str) and val.startswith("http"):
-            logger.engine(f"[MUSIC] Found audio URL in field '{field}'")
-            return val
-
-    # Log all fields so we can see what's actually there
-    logger.engine(f"[MUSIC] No audio URL found. Available fields: {list(hit.keys())}")
-    return ""
-
-
-def _extract_title(hit: dict) -> str:
-    """Extract track title from hit, trying multiple field names."""
-    for field in ("title", "name", "label", "tags"):
-        val = hit.get(field)
-        if val and isinstance(val, str):
-            return val[:50]
-    return f"track_{hit.get('id', 'unknown')}"
-
-
-def _download_and_trim(audio_url: str, output_path: str, max_seconds: int = 90) -> bool:
-    """
-    Download an audio file from URL and trim to max_seconds using FFmpeg.
-    Shows full FFmpeg error output for debugging.
-    """
-    temp_path = output_path + ".tmp_raw"
-
-    try:
-        resp = requests.get(audio_url, timeout=60, stream=True)
-        if resp.status_code != 200:
-            logger.error(f"[MUSIC] Download failed (HTTP {resp.status_code}): {audio_url[:80]}")
-            return False
-
-        content_type = resp.headers.get("content-type", "unknown")
-        logger.engine(f"[MUSIC] Downloaded content-type: {content_type}")
-
-        with open(temp_path, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=8192):
-                f.write(chunk)
-
-        file_size = os.path.getsize(temp_path) if os.path.exists(temp_path) else 0
-        logger.engine(f"[MUSIC] Downloaded file size: {file_size} bytes")
-
-        if file_size < 1000:
-            logger.error(f"[MUSIC] Downloaded file too small ({file_size} bytes)")
-            return False
-
-        result = subprocess.run(
-            [
-                "ffmpeg", "-y",
-                "-i",   temp_path,
-                "-t",   str(max_seconds),
-                "-c:a", "libmp3lame",
-                "-b:a", "128k",
-                "-ar",  "44100",
-                output_path,
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            timeout=120,
-        )
-
-        if result.returncode != 0:
-            # Show FULL FFmpeg error — not truncated — so we can see the real problem
-            full_err = result.stderr.decode("utf-8", errors="replace")
-            # Find the actual error line (starts with "Error" or is after the config dump)
-            err_lines = [l for l in full_err.splitlines() if not l.startswith("  ") and "error" in l.lower()]
-            short_err = "\n".join(err_lines[:5]) if err_lines else full_err[-500:]
-            logger.error(f"[MUSIC] FFmpeg failed:\n{short_err}")
-            return False
-
-        if not os.path.exists(output_path) or os.path.getsize(output_path) < 5000:
-            logger.error(f"[MUSIC] Output file too small")
-            return False
-
-        size_kb = os.path.getsize(output_path) // 1024
-        logger.success(f"[MUSIC] ✅ {os.path.basename(output_path)} ({size_kb} KB)")
-        return True
-
-    except subprocess.TimeoutExpired:
-        logger.error(f"[MUSIC] FFmpeg timed out")
-        return False
-    except Exception:
-        logger.error(f"[MUSIC] Exception:\n{traceback.format_exc()}")
-        return False
-    finally:
-        if os.path.exists(temp_path):
-            try: os.remove(temp_path)
-            except: pass
-
-
-def download_mood_tracks(folder_name: str, query: str, tracks_needed: int) -> int:
-    """Download up to tracks_needed tracks into assets/music/{folder_name}/."""
-    folder_path = os.path.join(_MUSIC_ROOT, folder_name)
     os.makedirs(folder_path, exist_ok=True)
+    out_file = os.path.join(folder_path, "procedural_ambient.wav")
 
-    hits = _search_pixabay_music(query, per_page=min(tracks_needed * 4, 20))
-    if not hits:
-        logger.engine(f"[MUSIC] No results for '{query}'. Skipping {folder_name}.")
-        return 0
+    # Chord frequencies (Hz) tailored to emotional tone
+    mood_chords = {
+        "cinematic_sad":   [110.0, 130.81, 164.81, 196.0, 246.94],     # Am9 (A2, C3, E3, G3, B3)
+        "dark_ambient":    [55.0, 82.41, 110.0, 123.47],               # Deep sub + 5th + octave (A1, E2, A2, B2)
+        "dark_phonk":      [43.65, 87.31, 130.81, 174.61],             # F1 sub + F2 + C3 + F3
+        "horror_drones":   [65.41, 92.50, 116.54, 155.56],             # C2 + F#2 (tritone) + Bb2 + Eb3
+        "upbeat_curiosity": [130.81, 164.81, 196.0, 246.94, 293.66],   # Cmaj9 (C3, E3, G3, B3, D4)
+    }
+    freqs = mood_chords.get(mood, mood_chords["cinematic_sad"])
+    total_samples = int(SAMPLE_RATE * duration)
 
-    random.shuffle(hits)
+    try:
+        with wave.open(out_file, "wb") as wav:
+            wav.setnchannels(2)        # Stereo
+            wav.setsampwidth(2)        # 16-bit PCM
+            wav.setframerate(SAMPLE_RATE)
 
-    downloaded = 0
-    for hit in hits:
-        if downloaded >= tracks_needed:
-            break
+            block_size = 8192
+            raw_bytes = bytearray()
 
-        audio_url   = _extract_audio_url(hit)
-        track_title = _extract_title(hit)
+            for n in range(total_samples):
+                t = n / SAMPLE_RATE
 
-        if not audio_url:
+                # 3s gentle fade-in, 4s smooth fade-out
+                fade_in = min(1.0, t / 3.0)
+                fade_out = min(1.0, (duration - t) / 4.0)
+                envelope = fade_in * fade_out
+
+                # Slow LFO modulation (0.12 Hz organic breathing effect)
+                lfo = 0.85 + 0.15 * math.sin(2 * math.pi * 0.12 * t)
+
+                left_sample = 0.0
+                right_sample = 0.0
+
+                for i, f in enumerate(freqs):
+                    weight = 1.0 / (i + 1.25)
+                    # Left channel: fundamental sine + soft overtone
+                    left_sample += weight * (
+                        math.sin(2 * math.pi * f * t) +
+                        0.25 * math.sin(2 * math.pi * (f * 2) * t)
+                    )
+                    # Right channel: subtle chorus detune (+0.35 Hz) for stereo width
+                    right_sample += weight * (
+                        math.sin(2 * math.pi * (f + 0.35) * t) +
+                        0.25 * math.sin(2 * math.pi * ((f * 2) + 0.5) * t)
+                    )
+
+                # Scale to ~ -24 dBFS (0.06 peak multiplier) so narration stays dominant
+                left_val = int(max(-1.0, min(1.0, left_sample * 0.06 * envelope * lfo)) * 32767.0)
+                right_val = int(max(-1.0, min(1.0, right_sample * 0.06 * envelope * lfo)) * 32767.0)
+
+                raw_bytes.extend(struct.pack("<hh", left_val, right_val))
+
+                if len(raw_bytes) >= block_size * 4:
+                    wav.writeframes(raw_bytes)
+                    raw_bytes.clear()
+
+            if raw_bytes:
+                wav.writeframes(raw_bytes)
+
+        return out_file
+    except Exception as e:
+        logger.engine(f"⚠️ [MUSIC] Failed to synthesize procedural track for '{mood}': {e}")
+        if os.path.exists(out_file):
+            try:
+                os.remove(out_file)
+            except Exception:
+                pass
+        return None
+
+
+def get_mood_tracks(folder_name: str) -> List[str]:
+    """Return all valid audio files present in assets/music/{folder_name}/."""
+    folder_path = os.path.join(_MUSIC_ROOT, folder_name)
+    if not os.path.isdir(folder_path):
+        return []
+
+    tracks = []
+    for ext in AUDIO_EXTENSIONS:
+        tracks.extend(glob.glob(os.path.join(folder_path, ext)))
+
+    # Filter out empty or corrupt files (< 4 KB)
+    return [t for t in tracks if os.path.isfile(t) and os.path.getsize(t) > 4096]
+
+
+def seed_music_library(force_synth: bool = False) -> Dict[str, int]:
+    """
+    Ensure all mood folders have background music.
+    1. If user has already placed music files (*.mp3, *.wav, etc.), preserves them.
+    2. If a folder is empty (or force_synth=True), synthesizes a procedural fallback.
+    3. Never crashes or blocks the pipeline if anything fails.
+    """
+    logger.engine("[MUSIC] Auditing background music library...")
+    summary: Dict[str, int] = {}
+
+    for folder_name in MOOD_FOLDERS:
+        folder_path = os.path.join(_MUSIC_ROOT, folder_name)
+        os.makedirs(folder_path, exist_ok=True)
+
+        existing_tracks = get_mood_tracks(folder_name)
+
+        if existing_tracks and not force_synth:
+            summary[folder_name] = len(existing_tracks)
+            logger.engine(f"[MUSIC] '{folder_name}' has {len(existing_tracks)} user track(s). Preserved.")
             continue
 
-        out_path = os.path.join(folder_path, f"track_{downloaded}.mp3")
-        logger.engine(f"[MUSIC] Downloading: '{track_title}' → {folder_name}/track_{downloaded}.mp3")
-        logger.engine(f"[MUSIC] URL: {audio_url[:100]}")
-
-        success = _download_and_trim(audio_url, out_path, max_seconds=90)
-        if success:
-            downloaded += 1
-        else:
-            logger.engine(f"[MUSIC] Skipping '{track_title}'.")
-
-        time.sleep(1.0)
-
-    return downloaded
-
-
-def seed_music_library() -> dict:
-    """Seed all mood folders using Pixabay music API."""
-    api_key = _get_api_key()
-    if not api_key:
-        logger.engine("[MUSIC] PIXABAY_API_KEY not set. Skipping.")
-        return {}
-
-    settings      = config_manager.get_settings()
-    music_cfg     = settings.get("music", {})
-    tracks_needed = int(music_cfg.get("tracks_per_mood", 2))
-
-    logger.engine(f"[MUSIC] Seeding — {tracks_needed} track(s) per folder...")
-
-    summary = {}
-    for folder_name, query_list in MOOD_SEARCH_QUERIES.items():
-        query = random.choice(query_list)
-        logger.engine(f"[MUSIC] Folder '{folder_name}' — query: '{query}'")
-
-        count = download_mood_tracks(folder_name, query, tracks_needed)
-        summary[folder_name] = count
-
-        if count == 0:
-            logger.engine(f"[MUSIC] ⚠️ No tracks for '{folder_name}'.")
-        else:
-            logger.success(f"[MUSIC] '{folder_name}' → {count} track(s) ready.")
-
-        time.sleep(2)
+        # If empty, synthesize procedural fallback
+        try:
+            logger.engine(f"[MUSIC] Synthesizing procedural fallback for '{folder_name}'...")
+            track_path = synthesize_procedural_ambient(folder_path, folder_name, duration=65.0)
+            if track_path and os.path.isfile(track_path) and os.path.getsize(track_path) > 10000:
+                size_kb = os.path.getsize(track_path) // 1024
+                logger.success(f"[MUSIC] ✅ {folder_name}/procedural_ambient.wav ({size_kb} KB ready)")
+                summary[folder_name] = 1
+            else:
+                logger.engine(f"[MUSIC] ℹ️ Bypassed fallback for '{folder_name}'.")
+                summary[folder_name] = 0
+        except Exception as e:
+            logger.engine(f"[MUSIC] ℹ️ Synthesis bypassed for '{folder_name}': {e}")
+            summary[folder_name] = 0
 
     return summary
 
 
-def check_library_state() -> dict:
+def check_library_state() -> Dict[str, List[str]]:
+    """Inspect current music library state across all mood folders."""
     state = {}
-    for folder_name in MOOD_SEARCH_QUERIES:
-        folder_path = os.path.join(_MUSIC_ROOT, folder_name)
-        if os.path.isdir(folder_path):
-            mp3s = [f for f in os.listdir(folder_path) if f.endswith(".mp3")]
-            state[folder_name] = mp3s
-        else:
-            state[folder_name] = []
+    for folder_name in MOOD_FOLDERS:
+        state[folder_name] = [os.path.basename(t) for t in get_mood_tracks(folder_name)]
     return state
 
 
 def print_library_report():
+    """Print human-readable summary of background music assets."""
     state = check_library_state()
-    print("\n🎵 Music Library State:")
-    print("─" * 40)
+    print("\n🎵 Background Music Library State:")
+    print("─" * 45)
     total = 0
     for folder, tracks in state.items():
-        status = f"{len(tracks)} track(s)" if tracks else "⚠️  EMPTY"
-        print(f"  {folder:<22} → {status}")
-        total += len(tracks)
-    print("─" * 40)
-    print(f"  Total tracks cached: {total}")
-    print()
+        if tracks:
+            track_list = ", ".join(tracks[:2]) + (f" (+{len(tracks)-2} more)" if len(tracks) > 2 else "")
+            print(f"  {folder:<20} → {len(tracks)} track(s) [{track_list}]")
+            total += len(tracks)
+        else:
+            print(f"  {folder:<20} → ⚠️  EMPTY (procedural fallback will engage)")
+    print("─" * 45)
+    print(f"  Total active tracks: {total}\n")
 
 
 if __name__ == "__main__":
     if "--check" in sys.argv:
         print_library_report()
+    elif "--synth-all" in sys.argv:
+        print("[MUSIC] Forcing procedural synthesis for all mood folders...")
+        seed_music_library(force_synth=True)
+        print_library_report()
     else:
         print_library_report()
-        logger.engine("[MUSIC] Starting Pixabay music library seeding...")
-        result = seed_music_library()
-        print("\n📦 Seeding complete:")
-        for folder, count in result.items():
-            print(f"  {folder}: {count} track(s) downloaded")
+        res = seed_music_library()
+        print("\n📦 Library check complete.")

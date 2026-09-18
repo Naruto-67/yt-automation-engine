@@ -430,12 +430,33 @@ def _mix_background_music(output_path: str, mood: str = "neutral", transition_ti
     root_dir    = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     folder_path = os.path.join(root_dir, "assets", "music", folder_name)
 
-    mp3_files = glob.glob(os.path.join(folder_path, "*.mp3")) if os.path.isdir(folder_path) else []
-    track_path = random.choice(mp3_files) if mp3_files else None
+    candidate_tracks = []
+    if os.path.isdir(folder_path):
+        for ext in ("*.mp3", "*.wav", "*.m4a", "*.aac", "*.ogg"):
+            candidate_tracks.extend(glob.glob(os.path.join(folder_path, ext)))
+
+    valid_tracks = [t for t in candidate_tracks if os.path.isfile(t) and os.path.getsize(t) > 4096]
+    track_path = None
+
+    if valid_tracks:
+        random.shuffle(valid_tracks)
+        for cand in valid_tracks:
+            # Fast ffprobe check to ensure track has a playable audio stream
+            try:
+                probe = subprocess.run(
+                    ["ffprobe", "-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0", cand],
+                    capture_output=True, text=True, timeout=5
+                )
+                if "audio" in probe.stdout.lower():
+                    track_path = cand
+                    break
+            except Exception:
+                continue
+
     if track_path:
         print(f"🎵 [MUSIC] Mixing track: {os.path.basename(track_path)} (mood={mood})")
     else:
-        print(f"🎵 [AUDIO] Music track unavailable. Proceeding with voice mastering & SFX layer.")
+        print(f"🎵 [AUDIO] Background music unavailable for '{folder_name}'. Cleanly bypassing music layer.")
 
     temp_path = output_path + ".audio_mix.tmp.mp4"
 
