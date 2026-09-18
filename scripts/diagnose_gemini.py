@@ -1,71 +1,57 @@
-# scripts/diagnose_gemini.py — Ghost Engine V7.3
+# scripts/diagnose_gemini.py — Dedicated Lightweight Gemini Diagnostics Suite
 """
-Dedicated Gemini API Diagnostics & Model Catalog Inspector.
+Focused upstream diagnostic test harness for Google GenAI API.
+Verifies live model catalog, tests core tasks (Scriptwriting, Search Grounding, SEO JSON),
+logs uncensored HTTP/gRPC codes and latency, enforces thinking_level='low' for 3.x models,
+and applies Google's Chat pattern (Fix 1) to eliminate Automatic Function Calling warnings.
+"""
 
-Purpose:
-1. Audits live Google Gemini API catalog using official google-genai SDK.
-2. Identifies exact available models, supported methods, and rate limits.
-3. Tests candidate models across the 3 core tasks used by Ghost Engine:
-   - Task 1: Creative Script Generation (with system prompt)
-   - Task 2: Fact Grounding (with Google Search tool)
-   - Task 3: Structured SEO JSON Metadata Extraction
-4. Discloses 100% of error details, HTTP status codes, gRPC errors, and latency.
-5. Prints a consolidated diagnostic comparison matrix.
-"""
 import os
 import sys
 import time
 import json
 import traceback
-from typing import Dict, List, Any, Optional
+from typing import Dict, Any, List, Optional
 
-# Safe UTF-8 console output for all environments
-if hasattr(sys.stdout, "reconfigure"):
-    try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:
-        pass
-
-DIVIDER_HEAVY = "═" * 72
-DIVIDER_LIGHT = "─" * 72
+DIVIDER_HEAVY = "=" * 80
+DIVIDER_LIGHT = "-" * 80
 
 
 def print_header(title: str):
     print(f"\n{DIVIDER_HEAVY}")
-    print(f"🔍 {title.upper()}")
-    print(f"{DIVIDER_HEAVY}\n")
+    print(f"🔬 {title.upper()}")
+    print(DIVIDER_HEAVY)
 
 
 def audit_catalog(client) -> List[str]:
-    """Lists all available models and returns candidate text model IDs."""
-    print_header("1. Live Gemini Model Catalog Audit")
-    candidate_models = []
+    """Queries client.models.list() and identifies all available text/flash models."""
+    print_header("1. Upstream Model Catalog Discovery")
+    candidate_models: List[str] = []
 
     try:
-        print("[CATALOG] Querying client.models.list()...")
-        t0 = time.time()
         models = list(client.models.list())
-        latency = (time.time() - t0) * 1000.0
-        print(f"[CATALOG] Retrieved {len(models)} models in {latency:.1f}ms.\n")
+        print(f"Found {len(models)} total models in upstream catalog.\n")
 
-        print(f"{'Model ID':<35} | {'Display Name':<25} | {'Methods'}")
-        print(f"{'-'*35}-+-{'-'*25}-+-{'-'*25}")
+        # Exclude non-text modalities
+        EXCLUDED_SUBSTRINGS = [
+            "image", "picture", "tts", "audio", "live", "embed",
+            "robotics", "video", "veo", "whisper", "transcribe",
+            "guard", "safeguard"
+        ]
+
+        print(f"{'Model Name':<38} | {'Display Name':<30}")
+        print(f"{'-'*38}-+-{'-'*30}")
 
         for m in models:
-            m_id = getattr(m, "name", "unknown").replace("models/", "")
-            display_name = getattr(m, "display_name", "") or ""
-            methods = getattr(m, "supported_generation_methods", []) or []
-            methods_str = ", ".join(methods) if isinstance(methods, list) else str(methods)
+            name = getattr(m, "name", "unknown").replace("models/", "")
+            display = getattr(m, "display_name", "") or ""
 
-            # Highlight Flash and text-generation models
-            is_candidate = "generateContent" in methods_str or "generate_content" in methods_str or not methods
-            if is_candidate and "flash" in m_id.lower():
-                candidate_models.append(m_id)
-                prefix = "👉"
-            else:
-                prefix = "  "
+            # Check for modality exclusion
+            if any(k in name.lower() for k in EXCLUDED_SUBSTRINGS):
+                continue
 
-            print(f"{prefix} {m_id:<33} | {display_name[:25]:<25} | {methods_str[:30]}")
+            print(f"{name:<38} | {display:<30}")
+            candidate_models.append(name)
 
     except Exception as e:
         print(f"❌ [CATALOG ERROR] Failed to list models: {type(e).__name__}: {e}")
@@ -84,7 +70,7 @@ def test_model_task(
     temperature: float = 0.7,
     timeout_s: float = 15.0
 ) -> Dict[str, Any]:
-    """Executes a single test task against a model and logs full diagnostic data."""
+    """Executes a single test task against a model with thinking config and Fix 1 Chat pattern."""
     from google.genai import types
 
     result = {
@@ -99,27 +85,43 @@ def test_model_task(
         "sample": ""
     }
 
-    print(f"\n   ┌── Task: [{task_name}] on model [{model_id}]")
+    print(f"\n   ┌── Task: [{task_name}] on model [{model_id}] (Timeout: {timeout_s:.1f}s)")
     t0 = time.time()
 
     try:
+        timeout_ms = int(timeout_s * 1000)
         cfg_kwargs: Dict[str, Any] = {
-            "temperature": temperature,
-            "max_output_tokens": 1500,
-            "http_options": {"timeout": int(timeout_s * 1000)}
+            "http_options": {"timeout": timeout_ms}
         }
+
+        # 3.x parameter handling: strip deprecated temperature, inject thinking_level="low"
+        is_3x = any(v in model_id for v in ["3.8", "3.7", "3.6", "3.5", "3-"])
+        if is_3x:
+            # "minimal" is not supported on 3.8/3.7 Flash; must use "low"
+            cfg_kwargs["thinking_config"] = types.ThinkingConfig(thinking_level="low")
+        else:
+            cfg_kwargs["temperature"] = temperature
+
         if system_prompt:
             cfg_kwargs["system_instruction"] = system_prompt
+
         if tools:
             cfg_kwargs["tools"] = tools
+            config = types.GenerateContentConfig(**cfg_kwargs)
 
-        config = types.GenerateContentConfig(**cfg_kwargs)
-
-        response = client.models.generate_content(
-            model=model_id,
-            contents=prompt,
-            config=config
-        )
+            # Fix 1: Use client.chats.create + chat.send_message to eliminate AFC warning
+            chat = client.chats.create(
+                model=model_id,
+                config=config
+            )
+            response = chat.send_message(prompt)
+        else:
+            config = types.GenerateContentConfig(**cfg_kwargs)
+            response = client.models.generate_content(
+                model=model_id,
+                contents=prompt,
+                config=config
+            )
 
         latency = (time.time() - t0) * 1000.0
         result["latency_ms"] = latency
@@ -143,7 +145,6 @@ def test_model_task(
         result["error_type"] = type(e).__name__
         result["error_msg"] = str(e)
         print(f"   │ ❌ ERROR in {latency:.1f}ms: [{result['error_type']}] {result['error_msg']}")
-        # Log HTTP error code or response details if available
         if hasattr(e, "code"):
             print(f"   │    HTTP/gRPC Code: {getattr(e, 'code')}")
         if hasattr(e, "response"):
@@ -173,23 +174,33 @@ def run_diagnostics():
         print("Run: pip install google-genai")
         sys.exit(1)
 
-    client = genai.Client(api_key=api_key, http_options={"timeout": 30000})
+    client = genai.Client(api_key=api_key, http_options={"timeout": 35000})
 
     # Step 1: Query catalog
     discovered_flash = audit_catalog(client)
 
     # Step 2: Compile curated candidate roster
-    # Standard production roster + any discovered flash models
+    # Priority order: modern active workhorses first, then canaries, then legacy
     roster_priority = [
+        "gemini-flash-lite-latest",
+        "gemini-3.5-flash-lite",
+        "gemini-3.1-flash-lite",
+        "gemini-3.6-flash",
+        "gemini-3.8-flash",
+        "gemini-3.7-flash",
+        "gemini-3-flash-preview",
         "gemini-2.5-flash",
-        "gemini-2.0-flash",
-        "gemini-2.0-flash-lite",
-        "gemini-1.5-flash",
-        "gemini-1.5-flash-8b",
     ]
-    # Add any discovered models not already in roster
+
+    DEPRECATED = {
+        "gemini-2.0-flash", "gemini-2.0-flash-lite",
+        "gemini-1.5-flash", "gemini-1.5-flash-8b",
+        "gemini-1.5-pro", "gemini-2.0-pro"
+    }
+
+    # Add any newly discovered models not already in roster or deprecated
     for m in discovered_flash:
-        if m not in roster_priority:
+        if m not in roster_priority and m not in DEPRECATED:
             roster_priority.append(m)
 
     print_header("2. Evaluating Candidate Models Across Core Tasks")
@@ -216,6 +227,11 @@ def run_diagnostics():
 
         model_results = {}
 
+        # 3.8 and 3.7 require 25s timeout to account for dynamic reasoning tokens
+        is_deep_thinking = any(k in model_id for k in ["3.8", "3.7"])
+        script_timeout = 25.0 if is_deep_thinking else 15.0
+        seo_timeout = 20.0 if is_deep_thinking else 10.0
+
         # ── Test 1: Script Generation ──
         res_script = test_model_task(
             client=client,
@@ -224,12 +240,11 @@ def run_diagnostics():
             prompt=script_prompt,
             system_prompt=script_system,
             temperature=0.8,
-            timeout_s=12.0
+            timeout_s=script_timeout
         )
         model_results["script"] = res_script
 
-        # ── Test 2: Fact Grounding (with Search Tool) ──
-        # Test standard generate_content with google_search tool
+        # ── Test 2: Fact Grounding (Fix 1: Chat pattern with Search Tool) ──
         search_tool = [types.Tool(google_search=types.GoogleSearch())]
         res_fact = test_model_task(
             client=client,
@@ -250,12 +265,12 @@ def run_diagnostics():
             prompt=seo_prompt,
             system_prompt=seo_system,
             temperature=0.2,
-            timeout_s=10.0
+            timeout_s=seo_timeout
         )
         model_results["seo"] = res_seo
 
         matrix[model_id] = model_results
-        time.sleep(1.0)  # Gentle inter-model delay to avoid burst throttling
+        time.sleep(1.0)  # Inter-model throttle
 
     # Step 3: Print Consolidated Summary Matrix
     print_header("3. Diagnostic Summary Matrix")
@@ -280,6 +295,16 @@ def run_diagnostics():
 
         print(f"{model_id:<28} | {s_str:<14} | {f_str:<14} | {seo_str:<14} | {overall}")
 
+    # Optional sync to dynamic models registry
+    if "--sync-registry" in sys.argv or os.environ.get("UPDATE_REGISTRY") == "true":
+        print("\n📝 Synchronizing healthy models with memory/dynamic_models_registry.json...")
+        try:
+            from engine.dynamic_discovery import sync_registry
+            sync_res = sync_registry()
+            print(f"✅ Registry updated: {sync_res}")
+        except Exception as e:
+            print(f"⚠️ Failed to sync registry: {e}")
+
     print(f"\n{DIVIDER_HEAVY}")
     print("🏁 DIAGNOSTICS COMPLETE. Copy this log to analyze API behavior.")
     print(f"{DIVIDER_HEAVY}\n")
@@ -287,4 +312,3 @@ def run_diagnostics():
 
 if __name__ == "__main__":
     run_diagnostics()
-
