@@ -98,19 +98,20 @@ class CircularLoopEngine:
         first_hook_word = hook_lower.split()[0] if hook_lower.split() else ""
         connects_with_noun_or_verb = first_hook_word not in ["hello", "hey", "welcome", "today"]
 
-        score = 0.5  # Base score for clean narrative without sign-offs
-        feedback_parts = ["No sign-offs detected."]
+        # Base score for clean narrative without swiping triggers
+        score = 0.70
+        feedback_parts = ["Clean narrative without swiping triggers."]
 
         if has_bridge:
-            score += 0.3
+            score += 0.20
             feedback_parts.append("Features seamless connective bridge cue.")
         if has_open_preposition:
-            score += 0.2
+            score += 0.15
             feedback_parts.append("Ending clause opens direct syntactic continuation.")
         if connects_with_noun_or_verb:
-            score += 0.1
+            score += 0.05
 
-        is_seamless = score >= 0.7
+        is_seamless = score >= 0.70
         return LoopVerdict({
             "is_valid": is_seamless,
             "loop_score": min(1.0, score),

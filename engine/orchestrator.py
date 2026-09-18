@@ -74,6 +74,16 @@ class Orchestrator:
     def run_pipeline(self):
         if is_test_mode(): notify_summary(True, "🧪 **TEST MODE** — End-to-End system simulation initiated.")
 
+        # ── Ensure Background Music Cache ─────────────────────────────────────
+        try:
+            from scripts.music_manager import seed_music_library, _MUSIC_ROOT
+            music_files = glob.glob(os.path.join(_MUSIC_ROOT, "*", "*.mp3"))
+            if not music_files and os.environ.get("PIXABAY_API_KEY"):
+                logger.engine("🎵 [MUSIC] Empty music library detected. Seeding from Pixabay...")
+                seed_music_library()
+        except Exception as e:
+            logger.engine(f"⚠️ [MUSIC] Automatic music seed skipped: {e}")
+
         global_produced = 0  
         global_failed = False  # 🚨 FIX: Initialized here to prevent NameError on sys.exit
 
