@@ -54,3 +54,10 @@ updates:
       day:      "monday"
     # No ignores needed for actions — they use SHA pinning via Dependabot
     # and major bumps are already flagged for manual review by 00_auto_merge.
+
+  - package-ecosystem: "npm"
+    directory: "/render"
+    schedule:
+      interval: "weekly"
+      day:      "monday"
+    open-pull-requests-limit: 5
