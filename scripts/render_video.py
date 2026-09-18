@@ -700,11 +700,14 @@ def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=60):
     # Expanded: s = (n*n)*(3*fr - 2*n) / (fr*fr*fr)
     # We use {{n}} in f-strings to emit a literal `n` for FFmpeg.
 
+    # Pattern interrupt zoom punch on first scene (index == 0)
+    initial_zoom_expr = r"if(lte(on\, 36)\, 1.15-(0.10*(on/36))\, 1.05)" if index == 0 else "1.05"
+
     effects = [
         # 0: Pan left → right, eased, center vertically (with initial 3s pattern interrupt zoom punch if index==0)
         (
             f"{prep},"
-            f"zoompan=z='{'if(lte(on\\, 36)\\, 1.15-(0.10*(on/36))\\, 1.05)' if index == 0 else '1.05'}':d={fr}:s={OUT_W}x{OUT_H}:fps=60:"
+            f"zoompan=z='{initial_zoom_expr}':d={fr}:s={OUT_W}x{OUT_H}:fps=60:"
             f"x='{pan_x}*((on*on)*({3*fr}-2*on)/({fr}*{fr}*{fr}))':y='{cy}',"
             f"{sharpen},{base_eq},format=yuv420p"
         ),

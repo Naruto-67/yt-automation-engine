@@ -164,20 +164,37 @@ class IntegrityChecker:
             self.log_result("render", "Node.js kinetic renderer package", "FAIL", "render package files missing")
 
     def check_python_syntax(self):
-        """Compiles all Python files in the workspace."""
+        """Compiles all Python files in the workspace and enforces Python 3.11 f-string compatibility."""
+        import ast
         py_files = list(REPO_ROOT.glob("engine/**/*.py")) + list(REPO_ROOT.glob("scripts/**/*.py")) + list(REPO_ROOT.glob("mcp/**/*.py"))
         compile_errors = []
         for py_file in py_files:
             try:
                 py_compile.compile(str(py_file), doraise=True)
             except py_compile.PyCompileError as e:
-                compile_errors.append((py_file.name, str(e)))
+                err_lines = str(e).strip().splitlines()
+                last_line = err_lines[-1] if err_lines else str(e)
+                compile_errors.append((py_file.name, last_line))
+                continue
+
+            # Defensive check: Ensure strict compatibility with Python 3.11 (no backslashes inside f-string expressions)
+            try:
+                content = py_file.read_text(encoding="utf-8")
+                tree = ast.parse(content, filename=str(py_file))
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.FormattedValue):
+                        seg = ast.get_source_segment(content, node.value)
+                        if seg and "\\" in seg:
+                            compile_errors.append((py_file.name, f"Line {getattr(node, 'lineno', '?')}: Backslash in f-string expression (PEP 701 violates Python 3.11)"))
+                            break
+            except Exception as e:
+                compile_errors.append((py_file.name, f"AST parse failure: {e}"))
 
         if not compile_errors:
-            self.log_result("compilation", f"Python syntax check ({len(py_files)} files)", "PASS", "100% clean compilation")
+            self.log_result("compilation", f"Python syntax & Py3.11 compat ({len(py_files)} files)", "PASS", "100% clean compilation")
         else:
             for fname, err in compile_errors:
-                self.log_result("compilation", f"Syntax error in {fname}", "FAIL", err[:80])
+                self.log_result("compilation", f"Syntax error in {fname}", "FAIL", err)
 
     def run_all(self) -> bool:
         print("═" * 70)
