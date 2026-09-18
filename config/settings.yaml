@@ -226,11 +226,11 @@ watermark_presets:
       fontsize: "50"
 
 # ─── BACKGROUND MUSIC ─────────────────────────────────────────────────────────
-# Music is downloaded from Pixabay (CC0 — no attribution, free commercial use)
-# and cached in assets/music/{folder}/ by the weekly music_manager.py run.
+# User music (*.mp3, *.wav, etc.) placed in assets/music/{folder}/ is prioritized.
+# If a folder is empty, procedural ambient synthesis generates an offline fallback.
+# If music is missing or corrupt, it is cleanly and silently bypassed (no crash, no error).
 # volume: relative amplitude multiplier vs voice track (0.08 ≈ -22dB background level)
 # mood_to_folder: maps LLM-chosen mood to the correct assets/music/ subfolder
-# If a folder is empty, music is silently skipped — no crash, no error.
 music:
   volume:            0.08   # Music volume relative to voice (0.08 ≈ -22 dB)
   fade_in_seconds:   1.0    # Fade music in over N seconds at video start
