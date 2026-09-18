@@ -3,6 +3,12 @@ name: "00 Gemini Diagnostics"
 
 on:
   workflow_dispatch:
+    inputs:
+      update_registry:
+        description: "Synchronize healthy models with memory/dynamic_models_registry.json"
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   diagnostics:
@@ -28,6 +34,6 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PYTHONUNBUFFERED: "1"
+          UPDATE_REGISTRY: ${{ inputs.update_registry }}
         run: |
           python scripts/diagnose_gemini.py
-
