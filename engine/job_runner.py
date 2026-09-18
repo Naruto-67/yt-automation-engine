@@ -17,6 +17,9 @@ from scripts.render_video      import render_video
 from scripts.generate_metadata import generate_seo_metadata
 from scripts.generate_thumbnail import generate_thumbnail, upload_thumbnail
 from scripts.discord_notifier  import notify_step, notify_production_success, notify_vault_secure
+from engine.self_learning      import self_learning
+from engine.decision_log       import decision_log
+from engine.delivery_promise   import get_delivery_promise
 
 def is_test_mode() -> bool:
     """Return True if TEST_MODE is active via environment variable."""
@@ -193,7 +196,15 @@ class JobRunner:
         if not prompts:
             raise ValueError("No image prompts available in script data.")
 
-        images, provider = fetch_scene_images(prompts, pexels, base_filename=f"temp_scene_{self.base_filename}")
+        content_type = getattr(self.channel_config, "content_type", "factual") if self.channel_config else "factual"
+
+        images, provider = fetch_scene_images(
+            prompts,
+            pexels,
+            base_filename=f"temp_scene_{self.base_filename}",
+            content_type=content_type,
+            channel_id=self.job.channel_id,
+        )
         min_acceptable = max(1, len(prompts) // 2)
 
         if len(images) < min_acceptable:
@@ -207,6 +218,7 @@ class JobRunner:
 
         self.job.image_paths = json.dumps(images)
         self._transition_to(JobState.RENDERING)
+
 
     def _execute_rendering(self):
         logger.generation("Rendering final video...")
@@ -275,6 +287,8 @@ class JobRunner:
         metadata    = json.loads(self.job.metadata)    if self.job.metadata else {}
         script_data = json.loads(self.job.script)      if self.job.script   else {}
 
+        self._record_success_in_learning_engine(script_data)
+
         if is_test_mode():
             logger.success("🧪 [TEST MODE] Bypassing YouTube Upload. Simulating success.")
             self.job.youtube_id = "test_mode_dummy_video_id"
@@ -334,4 +348,34 @@ class JobRunner:
             metadata=metadata, duration=self.final_duration, size=self.final_size_mb,
             video_id=self.job.youtube_id
         )
+
+    def _record_success_in_learning_engine(self, script_data: dict):
+        """Persist successful execution to self-learning memory and decision log."""
+        try:
+            content_type = getattr(self.channel_config, "content_type", "factual") if self.channel_config else "factual"
+            pillar = getattr(self.channel_config, "primary_pillar", "default") if self.channel_config else "default"
+            visual_style = getattr(self.channel_config, "visual_style", "cinematic") if self.channel_config else "cinematic"
+
+            self_learning.record_successful_trajectory(
+                channel_id=self.job.channel_id,
+                topic=self.job.topic,
+                script_text=script_data.get("text", ""),
+                scenes=script_data.get("scenes", []),
+                content_type=content_type,
+                pillar=pillar,
+                performance_score=8.5,
+                visual_style=visual_style,
+            )
+            decision_log.record(
+                category="PRODUCTION_CYCLE",
+                decision="Completed full video pipeline and saved trajectory",
+                chosen=self.job.youtube_id or "vaulted",
+                channel_id=self.job.channel_id,
+                job_id=self.job.id,
+                extra={"topic": self.job.topic, "duration": self.final_duration, "size_mb": self.final_size_mb},
+            )
+        except Exception as e:
+            logger.debug(f"Self-learning record failed (non-fatal): {e}")
+
+
 

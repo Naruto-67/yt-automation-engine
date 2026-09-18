@@ -27,8 +27,9 @@ class LLMRouter:
         
         # Failsafe fallback if discovery endpoint goes down or changes format.
         # gemini-1.5-flash is Google's declared long-term stable tier.
-        fallback_stable = ["gemini-1.5-flash"]
-        fallback_preview = []
+        # Failsafe fallback if discovery endpoint is temporarily unreachable
+        fallback_stable = ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-2.5-flash", "gemini-2.0-flash"]
+        fallback_preview = ["gemini-3-flash-preview", "gemini-2.0-flash-exp"]
 
         if not self.gemini_key:
             self._gemini_models_discovered = True
@@ -36,40 +37,60 @@ class LLMRouter:
 
         try:
             from google import genai
-            client = genai.Client(api_key=self.gemini_key)
+            import re as _re
+
+            client = genai.Client(api_key=self.gemini_key, http_options={"timeout": 15000})
             all_models = list(client.models.list())
             model_names = [m.name.replace("models/", "") for m in all_models if hasattr(m, "name")]
 
-            import re as _re
+            # Exclude non-text modalities, live WebSocket streaming, speech, vision, embeddings, and paid pro tiers
+            EXCLUDED_KEYWORDS = [
+                "live", "realtime", "extended-thinking", "vision", "audio", "tts",
+                "embedding", "imagen", "image", "video", "chat", "deep-research",
+                "robotics", "custom", "pro"
+            ]
 
-            def _score(name: str) -> int:
+            def _is_text_flash(name: str) -> bool:
+                n = name.lower()
+                # Must be a Flash model (Google's high-speed, free-tier workhorse)
+                if "flash" not in n:
+                    return False
+                # Must not contain excluded non-text or streaming keywords
+                if any(x in n for x in EXCLUDED_KEYWORDS):
+                    return False
+                return True
+
+            def _score(name: str) -> float:
                 """
-                Score Gemini models by version number automatically.
-                Uses dynamic version parsing so any newer model (e.g. gemini-3.0-flash,
-                gemini-4.5-flash-lite) is preferred over older ones without code changes.
+                100% Dynamic Version Scoring — Zero hardcoded model lists.
+                Extracts major.minor version number automatically from the API response:
+                e.g. gemini-4.0-flash -> 400.0, gemini-3.8-flash -> 308.0,
+                     gemini-3.8-flash-lite -> 307.5, gemini-2.5-flash -> 205.0.
+                Newer models always automatically rank highest.
                 """
                 n = name.lower()
-                # Exclude non-text models — they break the text generation chain
-                if any(x in n for x in ["vision", "audio", "tts", "embedding", "imagen"]):
-                    return -1
-
-                # Extract the major.minor version number from the model name
-                # e.g. "gemini-2.5-flash" → 2.5, "gemini-1.5-flash-8b" → 1.5
-                m = _re.search(r"gemini[-\s]?(\d+)\.(\d+)", n)
+                m = _re.search(r"gemini[-\s]?(\d+)(?:\.(\d+))?", n)
                 if not m:
-                    return 0  # unknown format — rank lowest
-
+                    return 0.0
                 major = int(m.group(1))
-                minor = int(m.group(2))
+                minor = int(m.group(2)) if m.group(2) else 0
+                version_score = (major * 100) + minor
+                if "lite" in n:
+                    version_score -= 0.5
+                return float(version_score)
 
-                # Score = (major * 100) + minor
-                # This ensures: 3.0 > 2.5 > 2.0 > 1.5 > 1.0
-                # So newer free models (e.g. 3.0-flash, 3.5-flash-lite) are always preferred.
-                score = (major * 100) + minor
-                return score
+            clean_flash_models = [m for m in model_names if _is_text_flash(m)]
 
-            self._gemini_stable_chain = sorted([m for m in model_names if "exp" not in m and "preview" not in m], key=_score, reverse=True)[:4]
-            self._gemini_preview_chain = sorted([m for m in model_names if "exp" in m or "preview" in m], key=_score, reverse=True)[:2]
+            # Stable chain (pure dynamic ranking of discovered models)
+            stable_candidates = [m for m in clean_flash_models if "exp" not in m and "preview" not in m]
+            self._gemini_stable_chain = sorted(stable_candidates, key=_score, reverse=True)[:4] if stable_candidates else fallback_stable
+
+            # Preview chain (pure dynamic ranking of discovered preview/experimental models)
+            preview_candidates = [m for m in clean_flash_models if "exp" in m or "preview" in m]
+            self._gemini_preview_chain = sorted(preview_candidates, key=_score, reverse=True)[:2] if preview_candidates else fallback_preview
+
+            print(f"🤖 [GEMINI] Dynamic Auto-Discovery — Stable Chain: {self._gemini_stable_chain} | Preview Chain: {self._gemini_preview_chain}")
+
         except Exception as e:
             print(f"⚠️ [GEMINI] Model discovery failed: {e}. Using fallback stable models.")
             self._gemini_stable_chain = fallback_stable
@@ -125,12 +146,12 @@ class LLMRouter:
                         self._enforce_rpm_throttle()
                         from google import genai
                         from google.genai import types
-                        client = genai.Client(api_key=self.gemini_key)
+                        client = genai.Client(api_key=self.gemini_key, http_options={"timeout": 60000})
                         gen_cfg = types.GenerateContentConfig(
                             system_instruction=system_prompt if system_prompt else None,
                             temperature=temperature,
                             max_output_tokens=8000,
-                            http_options={"timeout": 60}
+                            http_options={"timeout": 60000}
                         )
                         response = client.models.generate_content(
                             model=model,

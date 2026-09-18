@@ -65,8 +65,8 @@ class Orchestrator:
         settings     = config_manager.get_settings()
         test_topics  = settings.get("test_mode", {}).get("test_topics", {})
         fallbacks    = {
-            "CH_01": "A discarded brass compass in an antique shop refuses to point North, guiding a lonely wooden marionette toward something far more important",
-            "CH_02": "The immortal jellyfish can hit rewind on its own lifecycle and revert back into a baby whenever it gets sick or injured",
+            "CH_01": "A young blacksmith's apprentice secretly crafts a mechanical bird to save a trapped mountain climber, defying guild rules",
+            "CH_02": "The immortal jellyfish Turritopsis dohrnii can revert its mature cells back into polyp cells, theoretically living forever",
         }
         # Merge: settings values take priority over built-in fallbacks
         return {**fallbacks, **test_topics}
