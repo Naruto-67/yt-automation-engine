@@ -19,8 +19,8 @@ Every change below is documented with **what → why → files → verify**.
 ---
 
 ### 2. Task 0: Minimal Ping Diagnostics
-- **What:** Added an ultra-lightweight ping probe (`"Reply with the single word 'PONG'."`, `max_output_tokens=5`) as Task 0 in the diagnostic suite.
-- **Why:** Isolates raw TCP handshake and HTTP round-trip latency (<500ms) from multi-second reasoning/creative generation, allowing immediate detection of API connectivity, authentication, and endpoint health.
+- **What:** Added an ultra-lightweight ping probe (`"Reply with the single word 'PONG'."`, `max_output_tokens=100`) as Task 0 in the diagnostic suite.
+- **Why:** Isolates raw TCP handshake and HTTP round-trip latency (<500ms) from multi-second reasoning/creative generation, allowing immediate detection of API connectivity, authentication, and endpoint health while providing 100 tokens of headroom for models with internal reasoning tokens.
 - **Files:**
   - [`scripts/diagnose_gemini.py`](file:///d:/Github/yt-automation-engine-main/scripts/diagnose_gemini.py)
 - **Verify:** Run `.github/workflows/00_gemini_diagnostics.yml` and check the Minimal Ping column in the summary matrix.
@@ -61,8 +61,34 @@ Every change below is documented with **what → why → files → verify**.
 - **Why:** Gemini 3.8 and 3.7 shared canary endpoints periodically shed free-tier load with 503 when processing heavy reasoning tasks, while Flash-Lite and Groq 70B execute in 1–2 seconds.
 - **Files:**
   - [`scripts/diagnose_gemini.py`](file:///d:/Github/yt-automation-engine-main/scripts/diagnose_gemini.py)
-  - [`engine/llm_router.py`](file:///d:/Github/yt-automation-engine-main/engine/llm_router.py)
 - **Verify:** Diagnostic suite accurately reflects `✅ TEXT PASS` for `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`, and `gemini-3.6-flash`.
+
+---
+
+### 7. Pure Standard API Defaults (Zero Config Overrides)
+- **What:** Completely removed all `thinking_config` overrides (`thinking_level="low"`) and `temperature` overrides from [`scripts/diagnose_gemini.py`](file:///d:/Github/yt-automation-engine-main/scripts/diagnose_gemini.py), [`engine/llm_router.py`](file:///d:/Github/yt-automation-engine-main/engine/llm_router.py), and [`memory/dynamic_models_registry.json`](file:///d:/Github/yt-automation-engine-main/memory/dynamic_models_registry.json).
+- **Why:** To evaluate and run models on 100% pure standard API defaults as engineered by Google, without artificial overrides.
+- **Files:**
+  - [`scripts/diagnose_gemini.py`](file:///d:/Github/yt-automation-engine-main/scripts/diagnose_gemini.py)
+  - [`engine/llm_router.py`](file:///d:/Github/yt-automation-engine-main/engine/llm_router.py)
+  - [`engine/dynamic_discovery.py`](file:///d:/Github/yt-automation-engine-main/engine/dynamic_discovery.py)
+  - [`memory/dynamic_models_registry.json`](file:///d:/Github/yt-automation-engine-main/memory/dynamic_models_registry.json)
+- **Verify:** Models run on Google's native defaults without forced thinking levels or temperatures.
+
+---
+
+### 8. 2026 Changelog Alignment: Modern Vision Inspector, Parameter Deprecation Cleanup & Extended Timeouts
+- **What:**
+  1. Updated [`engine/vision_critic.py`](file:///d:/Github/yt-automation-engine-main/engine/vision_critic.py) to replace dead models (`gemini-2.5-flash`, `gemini-1.5-flash`) with modern active multimodal Flash workhorses: `gemini-flash-lite-latest`, `gemini-3.5-flash-lite`, and `gemini-3.6-flash`.
+  2. Removed deprecated `temperature=0.1` parameter per Google's July 21, 2026 deprecation notice and added `automatic_function_calling=disable` to suppress AFC warnings.
+  3. Extended socket timeouts in [`engine/vision_critic.py`](file:///d:/Github/yt-automation-engine-main/engine/vision_critic.py) and [`engine/fact_grounding.py`](file:///d:/Github/yt-automation-engine-main/engine/fact_grounding.py) from 20s to a standard generous 60.0s ceiling (`timeout: 60000`).
+  4. Added `gemini-2.5-flash`, `gemini-2.5-pro`, and `gemini-2.5-flash-lite` to `DEPRECATED_KNOWN` in [`engine/dynamic_discovery.py`](file:///d:/Github/yt-automation-engine-main/engine/dynamic_discovery.py).
+- **Why:** Full alignment with Google's 2026 model deprecations (June 1 Gemini 2.0 shutdown, July 21 parameter deprecation, August/September 3.x promotions), preventing 404s and client socket cutoffs.
+- **Files:**
+  - [`engine/vision_critic.py`](file:///d:/Github/yt-automation-engine-main/engine/vision_critic.py)
+  - [`engine/fact_grounding.py`](file:///d:/Github/yt-automation-engine-main/engine/fact_grounding.py)
+  - [`engine/dynamic_discovery.py`](file:///d:/Github/yt-automation-engine-main/engine/dynamic_discovery.py)
+- **Verify:** Frame inspection and factual verification execute cleanly using active 3.x Flash endpoints without deprecated sampling parameters or socket timeouts.
 
 ---
 
