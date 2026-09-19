@@ -1,8 +1,8 @@
 """
 engine/vision_critic.py — Vision Critic Pre-Flight Frame Inspector
 
-Free-tier multimodal vision inspector leveraging Gemini Flash Vision
-(gemini-2.5-flash / gemini-1.5-flash) with local deterministic heuristic
+Free-tier multimodal vision inspector leveraging Gemini 3.x Flash
+(gemini-flash-lite-latest / gemini-3.5-flash-lite / gemini-3.6-flash) with local deterministic heuristic
 fallbacks (PIL/entropy/aspect ratio) to audit generated visual frames before
 compositing in FFmpeg.
 
@@ -200,54 +200,54 @@ If score is below 6.0, set approved to false and provide a 1-sentence remedy_hin
         try:
             from google import genai
             from google.genai import types
-            client = genai.Client(api_key=api_key)
-            
-            # Use gemini-2.5-flash or fallback
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=[
-                    types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
-                    eval_prompt
-                ],
-                config=types.GenerateContentConfig(
-                    temperature=0.1,
-                    response_mime_type="application/json"
-                )
-            )
-            raw_text = response.text or ""
-            data = json.loads(raw_text)
-            score = float(data.get("score", 7.0))
-            return {
-                "approved": bool(data.get("approved", score >= self.min_pass_score)),
-                "score": score,
-                "remedy_hint": str(data.get("remedy_hint", "")),
-                "reasons": data.get("reasons", []),
-                "engine": "gemini-2.5-flash"
-            }
-        except Exception as sdk_err:
-            logger.debug(f"google.genai SDK vision call skipped/failed: {sdk_err}")
 
-        # Attempt with legacy google.generativeai if available
-        try:
-            import google.generativeai as legacy_genai
-            legacy_genai.configure(api_key=api_key)
-            model = legacy_genai.GenerativeModel("gemini-1.5-flash")
-            cookie = [{"mime_type": mime_type, "data": image_bytes}, eval_prompt]
-            resp = model.generate_content(cookie)
-            raw = resp.text or ""
-            json_match = re.search(r'\{.*\}', raw, re.DOTALL)
-            if json_match:
-                data = json.loads(json_match.group(0))
-                score = float(data.get("score", 7.0))
-                return {
-                    "approved": bool(data.get("approved", score >= self.min_pass_score)),
-                    "score": score,
-                    "remedy_hint": str(data.get("remedy_hint", "")),
-                    "reasons": data.get("reasons", []),
-                    "engine": "gemini-1.5-flash"
-                }
-        except Exception as legacy_err:
-            logger.debug(f"google.generativeai legacy vision failed: {legacy_err}")
+            client = genai.Client(api_key=api_key, http_options={"timeout": 60000})
+
+            # Candidate multimodal vision models (pure standard defaults, no temperature)
+            vision_candidates = [
+                "gemini-flash-lite-latest",
+                "gemini-3.5-flash-lite",
+                "gemini-3.6-flash"
+            ]
+
+            gen_cfg = types.GenerateContentConfig(
+                response_mime_type="application/json",
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+                http_options={"timeout": 60000}
+            )
+
+            for target_model in vision_candidates:
+                try:
+                    response = client.models.generate_content(
+                        model=target_model,
+                        contents=[
+                            types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+                            eval_prompt
+                        ],
+                        config=gen_cfg
+                    )
+                    raw_text = response.text or ""
+                    clean_json = re.sub(r"```json\s*", "", raw_text)
+                    clean_json = re.sub(r"```\s*", "", clean_json).strip()
+
+                    start = clean_json.find('{')
+                    end = clean_json.rfind('}')
+                    if start != -1 and end != -1 and end > start:
+                        data = json.loads(clean_json[start:end + 1])
+                        score = float(data.get("score", 7.0))
+                        return {
+                            "approved": bool(data.get("approved", score >= self.min_pass_score)),
+                            "score": score,
+                            "remedy_hint": str(data.get("remedy_hint", "")),
+                            "reasons": data.get("reasons", []),
+                            "engine": target_model
+                        }
+                except Exception as candidate_err:
+                    logger.debug(f"Vision audit on {target_model} failed: {candidate_err}")
+                    continue
+
+        except Exception as sdk_err:
+            logger.debug(f"google.genai SDK vision call initialization failed: {sdk_err}")
 
         return None
 

@@ -66,7 +66,7 @@ class FactGroundingEngine:
             from google.genai import types
             from engine.dynamic_discovery import load_registry
 
-            client = genai.Client(api_key=self.gemini_key, http_options={"timeout": 20000})
+            client = genai.Client(api_key=self.gemini_key, http_options={"timeout": 60000})
 
             # Prefer universal flash-lite anchor for tool grounding
             registry = load_registry()
@@ -95,7 +95,7 @@ class FactGroundingEngine:
                 model=model_name,
                 config=types.GenerateContentConfig(
                     tools=[types.Tool(google_search=types.GoogleSearch())],
-                    http_options={"timeout": 20000},
+                    http_options={"timeout": 60000},
                 )
             )
             response = chat.send_message(prompt)
