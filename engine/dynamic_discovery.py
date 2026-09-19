@@ -67,10 +67,10 @@ def load_registry() -> Dict[str, Any]:
             ]
         },
         "thinking_profiles": {
-            "gemini-3.8-flash": {"thinking_level": "low", "timeout_s": 60.0, "strip_sampling_params": true},
-            "gemini-3.7-flash": {"thinking_level": "low", "timeout_s": 60.0, "strip_sampling_params": true},
-            "gemini-3.6-flash": {"thinking_level": "low", "timeout_s": 60.0, "strip_sampling_params": true},
-            "gemini-3.5-flash": {"thinking_level": "low", "timeout_s": 60.0, "strip_sampling_params": true}
+            "gemini-3.8-flash": {"timeout_s": 60.0},
+            "gemini-3.7-flash": {"timeout_s": 60.0},
+            "gemini-3.6-flash": {"timeout_s": 60.0},
+            "gemini-3.5-flash": {"timeout_s": 60.0}
         },
         "deprecated_models": list(DEPRECATED_KNOWN)
     }
@@ -181,9 +181,7 @@ def sync_registry() -> Dict[str, Any]:
             if any(p in m for p in ["3.8", "3.7", "3.6", "3.5"]):
                 if m not in profiles:
                     profiles[m] = {
-                        "thinking_level": "low",
-                        "timeout_s": 60.0,
-                        "strip_sampling_params": True
+                        "timeout_s": 60.0
                     }
 
     # Discover Groq models

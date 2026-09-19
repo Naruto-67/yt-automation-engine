@@ -152,10 +152,9 @@ class LLMRouter:
                     if model in self._run_failed_models:
                         continue
 
-                    # Determine thinking profile and timeouts
+                    # Standard API on pure defaults: NO thinking_config override, NO temperature override
                     profile = thinking_profiles.get(model, {})
                     timeout_ms = int(profile.get("timeout_s", 60.0) * 1000)
-                    thinking_level = profile.get("thinking_level", "low") if any(v in model for v in ["3.8", "3.7", "3.6", "3.5"]) else None
 
                     try:
                         self._enforce_rpm_throttle()
@@ -170,14 +169,6 @@ class LLMRouter:
                         }
                         if system_prompt:
                             cfg_kwargs["system_instruction"] = system_prompt
-
-                        # Apply thinking config for 3.x models
-                        if thinking_level:
-                            cfg_kwargs["thinking_config"] = types.ThinkingConfig(thinking_level=thinking_level)
-
-                        # Set temperature only on models where it is supported
-                        if not profile.get("strip_sampling_params", False):
-                            cfg_kwargs["temperature"] = 0.85 if task_type == "creative" else 0.2
 
                         gen_cfg = types.GenerateContentConfig(**cfg_kwargs)
 
