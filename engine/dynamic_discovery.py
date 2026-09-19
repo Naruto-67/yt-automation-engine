@@ -1,32 +1,46 @@
-# engine/dynamic_discovery.py — Autonomous Upstream Model Discovery & Health Registry
+# engine/dynamic_discovery.py — Autonomous Multi-Provider Discovery & Health Registry
 """
-Autonomous Model Discovery and Dynamic Registry Synchronization Engine.
-Discovers available models from Google GenAI and Groq Cloud, enforces strict
-modality filtering (rejecting non-text / media models), applies thinking profiles,
-and synchronizes with memory/dynamic_models_registry.json.
+Autonomous Multi-Provider Model Discovery and Dynamic Registry Synchronization Engine.
+Discovers available models from Google GenAI, Groq Cloud, GitHub Models, and OpenRouter,
+enforces strict modality filtering (rejecting non-text / media models),
+synchronizes namespaced model entities, and maintains memory/dynamic_models_registry.json.
 """
 
 import os
+import re
 import json
 import time
-import re
+try:
+    import requests
+except ImportError:
+    requests = None
 from typing import Dict, Any, List, Optional
+from engine.logger import logger
 
 REGISTRY_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "memory", "dynamic_models_registry.json")
 
-# Modality & non-text patterns strictly rejected
+# Modality & non-text patterns strictly rejected from LLM text routing
 BANNED_MODALITY_PATTERNS = [
     r"image", r"picture", r"tts", r"audio", r"live", r"embed",
     r"robotics", r"video", r"veo", r"whisper", r"transcribe",
-    r"guard", r"safeguard", r"deepseek-r1-distill-qwen-1\.5b", # low quality distill
+    r"guard", r"safeguard", r"deepseek-r1-distill-qwen-1\.5b",
 ]
 
-# Deprecated legacy models known to return 404
+# Deprecated legacy models known to return 404 / 410
 DEPRECATED_KNOWN = {
     "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash",
     "gemini-1.5-flash-8b", "gemini-1.5-pro", "gemini-2.0-pro",
     "gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"
 }
+
+
+def is_modality_allowed(model_name: str) -> bool:
+    """Strictly filters out non-text, TTS, audio, image, and robotics models."""
+    lowered = model_name.lower()
+    for pattern in BANNED_MODALITY_PATTERNS:
+        if re.search(pattern, lowered):
+            return False
+    return True
 
 
 def load_registry() -> Dict[str, Any]:
@@ -38,42 +52,13 @@ def load_registry() -> Dict[str, Any]:
         except Exception:
             pass
 
+    # Default fallback registry
+    from engine.model_entity import DynamicQuotaTracker
+    tracker = DynamicQuotaTracker(REGISTRY_PATH)
     return {
-        "updated_at": "2026-09-18T00:00:00Z",
-        "version": "1.0.0",
-        "gold_anchors": {
-            "groq": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
-            "gemini": ["gemini-flash-lite-latest", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
-        },
-        "canaries": {
-            "gemini": ["gemini-3.6-flash", "gemini-3.8-flash", "gemini-3.7-flash"]
-        },
-        "task_ladders": {
-            "scriptwriting": [
-                {"provider": "gemini", "model": "gemini-3.6-flash", "role": "canary", "timeout_s": 12.0},
-                {"provider": "gemini", "model": "gemini-3.8-flash", "role": "canary", "timeout_s": 25.0},
-                {"provider": "groq", "model": "llama-3.3-70b-versatile", "role": "gold", "timeout_s": 10.0},
-                {"provider": "gemini", "model": "gemini-flash-lite-latest", "role": "gold", "timeout_s": 10.0},
-                {"provider": "gemini", "model": "gemini-3.5-flash-lite", "role": "gold", "timeout_s": 10.0}
-            ],
-            "seo_json": [
-                {"provider": "gemini", "model": "gemini-flash-lite-latest", "role": "gold", "timeout_s": 8.0},
-                {"provider": "gemini", "model": "gemini-3.5-flash-lite", "role": "gold", "timeout_s": 8.0},
-                {"provider": "groq", "model": "llama-3.1-8b-instant", "role": "gold", "timeout_s": 8.0},
-                {"provider": "gemini", "model": "gemini-3.1-flash-lite", "role": "gold", "timeout_s": 8.0}
-            ],
-            "fact_grounding": [
-                {"provider": "deterministic", "model": "wikipedia_duckduckgo", "role": "gold", "timeout_s": 10.0},
-                {"provider": "gemini", "model": "gemini-flash-lite-latest", "role": "search_tool", "timeout_s": 15.0}
-            ]
-        },
-        "thinking_profiles": {
-            "gemini-3.8-flash": {"timeout_s": 60.0},
-            "gemini-3.7-flash": {"timeout_s": 60.0},
-            "gemini-3.6-flash": {"timeout_s": 60.0},
-            "gemini-3.5-flash": {"timeout_s": 60.0}
-        },
-        "deprecated_models": list(DEPRECATED_KNOWN)
+        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "version": "2.0.0",
+        "entities": {eid: {} for eid in tracker.entities}
     }
 
 
@@ -86,21 +71,12 @@ def save_registry(registry: Dict[str, Any]) -> bool:
             json.dump(registry, f, indent=2)
         return True
     except Exception as e:
-        print(f"⚠️ [DYNAMIC REGISTRY] Failed to write registry: {e}")
+        logger.error(f"⚠️ [DYNAMIC REGISTRY] Failed to write registry: {e}")
         return False
 
 
-def is_modality_allowed(model_name: str) -> bool:
-    """Strictly filters out non-text, TTS, vision-generation, and robotics models."""
-    lowered = model_name.lower()
-    for pattern in BANNED_MODALITY_PATTERNS:
-        if re.search(pattern, lowered):
-            return False
-    return True
-
-
 def discover_google_models(client=None) -> List[str]:
-    """Queries Google GenAI client.models.list() and filters for viable text models."""
+    """Queries Google GenAI client.models.list() and filters for viable Flash models."""
     api_key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not api_key:
         return []
@@ -117,20 +93,17 @@ def discover_google_models(client=None) -> List[str]:
             if not clean_name:
                 continue
 
-            # Exclude known deprecated models
             if clean_name in DEPRECATED_KNOWN:
                 continue
 
-            # Exclude non-text modalities
             if not is_modality_allowed(clean_name):
                 continue
 
-            # Prioritize Flash / Flash-Lite / Canary models
             if "flash" in clean_name.lower():
                 discovered.append(clean_name)
 
     except Exception as e:
-        print(f"⚠️ [DYNAMIC DISCOVERY] Google catalog discovery failed: {e}")
+        logger.warn(f"⚠️ [DYNAMIC DISCOVERY] Google catalog discovery failed: {e}")
 
     return discovered
 
@@ -143,7 +116,6 @@ def discover_groq_models(api_key: Optional[str] = None) -> List[str]:
 
     discovered: List[str] = []
     try:
-        import requests
         resp = requests.get(
             "https://api.groq.com/openai/v1/models",
             headers={"Authorization": f"Bearer {key}"},
@@ -155,49 +127,139 @@ def discover_groq_models(api_key: Optional[str] = None) -> List[str]:
                 mid = item.get("id", "")
                 if not mid or not is_modality_allowed(mid):
                     continue
-                # Check for active text models
                 if any(k in mid.lower() for k in ["llama", "mixtral", "gemma", "qwen"]):
                     discovered.append(mid)
     except Exception as e:
-        print(f"⚠️ [DYNAMIC DISCOVERY] Groq catalog discovery failed: {e}")
+        logger.warn(f"⚠️ [DYNAMIC DISCOVERY] Groq catalog discovery failed: {e}")
 
     return discovered
 
 
+def discover_openrouter_models(api_key: Optional[str] = None) -> List[str]:
+    """Queries OpenRouter /models endpoint to discover free community models."""
+    key = api_key or os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if not key:
+        return []
+
+    discovered: List[str] = []
+    try:
+        resp = requests.get(
+            "https://openrouter.ai/api/v1/models",
+            headers={"Authorization": f"Bearer {key}"},
+            timeout=10.0
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            for item in data.get("data", []):
+                mid = item.get("id", "")
+                # Prioritize high quality free tier models
+                if mid.endswith(":free") and is_modality_allowed(mid):
+                    discovered.append(mid)
+    except Exception as e:
+        logger.warn(f"⚠️ [DYNAMIC DISCOVERY] OpenRouter catalog discovery failed: {e}")
+
+    return discovered
+
+
+def discover_github_models(api_key: Optional[str] = None) -> List[str]:
+    """Discovers or validates available GitHub Models (Azure AI)."""
+    key = api_key or os.environ.get("GH_MODELS_TOKEN", "").strip()
+    if not key:
+        return []
+
+    # Curated free-tier models available through GitHub Models token
+    candidates = ["gpt-4o-mini", "meta/llama-3.3-70b-instruct"]
+    verified: List[str] = []
+    for model in candidates:
+        try:
+            # Minimal probe to verify access
+            resp = requests.post(
+                "https://models.inference.ai.azure.com/chat/completions",
+                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                json={"model": model, "messages": [{"role": "user", "content": "ping"}], "max_tokens": 2},
+                timeout=5.0
+            )
+            if resp.status_code in (200, 429):  # 200 OK or rate-limited indicates model access
+                verified.append(model)
+        except Exception:
+            pass
+
+    return verified or candidates
+
+
 def sync_registry() -> Dict[str, Any]:
-    """Performs full discovery, validates profiles, and updates the local registry."""
-    registry = load_registry()
+    """Performs full discovery across all 4 providers and updates the local registry."""
+    from engine.model_entity import DynamicQuotaTracker, ModelEntity
 
-    # Discover upstream Google models
+    tracker = DynamicQuotaTracker(REGISTRY_PATH)
+
     google_models = discover_google_models()
-    if google_models:
-        canaries = registry.setdefault("canaries", {}).setdefault("gemini", [])
-        for m in google_models:
-            if m not in canaries and m not in registry["gold_anchors"]["gemini"]:
-                canaries.append(m)
-
-        # Ensure thinking profiles exist for 3.x models
-        profiles = registry.setdefault("thinking_profiles", {})
-        for m in google_models:
-            if any(p in m for p in ["3.8", "3.7", "3.6", "3.5"]):
-                if m not in profiles:
-                    profiles[m] = {
-                        "timeout_s": 60.0
-                    }
-
-    # Discover Groq models
     groq_models = discover_groq_models()
-    if groq_models:
-        anchors = registry.setdefault("gold_anchors", {}).setdefault("groq", [])
-        for g in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]:
-            if g not in anchors:
-                anchors.append(g)
+    github_models = discover_github_models()
+    openrouter_models = discover_openrouter_models()
 
-    save_registry(registry)
+    # Register newly discovered Google models
+    for m in google_models:
+        eid = f"google:{m}"
+        if eid not in tracker.entities:
+            is_canary = any(v in m for v in ["3.8", "3.6", "3.7"])
+            tracker.entities[eid] = ModelEntity(
+                entity_id=eid,
+                provider="google",
+                model_name=m,
+                max_rpm=15 if is_canary else 30,
+                max_rpd=20 if is_canary else 500,
+                task_quality_scores={"scriptwriting": 9.2 if is_canary else 8.5, "seo_json": 9.0, "vision_audit": 8.5, "fact_grounding": 8.5}
+            )
+
+    # Register newly discovered Groq models
+    for m in groq_models:
+        eid = f"groq:{m}"
+        if eid not in tracker.entities:
+            tracker.entities[eid] = ModelEntity(
+                entity_id=eid,
+                provider="groq",
+                model_name=m,
+                max_rpm=30,
+                max_rpd=14400,
+                task_quality_scores={"scriptwriting": 8.8, "seo_json": 8.8, "vision_audit": 5.0, "fact_grounding": 8.2}
+            )
+
+    # Register newly discovered GitHub models
+    for m in github_models:
+        eid = f"github:{m}"
+        if eid not in tracker.entities:
+            tracker.entities[eid] = ModelEntity(
+                entity_id=eid,
+                provider="github",
+                model_name=m,
+                max_rpm=15,
+                max_rpd=150,
+                task_quality_scores={"scriptwriting": 8.9, "seo_json": 9.0, "vision_audit": 7.0, "fact_grounding": 8.5}
+            )
+
+    # Register newly discovered OpenRouter models
+    for m in openrouter_models[:5]:  # Top 5 free community models
+        eid = f"openrouter:{m}"
+        if eid not in tracker.entities:
+            tracker.entities[eid] = ModelEntity(
+                entity_id=eid,
+                provider="openrouter",
+                model_name=m,
+                max_rpm=20,
+                max_rpd=200,
+                task_quality_scores={"scriptwriting": 8.6, "seo_json": 8.5, "vision_audit": 5.0, "fact_grounding": 8.0}
+            )
+
+    tracker.persist()
+    logger.success(f"✅ [DYNAMIC REGISTRY] Synced {len(tracker.entities)} model entities across 4 providers.")
+
     return {
         "status": "SUCCESS",
+        "total_entities": len(tracker.entities),
         "google_discovered": google_models,
         "groq_discovered": groq_models,
-        "updated_at": registry.get("updated_at")
+        "github_discovered": github_models,
+        "openrouter_discovered": openrouter_models,
+        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     }
-

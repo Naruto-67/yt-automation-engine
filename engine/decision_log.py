@@ -18,7 +18,7 @@ Persists records to memory/decision_log.jsonl in append-only mode.
 import os
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("ghost_engine.decision_log")
@@ -47,7 +47,7 @@ class DecisionLogger:
     ):
         """Append a decision record to the JSONL ledger."""
         entry = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "category": category.upper(),
             "channel_id": channel_id or "GLOBAL",
             "job_id": job_id,

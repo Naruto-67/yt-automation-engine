@@ -13,7 +13,7 @@ and topic discovery calls dynamically query this store to inject proven
 import os
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger("ghost_engine.self_learning")
@@ -235,8 +235,9 @@ class SelfLearningEngine:
 
         hook_sentence = (script_text.split(".")[0] + ".").strip() if "." in script_text else script_text[:80]
 
+        now_utc = datetime.now(timezone.utc)
         entry = {
-            "pattern_id": f"pattern_{channel_id}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
+            "pattern_id": f"pattern_{channel_id}_{now_utc.strftime('%Y%m%d%H%M%S')}",
             "channel_id": channel_id,
             "content_type": content_type,
             "topic": topic,
@@ -248,7 +249,7 @@ class SelfLearningEngine:
             "visual_style": visual_style,
             "performance_score": performance_score,
             "retention_pct": retention_pct or 75.0,
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": now_utc.isoformat(),
         }
 
         patterns[channel_id].append(entry)

@@ -4,7 +4,7 @@ import os
 import json
 import uuid
 import contextlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Dict, Any
 from engine.models import VideoJob, JobState, FailureLog
 
@@ -170,11 +170,12 @@ class SQLiteDB:
         with contextlib.closing(self._connect()) as conn:
             with conn:
                 c = conn.cursor()
-                topic_id = f"{channel_id}_{datetime.utcnow().timestamp()}_{uuid.uuid4().hex[:8]}"
+                now_utc = datetime.now(timezone.utc)
+                topic_id = f"{channel_id}_{now_utc.timestamp()}_{uuid.uuid4().hex[:8]}"
                 c.execute('''
                     INSERT INTO topic_archive (topic_id, channel_id, title, niche, created_at)
                     VALUES (?, ?, ?, ?, ?)
-                ''', (topic_id, channel_id, title, niche, datetime.utcnow().isoformat()))
+                ''', (topic_id, channel_id, title, niche, now_utc.isoformat()))
 
     def get_all_historical_topics(self, channel_id: str) -> List[str]:
         with contextlib.closing(self._connect()) as conn:
@@ -205,7 +206,7 @@ class SQLiteDB:
                 )
 
     def prune_old_jobs(self, days: int = 30):
-        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
         terminal = (JobState.PUBLISHED.value, JobState.FAILED.value)
         with contextlib.closing(self._connect()) as conn:
             with conn:
@@ -321,7 +322,7 @@ class SQLiteDB:
                     json.dumps(data.get("competitor_tags", [])),
                     data.get("evolved_niche"),
                     json.dumps(data.get("rule_timestamps", {})),
-                    datetime.utcnow().isoformat()
+                    datetime.now(timezone.utc).isoformat()
                 ))
 
     def upsert_video_performance(self, channel_id: str, youtube_id: str, title: str, views: int, likes: int, comments: int, published_at: str):
@@ -335,10 +336,10 @@ class SQLiteDB:
                     ON CONFLICT(youtube_id) DO UPDATE SET
                         views=excluded.views, likes=excluded.likes,
                         comments=excluded.comments, fetched_at=excluded.fetched_at
-                ''', (channel_id, youtube_id, title, views, likes, comments, published_at, datetime.utcnow().isoformat()))
+                ''', (channel_id, youtube_id, title, views, likes, comments, published_at, datetime.now(timezone.utc).isoformat()))
 
     def get_recent_performance(self, channel_id: str, days: int = 30) -> List[Dict]:
-        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
         with contextlib.closing(self._connect()) as conn:
             c = conn.cursor()
             c.execute(

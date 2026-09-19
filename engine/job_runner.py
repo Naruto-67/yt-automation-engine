@@ -4,7 +4,7 @@ import time
 import shutil
 import traceback
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from engine.logger import logger
 from engine.models import VideoJob, JobState, FailureLog
 from engine.database import db
@@ -107,7 +107,7 @@ class JobRunner:
 
     def _transition_to(self, new_state: JobState):
         self.job.state      = new_state
-        self.job.updated_at = datetime.utcnow().isoformat()
+        self.job.updated_at = datetime.now(timezone.utc).isoformat()
         # ── DRY RUN GUARD: no DB writes in test mode ──────────────────────────
         if not self.dry_run:
             db.upsert_job(self.job)
@@ -145,13 +145,15 @@ class JobRunner:
             raise ValueError("Empty script returned from generator.")
 
         try:
-            meta_data, _ = generate_seo_metadata(self.job.niche, script_text)
+            meta_data, seo_prov = generate_seo_metadata(self.job.niche, script_text)
+            meta_data["_seo_ai"] = seo_prov
         except Exception as e:
             logger.error(f"SEO Generation failed: {e}. Using fallback metadata.")
             meta_data = {
                 "title":       f"{self.job.niche} #shorts"[:95],
                 "description": "Mind blowing facts!",
                 "tags":        ["shorts", self.job.niche],
+                "_seo_ai":     "Fallback",
             }
 
         self.job.script = json.dumps({
@@ -205,6 +207,7 @@ class JobRunner:
             content_type=content_type,
             channel_id=self.job.channel_id,
         )
+        self._visual_provider = provider
         min_acceptable = max(1, len(prompts) // 2)
 
         if len(images) < min_acceptable:
@@ -289,6 +292,10 @@ class JobRunner:
 
         self._record_success_in_learning_engine(script_data)
 
+        script_ai = script_data.get("provider", "Unknown AI")
+        seo_ai = metadata.get("_seo_ai", "Gemini/Groq")
+        visual_ai = getattr(self, "_visual_provider", "Visual Cascade")
+
         if is_test_mode():
             logger.success("🧪 [TEST MODE] Bypassing YouTube Upload. Simulating success.")
             self.job.youtube_id = "test_mode_dummy_video_id"
@@ -299,8 +306,8 @@ class JobRunner:
             notify_production_success(
                 niche=self.job.niche, topic=self.job.topic,
                 script=script_data.get("text", ""),
-                script_ai=script_data.get("provider", "Unknown"), seo_ai="Gemini/Groq",
-                voice_ai=script_data.get("target_voice", "am_adam"), visual_ai="4-Tier Cascade",
+                script_ai=script_ai, seo_ai=seo_ai,
+                voice_ai=script_data.get("target_voice", "am_adam"), visual_ai=visual_ai,
                 metadata=metadata, duration=self.final_duration, size=self.final_size_mb,
                 video_id=self.job.youtube_id
             )
@@ -343,8 +350,8 @@ class JobRunner:
         notify_production_success(
             niche=self.job.niche, topic=self.job.topic,
             script=script_data.get("text", ""),
-            script_ai=script_data.get("provider", "Unknown"), seo_ai="Gemini/Groq",
-            voice_ai=script_data.get("target_voice", "am_adam"), visual_ai="4-Tier Cascade",
+            script_ai=script_ai, seo_ai=seo_ai,
+            voice_ai=script_data.get("target_voice", "am_adam"), visual_ai=visual_ai,
             metadata=metadata, duration=self.final_duration, size=self.final_size_mb,
             video_id=self.job.youtube_id
         )

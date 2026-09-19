@@ -2,7 +2,7 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
 from enum import Enum
-from datetime import datetime
+from datetime import datetime, timezone
 
 class JobState(str, Enum):
     QUEUED = "queued"
@@ -49,8 +49,8 @@ class VideoJob(BaseModel):
     youtube_id: Optional[str] = None
     
     attempts: int = Field(default=0)
-    created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
-    updated_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 class FailureLog(BaseModel):
     job_id: int
@@ -58,4 +58,4 @@ class FailureLog(BaseModel):
     module: str
     error_message: str
     traceback: Optional[str] = None
-    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
