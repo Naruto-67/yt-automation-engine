@@ -96,14 +96,7 @@ def test_model_task(
             "http_options": {"timeout": timeout_ms}
         }
 
-        # 3.x parameter handling: strip deprecated temperature, inject thinking_level="low"
-        is_3x = any(v in model_id for v in ["3.8", "3.7", "3.6", "3.5", "3-"])
-        if is_3x:
-            # "minimal" is not supported on 3.8/3.7 Flash; must use "low"
-            cfg_kwargs["thinking_config"] = types.ThinkingConfig(thinking_level="low")
-        elif temperature is not None:
-            cfg_kwargs["temperature"] = temperature
-
+        # Standard API on pure defaults: NO thinking_config override, NO temperature override
         if max_output_tokens is not None:
             cfg_kwargs["max_output_tokens"] = max_output_tokens
 
@@ -286,7 +279,6 @@ def run_diagnostics():
             task_name="Script Gen",
             prompt=script_prompt,
             system_prompt=script_system,
-            temperature=0.8,
             timeout_s=60.0
         )
         model_results["script"] = res_script
@@ -299,7 +291,6 @@ def run_diagnostics():
             task_name="SEO JSON",
             prompt=seo_prompt,
             system_prompt=seo_system,
-            temperature=0.2,
             timeout_s=60.0
         )
         model_results["seo"] = res_seo
@@ -313,7 +304,6 @@ def run_diagnostics():
             task_name="Fact Grounding (Search)",
             prompt=fact_prompt,
             tools=search_tool,
-            temperature=0.2,
             timeout_s=60.0
         )
         model_results["fact"] = res_fact
