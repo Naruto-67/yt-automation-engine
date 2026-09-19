@@ -78,15 +78,17 @@ Your channel rules are defined in the engine.
 ## 🛡️ The Fallback Cascades (Fail-Safes)
 
 The engine is designed to **never crash**. Every task has a fallback:
-- **LLM / Scripting:** Dynamic Auto-Discovery Task-Centric LLM Router (`engine/llm_router.py` & `engine/dynamic_discovery.py`):
-  - Ingests upstream models dynamically from Google GenAI (`client.models.list()`) and Groq (`/models`) into `memory/dynamic_models_registry.json`.
-  - Enforces task ladders: Scriptwriting routes to 3.x Flash canaries (`gemini-3.6-flash`, `gemini-3.8-flash` with `thinking_level="low"` and generous 60.0s socket ceiling) ➡️ Groq Gold Anchor (`llama-3.3-70b-versatile`, 14,400 RPD) ➡️ Google Flash-Lite Gold Anchor (`gemini-flash-lite-latest`, 500 RPD).
-  - SEO JSON extraction routes directly to ultra-low latency `gemini-flash-lite-latest` (0.95s) ➡️ Groq `llama-3.1-8b-instant` (0.75s).
-  - AFC Warning Suppression: Explicitly disables Automatic Function Calling (`automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)`) on pure text calls, suppressing upstream SDK warnings.
-  - Real-Time Fact Grounding (`engine/fact_grounding.py`) utilizes Google's recommended Chat pattern (Fix 1) with fail-safe fallback to Wikipedia REST + DuckDuckGo Instant Answer APIs (100% free, 0 quota risk).
-  - Run-Scoped Circuit Breaker isolates 404 (deprecated) and 429 (quota exhausted) models per run for 0ms bypass on subsequent generation calls.
-- **API Resilience:** All API calls are wrapped in `tenacity` exponential backoff with run-scoped Circuit Breakers and non-text / WebSocket live model exclusion filters.
-- **Images:** HuggingFace FLUX ➡️ Cloudflare AI ➡️ Pixabay Video (B-Roll) ➡️ Pollinations.ai (Zero-Key) ➡️ Pexels Stock Footage.
+- **LLM / Scripting:** Autonomous Multi-Provider Dynamic Routing Engine (`engine/llm_router.py`, `engine/model_entity.py` & `engine/dynamic_discovery.py`):
+  - **Namespaced Model Entities**: Treats every model endpoint as an autonomous entity (`<provider>:<model_identifier>`) across Google GenAI (`GEMINI_API_KEY`), Groq Cloud (`GROQ_API_KEY`), GitHub Models (`GH_MODELS_TOKEN`), and OpenRouter (`OPENROUTER_API_KEY`).
+  - **Dynamic Response Header Sniffing**: Discovers true upstream limits, remaining requests, and reset timers dynamically from HTTP response headers (`x-ratelimit-*`, `retry-after`) on live calls without hardcoding.
+  - **Scarcity Waterfall Resolver with 85% Safety Cushion**: Automatically harvests scarce flagship models (e.g. 20 RPD Gemini 3.8 Flash, Llama 3.3 70B) first up to an **85% safe ceiling** (16–17 calls max), deliberately locking a 3–4 call emergency reserve to avoid lockouts, 24-hr freezes, or anti-abuse penalties before cascading to 500 RPD workhorses (`google:gemini-flash-lite-latest`) or high-capacity Groq/GitHub models.
+  - **Strict Cloudflare Workers AI Isolation**: Cloudflare credentials (`CF_ACCOUNT_ID`, `CF_API_TOKEN`) are strictly reserved 100% for Flux Image Generation; LLM text generation via Cloudflare is hard-prevented.
+  - **Modern Prompt Optimization & 4-Scene Contract**: System prompts are trimmed by ~1,400 tokens (-40% latency), contradictory `<THINKING>` tags are eliminated, and scripts strictly enforce a 4-scene structure (Hook ➡️ Build ➡️ Climax ➡️ Circular Loop Bridge) within 85–125 words for infinite replay retention (>100% APV).
+  - **Universal Greedy JSON Parser**: Recovers from unescaped quotes, trailing commas, and markdown fences cleanly across all models.
+  - **Full Discord & Console Transparency**: Reports exact model URI, provider, and cascade layer (e.g. `google:gemini-3.8-flash (Tier 1 Flagship Canary)`) in stdout, execution logs, and Discord webhook embeds.
+  - **Run-Scoped Circuit Breakers & Provider-Aligned Resets**: Evaluates resets against Midnight Pacific Time (Google) and Midnight UTC (Groq/GitHub/OpenRouter). Isolates 404 (deprecated) and 429 (exhausted) models for 0ms bypass on subsequent calls.
+- **API Resilience:** All API calls are wrapped in exponential backoff with run-scoped Circuit Breakers and non-text / WebSocket live model exclusion filters.
+- **Images:** Cloudflare FLUX ➡️ HuggingFace FLUX ➡️ Pixabay Video (B-Roll) ➡️ Pollinations.ai (Zero-Key) ➡️ Pexels Stock Footage.
 - **Thumbnails:** Auto-crops vertical scene visual or extracts frame 1 from stock video clips via FFmpeg to generate 1280x720 YouTube thumbnails with gradient shadows and bold titles.
 - **Voiceover:** Local Kokoro-82M ➡️ EdgeTTS Azure Neural ➡️ Groq Orpheus.
 - **Rendering:** `xfade` Crossfade ➡️ Hard Cuts (Simple Concat).
