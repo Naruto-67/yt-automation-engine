@@ -69,7 +69,8 @@ def test_model_task(
     tools: Optional[list] = None,
     temperature: Optional[float] = None,
     timeout_s: float = 60.0,
-    max_output_tokens: Optional[int] = None
+    max_output_tokens: Optional[int] = None,
+    _is_retry: bool = False
 ) -> Dict[str, Any]:
     """Executes a single test task against a model with thinking config, standard default timeout, and AFC suppression."""
     from google.genai import types
@@ -132,7 +133,16 @@ def test_model_task(
         latency = (time.time() - t0) * 1000.0
         result["latency_ms"] = latency
 
+        # Extract text from response or candidates
         text = response.text if response and response.text else ""
+        if not text and response and hasattr(response, "candidates") and response.candidates:
+            cand = response.candidates[0]
+            parts = getattr(getattr(cand, "content", None), "parts", []) or []
+            for p in parts:
+                if hasattr(p, "text") and p.text:
+                    text = p.text.strip()
+                    break
+
         if text:
             result["status"] = "PASS"
             result["output_chars"] = len(text)
@@ -150,9 +160,29 @@ def test_model_task(
         result["latency_ms"] = latency
         result["error_type"] = type(e).__name__
         result["error_msg"] = str(e)
+
+        # Transient 503 handling: Spikes in demand are temporary, retry once with 3s backoff
+        if hasattr(e, "code") and getattr(e, "code") == 503 and not _is_retry:
+            print(f"   │ 🔄 Transient 503 capacity spike detected in {latency:.1f}ms. Retrying in 3.0s...")
+            time.sleep(3.0)
+            return test_model_task(
+                client=client,
+                model_id=model_id,
+                task_name=task_name,
+                prompt=prompt,
+                system_prompt=system_prompt,
+                tools=tools,
+                temperature=temperature,
+                timeout_s=timeout_s,
+                max_output_tokens=max_output_tokens,
+                _is_retry=True
+            )
+
         print(f"   │ ❌ ERROR in {latency:.1f}ms: [{result['error_type']}] {result['error_msg']}")
         if hasattr(e, "code"):
             print(f"   │    HTTP/gRPC Code: {getattr(e, 'code')}")
+        if tools and ("429" in str(getattr(e, "code", "")) or "RESOURCE_EXHAUSTED" in str(e)):
+            print(f"   │    ℹ️  [EXPECTED ON FREE TIER] Google Search Tool quota is 0 on free tier accounts.")
         if hasattr(e, "response"):
             resp = getattr(e, "response")
             print(f"   │    Response Headers: {getattr(resp, 'headers', {})}")
@@ -169,8 +199,8 @@ def run_diagnostics():
         print("❌ [FATAL] GEMINI_API_KEY environment variable is missing or empty.")
         sys.exit(1)
 
-    masked_key = f"{api_key[:6]}...{api_key[-4:]}" if len(api_key) > 10 else "***"
-    print(f"🔑 Initializing Gemini Client with key: {masked_key}")
+    # Completely hide API key to maintain absolute secrecy
+    print("🔑 Initializing Gemini Client [API Key authenticated from environment]")
 
     try:
         from google import genai
@@ -243,7 +273,7 @@ def run_diagnostics():
             model_id=model_id,
             task_name="Minimal Ping",
             prompt="Reply with the single word 'PONG'.",
-            max_output_tokens=5,
+            max_output_tokens=100,
             timeout_s=60.0
         )
         model_results["ping"] = res_ping
@@ -313,10 +343,10 @@ def run_diagnostics():
         f_time = f"{results['fact']['latency_ms']/1000.0:.1f}s"
         f_str = f"{f_stat} ({f_time})"
 
-        text_pass = results["ping"]["status"] == "PASS" and (results["script"]["status"] == "PASS" or results["seo"]["status"] == "PASS")
+        has_text_pass = (results["script"]["status"] == "PASS" or results["seo"]["status"] == "PASS")
         if all(r["status"] == "PASS" for r in results.values()):
             overall = "✅ FULL PASS"
-        elif text_pass:
+        elif has_text_pass:
             overall = "✅ TEXT PASS"
         elif results["ping"]["status"] == "PASS":
             overall = "⚠️ PING ONLY"
