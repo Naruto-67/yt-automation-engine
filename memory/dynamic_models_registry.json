@@ -1,6 +1,6 @@
 {
-  "updated_at": "2026-09-19T04:15:00Z",
-  "version": "1.1.0",
+  "updated_at": "2026-09-19T04:45:00Z",
+  "version": "1.2.0",
   "gold_anchors": {
     "groq": [
       "llama-3.3-70b-versatile",
@@ -42,24 +42,16 @@
   },
   "thinking_profiles": {
     "gemini-3.8-flash": {
-      "thinking_level": "low",
-      "timeout_s": 60.0,
-      "strip_sampling_params": true
+      "timeout_s": 60.0
     },
     "gemini-3.7-flash": {
-      "thinking_level": "low",
-      "timeout_s": 60.0,
-      "strip_sampling_params": true
+      "timeout_s": 60.0
     },
     "gemini-3.6-flash": {
-      "thinking_level": "low",
-      "timeout_s": 60.0,
-      "strip_sampling_params": true
+      "timeout_s": 60.0
     },
     "gemini-3.5-flash": {
-      "thinking_level": "low",
-      "timeout_s": 60.0,
-      "strip_sampling_params": true
+      "timeout_s": 60.0
     }
   },
   "deprecated_models": [
