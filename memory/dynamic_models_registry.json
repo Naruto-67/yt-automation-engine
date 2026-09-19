@@ -1,68 +1,201 @@
 {
-  "updated_at": "2026-09-19T04:45:00Z",
-  "version": "1.2.0",
-  "gold_anchors": {
-    "groq": [
-      "llama-3.3-70b-versatile",
-      "llama-3.1-8b-instant"
-    ],
-    "gemini": [
-      "gemini-flash-lite-latest",
-      "gemini-3.5-flash-lite",
-      "gemini-3.1-flash-lite"
-    ]
+  "updated_at": "2026-09-19T06:52:16.094155+00:00",
+  "provider_reset_dates": {
+    "google": "2026-09-18",
+    "groq": "2026-09-19",
+    "github": "2026-09-19",
+    "openrouter": "2026-09-19"
   },
-  "canaries": {
-    "gemini": [
-      "gemini-3.6-flash",
-      "gemini-3.8-flash",
-      "gemini-3.7-flash",
-      "gemini-3-flash-preview"
-    ]
-  },
-  "task_ladders": {
-    "scriptwriting": [
-      {"provider": "gemini", "model": "gemini-3.6-flash", "role": "canary", "timeout_s": 60.0},
-      {"provider": "gemini", "model": "gemini-3.8-flash", "role": "canary", "timeout_s": 60.0},
-      {"provider": "groq", "model": "llama-3.3-70b-versatile", "role": "gold", "timeout_s": 60.0},
-      {"provider": "gemini", "model": "gemini-flash-lite-latest", "role": "gold", "timeout_s": 60.0},
-      {"provider": "gemini", "model": "gemini-3.5-flash-lite", "role": "gold", "timeout_s": 60.0}
-    ],
-    "seo_json": [
-      {"provider": "gemini", "model": "gemini-flash-lite-latest", "role": "gold", "timeout_s": 60.0},
-      {"provider": "gemini", "model": "gemini-3.5-flash-lite", "role": "gold", "timeout_s": 60.0},
-      {"provider": "groq", "model": "llama-3.1-8b-instant", "role": "gold", "timeout_s": 60.0},
-      {"provider": "gemini", "model": "gemini-3.1-flash-lite", "role": "gold", "timeout_s": 60.0},
-      {"provider": "gemini", "model": "gemini-3-flash-preview", "role": "canary", "timeout_s": 60.0}
-    ],
-    "fact_grounding": [
-      {"provider": "deterministic", "model": "wikipedia_duckduckgo", "role": "gold", "timeout_s": 15.0},
-      {"provider": "gemini", "model": "gemini-flash-lite-latest", "role": "search_tool", "timeout_s": 60.0}
-    ]
-  },
-  "thinking_profiles": {
-    "gemini-3.8-flash": {
-      "timeout_s": 60.0
+  "entities": {
+    "google:gemini-3.8-flash": {
+      "entity_id": "google:gemini-3.8-flash",
+      "provider": "google",
+      "model_name": "gemini-3.8-flash",
+      "task_quality_scores": {
+        "scriptwriting": 9.5,
+        "seo_json": 9.0,
+        "vision_audit": 9.0,
+        "fact_grounding": 8.5
+      },
+      "max_rpm": 15,
+      "max_rpd": 20,
+      "consumed_today": 0,
+      "last_call_timestamp": 0.0,
+      "status": "ACTIVE",
+      "reset_epoch": 0.0,
+      "average_latency": 2.2,
+      "cooldown_until": 0.0
     },
-    "gemini-3.7-flash": {
-      "timeout_s": 60.0
+    "google:gemini-3.6-flash": {
+      "entity_id": "google:gemini-3.6-flash",
+      "provider": "google",
+      "model_name": "gemini-3.6-flash",
+      "task_quality_scores": {
+        "scriptwriting": 9.2,
+        "seo_json": 8.8,
+        "vision_audit": 8.8,
+        "fact_grounding": 8.5
+      },
+      "max_rpm": 15,
+      "max_rpd": 20,
+      "consumed_today": 0,
+      "last_call_timestamp": 0.0,
+      "status": "ACTIVE",
+      "reset_epoch": 0.0,
+      "average_latency": 2.1,
+      "cooldown_until": 0.0
     },
-    "gemini-3.6-flash": {
-      "timeout_s": 60.0
+    "google:gemini-flash-lite-latest": {
+      "entity_id": "google:gemini-flash-lite-latest",
+      "provider": "google",
+      "model_name": "gemini-flash-lite-latest",
+      "task_quality_scores": {
+        "scriptwriting": 8.6,
+        "seo_json": 9.4,
+        "vision_audit": 8.5,
+        "fact_grounding": 8.8
+      },
+      "max_rpm": 30,
+      "max_rpd": 500,
+      "consumed_today": 0,
+      "last_call_timestamp": 0.0,
+      "status": "ACTIVE",
+      "reset_epoch": 0.0,
+      "average_latency": 1.4,
+      "cooldown_until": 0.0
     },
-    "gemini-3.5-flash": {
-      "timeout_s": 60.0
+    "google:gemini-3.5-flash-lite": {
+      "entity_id": "google:gemini-3.5-flash-lite",
+      "provider": "google",
+      "model_name": "gemini-3.5-flash-lite",
+      "task_quality_scores": {
+        "scriptwriting": 8.5,
+        "seo_json": 9.3,
+        "vision_audit": 8.3,
+        "fact_grounding": 8.6
+      },
+      "max_rpm": 30,
+      "max_rpd": 500,
+      "consumed_today": 0,
+      "last_call_timestamp": 0.0,
+      "status": "ACTIVE",
+      "reset_epoch": 0.0,
+      "average_latency": 1.6,
+      "cooldown_until": 0.0
+    },
+    "groq:llama-3.3-70b-versatile": {
+      "entity_id": "groq:llama-3.3-70b-versatile",
+      "provider": "groq",
+      "model_name": "llama-3.3-70b-versatile",
+      "task_quality_scores": {
+        "scriptwriting": 9.0,
+        "seo_json": 8.6,
+        "vision_audit": 6.0,
+        "fact_grounding": 8.2
+      },
+      "max_rpm": 30,
+      "max_rpd": 14400,
+      "consumed_today": 14386,
+      "last_call_timestamp": 0.0,
+      "status": "ACTIVE",
+      "reset_epoch": 1789800738.5941534,
+      "average_latency": 0.8,
+      "cooldown_until": 0.0
+    },
+    "groq:llama-3.1-8b-instant": {
+      "entity_id": "groq:llama-3.1-8b-instant",
+      "provider": "groq",
+      "model_name": "llama-3.1-8b-instant",
+      "task_quality_scores": {
+        "scriptwriting": 7.8,
+        "seo_json": 9.1,
+        "vision_audit": 5.0,
+        "fact_grounding": 8.0
+      },
+      "max_rpm": 30,
+      "max_rpd": 14400,
+      "consumed_today": 0,
+      "last_call_timestamp": 0.0,
+      "status": "ACTIVE",
+      "reset_epoch": 0.0,
+      "average_latency": 0.4,
+      "cooldown_until": 0.0
+    },
+    "github:gpt-4o-mini": {
+      "entity_id": "github:gpt-4o-mini",
+      "provider": "github",
+      "model_name": "gpt-4o-mini",
+      "task_quality_scores": {
+        "scriptwriting": 8.8,
+        "seo_json": 9.2,
+        "vision_audit": 7.5,
+        "fact_grounding": 8.7
+      },
+      "max_rpm": 15,
+      "max_rpd": 150,
+      "consumed_today": 0,
+      "last_call_timestamp": 0.0,
+      "status": "ACTIVE",
+      "reset_epoch": 0.0,
+      "average_latency": 1.5,
+      "cooldown_until": 0.0
+    },
+    "github:meta/llama-3.3-70b-instruct": {
+      "entity_id": "github:meta/llama-3.3-70b-instruct",
+      "provider": "github",
+      "model_name": "meta/llama-3.3-70b-instruct",
+      "task_quality_scores": {
+        "scriptwriting": 8.9,
+        "seo_json": 8.5,
+        "vision_audit": 6.0,
+        "fact_grounding": 8.3
+      },
+      "max_rpm": 15,
+      "max_rpd": 150,
+      "consumed_today": 0,
+      "last_call_timestamp": 0.0,
+      "status": "ACTIVE",
+      "reset_epoch": 0.0,
+      "average_latency": 1.8,
+      "cooldown_until": 0.0
+    },
+    "openrouter:meta-llama/llama-3.3-70b-instruct:free": {
+      "entity_id": "openrouter:meta-llama/llama-3.3-70b-instruct:free",
+      "provider": "openrouter",
+      "model_name": "meta-llama/llama-3.3-70b-instruct:free",
+      "task_quality_scores": {
+        "scriptwriting": 8.7,
+        "seo_json": 8.4,
+        "vision_audit": 5.0,
+        "fact_grounding": 8.0
+      },
+      "max_rpm": 20,
+      "max_rpd": 200,
+      "consumed_today": 0,
+      "last_call_timestamp": 0.0,
+      "status": "ACTIVE",
+      "reset_epoch": 0.0,
+      "average_latency": 2.5,
+      "cooldown_until": 0.0
+    },
+    "openrouter:qwen/qwen-2.5-72b-instruct:free": {
+      "entity_id": "openrouter:qwen/qwen-2.5-72b-instruct:free",
+      "provider": "openrouter",
+      "model_name": "qwen/qwen-2.5-72b-instruct:free",
+      "task_quality_scores": {
+        "scriptwriting": 8.6,
+        "seo_json": 8.5,
+        "vision_audit": 5.0,
+        "fact_grounding": 8.0
+      },
+      "max_rpm": 20,
+      "max_rpd": 200,
+      "consumed_today": 0,
+      "last_call_timestamp": 0.0,
+      "status": "ACTIVE",
+      "reset_epoch": 0.0,
+      "average_latency": 2.6,
+      "cooldown_until": 0.0
     }
-  },
-  "deprecated_models": [
-    "gemini-2.0-flash",
-    "gemini-2.0-flash-lite",
-    "gemini-1.5-flash",
-    "gemini-1.5-flash-8b",
-    "gemini-1.5-pro",
-    "gemini-2.0-pro",
-    "gemini-2.5-flash",
-    "gemini-2.5-pro",
-    "gemini-2.5-flash-lite"
-  ]
+  }
 }
