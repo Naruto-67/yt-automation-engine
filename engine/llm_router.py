@@ -206,6 +206,9 @@ class LLMRouter:
                         elif "timeout" in err_str or "timed out" in err_str or "deadline" in err_str:
                             logger.warn(f"⏳ [TIMEOUT] {model} timed out ({timeout_ms}ms). Failing over instantly.")
                             self._run_failed_models.add(model)
+                        elif "503" in err_str or "unavailable" in err_str or "high demand" in err_str:
+                            logger.warn(f"⚠️ [CAPACITY SPIKE] {model} experiencing transient high demand (503). Failing over instantly.")
+                            self._run_failed_models.add(model)
                         else:
                             logger.error(f"⚠️ [LLM ROUTER] {model} failed: {e}. Trying next candidate.")
                         continue
