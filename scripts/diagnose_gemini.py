@@ -67,10 +67,11 @@ def test_model_task(
     prompt: str,
     system_prompt: Optional[str] = None,
     tools: Optional[list] = None,
-    temperature: float = 0.7,
-    timeout_s: float = 15.0
+    temperature: Optional[float] = None,
+    timeout_s: float = 60.0,
+    max_output_tokens: Optional[int] = None
 ) -> Dict[str, Any]:
-    """Executes a single test task against a model with thinking config and Fix 1 Chat pattern."""
+    """Executes a single test task against a model with thinking config, standard default timeout, and AFC suppression."""
     from google.genai import types
 
     result = {
@@ -99,8 +100,11 @@ def test_model_task(
         if is_3x:
             # "minimal" is not supported on 3.8/3.7 Flash; must use "low"
             cfg_kwargs["thinking_config"] = types.ThinkingConfig(thinking_level="low")
-        else:
+        elif temperature is not None:
             cfg_kwargs["temperature"] = temperature
+
+        if max_output_tokens is not None:
+            cfg_kwargs["max_output_tokens"] = max_output_tokens
 
         if system_prompt:
             cfg_kwargs["system_instruction"] = system_prompt
@@ -116,6 +120,8 @@ def test_model_task(
             )
             response = chat.send_message(prompt)
         else:
+            # Pure text call: explicitly disable automatic function calling to suppress AFC warning
+            cfg_kwargs["automatic_function_calling"] = types.AutomaticFunctionCallingConfig(disable=True)
             config = types.GenerateContentConfig(**cfg_kwargs)
             response = client.models.generate_content(
                 model=model_id,
@@ -174,13 +180,13 @@ def run_diagnostics():
         print("Run: pip install google-genai")
         sys.exit(1)
 
-    client = genai.Client(api_key=api_key, http_options={"timeout": 35000})
+    client = genai.Client(api_key=api_key, http_options={"timeout": 90000})
 
     # Step 1: Query catalog
     discovered_flash = audit_catalog(client)
 
     # Step 2: Compile curated candidate roster
-    # Priority order: modern active workhorses first, then canaries, then legacy
+    # Priority order: modern active workhorses first, then canaries
     roster_priority = [
         "gemini-flash-lite-latest",
         "gemini-3.5-flash-lite",
@@ -189,19 +195,23 @@ def run_diagnostics():
         "gemini-3.8-flash",
         "gemini-3.7-flash",
         "gemini-3-flash-preview",
-        "gemini-2.5-flash",
     ]
 
     DEPRECATED = {
         "gemini-2.0-flash", "gemini-2.0-flash-lite",
         "gemini-1.5-flash", "gemini-1.5-flash-8b",
-        "gemini-1.5-pro", "gemini-2.0-pro"
+        "gemini-1.5-pro", "gemini-2.0-pro",
+        "gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"
     }
 
-    # Add any newly discovered models not already in roster or deprecated
-    for m in discovered_flash:
-        if m not in roster_priority and m not in DEPRECATED:
-            roster_priority.append(m)
+    # Evaluate curated roster by default to protect 20 RPD free tier quota
+    test_all = "--all-models" in sys.argv or os.environ.get("TEST_ALL_MODELS") == "true"
+    if test_all:
+        for m in discovered_flash:
+            if m not in roster_priority and m not in DEPRECATED:
+                roster_priority.append(m)
+    else:
+        print("ℹ️  Quota-Protection Mode: Evaluating curated candidate roster (use --all-models to evaluate full catalog).\n")
 
     print_header("2. Evaluating Candidate Models Across Core Tasks")
     print(f"Evaluation Target Roster: {roster_priority}\n")
@@ -227,12 +237,19 @@ def run_diagnostics():
 
         model_results = {}
 
-        # 3.8 and 3.7 require 25s timeout to account for dynamic reasoning tokens
-        is_deep_thinking = any(k in model_id for k in ["3.8", "3.7"])
-        script_timeout = 25.0 if is_deep_thinking else 15.0
-        seo_timeout = 20.0 if is_deep_thinking else 10.0
+        # ── Test 0: Minimal Ping (Raw endpoint health, socket speed & TTFT) ──
+        res_ping = test_model_task(
+            client=client,
+            model_id=model_id,
+            task_name="Minimal Ping",
+            prompt="Reply with the single word 'PONG'.",
+            max_output_tokens=5,
+            timeout_s=60.0
+        )
+        model_results["ping"] = res_ping
+        time.sleep(2.5)  # Gentle inter-task throttle to strictly respect free tier 5 RPM
 
-        # ── Test 1: Script Generation ──
+        # ── Test 1: Script Generation (Creative reasoning & narrative) ──
         res_script = test_model_task(
             client=client,
             model_id=model_id,
@@ -240,11 +257,25 @@ def run_diagnostics():
             prompt=script_prompt,
             system_prompt=script_system,
             temperature=0.8,
-            timeout_s=script_timeout
+            timeout_s=60.0
         )
         model_results["script"] = res_script
+        time.sleep(2.5)  # Gentle inter-task throttle
 
-        # ── Test 2: Fact Grounding (Fix 1: Chat pattern with Search Tool) ──
+        # ── Test 2: Structured SEO JSON (Deterministic formatting) ──
+        res_seo = test_model_task(
+            client=client,
+            model_id=model_id,
+            task_name="SEO JSON",
+            prompt=seo_prompt,
+            system_prompt=seo_system,
+            temperature=0.2,
+            timeout_s=60.0
+        )
+        model_results["seo"] = res_seo
+        time.sleep(2.5)  # Gentle inter-task throttle
+
+        # ── Test 3: Fact Grounding (Fix 1: Chat pattern with Search Tool) ──
         search_tool = [types.Tool(google_search=types.GoogleSearch())]
         res_fact = test_model_task(
             client=client,
@@ -253,47 +284,46 @@ def run_diagnostics():
             prompt=fact_prompt,
             tools=search_tool,
             temperature=0.2,
-            timeout_s=15.0
+            timeout_s=60.0
         )
         model_results["fact"] = res_fact
 
-        # ── Test 3: Structured SEO JSON ──
-        res_seo = test_model_task(
-            client=client,
-            model_id=model_id,
-            task_name="SEO JSON",
-            prompt=seo_prompt,
-            system_prompt=seo_system,
-            temperature=0.2,
-            timeout_s=seo_timeout
-        )
-        model_results["seo"] = res_seo
-
         matrix[model_id] = model_results
-        time.sleep(1.0)  # Inter-model throttle
+        time.sleep(3.0)  # Inter-model throttle
 
     # Step 3: Print Consolidated Summary Matrix
     print_header("3. Diagnostic Summary Matrix")
-    print(f"{'Model ID':<28} | {'Script Gen':<14} | {'Fact Ground':<14} | {'SEO JSON':<14} | {'Overall'}")
-    print(f"{'-'*28}-+-{'-'*14}-+-{'-'*14}-+-{'-'*14}-+-{'-'*10}")
+    print(f"{'Model ID':<26} | {'Minimal Ping':<14} | {'Script Gen':<14} | {'SEO JSON':<14} | {'Fact Ground':<14} | {'Overall'}")
+    print(f"{'-'*26}-+-{'-'*14}-+-{'-'*14}-+-{'-'*14}-+-{'-'*14}-+-{'-'*12}")
 
     for model_id, results in matrix.items():
+        p_stat = results["ping"]["status"]
+        p_time = f"{results['ping']['latency_ms']/1000.0:.1f}s"
+        p_str = f"{p_stat} ({p_time})"
+
         s_stat = results["script"]["status"]
         s_time = f"{results['script']['latency_ms']/1000.0:.1f}s"
         s_str = f"{s_stat} ({s_time})"
-
-        f_stat = results["fact"]["status"]
-        f_time = f"{results['fact']['latency_ms']/1000.0:.1f}s"
-        f_str = f"{f_stat} ({f_time})"
 
         seo_stat = results["seo"]["status"]
         seo_time = f"{results['seo']['latency_ms']/1000.0:.1f}s"
         seo_str = f"{seo_stat} ({seo_time})"
 
-        all_pass = all(r["status"] == "PASS" for r in results.values())
-        overall = "✅ ROBUST" if all_pass else ("⚠️ PARTIAL" if any(r["status"] == "PASS" for r in results.values()) else "❌ DEAD")
+        f_stat = results["fact"]["status"]
+        f_time = f"{results['fact']['latency_ms']/1000.0:.1f}s"
+        f_str = f"{f_stat} ({f_time})"
 
-        print(f"{model_id:<28} | {s_str:<14} | {f_str:<14} | {seo_str:<14} | {overall}")
+        text_pass = results["ping"]["status"] == "PASS" and (results["script"]["status"] == "PASS" or results["seo"]["status"] == "PASS")
+        if all(r["status"] == "PASS" for r in results.values()):
+            overall = "✅ FULL PASS"
+        elif text_pass:
+            overall = "✅ TEXT PASS"
+        elif results["ping"]["status"] == "PASS":
+            overall = "⚠️ PING ONLY"
+        else:
+            overall = "❌ DEAD"
+
+        print(f"{model_id:<26} | {p_str:<14} | {s_str:<14} | {seo_str:<14} | {f_str:<14} | {overall}")
 
     # Optional sync to dynamic models registry
     if "--sync-registry" in sys.argv or os.environ.get("UPDATE_REGISTRY") == "true":
