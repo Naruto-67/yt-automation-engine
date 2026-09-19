@@ -1,6 +1,6 @@
 {
-  "updated_at": "2026-09-18T16:30:00Z",
-  "version": "1.0.0",
+  "updated_at": "2026-09-19T04:15:00Z",
+  "version": "1.1.0",
   "gold_anchors": {
     "groq": [
       "llama-3.3-70b-versatile",
@@ -16,50 +16,49 @@
     "gemini": [
       "gemini-3.6-flash",
       "gemini-3.8-flash",
-      "gemini-3.7-flash"
+      "gemini-3.7-flash",
+      "gemini-3-flash-preview"
     ]
   },
   "task_ladders": {
     "scriptwriting": [
-      {"provider": "gemini", "model": "gemini-3.6-flash", "role": "canary", "timeout_s": 12.0},
-      {"provider": "gemini", "model": "gemini-3.8-flash", "role": "canary", "timeout_s": 25.0},
-      {"provider": "groq", "model": "llama-3.3-70b-versatile", "role": "gold", "timeout_s": 10.0},
-      {"provider": "gemini", "model": "gemini-flash-lite-latest", "role": "gold", "timeout_s": 10.0},
-      {"provider": "gemini", "model": "gemini-3.5-flash-lite", "role": "gold", "timeout_s": 10.0},
-      {"provider": "gemini", "model": "gemini-2.5-flash", "role": "legacy_opportunistic", "timeout_s": 12.0}
+      {"provider": "gemini", "model": "gemini-3.6-flash", "role": "canary", "timeout_s": 60.0},
+      {"provider": "gemini", "model": "gemini-3.8-flash", "role": "canary", "timeout_s": 60.0},
+      {"provider": "groq", "model": "llama-3.3-70b-versatile", "role": "gold", "timeout_s": 60.0},
+      {"provider": "gemini", "model": "gemini-flash-lite-latest", "role": "gold", "timeout_s": 60.0},
+      {"provider": "gemini", "model": "gemini-3.5-flash-lite", "role": "gold", "timeout_s": 60.0}
     ],
     "seo_json": [
-      {"provider": "gemini", "model": "gemini-flash-lite-latest", "role": "gold", "timeout_s": 8.0},
-      {"provider": "gemini", "model": "gemini-3.5-flash-lite", "role": "gold", "timeout_s": 8.0},
-      {"provider": "groq", "model": "llama-3.1-8b-instant", "role": "gold", "timeout_s": 8.0},
-      {"provider": "gemini", "model": "gemini-3.1-flash-lite", "role": "gold", "timeout_s": 8.0},
-      {"provider": "gemini", "model": "gemini-3-flash-preview", "role": "canary", "timeout_s": 8.0}
+      {"provider": "gemini", "model": "gemini-flash-lite-latest", "role": "gold", "timeout_s": 60.0},
+      {"provider": "gemini", "model": "gemini-3.5-flash-lite", "role": "gold", "timeout_s": 60.0},
+      {"provider": "groq", "model": "llama-3.1-8b-instant", "role": "gold", "timeout_s": 60.0},
+      {"provider": "gemini", "model": "gemini-3.1-flash-lite", "role": "gold", "timeout_s": 60.0},
+      {"provider": "gemini", "model": "gemini-3-flash-preview", "role": "canary", "timeout_s": 60.0}
     ],
     "fact_grounding": [
-      {"provider": "deterministic", "model": "wikipedia_duckduckgo", "role": "gold", "timeout_s": 10.0},
-      {"provider": "gemini", "model": "gemini-flash-lite-latest", "role": "search_tool", "timeout_s": 15.0},
-      {"provider": "gemini", "model": "gemini-2.5-flash", "role": "search_tool", "timeout_s": 15.0}
+      {"provider": "deterministic", "model": "wikipedia_duckduckgo", "role": "gold", "timeout_s": 15.0},
+      {"provider": "gemini", "model": "gemini-flash-lite-latest", "role": "search_tool", "timeout_s": 60.0}
     ]
   },
   "thinking_profiles": {
     "gemini-3.8-flash": {
       "thinking_level": "low",
-      "timeout_s": 25.0,
+      "timeout_s": 60.0,
       "strip_sampling_params": true
     },
     "gemini-3.7-flash": {
       "thinking_level": "low",
-      "timeout_s": 25.0,
+      "timeout_s": 60.0,
       "strip_sampling_params": true
     },
     "gemini-3.6-flash": {
       "thinking_level": "low",
-      "timeout_s": 15.0,
+      "timeout_s": 60.0,
       "strip_sampling_params": true
     },
     "gemini-3.5-flash": {
       "thinking_level": "low",
-      "timeout_s": 15.0,
+      "timeout_s": 60.0,
       "strip_sampling_params": true
     }
   },
@@ -69,7 +68,9 @@
     "gemini-1.5-flash",
     "gemini-1.5-flash-8b",
     "gemini-1.5-pro",
-    "gemini-2.0-pro"
+    "gemini-2.0-pro",
+    "gemini-2.5-flash",
+    "gemini-2.5-pro",
+    "gemini-2.5-flash-lite"
   ]
 }
-
