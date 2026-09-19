@@ -162,27 +162,35 @@ def discover_openrouter_models(api_key: Optional[str] = None) -> List[str]:
 
 
 def discover_github_models(api_key: Optional[str] = None) -> List[str]:
-    """Discovers or validates available GitHub Models (Azure AI)."""
+    """Discovers or validates available GitHub Models."""
     key = api_key or os.environ.get("GH_MODELS_TOKEN", "").strip()
     if not key:
         return []
 
     # Curated free-tier models available through GitHub Models token
-    candidates = ["gpt-4o-mini", "meta/llama-3.3-70b-instruct"]
+    candidates = ["gpt-4o-mini", "meta/llama-3.3-70b-instruct", "Phi-3.5-mini-instruct", "Mistral-large-2407"]
     verified: List[str] = []
+    endpoints = [
+        "https://models.github.ai/inference/chat/completions",
+        "https://models.inference.ai.azure.com/chat/completions"
+    ]
     for model in candidates:
-        try:
-            # Minimal probe to verify access
-            resp = requests.post(
-                "https://models.inference.ai.azure.com/chat/completions",
-                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                json={"model": model, "messages": [{"role": "user", "content": "ping"}], "max_tokens": 2},
-                timeout=5.0
-            )
-            if resp.status_code in (200, 429):  # 200 OK or rate-limited indicates model access
-                verified.append(model)
-        except Exception:
-            pass
+        for ep in endpoints:
+            try:
+                if requests is None:
+                    break
+                resp = requests.post(
+                    ep,
+                    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                    json={"model": model, "messages": [{"role": "user", "content": "ping"}], "max_tokens": 2},
+                    timeout=5.0
+                )
+                if resp.status_code in (200, 429):  # 200 OK or rate-limited indicates model access
+                    if model not in verified:
+                        verified.append(model)
+                    break
+            except Exception:
+                pass
 
     return verified or candidates
 
