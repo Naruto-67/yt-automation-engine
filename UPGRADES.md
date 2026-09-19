@@ -43,8 +43,26 @@ Every change below is documented with **what → why → files → verify**.
 - **Why:** Prevents burning through the daily 20 RPD limit in a single run (which occurred when testing 58 models x 3 tasks = 174 requests) and eliminates 503 capacity spike shedding.
 - **Files:**
   - [`scripts/diagnose_gemini.py`](file:///d:/Github/yt-automation-engine-main/scripts/diagnose_gemini.py)
+### 5. Absolute API Key Secrecy in CI & Diagnostic Logs
+- **What:** Completely suppressed any printing of API key slices or masked keys in [`scripts/diagnose_gemini.py`](file:///d:/Github/yt-automation-engine-main/scripts/diagnose_gemini.py). The initialization output now strictly emits an uninformative generic authentication confirmation: `🔑 Initializing Gemini Client [API Key authenticated from environment]`.
+- **Why:** Runner logs are visible in public and private CI workflows; no character of any API key should ever be printed or leaked.
+- **Files:**
+  - [`scripts/diagnose_gemini.py`](file:///d:/Github/yt-automation-engine-main/scripts/diagnose_gemini.py)
+- **Verify:** Run `.github/workflows/00_gemini_diagnostics.yml` and verify zero key characters appear in stdout.
+
+---
+
+### 6. Minimal Ping Token Headroom & Transient 503 Capacity Circuit Breaker
+- **What:**
+  1. Increased `max_output_tokens` on Minimal Ping from 5 to 100, preventing 3.x internal thinking tokens from consuming the token budget before outputting text.
+  2. Implemented single-retry backoff (3.0s) on transient `503 UNAVAILABLE` errors in [`scripts/diagnose_gemini.py`](file:///d:/Github/yt-automation-engine-main/scripts/diagnose_gemini.py).
+  3. Added explicit 503 load-spike handling to the Run-Scoped Circuit Breaker in [`engine/llm_router.py`](file:///d:/Github/yt-automation-engine-main/engine/llm_router.py), enabling 0ms failover to Groq 70B and Flash-Lite if canary models experience Google TPU load spikes.
+  4. Updated diagnostic matrix classification (`has_text_pass`) so models with valid script or JSON generation are recognized as healthy text workhorses.
+- **Why:** Gemini 3.8 and 3.7 shared canary endpoints periodically shed free-tier load with 503 when processing heavy reasoning tasks, while Flash-Lite and Groq 70B execute in 1–2 seconds.
+- **Files:**
+  - [`scripts/diagnose_gemini.py`](file:///d:/Github/yt-automation-engine-main/scripts/diagnose_gemini.py)
   - [`engine/llm_router.py`](file:///d:/Github/yt-automation-engine-main/engine/llm_router.py)
-- **Verify:** Diagnostic suite completes in ~2 minutes with zero 429 quota exhaustion on text generation.
+- **Verify:** Diagnostic suite accurately reflects `✅ TEXT PASS` for `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`, and `gemini-3.6-flash`.
 
 ---
 
