@@ -84,8 +84,8 @@ class LLMRouter:
 
     def _enforce_rpm_throttle(self):
         elapsed = time.time() - self._last_llm_call_time
-        if elapsed < 2.0:
-            time.sleep(2.0 - elapsed)
+        if elapsed < 2.5:
+            time.sleep(2.5 - elapsed)
         self._last_llm_call_time = time.time()
 
     def execute_generation(
@@ -154,7 +154,7 @@ class LLMRouter:
 
                     # Determine thinking profile and timeouts
                     profile = thinking_profiles.get(model, {})
-                    timeout_ms = int(profile.get("timeout_s", 15.0) * 1000)
+                    timeout_ms = int(profile.get("timeout_s", 60.0) * 1000)
                     thinking_level = profile.get("thinking_level", "low") if any(v in model for v in ["3.8", "3.7", "3.6", "3.5"]) else None
 
                     try:
@@ -165,7 +165,8 @@ class LLMRouter:
                         client = genai.Client(api_key=self.gemini_key, http_options={"timeout": timeout_ms})
 
                         cfg_kwargs: Dict[str, Any] = {
-                            "http_options": {"timeout": timeout_ms}
+                            "http_options": {"timeout": timeout_ms},
+                            "automatic_function_calling": types.AutomaticFunctionCallingConfig(disable=True)
                         }
                         if system_prompt:
                             cfg_kwargs["system_instruction"] = system_prompt

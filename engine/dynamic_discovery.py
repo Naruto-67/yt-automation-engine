@@ -67,10 +67,10 @@ def load_registry() -> Dict[str, Any]:
             ]
         },
         "thinking_profiles": {
-            "gemini-3.8-flash": {"thinking_level": "low", "timeout_s": 25.0, "strip_sampling_params": true},
-            "gemini-3.7-flash": {"thinking_level": "low", "timeout_s": 25.0, "strip_sampling_params": true},
-            "gemini-3.6-flash": {"thinking_level": "low", "timeout_s": 15.0, "strip_sampling_params": true},
-            "gemini-3.5-flash": {"thinking_level": "low", "timeout_s": 15.0, "strip_sampling_params": true}
+            "gemini-3.8-flash": {"thinking_level": "low", "timeout_s": 60.0, "strip_sampling_params": true},
+            "gemini-3.7-flash": {"thinking_level": "low", "timeout_s": 60.0, "strip_sampling_params": true},
+            "gemini-3.6-flash": {"thinking_level": "low", "timeout_s": 60.0, "strip_sampling_params": true},
+            "gemini-3.5-flash": {"thinking_level": "low", "timeout_s": 60.0, "strip_sampling_params": true}
         },
         "deprecated_models": list(DEPRECATED_KNOWN)
     }
@@ -182,7 +182,7 @@ def sync_registry() -> Dict[str, Any]:
                 if m not in profiles:
                     profiles[m] = {
                         "thinking_level": "low",
-                        "timeout_s": 25.0 if ("3.8" in m or "3.7" in m) else 15.0,
+                        "timeout_s": 60.0,
                         "strip_sampling_params": True
                     }
 
