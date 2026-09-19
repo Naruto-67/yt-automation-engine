@@ -3,7 +3,7 @@ import os
 import json
 import time
 import yaml
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from scripts.youtube_manager import (
     get_youtube_client, get_or_create_playlist, get_channel_name
 )
@@ -138,7 +138,7 @@ def publish_vault_videos():
             }
 
         ai_times = get_optimal_publish_times(youtube, prompts_cfg)
-        now      = datetime.utcnow()
+        now      = datetime.now(timezone.utc)
 
         for idx, job in enumerate(jobs):
             vid_id = job.youtube_id
@@ -163,7 +163,7 @@ def publish_vault_videos():
 
             if is_test_mode():
                 job.state      = JobState.PUBLISHED
-                job.updated_at = datetime.utcnow().isoformat()
+                job.updated_at = datetime.now(timezone.utc).isoformat()
                 db.upsert_job(job)
                 published_total += 1
                 notify_published(job.topic, vid_id or "test_mode_dummy", target_dt.strftime("%Y-%m-%d %H:%M"))
@@ -205,7 +205,7 @@ def publish_vault_videos():
                     quota_manager.consume_points("youtube", 50)
 
                 job.state      = JobState.PUBLISHED
-                job.updated_at = datetime.utcnow().isoformat()
+                job.updated_at = datetime.now(timezone.utc).isoformat()
                 db.upsert_job(job)
                 published_total += 1
 

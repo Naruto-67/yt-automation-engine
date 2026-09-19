@@ -1,7 +1,7 @@
 # scripts/token_health.py — Ghost Engine V6.1
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from engine.config_manager import config_manager
 from scripts.youtube_manager import get_youtube_client
 from scripts.quota_manager import quota_manager
@@ -28,7 +28,7 @@ def _save_health(health: dict):
 
 def run_token_health_check():
     health  = _load_health()
-    now     = datetime.utcnow()
+    now     = datetime.now(timezone.utc)
     now_iso = now.isoformat()
 
     for channel in config_manager.get_active_channels():

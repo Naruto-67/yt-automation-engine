@@ -1,9 +1,18 @@
-# scripts/quota_manager.py
 import os
 import json
 import traceback
-import pytz
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+
+def _get_pt_timezone():
+    try:
+        from zoneinfo import ZoneInfo
+        return ZoneInfo('America/Los_Angeles')
+    except Exception:
+        try:
+            import pytz
+            return pytz.timezone('America/Los_Angeles')
+        except Exception:
+            return timezone(timedelta(hours=-7))
 from engine.database import db
 from engine.config_manager import config_manager
 from engine.context import ctx
@@ -24,7 +33,7 @@ class MasterQuotaManager:
         })
 
     def _today_utc(self) -> str: return datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    def _today_pt(self) -> str: return datetime.now(pytz.timezone('America/Los_Angeles')).strftime("%Y-%m-%d")
+    def _today_pt(self) -> str: return datetime.now(_get_pt_timezone()).strftime("%Y-%m-%d")
     def _get_channel_id(self) -> str: return ctx.get_channel_id()
 
     def _get_active_state(self) -> dict:

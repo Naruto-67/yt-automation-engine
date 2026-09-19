@@ -17,7 +17,7 @@ Results are printed to GitHub Actions logs and dispatched to Discord.
 import os
 import json
 import requests
-from datetime import datetime
+from datetime import datetime, timezone
 from scripts.discord_notifier import notify_summary, notify_error, set_channel_context
 from engine.config_manager import config_manager
 
@@ -209,7 +209,7 @@ def run_audit():
     if active_channels:
         set_channel_context(active_channels[0])
 
-    now       = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    now       = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     lines     = [f"**🛡️ Weekly API Health Report** — {now}\n"]
     all_ok    = True
 

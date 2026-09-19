@@ -744,14 +744,16 @@ def generate_script(niche: str, topic: str):
                 from engine.logger import logger
                 logger.generation(f"🧠 [THINKING]\n{think_match.group(1).strip()}\n")
 
-            start = raw.find('{')
-            end   = raw.rfind('}')
-            if start == -1 or end == -1 or end <= start:
-                last_error = "Malformed JSON boundary returned by AI."
-                continue
-
-            json_payload = raw[start:end + 1]
-            data         = json.loads(json_payload)
+            from engine.llm_router import UniversalGreedyJSONParser
+            data = UniversalGreedyJSONParser.extract_json(raw)
+            if not data or not isinstance(data, dict):
+                start = raw.find('{')
+                end   = raw.rfind('}')
+                if start == -1 or end == -1 or end <= start:
+                    last_error = "Malformed JSON boundary returned by AI."
+                    continue
+                json_payload = raw[start:end + 1]
+                data = json.loads(json_payload)
 
             chosen_voice = data.get("voice_actor", "am_adam")
 

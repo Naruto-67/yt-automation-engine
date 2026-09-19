@@ -3,7 +3,7 @@ import os
 import json
 import yaml
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from scripts.youtube_manager import get_youtube_client
 from scripts.quota_manager import quota_manager
 from scripts.discord_notifier import set_channel_context, notify_daily_pulse, notify_error
@@ -90,14 +90,17 @@ def load_config_prompts():
 def _apply_time_decay(rules: list, timestamps: dict, prefix: str, decay_days: int = 30) -> tuple:
     if not timestamps or not rules:
         return rules, timestamps
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     aged_indices = []
     
     for i, rule in enumerate(rules):
         ts = timestamps.get(f"{prefix}_{i}")
         if ts:
             try:
-                if (now - datetime.fromisoformat(ts)).days > decay_days:
+                parsed_ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                if parsed_ts.tzinfo is None:
+                    parsed_ts = parsed_ts.replace(tzinfo=timezone.utc)
+                if (now - parsed_ts).days > decay_days:
                     aged_indices.append(i)
             except Exception:
                 pass
@@ -206,8 +209,9 @@ def _fetch_analytics_metrics(channel_id: str) -> dict:
         )
         analytics = build("youtubeAnalytics", "v2", credentials=creds, static_discovery=False)
 
-        end_date   = datetime.utcnow().strftime("%Y-%m-%d")
-        start_date = (datetime.utcnow() - timedelta(days=28)).strftime("%Y-%m-%d")
+        now_utc    = datetime.now(timezone.utc)
+        end_date   = now_utc.strftime("%Y-%m-%d")
+        start_date = (now_utc - timedelta(days=28)).strftime("%Y-%m-%d")
 
         # Core engagement metrics — all valid in Analytics API v2 for channel owners.
         # Do NOT add CTR here: it only exists in Reporting API v1 (async CSV jobs).
@@ -273,7 +277,7 @@ def run_daily_analysis():
         try:
             if is_test_mode():
                 ch_stats    = {"views": 15000, "subs": 1200, "videos": 45}
-                recent_vids = [{"title": "Test Video Performance", "views": 5000, "published_at": datetime.utcnow().isoformat()}]
+                recent_vids = [{"title": "Test Video Performance", "views": 5000, "published_at": datetime.now(timezone.utc).isoformat()}]
                 analytics   = {}
             else:
                 ch_stats    = _fetch_channel_stats(youtube)
@@ -348,7 +352,7 @@ def run_daily_analysis():
                 if start != -1 and end != -1 and end > start:
                     try:
                         new_rules = json.loads(raw[start:end+1])
-                        now_iso   = datetime.utcnow().isoformat()
+                        now_iso   = datetime.now(timezone.utc).isoformat()
 
                         new_emp_raw = new_rules.get("new_emphasize", "")
                         if isinstance(new_emp_raw, list):
@@ -402,7 +406,7 @@ def run_daily_analysis():
             # DB column is needed. The researcher reads this to pick strategy.
             ts = intel.get("rule_timestamps", {})
             ts["__sub_count__"]    = subs
-            ts["__last_analyzed__"] = datetime.utcnow().isoformat()
+            ts["__last_analyzed__"] = datetime.now(timezone.utc).isoformat()
             intel["rule_timestamps"] = ts
 
             # ── Update pillar performance stats ──────────────────────────────

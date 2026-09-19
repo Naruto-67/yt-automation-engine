@@ -2,8 +2,18 @@ import os
 import json
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-from datetime import datetime
-import pytz
+from datetime import datetime, timezone, timedelta
+
+def _get_ist_timezone():
+    try:
+        from zoneinfo import ZoneInfo
+        return ZoneInfo('Asia/Kolkata')
+    except Exception:
+        try:
+            import pytz
+            return pytz.timezone('Asia/Kolkata')
+        except Exception:
+            return timezone(timedelta(hours=5, minutes=30))
 
 def get_google_sheet():
     creds_json = os.environ.get("GCP_CREDENTIALS_JSON")
@@ -27,6 +37,6 @@ def log_completed_video(niche, hook, filename):
     sheet = get_google_sheet()
     if not sheet: return
     try:
-        ist = datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%Y-%m-%d %H:%M")
+        ist = datetime.now(_get_ist_timezone()).strftime("%Y-%m-%d %H:%M")
         sheet.append_row([ist, niche.upper(), hook, filename, "VAULTED"])
     except: pass

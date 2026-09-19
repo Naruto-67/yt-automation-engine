@@ -44,10 +44,15 @@ def generate_seo_metadata(niche, script):
     try:
         raw_text, provider = quota_manager.generate_text(user_msg, task_type="seo", system_prompt=prompts_cfg['seo_gen']['system_prompt'])
         if raw_text:
-            start = raw_text.find('{')
-            end = raw_text.rfind('}')
-            if start != -1 and end != -1 and end > start:
-                data = json.loads(raw_text[start:end+1])
+            from engine.llm_router import UniversalGreedyJSONParser
+            data = UniversalGreedyJSONParser.extract_json(raw_text)
+            if not data or not isinstance(data, dict):
+                start = raw_text.find('{')
+                end = raw_text.rfind('}')
+                if start != -1 and end != -1 and end > start:
+                    data = json.loads(raw_text[start:end+1])
+                else:
+                    data = {}
                 
                 if "metadata" in data and isinstance(data["metadata"], dict):
                     data = data["metadata"]

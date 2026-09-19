@@ -47,8 +47,8 @@ def get_deep_channel_context(youtube) -> str:
         stats = youtube.videos().list(part="statistics,snippet", id=",".join(vid_ids)).execute()
         quota_manager.consume_points("youtube", 1)
 
-        from datetime import datetime, timedelta
-        cutoff = (datetime.utcnow() - timedelta(days=30)).isoformat()
+        from datetime import datetime, timedelta, timezone
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
 
         video_data = sorted([
             {
