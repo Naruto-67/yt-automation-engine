@@ -80,8 +80,9 @@ Your channel rules are defined in the engine.
 The engine is designed to **never crash**. Every task has a fallback:
 - **LLM / Scripting:** Dynamic Auto-Discovery Task-Centric LLM Router (`engine/llm_router.py` & `engine/dynamic_discovery.py`):
   - Ingests upstream models dynamically from Google GenAI (`client.models.list()`) and Groq (`/models`) into `memory/dynamic_models_registry.json`.
-  - Enforces task ladders: Scriptwriting routes to 3.x Flash canaries (`gemini-3.6-flash`, `gemini-3.8-flash` with `thinking_level="low"` and 25s timeout) ➡️ Groq Gold Anchor (`llama-3.3-70b-versatile`, 14,400 RPD) ➡️ Google Flash-Lite Gold Anchor (`gemini-flash-lite-latest`, 500 RPD).
+  - Enforces task ladders: Scriptwriting routes to 3.x Flash canaries (`gemini-3.6-flash`, `gemini-3.8-flash` with `thinking_level="low"` and generous 60.0s socket ceiling) ➡️ Groq Gold Anchor (`llama-3.3-70b-versatile`, 14,400 RPD) ➡️ Google Flash-Lite Gold Anchor (`gemini-flash-lite-latest`, 500 RPD).
   - SEO JSON extraction routes directly to ultra-low latency `gemini-flash-lite-latest` (0.95s) ➡️ Groq `llama-3.1-8b-instant` (0.75s).
+  - AFC Warning Suppression: Explicitly disables Automatic Function Calling (`automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)`) on pure text calls, suppressing upstream SDK warnings.
   - Real-Time Fact Grounding (`engine/fact_grounding.py`) utilizes Google's recommended Chat pattern (Fix 1) with fail-safe fallback to Wikipedia REST + DuckDuckGo Instant Answer APIs (100% free, 0 quota risk).
   - Run-Scoped Circuit Breaker isolates 404 (deprecated) and 429 (quota exhausted) models per run for 0ms bypass on subsequent generation calls.
 - **API Resilience:** All API calls are wrapped in `tenacity` exponential backoff with run-scoped Circuit Breakers and non-text / WebSocket live model exclusion filters.

@@ -4,6 +4,50 @@ Every change below is documented with **what → why → files → verify**.
 
 ---
 
+## 2026-09 — Gemini Free-Tier Architecture, ReadTimeout Elimination, & Dynamic Orchestration
+
+### 1. ReadTimeout Elimination & Generous Socket Limits
+- **What:** Eliminated artificial client-side socket timeouts (10s/15s/25s) across [`llm_router.py`](file:///d:/Github/yt-automation-engine-main/engine/llm_router.py), [`dynamic_discovery.py`](file:///d:/Github/yt-automation-engine-main/engine/dynamic_discovery.py), and [`diagnose_gemini.py`](file:///d:/Github/yt-automation-engine-main/scripts/diagnose_gemini.py), establishing a standard generous 60.0s safety ceiling.
+- **Why:** In non-streaming generation (`client.models.generate_content`), Google TPUs buffer entire responses in memory before returning HTTP status headers. Low client socket timeouts aborted healthy models mid-generation (`gemini-flash-lite-latest` aborted at 10011ms on SEO JSON, `gemini-3.8-flash` aborted at 25027ms during dynamic reasoning).
+- **Files:**
+  - [`scripts/diagnose_gemini.py`](file:///d:/Github/yt-automation-engine-main/scripts/diagnose_gemini.py)
+  - [`engine/llm_router.py`](file:///d:/Github/yt-automation-engine-main/engine/llm_router.py)
+  - [`engine/dynamic_discovery.py`](file:///d:/Github/yt-automation-engine-main/engine/dynamic_discovery.py)
+  - [`memory/dynamic_models_registry.json`](file:///d:/Github/yt-automation-engine-main/memory/dynamic_models_registry.json)
+- **Verify:** Models complete naturally without `httpcore.ReadTimeout` errors.
+
+---
+
+### 2. Task 0: Minimal Ping Diagnostics
+- **What:** Added an ultra-lightweight ping probe (`"Reply with the single word 'PONG'."`, `max_output_tokens=5`) as Task 0 in the diagnostic suite.
+- **Why:** Isolates raw TCP handshake and HTTP round-trip latency (<500ms) from multi-second reasoning/creative generation, allowing immediate detection of API connectivity, authentication, and endpoint health.
+- **Files:**
+  - [`scripts/diagnose_gemini.py`](file:///d:/Github/yt-automation-engine-main/scripts/diagnose_gemini.py)
+- **Verify:** Run `.github/workflows/00_gemini_diagnostics.yml` and check the Minimal Ping column in the summary matrix.
+
+---
+
+### 3. Automatic Function Calling (AFC) Warning Suppression
+- **What:** Explicitly configured `automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)` for pure text calls and implemented Google's Chat pattern (`client.chats.create` + `chat.send_message`) for tool-based grounding calls.
+- **Why:** Suppresses the upstream warning `Direct use of automatic function calling (AFC) in Models.generate_content is not recommended...`.
+- **Files:**
+  - [`scripts/diagnose_gemini.py`](file:///d:/Github/yt-automation-engine-main/scripts/diagnose_gemini.py)
+  - [`engine/llm_router.py`](file:///d:/Github/yt-automation-engine-main/engine/llm_router.py)
+  - [`engine/fact_grounding.py`](file:///d:/Github/yt-automation-engine-main/engine/fact_grounding.py)
+- **Verify:** Output logs contain zero AFC warning lines during text generation.
+
+---
+
+### 4. Quota-Safe Model Evaluation & Inter-Call Throttling
+- **What:** Defaulted the diagnostic harness to evaluate only the 7 primary candidate models (`gemini-flash-lite-latest`, `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`, `gemini-3.6-flash`, `gemini-3.8-flash`, `gemini-3.7-flash`, `gemini-3-flash-preview`), protecting the strict 20 RPD free tier limit. Implemented gentle 2.5s inter-task delay and 3.0s inter-model throttle. Full 58-model catalog scan is restricted to explicit `--all-models` runs.
+- **Why:** Prevents burning through the daily 20 RPD limit in a single run (which occurred when testing 58 models x 3 tasks = 174 requests) and eliminates 503 capacity spike shedding.
+- **Files:**
+  - [`scripts/diagnose_gemini.py`](file:///d:/Github/yt-automation-engine-main/scripts/diagnose_gemini.py)
+  - [`engine/llm_router.py`](file:///d:/Github/yt-automation-engine-main/engine/llm_router.py)
+- **Verify:** Diagnostic suite completes in ~2 minutes with zero 429 quota exhaustion on text generation.
+
+---
+
 ## 2026-08 — Four improvements
 
 ### 1. CI: Node 20 deprecation fix (build-and-vault)
