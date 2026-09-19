@@ -12,8 +12,11 @@ import os
 import sys
 import time
 import json
-import requests
 import traceback
+try:
+    import requests
+except ImportError:
+    requests = None
 from typing import Dict, Any, List, Optional
 
 DIVIDER_HEAVY = "=" * 88
@@ -21,12 +24,10 @@ DIVIDER_LIGHT = "-" * 88
 
 
 def mask_key(k: str) -> str:
-    """Masks secret keys for 100% terminal and log secrecy."""
+    """Masks secret keys for 100% terminal and log secrecy (zero key slices)."""
     if not k:
         return "[NOT SET]"
-    if len(k) <= 8:
-        return "***"
-    return f"{k[:3]}...{k[-3:]}"
+    return "***"
 
 
 def print_header(title: str):
@@ -35,7 +36,7 @@ def print_header(title: str):
     print(DIVIDER_HEAVY)
 
 
-def test_google_provider(api_key: str) -> List[Dict[str, Any]]:
+def test_google_provider(api_key: str, models_to_test: Optional[List[str]] = None) -> List[Dict[str, Any]]:
     print_header("1. Google GenAI Diagnostics")
     print(f"🔑 Authenticating Google GenAI [Key: {mask_key(api_key)}]")
     if not api_key:
@@ -48,11 +49,12 @@ def test_google_provider(api_key: str) -> List[Dict[str, Any]]:
     results = []
     client = genai.Client(api_key=api_key, http_options={"timeout": 60000})
 
-    models_to_test = [
-        "gemini-flash-lite-latest",
-        "gemini-3.5-flash-lite",
-        "gemini-3.8-flash"
-    ]
+    if not models_to_test:
+        models_to_test = [
+            "gemini-flash-lite-latest",
+            "gemini-3.5-flash-lite",
+            "gemini-3.8-flash"
+        ]
 
     for model_name in models_to_test:
         print(f"\n   ┌── Model: [google:{model_name}]")
@@ -143,6 +145,9 @@ def test_openai_compatible_provider(
     print(f"🔑 Authenticating {provider_name.title()} [Key: {mask_key(api_key)}]")
     if not api_key:
         print(f"⚠️ API key for {provider_name} is not set. Skipping tests.")
+        return []
+    if requests is None:
+        print(f"⚠️ 'requests' package not available. Skipping {provider_name} tests.")
         return []
 
     results = []
@@ -248,36 +253,51 @@ def main():
     gh_key = os.environ.get("GH_MODELS_TOKEN", "").strip()
     openrouter_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
 
+    from engine.dynamic_discovery import (
+        discover_google_models,
+        discover_groq_models,
+        discover_github_models,
+        discover_openrouter_models
+    )
+
     all_results = []
 
     # 1. Google GenAI
-    google_res = test_google_provider(gemini_key)
+    discovered_google = discover_google_models() or ["gemini-flash-lite-latest", "gemini-3.5-flash-lite", "gemini-3.8-flash"]
+    google_res = test_google_provider(gemini_key, models_to_test=discovered_google)
     all_results.extend(google_res)
 
     # 2. Groq Cloud
+    discovered_groq = discover_groq_models(groq_key) or ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768", "gemma2-9b-it"]
     groq_res = test_openai_compatible_provider(
         provider_name="groq",
         endpoint="https://api.groq.com/openai/v1/chat/completions",
         api_key=groq_key,
-        models_to_test=["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+        models_to_test=discovered_groq
     )
     all_results.extend(groq_res)
 
-    # 3. GitHub Models (Azure AI)
+    # 3. GitHub Models
+    discovered_gh = discover_github_models(gh_key) or ["gpt-4o-mini", "meta/llama-3.3-70b-instruct", "Phi-3.5-mini-instruct"]
     gh_res = test_openai_compatible_provider(
         provider_name="github",
-        endpoint="https://models.inference.ai.azure.com/chat/completions",
+        endpoint="https://models.github.ai/inference/chat/completions",
         api_key=gh_key,
-        models_to_test=["gpt-4o-mini", "meta/llama-3.3-70b-instruct"]
+        models_to_test=discovered_gh
     )
     all_results.extend(gh_res)
 
     # 4. OpenRouter Free Pool
+    discovered_or = discover_openrouter_models(openrouter_key) or [
+        "qwen/qwen-2.5-72b-instruct:free",
+        "meta-llama/llama-3.1-8b-instruct:free",
+        "deepseek/deepseek-r1:free"
+    ]
     or_res = test_openai_compatible_provider(
         provider_name="openrouter",
         endpoint="https://openrouter.ai/api/v1/chat/completions",
         api_key=openrouter_key,
-        models_to_test=["meta-llama/llama-3.3-70b-instruct:free"],
+        models_to_test=discovered_or[:8],
         extra_headers={"HTTP-Referer": "https://github.com/yt-automation-engine", "X-Title": "Ghost Engine"}
     )
     all_results.extend(or_res)
