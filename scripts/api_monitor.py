@@ -15,6 +15,12 @@ Each check is independent — a failure in one does not skip others.
 Results are printed to GitHub Actions logs and dispatched to Discord.
 """
 import os
+import sys
+
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
+
 import json
 import requests
 from datetime import datetime, timezone
