@@ -366,7 +366,7 @@ def main():
     if discovered_gh:
         gh_res = test_openai_compatible_provider(
             provider_name="github",
-            endpoint="https://models.github.ai/inference/chat/completions",
+            endpoint="https://models.inference.ai.azure.com/chat/completions",
             api_key=gh_key,
             models_to_test=discovered_gh
         )

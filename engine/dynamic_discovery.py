@@ -170,11 +170,11 @@ def discover_github_models(api_key: Optional[str] = None) -> List[str]:
     if not key:
         return []
 
-    # Curated free-tier models available through GitHub Models token
-    candidates = ["gpt-4o-mini", "meta/llama-3.3-70b-instruct", "Phi-3.5-mini-instruct", "Mistral-large-2407"]
+    # Curated free-tier models available through GitHub Models / Azure AI Inference token
+    candidates = ["gpt-4o-mini", "Llama-3.3-70B-Instruct", "Phi-3.5-mini-instruct", "Mistral-Large-2407"]
     verified: List[str] = []
     endpoints = [
-        "https://models.github.ai/inference/chat/completions"
+        "https://models.inference.ai.azure.com/chat/completions"
     ]
     for model in candidates:
         for ep in endpoints:
