@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-09-20T10:32:50.457063+00:00",
+  "updated_at": "2026-09-20T11:06:27.539182+00:00",
   "provider_reset_dates": {
     "google": "2026-09-20",
     "groq": "2026-09-20",
@@ -53,15 +53,16 @@
         "scriptwriting": 8.6,
         "seo_json": 9.4,
         "vision_audit": 8.5,
-        "fact_grounding": 8.8
+        "fact_grounding": 8.8,
+        "creative": 8.59
       },
       "max_rpm": 30,
       "max_rpd": 500,
-      "consumed_today": 0,
-      "last_call_timestamp": 0.0,
+      "consumed_today": 4,
+      "last_call_timestamp": 1789902383.5135872,
       "status": "ACTIVE",
       "reset_epoch": 0.0,
-      "average_latency": 1.4,
+      "average_latency": 1.73,
       "cooldown_until": 0.0
     },
     "google:gemini-3.5-flash-lite": {
@@ -72,15 +73,17 @@
         "scriptwriting": 8.5,
         "seo_json": 9.3,
         "vision_audit": 8.3,
-        "fact_grounding": 8.6
+        "fact_grounding": 8.6,
+        "analysis": 8.36,
+        "seo": 8.36
       },
       "max_rpm": 30,
       "max_rpd": 500,
-      "consumed_today": 0,
-      "last_call_timestamp": 0.0,
+      "consumed_today": 4,
+      "last_call_timestamp": 1789902387.5391717,
       "status": "ACTIVE",
       "reset_epoch": 0.0,
-      "average_latency": 1.6,
+      "average_latency": 1.24,
       "cooldown_until": 0.0
     },
     "groq:llama-3.3-70b-versatile": {
@@ -97,7 +100,7 @@
       "max_rpd": 14400,
       "consumed_today": 14386,
       "last_call_timestamp": 0.0,
-      "status": "ACTIVE",
+      "status": "DEPRECATED",
       "reset_epoch": 1789900372.9570594,
       "average_latency": 0.8,
       "cooldown_until": 0.0
@@ -116,7 +119,7 @@
       "max_rpd": 14400,
       "consumed_today": 0,
       "last_call_timestamp": 0.0,
-      "status": "ACTIVE",
+      "status": "DEPRECATED",
       "reset_epoch": 0.0,
       "average_latency": 0.4,
       "cooldown_until": 0.0
@@ -138,7 +141,7 @@
       "status": "ACTIVE",
       "reset_epoch": 0.0,
       "average_latency": 1.5,
-      "cooldown_until": 0.0
+      "cooldown_until": 1789902347.1743271
     },
     "github:meta/llama-3.3-70b-instruct": {
       "entity_id": "github:meta/llama-3.3-70b-instruct",
