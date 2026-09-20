@@ -56,7 +56,9 @@ def test_google_provider(api_key: str, models_to_test: Optional[List[str]] = Non
 
     from google import genai
     from google.genai import types
+    from engine.model_entity import DynamicQuotaTracker
 
+    tracker = DynamicQuotaTracker()
     results = []
     client = genai.Client(api_key=api_key, http_options={"timeout": 120000})
 
@@ -68,7 +70,8 @@ def test_google_provider(api_key: str, models_to_test: Optional[List[str]] = Non
         ]
 
     for model_name in models_to_test:
-        print(f"\n   ┌── Model: [google:{model_name}]")
+        entity_id = f"google:{model_name}"
+        print(f"\n   ┌── Model: [{entity_id}]")
         # 1. Minimal Ping
         ping_ok = False
         t0 = time.time()
@@ -83,6 +86,7 @@ def test_google_provider(api_key: str, models_to_test: Optional[List[str]] = Non
                 lat = round(time.time() - t0, 2)
                 txt = (resp.text or "").strip()
                 print(f"   ├── Task 0 (Minimal Ping): ✅ PASS ({lat}s) -> '{txt}'")
+                tracker.record_call_success(entity_id, "ping", lat)
                 ping_ok = True
                 break
             except Exception as e:
@@ -120,6 +124,7 @@ def test_google_provider(api_key: str, models_to_test: Optional[List[str]] = Non
                 text = (resp.text or "").strip()
                 words = len(text.split())
                 print(f"   ├── Task 1 (Scriptwriting): ✅ PASS ({lat_script}s, {words} words)")
+                tracker.record_call_success(entity_id, "scriptwriting", lat_script)
                 script_ok = True
                 break
             except Exception as e:
@@ -149,6 +154,7 @@ def test_google_provider(api_key: str, models_to_test: Optional[List[str]] = Non
                 )
                 lat_seo = round(time.time() - t2, 2)
                 print(f"   └── Task 2 (SEO JSON): ✅ PASS ({lat_seo}s)")
+                tracker.record_call_success(entity_id, "seo_json", lat_seo)
                 seo_ok = True
                 break
             except Exception as e:
@@ -189,6 +195,7 @@ def test_openai_compatible_provider(
         print(f"⚠️ 'requests' package not available. Skipping {provider_name} tests.")
         return []
 
+    tracker = DynamicQuotaTracker()
     results = []
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -198,7 +205,8 @@ def test_openai_compatible_provider(
         headers.update(extra_headers)
 
     for model_name in models_to_test:
-        print(f"\n   ┌── Model: [{provider_name}:{model_name}]")
+        entity_id = f"{provider_name}:{model_name}"
+        print(f"\n   ┌── Model: [{entity_id}]")
         # 1. Minimal Ping & Header Sniffing
         ping_ok = False
         t0 = time.time()
@@ -217,6 +225,8 @@ def test_openai_compatible_provider(
                     sniffed_rpm = resp.headers.get("x-ratelimit-limit-requests") or resp.headers.get("x-ratelimit-limit") or "N/A"
                     sniffed_rem = resp.headers.get("x-ratelimit-remaining-requests") or resp.headers.get("x-ratelimit-remaining") or "N/A"
                     print(f"   │   📡 Sniffed Headers -> RPM Limit: {sniffed_rpm} | Remaining: {sniffed_rem}")
+                    tracker.sniff_headers(entity_id, resp.headers)
+                    tracker.record_call_success(entity_id, "ping", lat)
                     ping_ok = True
                     break
                 elif resp.status_code in (502, 503, 504) and attempt < 2:
@@ -257,6 +267,8 @@ def test_openai_compatible_provider(
                     content = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
                     words = len(content.split())
                     print(f"   ├── Task 1 (Scriptwriting): ✅ PASS ({lat_script}s, {words} words)")
+                    tracker.sniff_headers(entity_id, resp.headers)
+                    tracker.record_call_success(entity_id, "scriptwriting", lat_script)
                     script_ok = True
                     break
                 elif resp.status_code in (502, 503, 504) and attempt < 2:
@@ -295,6 +307,8 @@ def test_openai_compatible_provider(
                 lat_seo = round(time.time() - t2, 2)
                 if resp.status_code == 200:
                     print(f"   └── Task 2 (SEO JSON): ✅ PASS ({lat_seo}s)")
+                    tracker.sniff_headers(entity_id, resp.headers)
+                    tracker.record_call_success(entity_id, "seo_json", lat_seo)
                     seo_ok = True
                     break
                 elif resp.status_code in (502, 503, 504) and attempt < 2:

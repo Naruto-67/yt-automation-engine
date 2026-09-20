@@ -231,6 +231,13 @@ def discover_github_models(api_key: Optional[str] = None, force: bool = False) -
                 if resp.status_code in (200, 429):  # 200 OK or rate-limited indicates active model access
                     if model not in verified:
                         verified.append(model)
+                    if resp.status_code == 200:
+                        try:
+                            from engine.model_entity import DynamicQuotaTracker
+                            t_tracker = DynamicQuotaTracker(REGISTRY_PATH)
+                            t_tracker.record_call_success(f"github:{model}", "ping", 1.0)
+                        except Exception:
+                            pass
                     break
             except Exception:
                 pass
