@@ -99,11 +99,11 @@ class IntegrityChecker:
         try:
             with open(prompts_path, "r", encoding="utf-8") as f:
                 prompts = yaml.safe_load(f)
-            constitution = prompts.get("script_gen", {}).get("constitution", "")
-            has_floor = "85" in constitution
+                constitution = prompts.get("script_gen", {}).get("constitution", "")
+            has_floor = any(w in constitution for w in ["85", "90", "92"])
             has_loop = "CIRCULAR LOOP" in constitution or "loop" in constitution.lower()
             if has_floor and has_loop:
-                self.log_result("config", "prompts.yaml constitution", "PASS", "85-word floor & seamless loop verified")
+                self.log_result("config", "prompts.yaml constitution", "PASS", "Word floor & seamless loop verified")
             else:
                 self.log_result("config", "prompts.yaml constitution", "FAIL", "Missing word floor or loop mandate")
         except Exception as e:

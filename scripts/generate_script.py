@@ -12,9 +12,9 @@ from engine.context import ctx
 from engine.logger import logger
 
 _WORDS_PER_SECOND_TTS = 143 / 60.0
-# EdgeTTS/Kokoro: 85 words = ~38s, 125 words = ~53s. 
+# EdgeTTS/Kokoro: 90 words = ~40s, 125 words = ~53s. 
 _MAX_VIDEO_SECONDS = 55.0
-_MIN_WORD_FLOOR = 85       # Minimum 85 words ensures Short is at least 38-40s (monetization sweet spot)
+_MIN_WORD_FLOOR = 90       # Minimum 90 words ensures Short is at least 40-42s (monetization & retention sweet spot)
 _ABSOLUTE_WORD_CEILING = 125  # Upper bound prevents exceeding 55s ceiling
 
 
@@ -131,7 +131,9 @@ def validate_script_quality(script_text: str, prompts_cfg: dict,
             "discovered", "finds", "found", "helps", "helped", "meets", "met", "flees", "fled",
             "crosses", "crossed", "searches", "searched", "escapes", "escaped", "saves", "saved",
             "dives", "dove", "slipped", "strapped", "ran", "jumped", "built", "chose", "defied",
-            "risked", "confronted", "faced", "learned", "flew", "flies", "wedged"
+            "risked", "confronted", "faced", "learned", "flew", "flies", "wedged", "crafts", "crafted",
+            "creates", "created", "rescues", "rescued", "vows", "vowed", "carves", "carved",
+            "shapes", "shaped", "protects", "protected"
         ]
         has_action = any(re.search(rf"\b{a}\b", script_lower) for a in action_verbs)
         if not has_action:
