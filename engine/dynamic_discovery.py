@@ -37,8 +37,9 @@ DEPRECATED_KNOWN = {
 }
 
 
-# Discovery cache TTL: 12 hours (43,200 seconds) to avoid redundant back-to-back network calls
-DISCOVERY_CACHE_TTL_SECONDS = 43200
+# Discovery cache TTL: 24 hours (86,400 seconds) to avoid redundant back-to-back network calls.
+# Discovery is aligned to run 30 minutes AFTER the last provider quota reset (Google PT reset at 08:00 UTC + 30m = 08:30 UTC).
+DISCOVERY_CACHE_TTL_SECONDS = 86400
 
 
 def is_modality_allowed(model_name: str) -> bool:
@@ -84,7 +85,7 @@ def save_registry(registry: Dict[str, Any]) -> bool:
 
 
 def get_cached_provider_models(provider: str) -> Optional[List[str]]:
-    """Returns cached active models for provider if registry is fresh (< 12 hours old)."""
+    """Returns cached active models for provider if registry is fresh (< 24 hours old)."""
     reg = load_registry()
     last_sync = reg.get("last_discovery_timestamp", 0.0)
     if time.time() - last_sync < DISCOVERY_CACHE_TTL_SECONDS:
@@ -245,7 +246,7 @@ def sync_registry(force: bool = False) -> Dict[str, Any]:
     last_sync = reg.get("last_discovery_timestamp", 0.0)
     if not force and (time.time() - last_sync < DISCOVERY_CACHE_TTL_SECONDS):
         hours_ago = round((time.time() - last_sync) / 3600.0, 1)
-        logger.info(f"ℹ️ [DYNAMIC REGISTRY] Synced {hours_ago}h ago (<12h TTL). Using cached registry to avoid back-to-back discovery calls.")
+        logger.info(f"ℹ️ [DYNAMIC REGISTRY] Synced {hours_ago}h ago (<24h TTL). Using cached registry to conserve API quota until post-reset window.")
         return {
             "status": "CACHED",
             "total_entities": len(reg.get("entities", {})),
