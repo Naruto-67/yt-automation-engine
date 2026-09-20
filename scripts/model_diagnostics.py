@@ -352,7 +352,7 @@ def main():
     all_results.extend(google_res)
 
     # 2. Groq Cloud
-    discovered_groq = discover_groq_models(groq_key) or ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768", "gemma2-9b-it"]
+    discovered_groq = discover_groq_models(groq_key) or ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
     groq_res = test_openai_compatible_provider(
         provider_name="groq",
         endpoint="https://api.groq.com/openai/v1/chat/completions",

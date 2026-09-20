@@ -31,7 +31,8 @@ BANNED_MODALITY_PATTERNS = [
 DEPRECATED_KNOWN = {
     "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash",
     "gemini-1.5-flash-8b", "gemini-1.5-pro", "gemini-2.0-pro",
-    "gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"
+    "gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite",
+    "mixtral-8x7b-32768", "gemma2-9b-it", "llama3-70b-8192", "llama3-8b-8192"
 }
 
 
@@ -112,11 +113,11 @@ def discover_google_models(client=None) -> List[str]:
 def discover_groq_models(api_key: Optional[str] = None) -> List[str]:
     """Queries Groq Cloud /models endpoint to discover newly available text models."""
     key = api_key or os.environ.get("GROQ_API_KEY", "").strip()
-    core_models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768", "gemma2-9b-it"]
+    core_models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
     if not key:
         return core_models
 
-    discovered: List[str] = list(core_models)
+    discovered: List[str] = []
     try:
         resp = requests.get(
             "https://api.groq.com/openai/v1/models",
@@ -127,15 +128,15 @@ def discover_groq_models(api_key: Optional[str] = None) -> List[str]:
             data = resp.json()
             for item in data.get("data", []):
                 mid = item.get("id", "")
-                if not mid or not is_modality_allowed(mid):
+                if not mid or not is_modality_allowed(mid) or mid in DEPRECATED_KNOWN:
                     continue
-                if any(k in mid.lower() for k in ["llama", "mixtral", "gemma", "qwen", "deepseek"]):
+                if any(k in mid.lower() for k in ["llama", "qwen", "deepseek"]):
                     if mid not in discovered:
                         discovered.append(mid)
     except Exception as e:
         logger.warn(f"⚠️ [DYNAMIC DISCOVERY] Groq catalog discovery failed: {e}")
 
-    return discovered
+    return discovered or core_models
 
 
 def discover_openrouter_models(api_key: Optional[str] = None) -> List[str]:
