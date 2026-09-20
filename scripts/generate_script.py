@@ -741,7 +741,6 @@ def generate_script(niche: str, topic: str):
             import re
             think_match = re.search(r"<THINKING>(.*?)</THINKING>", raw, flags=re.DOTALL | re.IGNORECASE)
             if think_match:
-                from engine.logger import logger
                 logger.generation(f"🧠 [THINKING]\n{think_match.group(1).strip()}\n")
 
             from engine.llm_router import UniversalGreedyJSONParser
