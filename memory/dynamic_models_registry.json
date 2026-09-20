@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-09-20T11:06:27.539182+00:00",
+  "updated_at": "2026-09-20T12:23:40.924849+00:00",
   "provider_reset_dates": {
     "google": "2026-09-20",
     "groq": "2026-09-20",
@@ -54,15 +54,15 @@
         "seo_json": 9.4,
         "vision_audit": 8.5,
         "fact_grounding": 8.8,
-        "creative": 8.59
+        "creative": 8.89
       },
       "max_rpm": 30,
       "max_rpd": 500,
-      "consumed_today": 4,
-      "last_call_timestamp": 1789902383.5135872,
+      "consumed_today": 10,
+      "last_call_timestamp": 1789907019.573781,
       "status": "ACTIVE",
       "reset_epoch": 0.0,
-      "average_latency": 1.73,
+      "average_latency": 4.93,
       "cooldown_until": 0.0
     },
     "google:gemini-3.5-flash-lite": {
@@ -74,16 +74,16 @@
         "seo_json": 9.3,
         "vision_audit": 8.3,
         "fact_grounding": 8.6,
-        "analysis": 8.36,
-        "seo": 8.36
+        "analysis": 8.59,
+        "seo": 8.59
       },
       "max_rpm": 30,
       "max_rpd": 500,
-      "consumed_today": 4,
-      "last_call_timestamp": 1789902387.5391717,
+      "consumed_today": 8,
+      "last_call_timestamp": 1789907020.9248407,
       "status": "ACTIVE",
       "reset_epoch": 0.0,
-      "average_latency": 1.24,
+      "average_latency": 1.05,
       "cooldown_until": 0.0
     },
     "groq:llama-3.3-70b-versatile": {
