@@ -37,6 +37,10 @@ DEPRECATED_KNOWN = {
 }
 
 
+# Discovery cache TTL: 12 hours (43,200 seconds) to avoid redundant back-to-back network calls
+DISCOVERY_CACHE_TTL_SECONDS = 43200
+
+
 def is_modality_allowed(model_name: str) -> bool:
     """Strictly filters out non-text, TTS, audio, image, and robotics models."""
     lowered = model_name.lower()
@@ -60,6 +64,7 @@ def load_registry() -> Dict[str, Any]:
     tracker = DynamicQuotaTracker(REGISTRY_PATH)
     return {
         "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "last_discovery_timestamp": 0.0,
         "version": "2.0.0",
         "entities": {eid: {} for eid in tracker.entities}
     }
@@ -78,8 +83,28 @@ def save_registry(registry: Dict[str, Any]) -> bool:
         return False
 
 
-def discover_google_models(client=None) -> List[str]:
+def get_cached_provider_models(provider: str) -> Optional[List[str]]:
+    """Returns cached active models for provider if registry is fresh (< 12 hours old)."""
+    reg = load_registry()
+    last_sync = reg.get("last_discovery_timestamp", 0.0)
+    if time.time() - last_sync < DISCOVERY_CACHE_TTL_SECONDS:
+        entities = reg.get("entities", {})
+        cached = [
+            info["model_name"] for eid, info in entities.items()
+            if isinstance(info, dict) and info.get("provider") == provider and info.get("status") == "ACTIVE"
+        ]
+        if cached:
+            return cached
+    return None
+
+
+def discover_google_models(client=None, force: bool = False) -> List[str]:
     """Queries Google GenAI client.models.list() and filters for viable Flash models."""
+    if not force:
+        cached = get_cached_provider_models("google")
+        if cached is not None:
+            return cached
+
     api_key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not api_key:
         return []
@@ -111,8 +136,13 @@ def discover_google_models(client=None) -> List[str]:
     return discovered
 
 
-def discover_groq_models(api_key: Optional[str] = None) -> List[str]:
+def discover_groq_models(api_key: Optional[str] = None, force: bool = False) -> List[str]:
     """Queries Groq Cloud /models endpoint to discover all active text LLMs without keyword restrictions."""
+    if not force:
+        cached = get_cached_provider_models("groq")
+        if cached is not None:
+            return cached
+
     key = api_key or os.environ.get("GROQ_API_KEY", "").strip()
     core_models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
     if not key:
@@ -139,8 +169,13 @@ def discover_groq_models(api_key: Optional[str] = None) -> List[str]:
     return discovered or core_models
 
 
-def discover_openrouter_models(api_key: Optional[str] = None) -> List[str]:
+def discover_openrouter_models(api_key: Optional[str] = None, force: bool = False) -> List[str]:
     """Queries OpenRouter /models endpoint to discover all free community models."""
+    if not force:
+        cached = get_cached_provider_models("openrouter")
+        if cached is not None:
+            return cached
+
     key = api_key or os.environ.get("OPENROUTER_API_KEY", "").strip()
     if not key:
         return []
@@ -164,8 +199,13 @@ def discover_openrouter_models(api_key: Optional[str] = None) -> List[str]:
     return discovered
 
 
-def discover_github_models(api_key: Optional[str] = None) -> List[str]:
+def discover_github_models(api_key: Optional[str] = None, force: bool = False) -> List[str]:
     """Discovers or validates available GitHub Models."""
+    if not force:
+        cached = get_cached_provider_models("github")
+        if cached is not None:
+            return cached
+
     key = api_key or os.environ.get("GH_MODELS_TOKEN", "").strip()
     if not key:
         return []
@@ -197,16 +237,27 @@ def discover_github_models(api_key: Optional[str] = None) -> List[str]:
     return verified
 
 
-def sync_registry() -> Dict[str, Any]:
+def sync_registry(force: bool = False) -> Dict[str, Any]:
     """Performs full discovery across all 4 providers and updates the local registry."""
     from engine.model_entity import DynamicQuotaTracker, ModelEntity
 
+    reg = load_registry()
+    last_sync = reg.get("last_discovery_timestamp", 0.0)
+    if not force and (time.time() - last_sync < DISCOVERY_CACHE_TTL_SECONDS):
+        hours_ago = round((time.time() - last_sync) / 3600.0, 1)
+        logger.info(f"ℹ️ [DYNAMIC REGISTRY] Synced {hours_ago}h ago (<12h TTL). Using cached registry to avoid back-to-back discovery calls.")
+        return {
+            "status": "CACHED",
+            "total_entities": len(reg.get("entities", {})),
+            "updated_at": reg.get("updated_at", "")
+        }
+
     tracker = DynamicQuotaTracker(REGISTRY_PATH)
 
-    google_models = discover_google_models()
-    groq_models = discover_groq_models()
-    github_models = discover_github_models()
-    openrouter_models = discover_openrouter_models()
+    google_models = discover_google_models(force=True)
+    groq_models = discover_groq_models(force=True)
+    github_models = discover_github_models(force=True)
+    openrouter_models = discover_openrouter_models(force=True)
 
     # Register newly discovered Google models
     for m in google_models:
@@ -262,6 +313,10 @@ def sync_registry() -> Dict[str, Any]:
             )
 
     tracker.persist()
+    fresh_reg = load_registry()
+    fresh_reg["last_discovery_timestamp"] = time.time()
+    save_registry(fresh_reg)
+
     logger.success(f"✅ [DYNAMIC REGISTRY] Synced {len(tracker.entities)} model entities across 4 providers.")
 
     return {
