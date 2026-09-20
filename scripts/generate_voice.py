@@ -460,6 +460,8 @@ def generate_audio(text: str, output_base: str = "temp_audio",
     duration   = 0.0
 
     from engine.config_manager import config_manager
+    settings     = config_manager.get_settings()
+    kokoro_voice = target_voice or "am_adam"
     default_speed = 1.0 if (mood in ("warm", "neutral") or "bella" in kokoro_voice or "sarah" in kokoro_voice) else 1.05
     tts_speed    = settings.get("tts", {}).get("kokoro_speed_multiplier", default_speed)
     valid_kokoro = settings.get("voice_actors", {}).get("kokoro", ["am_adam"])

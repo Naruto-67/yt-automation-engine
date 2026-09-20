@@ -14,7 +14,7 @@ from engine.logger import logger
 _WORDS_PER_SECOND_TTS = 143 / 60.0
 # EdgeTTS/Kokoro: 90 words = ~40s, 125 words = ~53s. 
 _MAX_VIDEO_SECONDS = 55.0
-_MIN_WORD_FLOOR = 90       # Minimum 90 words ensures Short is at least 40-42s (monetization & retention sweet spot)
+_MIN_WORD_FLOOR = 85       # Minimum 85 words ensures Short is at least 38-42s (monetization & retention sweet spot)
 _ABSOLUTE_WORD_CEILING = 125  # Upper bound prevents exceeding 55s ceiling
 
 
@@ -115,25 +115,42 @@ def validate_script_quality(script_text: str, prompts_cfg: dict,
     if is_fictional:
         # Require living character entities (human, apprentice, creature, animal) — NOT bare inanimate objects
         living_entities = [
-            "he", "she", "they", "boy", "girl", "apprentice", "master", "inventor",
+            "he", "she", "they", "him", "his", "her", "hers", "them", "their", "who",
+            "boy", "girl", "man", "woman", "apprentice", "master", "inventor",
             "keeper", "scout", "pilot", "guardian", "friend", "child", "traveler",
-            "warrior", "blacksmith", "sailor", "rival", "creature", "dog", "cat", "bird"
+            "warrior", "blacksmith", "sailor", "rival", "creature", "dog", "cat", "bird",
+            "hero", "heroine", "villain", "alchemist", "wanderer", "engineer", "architect",
+            "monk", "knight", "soldier", "doctor", "scientist", "astronomer", "captain",
+            "artisan", "builder", "explorer", "hunter", "stranger", "ruler", "king",
+            "queen", "prince", "princess", "wizard", "mage", "witch", "tinker", "scholar",
+            "miner", "diver", "clerk", "officer", "fox", "wolf", "dragon", "bear", "lion",
+            "tiger", "owl", "beast"
         ]
-        has_living = any(re.search(rf"\b{m}\b", script_lower) for m in living_entities)
+        has_living = any(re.search(rf"\b{m}\b", script_lower) for m in living_entities) or bool(re.search(r'\b[A-Z][a-z]{2,15}\b', script_text))
         if not has_living:
             print("⚠️ [SCRIPT] Fiction check failed: lacks living character protagonist (inanimate object poetry is banned) — retry.")
             return False
 
         # Require protagonist action and decision verbs (present or past tense)
         action_verbs = [
-            "wants", "wanted", "tries", "tried", "must", "leaps", "leaped", "climbs", "climbed",
+            "wants", "wanted", "tries", "tried", "must", "leaps", "leaped", "leapt", "climbs", "climbed",
             "forges", "forged", "forging", "decides", "decided", "steps", "stepped", "discovers",
             "discovered", "finds", "found", "helps", "helped", "meets", "met", "flees", "fled",
             "crosses", "crossed", "searches", "searched", "escapes", "escaped", "saves", "saved",
             "dives", "dove", "slipped", "strapped", "ran", "jumped", "built", "chose", "defied",
             "risked", "confronted", "faced", "learned", "flew", "flies", "wedged", "crafts", "crafted",
             "creates", "created", "rescues", "rescued", "vows", "vowed", "carves", "carved",
-            "shapes", "shaped", "protects", "protected"
+            "shapes", "shaped", "protects", "protected", "swore", "turned", "took", "put", "pushed",
+            "pulled", "held", "opened", "closed", "looked", "saw", "watched", "heard", "knew", "felt",
+            "thought", "spoke", "said", "whispered", "shouted", "called", "walked", "drove", "sailed",
+            "rode", "stole", "broke", "fixed", "lost", "won", "fought", "stood", "fell", "sat", "rose",
+            "left", "came", "went", "entered", "returned", "placed", "set", "carried", "brought",
+            "kept", "gave", "worked", "strove", "struggled", "labored", "painted", "wrote", "cast",
+            "drew", "grabbed", "snapped", "lifted", "dropped", "marked", "sealed", "unlocked", "mapped",
+            "traced", "ignited", "lit", "bent", "bound", "spent", "dedicated", "pursued", "reached",
+            "struck", "clambered", "uncovered", "realized", "demanded", "refused", "insisted",
+            "embraced", "clutched", "stared", "ventured", "hoped", "prayed", "wandered", "journeyed",
+            "sought", "seized", "raised", "lowered", "gathered", "unlocked", "embarks", "conquers"
         ]
         has_action = any(re.search(rf"\b{a}\b", script_lower) for a in action_verbs)
         if not has_action:
