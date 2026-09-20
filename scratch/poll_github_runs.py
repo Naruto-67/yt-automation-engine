@@ -11,6 +11,7 @@ if hasattr(sys.stdout, "reconfigure"):
         pass
 
 RUN_IDS = [35496589579, 35496589527]
+RUN_IDS = [35497171667, 35497171611]
 
 print("⏳ [GITHUB ACTIONS MONITOR] Waiting for cloud runs to complete...")
 start_time = time.time()

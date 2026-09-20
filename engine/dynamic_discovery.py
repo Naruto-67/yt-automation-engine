@@ -31,6 +31,7 @@ BANNED_MODALITY_PATTERNS = [
 DEPRECATED_KNOWN = {
     "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash",
     "gemini-1.5-flash-8b", "gemini-1.5-pro", "gemini-2.0-pro",
+    "gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"
     "gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite",
     "mixtral-8x7b-32768", "gemma2-9b-it", "llama3-70b-8192", "llama3-8b-8192"
 }
@@ -111,7 +112,7 @@ def discover_google_models(client=None) -> List[str]:
 
 
 def discover_groq_models(api_key: Optional[str] = None) -> List[str]:
-    """Queries Groq Cloud /models endpoint to discover newly available text models."""
+    """Queries Groq Cloud /models endpoint to discover all active text LLMs without keyword restrictions."""
     key = api_key or os.environ.get("GROQ_API_KEY", "").strip()
     core_models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
     if not key:
@@ -130,9 +131,8 @@ def discover_groq_models(api_key: Optional[str] = None) -> List[str]:
                 mid = item.get("id", "")
                 if not mid or not is_modality_allowed(mid) or mid in DEPRECATED_KNOWN:
                     continue
-                if any(k in mid.lower() for k in ["llama", "qwen", "deepseek"]):
-                    if mid not in discovered:
-                        discovered.append(mid)
+                if mid not in discovered:
+                    discovered.append(mid)
     except Exception as e:
         logger.warn(f"⚠️ [DYNAMIC DISCOVERY] Groq catalog discovery failed: {e}")
 
@@ -140,7 +140,7 @@ def discover_groq_models(api_key: Optional[str] = None) -> List[str]:
 
 
 def discover_openrouter_models(api_key: Optional[str] = None) -> List[str]:
-    """Queries OpenRouter /models endpoint to discover free community models."""
+    """Queries OpenRouter /models endpoint to discover all free community models."""
     key = api_key or os.environ.get("OPENROUTER_API_KEY", "").strip()
     if not key:
         return []
@@ -156,8 +156,7 @@ def discover_openrouter_models(api_key: Optional[str] = None) -> List[str]:
             data = resp.json()
             for item in data.get("data", []):
                 mid = item.get("id", "")
-                # Prioritize high quality free tier models
-                if mid.endswith(":free") and is_modality_allowed(mid):
+                if mid.endswith(":free") and is_modality_allowed(mid) and mid not in DEPRECATED_KNOWN:
                     discovered.append(mid)
     except Exception as e:
         logger.warn(f"⚠️ [DYNAMIC DISCOVERY] OpenRouter catalog discovery failed: {e}")
@@ -249,8 +248,8 @@ def sync_registry() -> Dict[str, Any]:
                 task_quality_scores={"scriptwriting": 8.9, "seo_json": 9.0, "vision_audit": 7.0, "fact_grounding": 8.5}
             )
 
-    # Register newly discovered OpenRouter models
-    for m in openrouter_models[:5]:  # Top 5 free community models
+    # Register all newly discovered OpenRouter free models
+    for m in openrouter_models:
         eid = f"openrouter:{m}"
         if eid not in tracker.entities:
             tracker.entities[eid] = ModelEntity(

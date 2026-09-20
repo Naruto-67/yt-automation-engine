@@ -384,7 +384,7 @@ def main():
         provider_name="openrouter",
         endpoint="https://openrouter.ai/api/v1/chat/completions",
         api_key=openrouter_key,
-        models_to_test=discovered_or[:4],
+        models_to_test=discovered_or,
         extra_headers={"HTTP-Referer": "https://github.com/yt-automation-engine", "X-Title": "Ghost Engine"}
     )
     all_results.extend(or_res)
@@ -405,11 +405,10 @@ def main():
     print("✅ Diagnostic Suite Completed.")
     print(DIVIDER_HEAVY)
 
-    # Sync registry if requested
-    if os.environ.get("UPDATE_REGISTRY", "").lower() in ("true", "1", "yes"):
-        from engine.dynamic_discovery import sync_registry
-        sync_res = sync_registry()
-        print(f"🔄 [REGISTRY SYNC] {sync_res}")
+    # Sync registry dynamically
+    from engine.dynamic_discovery import sync_registry
+    sync_res = sync_registry()
+    print(f"🔄 [REGISTRY SYNC] {sync_res}")
 
 
 if __name__ == "__main__":
