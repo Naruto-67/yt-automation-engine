@@ -1,0 +1,84 @@
+name: 05_Ghost_Weekly_Research
+
+on:
+  schedule:
+    - cron: '0 20 * * 0'
+  workflow_dispatch:
+    inputs:
+      force_run:
+        description: 'Force run even if kill switch is active'
+        type: boolean
+        default: false
+
+concurrency:
+  group: ghost-engine-lock
+  cancel-in-progress: false
+
+jobs:
+  scrape_trends:
+    runs-on: ubuntu-latest
+    if: vars.GHOST_ENGINE_ENABLED != 'false' || github.event.inputs.force_run == 'true'
+    
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: true
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: |
+          pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib \
+                      google-genai requests pydantic pyyaml pytz
+          echo "PYTHONPATH=$(pwd)" >> $GITHUB_ENV
+
+      - name: Run Research
+        env:
+          GHOST_ENGINE_ENABLED: ${{ vars.GHOST_ENGINE_ENABLED }}
+          GEMINI_API_KEY:        ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY:          ${{ secrets.GROQ_API_KEY }}
+
+          # Channel 1 Infrastructure
+          YOUTUBE_CLIENT_ID_CH1:       ${{ secrets.YOUTUBE_CLIENT_ID_CH1 }}
+          YOUTUBE_CLIENT_SECRET_CH1:   ${{ secrets.YOUTUBE_CLIENT_SECRET_CH1 }}
+          YOUTUBE_REFRESH_TOKEN_CH1:   ${{ secrets.YOUTUBE_REFRESH_TOKEN_CH1 }}
+          DISCORD_WEBHOOK_CH1:         ${{ secrets.DISCORD_WEBHOOK_CH1 }}
+
+          # Channel 2 Infrastructure
+          YOUTUBE_CLIENT_ID_CH2:       ${{ secrets.YOUTUBE_CLIENT_ID_CH2 }}
+          YOUTUBE_CLIENT_SECRET_CH2:   ${{ secrets.YOUTUBE_CLIENT_SECRET_CH2 }}
+          YOUTUBE_REFRESH_TOKEN_CH2:   ${{ secrets.YOUTUBE_REFRESH_TOKEN_CH2 }}
+          DISCORD_WEBHOOK_CH2:         ${{ secrets.DISCORD_WEBHOOK_CH2 }}
+
+        run: python -m scripts.dynamic_researcher
+
+      - name: Commit State & Memory
+        run: |
+          git config --global user.name  "Ghost-Engine-Bot"
+          git config --global user.email "bot@ghostengine.ai"
+          
+          git add memory/ghost_engine.db || true
+          git add memory/quota_state.json || true
+          git add memory/token_health.json || true
+          git add config/channels.yaml || true
+          git add assets/lessons_learned.json || true
+          
+          if ! git diff --staged --quiet; then
+            git commit -m "Auto-state update: Pipeline synchronization [skip ci]"
+            
+            for i in {1..5}; do
+              git push && break || {
+                echo "└ ⚠️ Git push conflict detected. Rebasing (Attempt $i/5)..."
+                git pull --rebase -X theirs origin main
+                sleep $(( i * 5 ))
+              }
+            done
+          fi
+

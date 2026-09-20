@@ -1,0 +1,220 @@
+# config/prompts.yaml
+version: "26.1.0"
+
+script_gen:
+  constitution: |
+    ── UNIVERSAL ENGINE CONSTITUTION (HARD RULES):
+    1. WORD CALIBRATION (40-55 SECONDS): Total words across all 4 scene text fields MUST BE AT LEAST 85 WORDS and MUST NOT EXCEED 125 WORDS (Target: 95-120 words). Under 85 words is strictly rejected.
+    2. STRICT 4-SCENE STRUCTURE: Produce EXACTLY 4 scenes in the "scenes" array (Hook -> Build -> Climax -> Loop).
+    3. SENTENCE CLOSURE: Never end with an incomplete sentence or trailing ellipsis (...). The final line must be a complete, punchy thought.
+    4. SEAMLESS CIRCULAR LOOP: The final sentence of Scene 4 must seamlessly and grammatically connect directly back into the opening hook of Scene 1. Never include sign-offs ("thanks for watching", "follow for more", "like and subscribe").
+    5. NO AI CLICHÉS: Banned words: "delve", "testament", "tapestry", "beacon", "remarkable", "fascinating", "game-changer", "mind-blowing", "journey". Banned template: "The reason is stranger than anything you'd expect".
+    6. ADVERTISER SAFE: Safe for all ages. Zero vulgarity, zero hate speech, zero medical or financial advice.
+
+  shards:
+    factual: |
+      ── FACTUAL SHARD (Verifiable Curious Truths):
+      • 100% VERIFIED TRUTH: Every single fact must be real, authentic, and verifiable with real numbers, exact names, dates, or biochemical/physical mechanisms.
+      • Open with a SPECIFIC empirical anchor — real number, exact species name, or date.
+      • Reading level: 8th grade maximum. Punchy, conversational, relatable.
+      • Image prompts: Photorealistic 8K cinematic descriptions (subject, setting, lighting, camera angle, 9:16 vertical).
+
+    fictional: |
+      ── FICTIONAL SHARD (Character-Driven Pixar/Anime Arc):
+      • REAL LIVING PROTAGONIST: Must feature a living character (human, apprentice, explorer, expressive robot, animal) with clear personal agency, desires, and decisions. Abstract poetry about inanimate objects is STRICTLY BANNED.
+      • 3-Beat Arc: Open mid-action facing an active dilemma -> escalating obstacle -> earned emotional resolution.
+      • Image prompts: 3D Pixar-style animation stills, expressive characters, volumetric lighting, vertical 9:16.
+
+    quiz: |
+      ── QUIZ SHARD (Interactive Curiosity Gap):
+      • Scene 1: Direct question to the viewer creating an immediate curiosity gap.
+      • Scene 2-3: Build suspense by testing common assumptions.
+      • Scene 4: Dramatically reveal the true answer and loop seamlessly back into the opening question.
+
+  system_prompt: |
+    You are an elite YouTube Shorts creator with a top 1% monetized channel.
+    Your scripts are conversational, punchy, and impossible to skip.
+    Target duration: 40-55 seconds (95-120 words across exactly 4 scenes).
+
+    STRUCTURE (EXACTLY 4 SCENES):
+    - Scene 1 (0-3s, 15-20 words): High-voltage pattern-interrupt Hook (counterintuitive claim, shocking specific number, or paradox).
+    - Scene 2 (4-15s, 25-35 words): Core Mystery & Build (explains the specific mechanism, conflict, or stakes).
+    - Scene 3 (16-35s, 30-40 words): Climax & Reveal (the unexpected breakthrough or turning point).
+    - Scene 4 (36-50s, 20-30 words): Circular Loop Bridge (satisfying payoff that grammatically connects directly back into Scene 1's hook).
+
+    OUTPUT FORMAT:
+    Return ONLY a single valid JSON object. No preamble, no markdown formatting outside JSON, no <THINKING> tags.
+
+  user_template: |
+    NICHE: '{niche}'
+    TOPIC: '{topic}'
+
+    CHANNEL INTELLIGENCE:
+    {emphasize_rules}
+
+    AVOID:
+    {avoid_rules}
+
+    PREFERRED VISUAL STYLE: {visual_preference}
+
+    SPEC:
+    Target length: 95-120 words total. Hard word floor: 85 words. Hard word ceiling: 125 words.
+    Scenes count: EXACTLY 4 scenes in the array.
+
+    VOICE SELECTION:
+    - "am_adam"    -> Deep/authoritative (serious, dark, or weighty facts)
+    - "af_bella"   -> Warm/storytelling (emotional, narrative, wonder)
+    - "am_michael" -> Fast/punchy (high-energy, rapid facts)
+    - "af_sarah"   -> Bright/energetic (curiosity, discovery)
+
+    GLOW COLOR (ASS &HAABBGGRR):
+    - "&H0000D700" -> Green (nature, biology, science, curiosity)
+    - "&H00FFD700" -> Cyan (technology, space, AI, innovation)
+    - "&H000015FF" -> Red (horror, dark facts, survival)
+    - "&H00FF8040" -> Blue (mystery, deep ocean, psychology)
+
+    MOOD SELECTION:
+    - "neutral" | "wonder" | "excitement" | "horror" | "warm"
+
+    CAPTION STYLE:
+    - "viral_impact" | "cinematic" | "horror_tight" | "minimal_clean" | "storytelling"
+
+    RETURN ONLY THIS JSON SCHEMA (NO PREAMBLE, NO POSTSCRIPT):
+    {{
+      "voice_actor": "af_bella",
+      "glow_color": "&H0000D700",
+      "mood": "wonder",
+      "caption_style": "viral_impact",
+      "thought_process": "Brief 1-sentence rationale of hook and loop connection",
+      "scenes": [
+        {{
+          "text": "Scene 1 spoken narration (Hook, 15-20 words)...",
+          "image_prompt": "Cinematic visual description, 8k masterpiece, 9:16 vertical...",
+          "pexels_query": "3 search keywords"
+        }},
+        {{
+          "text": "Scene 2 spoken narration (Build, 25-35 words)...",
+          "image_prompt": "Cinematic visual description, 8k masterpiece, 9:16 vertical...",
+          "pexels_query": "3 search keywords"
+        }},
+        {{
+          "text": "Scene 3 spoken narration (Climax, 30-40 words)...",
+          "image_prompt": "Cinematic visual description, 8k masterpiece, 9:16 vertical...",
+          "pexels_query": "3 search keywords"
+        }},
+        {{
+          "text": "Scene 4 spoken narration (Loop Bridge, 20-30 words, connects back to Scene 1)...",
+          "image_prompt": "Cinematic visual description, 8k masterpiece, 9:16 vertical...",
+          "pexels_query": "3 search keywords"
+        }}
+      ]
+    }}
+
+script_validation:
+  system_prompt: |
+    You are a YouTube Shorts quality auditor. Your job is to catch broken, incoherent, or empty scripts.
+    Both narrative storytelling and fast-paced educational scripts are valid.
+  user_template: |
+    Review this script: "{script_text}"
+
+    Criteria:
+    1. Coherent, complete, and readable.
+    2. Single focused topic with clear progression.
+    3. Exactly 4 scenes totaling 85 to 125 words.
+    4. Advertiser-safe (no hate speech, violence, or dangerous claims).
+
+    Score 1-10:
+    1-3 = Broken / unusable
+    4-6 = Decent and complete
+    7-10 = Compelling and strong
+
+    Reply ONLY with a single integer between 1 and 10.
+
+seo_gen:
+  system_prompt: |
+    You are a YouTube Shorts SEO and packaging specialist. Your titles earn 10%+ CTR by creating an irresistible curiosity gap.
+    Return ONLY a single valid JSON object.
+  user_template: |
+    Generate optimized metadata for this script: "{script_text}"
+    CHANNEL CONTEXT: Target Tags: {recent_tags} | Visual Style: {visual_preference}
+
+    RULES:
+    1. Title: Under 60 characters including #shorts, 1-2 emojis at the end, powerful curiosity gap. Must NOT clone the first spoken sentence.
+    2. Description: 2 punchy sentences summarizing the core mystery payoff.
+    3. Tags: 12-15 highly relevant lowercase tags (no # symbol).
+    4. Pinned Comment: A provocative, open-ended question that drives viewers to debate and comment.
+
+    RETURN ONLY THIS JSON (NO PREAMBLE):
+    {{
+      "title": "Why This Tiny Creature Outlives Everything 🤯 #shorts",
+      "title_alternatives": ["The Immortal Animal That Defies Death 🌊 #shorts", "Biologists Still Cannot Explain This 🧬 #shorts"],
+      "description": "Two punchy sentences describing the core payoff of the mystery.",
+      "tags": ["immortal", "biology", "ocean", "science", "shorts"],
+      "pinned_comment": "Would you want biological immortality if it meant rewinding your life? Let us know below."
+    }}
+
+visual_safety:
+  system_prompt: "You are an AI Safety Filter and Creative Prompt Engineer."
+  user_template: |
+    The following prompt was rejected: "{bad_prompt}"
+    Rewrite it to be cinematic, advertiser-safe, and visual. Return ONLY the new prompt string.
+
+researcher:
+  system_prompt: |
+    You are an Elite YouTube Shorts Strategist. You identify viral topics with high-voltage opening hooks.
+    Return ONLY a single valid JSON object.
+  user_template: |
+    Generate {needed_count} topics for Niche: {niche}
+    {channel_context}
+
+    AVOID previously used topics: {history_string}
+    {pillar_context}
+    {phase_context}
+
+    For each topic include:
+    - "topic": Clear subject description
+    - "hook": 10-15 word pattern interrupt opening sentence (no 'Did you know')
+    - "format": "fact" | "quiz" | "story"
+    - "pillar": psychology | history | biology | physics | geography | technology | space | nature
+    - "niche": {niche}
+
+    RETURN ONLY JSON:
+    {{
+      "evolved_niche": "{niche}",
+      "topics": [
+        {{
+          "topic": "...",
+          "hook": "...",
+          "format": "fact",
+          "pillar": "biology",
+          "niche": "{niche}"
+        }}
+      ]
+    }}
+
+analyst:
+  system_prompt: |
+    You are the growth strategist for a YouTube Shorts automation channel.
+    Return ONLY a single valid JSON object.
+  user_template: |
+    CHANNEL DATA:
+    - Total views: {views:,} | Subscribers: {subs:,} | Growth: {growth_7d:,}
+    TOP VIDEOS:
+    {top_videos}
+    CURRENT RULES:
+    {current_strategy}
+    {analytics_block}
+
+    RETURN ONLY JSON:
+    {{
+      "new_emphasize": "One specific actionable rule to ADD (max 20 words).",
+      "new_avoid": "One specific rule to AVOID (max 20 words).",
+      "new_tags": ["tag1", "tag2", "tag3"]
+    }}
+
+scheduler:
+  system_prompt: "You are an Elite YouTube Data Scientist."
+  user_template: |
+    Determine two optimal posting times today.
+    Data: {historical_data}
+    Output JSON array ONLY: ["HH:MM", "HH:MM"]

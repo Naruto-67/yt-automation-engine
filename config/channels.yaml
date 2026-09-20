@@ -1,0 +1,71 @@
+# config/channels.yaml
+version: "26.0.0"
+
+channels:
+  - id: "CH_01"
+    name: "AnimeRise"
+    niche: "3D/Pixar-Style Moral Storytelling"
+    target_audience: "US"
+    category_id: "1"          # Film & Animation — higher RPM than People & Blogs (22)
+    language: "en"             # English TTS — required for US ad targeting
+    content_type: "fictional"  # Signals script_gen to use storytelling rules, not fact rules
+    brand_voice: "Warm, cinematic narrator — like a campfire storyteller who knows Pixar films by heart. Gentle pacing, vivid imagery, and an earned emotional moment at the end."
+    personality:
+      - "warm and empathetic"
+      - "visually descriptive"
+      - "quietly profound — the lesson sneaks up on you"
+    youtube_client_id_env: "YOUTUBE_CLIENT_ID_CH1"
+    youtube_client_secret_env: "YOUTUBE_CLIENT_SECRET_CH1"
+    youtube_refresh_token_env: "YOUTUBE_REFRESH_TOKEN_CH1"
+    discord_webhook_env: "DISCORD_WEBHOOK_CH1"
+    active: true
+    creative_lenses:
+      - "A determined young apprentice who takes a daring risk to fix a master's mistake"
+      - "Two sworn rivals forced to cooperate to escape an ancient subterranean labyrinth"
+      - "An outcast inventor whose rejected creation saves their entire village"
+      - "A fearless young scout venturing into forbidden territory to rescue a lost friend"
+      - "A rookie pilot navigating their first solo flight through an uncharted storm"
+      - "A stubborn street kid who discovers they possess a rare, untamed magical gift"
+      - "A solitary guardian protecting the last sanctuary from encroaching darkness"
+      - "An unlikely friendship between a gentle giant creature and a courageous child"
+
+  - id: "CH_02"
+    name: "Topato"
+    niche: "trending facts, interesting facts, seasonal facts, educational facts, mind-blowing facts, random facts"
+    target_audience: "US"
+    category_id: "27"          # Education — highest-RPM tier for fact/educational content
+    language: "en"              # English TTS — required for US ad targeting
+    content_type: "factual"    # Signals script_gen to enforce real facts and specifics
+    brand_voice: "Punchy, curious, and conversational — like a smart friend who just learned something wild and has to tell you right now. Short sentences. Specific numbers. Never lectures."
+    personality:
+      - "casually brilliant — drops facts like it's nothing"
+      - "dry wit — funny without trying to be funny"
+      - "direct and specific — no vague claims, always the exact number or name"
+    youtube_client_id_env: "YOUTUBE_CLIENT_ID_CH2"
+    youtube_client_secret_env: "YOUTUBE_CLIENT_SECRET_CH2"
+    youtube_refresh_token_env: "YOUTUBE_REFRESH_TOKEN_CH2"
+    discord_webhook_env: "DISCORD_WEBHOOK_CH2"
+    active: true
+    creative_lenses:
+      - "Counter-intuitive facts that contradict common beliefs"
+      - "Largest, smallest, fastest, oldest things in existence"
+      - "Bizarre historical events that sound fictional but are real"
+      - "Hidden systems behind everyday life"
+      - "Extremely strange biological adaptations"
+      - "Facts about things happening right now on Earth"
+      - "Mind-blowing space and cosmic phenomena"
+      - "Future technologies that already exist in early form"
+      - "Crazy probabilities and coincidences"
+      - "Deep dives into ordinary objects revealing shocking facts"
+      - "Phenomena that seem impossible but are scientifically proven"
+      - "Unusual natural disasters or environmental phenomena"
+      - "Psychological facts about how humans think, decide, and fool themselves"
+      - "Shocking food science facts hiding inside everyday ingredients"
+      - "Strange and surprising human body capabilities and hard limits"
+      - "Real unsolved historical crimes and mysteries still open today"
+      - "Technology secrets hidden inside products everyone owns and uses"
+      - "World records so extreme and specific they seem invented"
+      - "Strange laws still officially on the books in countries worldwide"
+      - "Survival science: what actually kills you in extreme environments"
+      - "Optical physics and light phenomena most people never learn about"
+      - "Economics and money facts that permanently change how you see prices"

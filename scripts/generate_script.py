@@ -1,0 +1,877 @@
+# scripts/generate_script.py
+import os
+import json
+import yaml
+import re
+import traceback
+import random
+from scripts.quota_manager import quota_manager
+from engine.database import db
+from engine.config_manager import config_manager
+from engine.context import ctx
+from engine.logger import logger
+
+_WORDS_PER_SECOND_TTS = 143 / 60.0
+# EdgeTTS/Kokoro: 85 words = ~38s, 125 words = ~53s. 
+_MAX_VIDEO_SECONDS = 55.0
+_MIN_WORD_FLOOR = 85       # Minimum 85 words ensures Short is at least 38-40s (monetization sweet spot)
+_ABSOLUTE_WORD_CEILING = 125  # Upper bound prevents exceeding 55s ceiling
+
+
+def load_config_prompts():
+    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    with open(os.path.join(root_dir, "config", "prompts.yaml"), "r", encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+
+def extract_scene_data(scene_dict, fallback_topic: str):
+    if not isinstance(scene_dict, dict):
+        return str(scene_dict), f"Cinematic shot of {fallback_topic}", fallback_topic
+    narr   = scene_dict.get("text")         or scene_dict.get("narration") or fallback_topic
+    prompt = scene_dict.get("image_prompt") or scene_dict.get("visual")    or f"Cinematic {fallback_topic}"
+    query  = scene_dict.get("pexels_query") or fallback_topic
+    return narr, prompt, query
+
+
+def validate_script_quality(script_text: str, prompts_cfg: dict,
+                            is_fictional: bool = False,
+                            parsed_scenes: list = None) -> bool:
+    """
+    Quality gate enforcing YouTube Shorts retention standards:
+    1. Word Floor & Ceiling: Strict 85-125 words (40-55s duration).
+    2. SentenceClosureCheck: Reject scripts ending in ellipsis, dashes, dangling conjunctions.
+    3. AI Cliché & Template Gate: Reject formulaic open-loop clichés and AI filler.
+    4. Scene Variation Gate: Reject multi-scene scripts where 1 scene monopolizes >50% words.
+    5. Fiction Arc Gate: Require living character protagonist (no inanimate object poetry) and agency.
+    6. Factual Integrity Gate: Require concrete mechanism, numbers, or verifiable scientific terminology.
+    7. LLM Validation: Require score >= 4/10.
+    """
+    trimmed = script_text.strip()
+    if not trimmed:
+        print("⚠️ [SCRIPT] Script is empty — retry.")
+        return False
+
+    words = trimmed.split()
+    word_count = len(words)
+
+    # ── 1. HARD WORD FLOOR GATE (40-55s sweet spot) ────────────────────────
+    if word_count < _MIN_WORD_FLOOR:
+        print(f"⚠️ [SCRIPT] Script under word floor ({word_count} words < {_MIN_WORD_FLOOR} words, target 95-120 words for 40-55s) — retry.")
+        return False
+
+    if word_count > _ABSOLUTE_WORD_CEILING:
+        print(f"⚠️ [SCRIPT] Script exceeds word ceiling ({word_count} words > {_ABSOLUTE_WORD_CEILING} words) — retry.")
+        return False
+
+    # ── 2. DETERMINISTIC SENTENCE CLOSURE GATE ─────────────────────────────
+    # Auto-normalize trailing ellipsis or dashes into clean terminal punctuation
+    if trimmed.endswith("...") or trimmed.endswith("…") or trimmed.endswith("--") or trimmed.endswith("-"):
+        trimmed = re.sub(r'[\.…\-—–\s]+$', '', trimmed) + "."
+
+    if trimmed[-1] not in {'.', '!', '?', '"', "'", '”', '’'}:
+        trimmed = trimmed + "."
+
+    clean_end = re.sub(r'["\'”’\.!?]+$', '', trimmed).strip().lower()
+    last_words = clean_end.split()
+    if last_words:
+        last_1 = last_words[-1]
+        last_2 = " ".join(last_words[-2:]) if len(last_words) >= 2 else ""
+        # Truly broken/dangling truncated fragments
+        truncated_fragments = {
+            "it was", "there was", "such as", "leading to", "resulting in", "and then"
+        }
+        if last_1 in truncated_fragments or last_2 in truncated_fragments:
+            print(f"⚠️ [SCRIPT] SentenceClosureCheck failed: dangling fragment ('{last_2 or last_1}') — retry.")
+            return False
+
+    # ── 3. AI CLICHÉ & FORMULAIC TEMPLATE GATE ─────────────────────────────
+    banned_phrases = [
+        "stranger than anything you'd expect",
+        "stranger than anything you expect",
+        "changes how you see",
+        "changes how you view",
+        "changes everything you know",
+        "you won't believe",
+        "delve", "testament", "tapestry", "beacon", "in conclusion",
+        "game-changer", "mind-blowing"
+    ]
+    script_lower = trimmed.lower()
+    for bp in banned_phrases:
+        if bp in script_lower:
+            print(f"⚠️ [SCRIPT] Banned formulaic cliché detected ('{bp}') — retry.")
+            return False
+
+    # ── 4. SCENE VARIATION GATE (OpenMontage variation_checker) ────────────
+    if parsed_scenes and len(parsed_scenes) >= 3:
+        for idx, scene in enumerate(parsed_scenes):
+            narr = scene[0] if isinstance(scene, (list, tuple)) else str(scene)
+            s_words = len(narr.split())
+            if (s_words / word_count) > 0.50:
+                print(f"⚠️ [SCRIPT] Variation check failed: scene {idx+1} consumes {s_words}/{word_count} words (>50%) — retry.")
+                return False
+
+    # ── 5. FICTION LIVING CHARACTER & ARC GATE ─────────────────────────────
+    if is_fictional:
+        # Require living character entities (human, apprentice, creature, animal) — NOT bare inanimate objects
+        living_entities = [
+            "he", "she", "they", "boy", "girl", "apprentice", "master", "inventor",
+            "keeper", "scout", "pilot", "guardian", "friend", "child", "traveler",
+            "warrior", "blacksmith", "sailor", "rival", "creature", "dog", "cat", "bird"
+        ]
+        has_living = any(re.search(rf"\b{m}\b", script_lower) for m in living_entities)
+        if not has_living:
+            print("⚠️ [SCRIPT] Fiction check failed: lacks living character protagonist (inanimate object poetry is banned) — retry.")
+            return False
+
+        # Require protagonist action and decision verbs (present or past tense)
+        action_verbs = [
+            "wants", "wanted", "tries", "tried", "must", "leaps", "leaped", "climbs", "climbed",
+            "forges", "forged", "forging", "decides", "decided", "steps", "stepped", "discovers",
+            "discovered", "finds", "found", "helps", "helped", "meets", "met", "flees", "fled",
+            "crosses", "crossed", "searches", "searched", "escapes", "escaped", "saves", "saved",
+            "dives", "dove", "slipped", "strapped", "ran", "jumped", "built", "chose", "defied",
+            "risked", "confronted", "faced", "learned", "flew", "flies", "wedged"
+        ]
+        has_action = any(re.search(rf"\b{a}\b", script_lower) for a in action_verbs)
+        if not has_action:
+            print("⚠️ [SCRIPT] Fiction check failed: lacks active protagonist decision/action — retry.")
+            return False
+
+
+    # ── 6. FACTUAL EMPIRICAL INTEGRITY GATE ────────────────────────────────
+    else:
+        # Require concrete terminology, numbers, or process markers
+        has_specifics = bool(re.search(r'\b\d+\b', trimmed)) or any(
+            k in script_lower for k in [
+                "percent", "species", "process", "cells", "temperature", "years",
+                "meters", "degrees", "called", "known as", "mechanism", "discovered"
+            ]
+        )
+        if not has_specifics:
+            print("⚠️ [SCRIPT] Factual check failed: lacks concrete numbers, entities, or scientific mechanisms — retry.")
+            return False
+
+    # ── 7. SEAMLESS CIRCULAR LOOP GATE (2026 Playbook) ─────────────────────
+    try:
+        from engine.loop_engine import loop_engine
+        sentences = [s.strip() for s in re.split(r'[.!?]+', trimmed) if s.strip()]
+        if len(sentences) >= 2:
+            hook_s = sentences[0]
+            ending_s = sentences[-1]
+            loop_verdict = loop_engine.validate_circular_loop(hook_s, ending_s)
+            if not loop_verdict.get("is_valid", True):
+                print(f"⚠️ [SCRIPT] Circular loop check failed: {loop_verdict.get('reason')} — retry.")
+                return False
+    except Exception as cl_err:
+        logger.debug(f"Circular loop check error: {cl_err}")
+
+    sys_msg  = prompts_cfg["script_validation"]["system_prompt"]
+    user_msg = prompts_cfg["script_validation"]["user_template"].format(
+        script_text=script_text
+    )
+
+    try:
+        raw, _ = quota_manager.generate_text(user_msg, task_type="analysis", system_prompt=sys_msg)
+    except Exception:
+        # If validation API call itself fails, pass the script — don't waste retries
+        return True
+
+    if not raw:
+        return True  # Empty response → pass (fail-safe)
+
+    try:
+        numbers = [int(n) for n in re.findall(r'\b\d+\b', raw)]
+        if not numbers:
+            return True  # No number found → pass (fail-safe, not a failure)
+
+        # Handle "7/10" or "Score: 7 out of 10" format → take the score, not the denominator
+        if len(numbers) >= 2 and numbers[-1] == 10 and numbers[-2] <= 10:
+            score = numbers[-2]
+        else:
+            score = numbers[-1]
+
+        # Only reject truly bad scripts (1, 2, or 3 out of 10)
+        # Scores 4-10 all pass — we trust the LLM's generation over the validator's harsh rating
+        passed = score >= 4
+        if not passed:
+            print(f"⚠️ [SCRIPT] Quality validator returned {score}/10 — below rejection threshold of 4. Retrying...")
+        return passed
+
+    except Exception:
+        trace = traceback.format_exc()
+        logger.error(f"Validation parsing error:\n{trace}")
+        return True  # Parsing failure → pass (fail-safe)
+
+
+# ── Valid mood and caption_style values (must match settings.yaml) ─────────────
+_VALID_MOODS = {"neutral", "wonder", "excitement", "horror", "warm"}
+_VALID_CAPTION_STYLES = {
+    "viral_impact", "cinematic", "horror_tight",
+    "minimal_clean", "dynamic_upper", "bold_lower", "storytelling"
+}
+
+# ── Mood → default caption_style fallback (used if LLM returns invalid style) ─
+_MOOD_TO_CAPTION_STYLE = {
+    "neutral":    "minimal_clean",
+    "wonder":     "cinematic",
+    "excitement": "dynamic_upper",
+    "horror":     "horror_tight",
+    "warm":       "storytelling",
+}
+
+# ── Channel-Tailored Default & Fallback Scripts (40-55s, 85-125 words) ─────────
+# Handcrafted reference scripts matching the exact narrative rules of each channel.
+_CHANNEL_FALLBACK_SCRIPTS = {
+    "CH_01": {
+        "text": (
+            "Before dawn broke over the city of gears, a young apprentice named Leo slipped into the great clocktower, "
+            "clutching a brass wing he spent three months forging in secret. "
+            "The master watchmaker stepped from the shadows, warning that testing unapproved machinery over the jagged canyon "
+            "meant instant expulsion from the guild. "
+            "Suddenly, an iron cable snapped with a deafening screech, sending a runaway passenger cart hurtling toward the cliff edge. "
+            "Without hesitating, Leo strapped on his untested gliders and dove off the tower into the howling wind. "
+            "He wedged the forged wing directly into the emergency track, the metal screaming as the wheels locked inches from the drop. "
+            "Through the smoke, the master offered a silent, proud nod. The apprentice was now a master."
+        ),
+        "mood": "warm",
+        "caption_style": "storytelling",
+        "glow_color": "&H00FFD700",
+        "voice": "af_bella",
+        "pexels": ["clockwork gears antique", "ancient workshop clockmaker", "glider flying mountain canyon", "sunrise over fantasy city"],
+        "prompts": [
+            "3D Pixar-style digital animation, determined young boy holding mechanical brass wing inside enormous clocktower, glowing dawn sunlight through gears, vertical 9:16",
+            "3D animated scene, stern elderly master watchmaker looking down at brave boy apprentice, atmospheric shadows, dramatic lighting, vertical 9:16",
+            "3D Pixar render, young boy in leather aviator jacket soaring with brass mechanical wings through misty canyon winds, high speed motion blur, vertical 9:16",
+            "3D Pixar style emotional climax, smiling young boy apprentice and smiling master standing beside stopped steam cart, golden sunbeam breakthrough, vertical 9:16",
+        ],
+    },
+    "CH_02": {
+        "text": (
+            "There is an organism on Earth that has achieved biological immortality, and it lives in the Mediterranean Sea. "
+            "The tiny jellyfish Turritopsis dohrnii is only four millimeters wide, but when starved, injured, or facing old age, "
+            "it does not die. "
+            "Instead, it activates a rare cellular process called transdifferentiation, actively reprogramming its adult muscle "
+            "and nerve cells directly back into juvenile stem cells. "
+            "Over three days, the entire organism absorbs its own tentacles, sinks to the seafloor as a blob, "
+            "and regenerates a brand new polyp colony. "
+            "In theory, this cellular reset can repeat indefinitely, making it biologically capable of living forever."
+        ),
+        "mood": "wonder",
+        "caption_style": "cinematic",
+        "glow_color": "&H0000D7FF",
+        "voice": "am_adam",
+        "pexels": ["jellyfish glowing underwater ocean", "macro jellyfish tentacles deep sea", "cellular biology regeneration micro", "underwater marine coral life ocean"],
+        "prompts": [
+            "Photorealistic 8K cinematic underwater, glowing transparent Turritopsis dohrnii jellyfish pulsing in deep blue ocean abyss, bioluminescent tentacles, vertical 9:16",
+            "Extreme macro 8K photograph of tiny glowing immortal jellyfish drifting through dark clear sea water, volumetric sun rays, vertical 9:16",
+            "Photorealistic 3D scientific visualization of jellyfish cellular transdifferentiation, glowing biological cells transforming and dividing, 8K render, vertical 9:16",
+            "Photorealistic 8K underwater shot of fresh polyp colony sprouting on ocean floor, glowing with vibrant life, deep blue marine background, vertical 9:16",
+        ],
+    },
+}
+
+# ── 8 varied emergency fallback scripts (advertiser-safe, no CTAs, mood-varied) ─
+# These are only triggered if ALL 3 LLM attempts fail — extremely rare.
+# Each is a different mood/tone so even failures produce varied output.
+_FALLBACK_SCRIPTS = [
+    # neutral/factual
+    {
+        "text": (
+            "Something extraordinary hides in the most ordinary places. "
+            "Scientists have spent decades studying what most people walk past every day. "
+            "The closer you look, the stranger reality becomes. "
+            "Every surface, every shadow, every ordinary moment holds a story waiting to be found. "
+            "The world is far stranger than it appears."
+        ),
+        "mood": "neutral",
+        "caption_style": "minimal_clean",
+        "glow_color": "&H0000D700",
+        "voice": "am_michael",
+        "pexels": ["science laboratory", "microscope detail", "nature close up"],
+        "prompts": [
+            "Macro photograph of ordinary surface revealing hidden complexity, photorealistic 8K",
+            "Scientist examining extraordinary detail in mundane object, cinematic lighting",
+            "Abstract visualization of hidden world within everyday environment, stunning"
+        ],
+    },
+    # wonder/discovery
+    {
+        "text": (
+            "In the deepest ocean trenches, creatures produce their own light — "
+            "living lanterns in permanent darkness. "
+            "Ninety-five percent of the ocean has never been explored. "
+            "Entire mountain ranges, vast plains, and species we have never seen "
+            "wait beneath two miles of cold, crushing black water. "
+            "The last great frontier is not space. It is directly beneath our feet."
+        ),
+        "mood": "wonder",
+        "caption_style": "cinematic",
+        "glow_color": "&H00FF8040",
+        "voice": "af_bella",
+        "pexels": ["deep ocean bioluminescence", "underwater exploration", "ocean trench"],
+        "prompts": [
+            "Bioluminescent deep sea creatures glowing in pitch black ocean, photorealistic 8K",
+            "Submarine exploring vast unexplored ocean trench, cinematic blue light",
+            "Vast underwater mountain range hidden beneath ocean surface, stunning aerial view"
+        ],
+    },
+    # excitement/high energy
+    {
+        "text": (
+            "The human body replaces ninety-eight percent of its atoms every single year. "
+            "The skeleton completely rebuilds itself every decade. "
+            "You are not the same physical person you were ten years ago — "
+            "almost every atom has been exchanged. "
+            "Your body is a machine that continuously rebuilds itself from scratch while you sleep."
+        ),
+        "mood": "excitement",
+        "caption_style": "dynamic_upper",
+        "glow_color": "&H00FFD700",
+        "voice": "am_michael",
+        "pexels": ["human body cells", "atom structure", "biological regeneration"],
+        "prompts": [
+            "3D visualization of human cells rapidly regenerating, vibrant colors, cinematic 8K",
+            "Atomic structure of human body glowing with energy, photorealistic masterpiece",
+            "Time-lapse concept of body rebuilding itself, dynamic lighting, stunning"
+        ],
+    },
+    # horror/dark educational
+    {
+        "text": (
+            "Tardigrades — microscopic animals — have survived all five mass extinctions. "
+            "They can endure the vacuum of space, boiling water, and radiation one thousand times "
+            "the dose that would kill a human. "
+            "They survive by turning themselves into glass — suspending all biological processes "
+            "for decades until conditions improve. "
+            "They have been on Earth for over five hundred million years. "
+            "They will almost certainly outlive us."
+        ),
+        "mood": "horror",
+        "caption_style": "horror_tight",
+        "glow_color": "&H000015FF",
+        "voice": "am_adam",
+        "pexels": ["tardigrade microscope", "mass extinction", "space vacuum"],
+        "prompts": [
+            "Extreme close-up of tardigrade under electron microscope, highly detailed photorealistic",
+            "Microscopic creature surviving in space vacuum, dark dramatic lighting, 8K",
+            "Ancient creature outlasting extinction events, dark atmospheric cinematic"
+        ],
+    },
+    # warm/story
+    {
+        "text": (
+            "In 1969, a NASA engineer named Jack Garman noticed a single software error "
+            "that could have aborted the moon landing eleven minutes before touchdown. "
+            "He made a split-second decision to continue. "
+            "That choice — made by one person in a room full of people — "
+            "is why Neil Armstrong walked on the moon. "
+            "History is full of moments that changed everything, "
+            "decided by ordinary people trusting their instincts."
+        ),
+        "mood": "warm",
+        "caption_style": "storytelling",
+        "glow_color": "&H00FFD700",
+        "voice": "af_bella",
+        "pexels": ["moon landing NASA", "Apollo 11 mission control", "astronaut moon"],
+        "prompts": [
+            "NASA mission control 1969 with engineers watching moon landing, cinematic warm lighting",
+            "Apollo 11 lunar module descending toward moon surface, photorealistic 8K",
+            "Astronaut footstep on moon surface, historic moment, beautiful cinematic"
+        ],
+    },
+    # neutral/science
+    {
+        "text": (
+            "Trees communicate through an underground fungal network called mycorrhizae — "
+            "nicknamed the Wood Wide Web. "
+            "Older trees send sugars and nutrients to younger, struggling seedlings through this network. "
+            "When a tree is dying, it floods the network with its remaining carbon, "
+            "passing resources to its neighbors. "
+            "Forests are not collections of individual trees. "
+            "They are one interconnected, cooperative organism."
+        ),
+        "mood": "wonder",
+        "caption_style": "cinematic",
+        "glow_color": "&H0000D700",
+        "voice": "af_bella",
+        "pexels": ["forest mycorrhizae network", "tree roots underground", "forest canopy"],
+        "prompts": [
+            "Underground fungal network connecting tree roots glowing with energy, photorealistic 8K",
+            "Ancient forest with visible bioluminescent root connections, cinematic atmosphere",
+            "Aerial view of vast interconnected forest canopy, golden hour lighting, stunning"
+        ],
+    },
+    # excitement/space
+    {
+        "text": (
+            "Every second, the sun converts four million tons of matter into pure energy. "
+            "That energy takes one hundred thousand years to travel from the sun's core to its surface — "
+            "then only eight minutes to reach Earth. "
+            "The sunlight warming your skin right now began its journey "
+            "before modern humans existed. "
+            "You are being warmed by one-hundred-thousand-year-old light."
+        ),
+        "mood": "excitement",
+        "caption_style": "bold_lower",
+        "glow_color": "&H00FFD700",
+        "voice": "am_michael",
+        "pexels": ["sun solar flare", "sunlight earth atmosphere", "solar energy"],
+        "prompts": [
+            "Massive solar flare erupting from sun surface in space, photorealistic 8K stunning",
+            "Sunlight traveling through space toward Earth, cinematic cosmic visualization",
+            "Person standing in warm golden sunlight, ancient light concept, beautiful cinematic"
+        ],
+    },
+    # horror/dark history
+    {
+        "text": (
+            "The Tunguska event of 1908 — a cosmic explosion over Siberia — "
+            "flattened eighty million trees across two thousand square kilometers "
+            "with no crater, no meteorite, no warning. "
+            "Scientists still debate the exact cause. "
+            "The object — estimated at fifty to eighty meters across — "
+            "never even reached the ground. "
+            "An event like this over a major city would end it entirely. "
+            "It happens. We just got lucky where it landed."
+        ),
+        "mood": "horror",
+        "caption_style": "horror_tight",
+        "glow_color": "&H000015FF",
+        "voice": "am_adam",
+        "pexels": ["tunguska explosion forest", "meteor atmosphere explosion", "siberian forest devastation"],
+        "prompts": [
+            "Massive atmospheric explosion over Siberian forest, dark dramatic cinematic 8K",
+            "Eighty million trees flattened in circular pattern, aerial view, photorealistic",
+            "Cosmic object exploding in atmosphere above empty landscape, terrifying scale"
+        ],
+    },
+]
+
+
+def generate_script(niche: str, topic: str):
+    """
+    Generate a complete script for a YouTube Short.
+
+    Returns
+    -------
+    tuple: (full_text, img_prompts, pexels_queries, scene_weights,
+            provider, chosen_voice, chosen_glow, chosen_mood, chosen_caption_style)
+
+    chosen_glow         : ASS &HAABBGGRR color code for caption neon halo
+    chosen_mood         : mood string ("neutral" | "wonder" | "excitement" | "horror" | "warm")
+    chosen_caption_style: preset key from caption_style_presets in settings.yaml
+    """
+    print(f"🎬 [SCRIPT] Drafting narrative for: {topic}")
+
+    channel_id   = ctx.get_channel_id()
+    intel        = db.get_channel_intelligence(channel_id)
+    prompts_cfg  = load_config_prompts()
+
+    # ── Read pre-written hook and content_format from job metadata ────────────
+    # The researcher stores a pre-written hook sentence and a format hint
+    # (fact/quiz/story) in the job's metadata JSON. If present, we inject the
+    # hook into the script prompt so the LLM uses it as its opening line
+    # instead of generating a weaker generic opener.
+    researcher_hook   = ""
+    researcher_format = "fact"
+    try:
+        current_job = db.get_job_by_topic(channel_id, topic)
+        if current_job and current_job.metadata:
+            job_meta = json.loads(current_job.metadata)
+            researcher_hook   = job_meta.get("hook", "")
+            researcher_format = job_meta.get("content_format", "fact")
+    except Exception:
+        pass  # If metadata is missing or malformed, continue normally
+
+    emp  = "\n".join([f"- {r}" for r in intel.get("emphasize", [])[-3:]])
+    avo  = "\n".join([f"- {r}" for r in intel.get("avoid",     [])[-3:]])
+    vis  = ", ".join(intel.get("preferred_visuals", ["Cinematic"])[:3])
+
+    hooks = intel.get("hook_patterns", [])
+    hook_context = (
+        "\n🎣 PROVEN HOOK PATTERNS (from competitor analysis — adapt these):\n" +
+        "\n".join([f"- {h}" for h in hooks[:3]])
+        if hooks else ""
+    )
+
+    # ── BUG FIX: Use the channel's configured content_type as the PRIMARY signal ──
+    # The old code only checked if the niche STRING contained keywords like "fact".
+    # Problem: the channel_intelligence `evolved_niche` can drift far from the
+    # original configured niche (e.g. "trending facts" → "cosmic abyss dossiers").
+    # Once drifted, the string no longer matches "fact" and the engine incorrectly
+    # switches to fictional/storytelling mode — producing cinematic story scripts
+    # instead of factual shorts. This compounds over time.
+    #
+    # Fix: read the channel's configured `content_type` from channels.yaml so
+    # factual channels always get factual treatment regardless of niche drift.
+    configured_content_type = None
+    configured_niche        = None
+    for _ch in config_manager.get_active_channels():
+        if _ch.channel_id == channel_id:
+            configured_content_type = getattr(_ch, "content_type", None)
+            configured_niche        = _ch.niche
+            break
+
+    evolved      = intel.get("evolved_niche")
+    niche_lower  = (evolved or niche or "").lower()
+
+    # Primary signal: content_type ("factual") — set in channels.yaml.
+    # Fallback: keyword detection on the niche string (backward compatible).
+    is_fact = configured_content_type == "factual"
+    if configured_content_type is None:
+        is_fact = any(x in niche_lower for x in ["fact", "hack", "tip", "news", "top", "brainrot"])
+    is_fictional = configured_content_type == "fictional"
+
+    # Override is_fact/is_fictional based on researcher's format hint if present
+    if researcher_format == "story" and not is_fictional:
+        is_fictional = True
+        is_fact      = False
+        print(f"📋 [SCRIPT] Researcher requested story format — using storytelling mode.")
+    elif researcher_format == "quiz":
+        print(f"📋 [SCRIPT] Researcher requested quiz format.")
+
+    # ── Niche selection for prompting ──────────────────────────────────────────
+    # BUG FIX: For FACUTAL channels, always prompt with the CONFIGURED niche,
+    # NOT the evolved_niche. The evolved_niche accumulates LLM drift over time
+    # (e.g. "trending facts" → "cosmic abyss dossiers: alien tech & optical
+    # warfare"), which hijacks every future topic generation and production.
+    # We reset the prompt anchor to the operator's intended niche so the LLM
+    # produces the educational/random-fun-facts content the channel was built for.
+    # The evolved_niche is still used as *supplementary context* so the system
+    # doesn't fully ignore learnings — it just can't override the configured anchor.
+    if is_fact and configured_niche:
+        active_niche = configured_niche.strip()
+        print(f"📌 [SCRIPT] Factual channel — anchoring prompt to configured niche: '{active_niche}'")
+        if evolved and evolved != active_niche:
+            print(f"   🧬 [SCRIPT] (Evolved niche '{evolved}' used as context only.)")
+    else:
+        active_niche = evolved or niche or configured_niche or "General content"
+
+    if is_fact:
+        print(f"📌 [SCRIPT] Content type: factual — using short/educational format ({active_niche})")
+    else:
+        print(f"🎬 [SCRIPT] Content type: fictional — using storytelling format ({active_niche})")
+
+    target_scenes = random.randint(4, 5) if is_fact else random.randint(4, 5)
+    target_dur    = "40-50 seconds"     if is_fact else "45-55 seconds"
+    target_words  = "95-115 words"      if is_fact else "100-120 words"
+
+    # ── Load brand identity for this channel ─────────────────────────────────
+    channel_brand_voice   = ""
+    channel_personality   = []
+    for _ch in config_manager.get_active_channels():
+        if _ch.channel_id == channel_id:
+            channel_brand_voice = getattr(_ch, "brand_voice", "")
+            channel_personality = getattr(_ch, "personality", [])
+            break
+
+    # ── Prompt Sharding & Constitution Injection ─────────────────────────────
+    shards_cfg = prompts_cfg.get("script_gen", {}).get("shards", {})
+    constitution_cfg = prompts_cfg.get("script_gen", {}).get("constitution", "")
+
+    if researcher_format == "quiz":
+        active_shard = shards_cfg.get("quiz", "")
+    elif is_fictional:
+        active_shard = shards_cfg.get("fictional", "")
+    else:
+        active_shard = shards_cfg.get("factual", "")
+
+    base_user_prompt = prompts_cfg["script_gen"]["user_template"].format(
+        niche=active_niche,
+        topic=topic,
+        emphasize_rules=emp or "Focus on viewer retention.",
+        avoid_rules=avo or "Avoid slow pacing.",
+        visual_preference=vis,
+        target_duration=target_dur,
+        target_word_count=target_words,
+        word_ceiling=_ABSOLUTE_WORD_CEILING
+    )
+
+    if constitution_cfg:
+        base_user_prompt += f"\n\n{constitution_cfg.strip()}\n"
+
+    if active_shard:
+        base_user_prompt += f"\n\n{active_shard.strip()}\n"
+
+    # ── Self-Learning Golden Trajectories (Empirical Few-Shot Injection) ─────
+    try:
+        from engine.self_learning import self_learning
+        trajectories_block = self_learning.format_trajectories_for_prompt(
+            channel_id=channel_id,
+            content_type="fictional" if is_fictional else "factual",
+            limit=2
+        )
+        if trajectories_block:
+            base_user_prompt += f"\n\n{trajectories_block.strip()}\n"
+            print(f"🧠 [SELF-LEARNING] Injected golden trajectory exemplars for {channel_id}")
+    except Exception as sle_err:
+        logger.debug(f"Self-learning prompt injection skipped: {sle_err}")
+
+    # ── Real-Time Fact Grounding & Anti-Hallucination Gate (Topato Mandate) ───
+    if is_fact:
+        try:
+            from engine.fact_grounding import fact_grounding
+            grounding_data = fact_grounding.verify_topic(topic)
+            if grounding_data and grounding_data.get("verified"):
+                grounding_block = fact_grounding.format_grounding_prompt_block(grounding_data)
+                if grounding_block:
+                    base_user_prompt += f"\n\n{grounding_block.strip()}\n"
+                    print(f"🔬 [FACT GROUNDING] Verified empirical mechanisms injected via {grounding_data.get('engine', 'Search')}")
+        except Exception as fg_err:
+            logger.debug(f"Fact grounding prompt injection skipped: {fg_err}")
+
+    # ── Brand identity injection ──────────────────────────────────────────────
+
+    if channel_brand_voice or channel_personality:
+        brand_block = "\n\n🎙️ CHANNEL BRAND VOICE (write in this style — every word):\n"
+        if channel_brand_voice:
+            brand_block += f"Voice: {channel_brand_voice}\n"
+        if channel_personality:
+            brand_block += "Personality traits: " + " | ".join(channel_personality) + "\n"
+        brand_block += (
+            "Every sentence should sound like THIS channel, not like a generic AI. "
+            "If reading it aloud doesn't match this voice, rewrite it."
+        )
+        base_user_prompt += brand_block
+
+    base_user_prompt += (
+        f"\n\nCRITICAL INSTRUCTION: Break the script into EXACTLY {target_scenes} visual scenes. "
+        f"The combined text across all scenes MUST be a detailed, multi-sentence narrative. {hook_context}"
+    )
+
+    # ── Inject researcher's pre-written hook if available ────────────────────
+    if researcher_hook:
+        base_user_prompt += (
+            f"\n\n🎣 OPENING HOOK (USE THIS AS SCENE 1's FIRST SENTENCE — do not change it):\n"
+            f"\"{researcher_hook}\"\n"
+            f"Build the rest of the script to deliver on the promise this hook makes."
+        )
+        print(f"🎣 [SCRIPT] Injecting researcher hook: {researcher_hook[:80]}")
+
+    # ── Quiz format: add extra instructions for quiz-style Shorts ────────────
+    if researcher_format == "quiz":
+        base_user_prompt += (
+            f"\n\n❓ QUIZ FORMAT INSTRUCTIONS:\n"
+            f"• Scene 1: Open with a direct question to the viewer (from the hook above).\n"
+            f"• Scenes 2-4: Build suspense. Give 1-2 wrong guesses most people make.\n"
+            f"• Scene 5+: Reveal the real answer dramatically. Then deliver the surprising context.\n"
+            f"• Final scene: End with a mind-expanding 'and here's why that matters' kicker.\n"
+            f"This is a QUIZ Short — viewer is playing along, not just listening."
+        )
+
+
+    if is_fictional:
+        base_user_prompt += (
+            f"\n\n🎬 FICTION STORY ARC (this is a STORY channel — a mini-movie, "
+            f"not a fact narration):\n"
+            f"• The topic IS a logline — dramatize it as a real short story.\n"
+            f"• Open MID-ACTION on the protagonist and their obstacle "
+            f"(no 'once upon a time', no throat-clearing).\n"
+            f"• Follow a 3-beat arc: setup → escalating conflict → earned "
+            f"RESOLUTION that lands the emotional/moral payoff.\n"
+            f"• ONE clear protagonist with a want. Every scene advances the "
+            f"conflict or deepens the character.\n"
+            f"• End with a single, felt emotional beat — the lesson is shown, "
+            f"never stated as a lecture.\n"
+            f"• Keep it WARM and cinematic. Vary sentence rhythm. "
+            f"No AI filler words ('remarkable', 'fascinating', 'truly').\n"
+            f"• Visuals (image_prompt fields) MUST match the story scenes: "
+            f"3D-Pixar-style animation stills of the actual characters/setting."
+        )
+
+    # ── Circular Script Seamless Loop Engine (2026 Playbook) ─────────────────
+    try:
+        from engine.loop_engine import loop_engine
+        loop_block = loop_engine.get_loop_prompt_instructions()
+        if loop_block:
+            base_user_prompt += f"\n\n{loop_block.strip()}\n"
+    except Exception as le_err:
+        logger.debug(f"Loop engine prompt injection skipped: {le_err}")
+
+    last_error = "Unknown Error"
+
+    for attempt in range(3):
+        # ── BUG #4 FIX: Progressive word-limit constraints on retry ───────────
+        # Original code sent the exact same prompt all 3 times. If the LLM
+        # ignored the word ceiling on attempt 1 (as it did today: 207→198→239),
+        # all 3 retries were guaranteed to fail, burning 3 Gemini quota points
+        # and falling to the emergency fallback script.
+        #
+        # Strategy:
+        #   Attempt 0 (first try) → base prompt, no extra constraint
+        #   Attempt 1 (first retry) → inject an explicit bolded hard-limit banner
+        #   Attempt 2 (last chance) → banner + hard-truncate the JSON text ourselves
+        #                             before the word-count check (never fails)
+        if attempt == 0:
+            user_prompt = base_user_prompt
+        elif attempt == 1:
+            # Escalate the instruction with stronger language
+            word_limit_banner = (
+                f"\n\n🚨 HARD LIMIT VIOLATION ON PREVIOUS ATTEMPT 🚨\n"
+                f"Your previous response was too long. This is the FINAL constraint:\n"
+                f"TOTAL WORDS ACROSS ALL SCENE TEXT FIELDS MUST NOT EXCEED {_ABSOLUTE_WORD_CEILING}.\n"
+                f"Count every word. Cut scenes if needed. Do NOT exceed {_ABSOLUTE_WORD_CEILING} words.\n"
+                f"Aim for {target_words} — keep it SHORT and punchy."
+            )
+            user_prompt = base_user_prompt + word_limit_banner
+        else:
+            # Last attempt: even stricter banner + reduce target scene count to force brevity
+            reduced_scenes = max(3, target_scenes - 3)
+            word_limit_banner = (
+                f"\n\n🚨 CRITICAL: FINAL ATTEMPT — STRICT WORD LIMIT ENFORCEMENT 🚨\n"
+                f"Reduce to {reduced_scenes} scenes maximum.\n"
+                f"Each scene's text field must be ONE sentence only — no more.\n"
+                f"Total words: ABSOLUTE MAXIMUM {_ABSOLUTE_WORD_CEILING}. "
+                f"Every word over this limit will cause a system failure.\n"
+                f"BE EXTREMELY BRIEF."
+            )
+            user_prompt = base_user_prompt + word_limit_banner
+
+        try:
+            raw, provider = quota_manager.generate_text(
+                user_prompt,
+                task_type="creative",
+                system_prompt=prompts_cfg["script_gen"]["system_prompt"]
+            )
+            if not raw:
+                last_error = "API returned empty response."
+                continue
+
+            import re
+            think_match = re.search(r"<THINKING>(.*?)</THINKING>", raw, flags=re.DOTALL | re.IGNORECASE)
+            if think_match:
+                from engine.logger import logger
+                logger.generation(f"🧠 [THINKING]\n{think_match.group(1).strip()}\n")
+
+            from engine.llm_router import UniversalGreedyJSONParser
+            data = UniversalGreedyJSONParser.extract_json(raw)
+            if not data or not isinstance(data, dict):
+                start = raw.find('{')
+                end   = raw.rfind('}')
+                if start == -1 or end == -1 or end <= start:
+                    last_error = "Malformed JSON boundary returned by AI."
+                    continue
+                json_payload = raw[start:end + 1]
+                data = json.loads(json_payload)
+
+            chosen_voice = data.get("voice_actor", "am_adam")
+
+            # ── glow_color: the neon halo color for captions ─────────────────
+            # Accept either the new key ('glow_color') or the legacy key
+            # ('subtitle_color') in case an older cached response is replayed.
+            chosen_glow = (
+                data.get("glow_color")
+                or data.get("subtitle_color")
+                or "&H0000D700"   # default: green glow
+            )
+
+            # ── mood: emotional register of this video ────────────────────────
+            chosen_mood = data.get("mood", "neutral")
+            if chosen_mood not in _VALID_MOODS:
+                chosen_mood = "neutral"
+
+            # ── caption_style: visual subtitle preset ────────────────────────
+            chosen_caption_style = data.get("caption_style", "viral_impact")
+            if chosen_caption_style not in _VALID_CAPTION_STYLES:
+                # Fallback: derive from mood
+                chosen_caption_style = _MOOD_TO_CAPTION_STYLE.get(chosen_mood, "viral_impact")
+
+            parsed_scenes  = [extract_scene_data(s, topic) for s in data.get("scenes", [])]
+            full_text      = " ".join([s[0] for s in parsed_scenes])
+            img_prompts    = [s[1] for s in parsed_scenes]
+            pexels_queries = [s[2] for s in parsed_scenes]
+
+            word_count = len(full_text.split())
+            print(f"      -> [TEXT PRE-CHECK] Script generated: {word_count} words (Mathematical Limit: {_ABSOLUTE_WORD_CEILING}).")
+
+            # ── BUG #4 FIX (continued): On the last attempt, hard-truncate the
+            # assembled text rather than failing. This guarantees we never hit
+            # the emergency fallback just because the LLM is verbose — we trim
+            # cleanly at the word boundary and continue with a valid (shorter) script.
+            if word_count > _ABSOLUTE_WORD_CEILING:
+                if attempt == 2:
+                    print(f"      ✂️ [SCRIPT] Last attempt still too long ({word_count} words). Truncating cleanly to {_ABSOLUTE_WORD_CEILING} words...")
+                    words         = full_text.split()
+                    candidate     = " ".join(words[:_ABSOLUTE_WORD_CEILING])
+                    last_punct    = max(candidate.rfind('.'), candidate.rfind('!'), candidate.rfind('?'))
+                    if last_punct > int(len(candidate) * 0.6):
+                        full_text = candidate[:last_punct + 1]
+                    else:
+                        full_text = candidate.rstrip(' ,;:-') + "."
+                    word_count    = len(full_text.split())
+                    # Rebuild scene text proportionally (keep prompts/queries intact)
+                    total_chars   = sum(len(s[0]) for s in parsed_scenes) or 1
+                    char_budget   = len(full_text)
+                    rebuilt       = []
+                    chars_used    = 0
+                    for i, (narr, prompt, query) in enumerate(parsed_scenes):
+                        share      = len(narr) / total_chars
+                        allotted   = int(char_budget * share)
+                        trimmed    = narr[:allotted].rsplit(' ', 1)[0] if len(narr) > allotted else narr
+                        chars_used += len(trimmed)
+                        rebuilt.append((trimmed, prompt, query))
+                    parsed_scenes = rebuilt
+                else:
+                    print(f"      ⚠️ [SCRIPT] Too long ({word_count} words, limit {_ABSOLUTE_WORD_CEILING}). Retrying with tighter constraint...")
+                    last_error = "Script exceeded maximum mathematical word count."
+                    continue
+
+            if word_count < 15:
+                print(f"      ⚠️ [SCRIPT] Script critically short ({word_count} words). Retrying...")
+                last_error = "Script generated below functional minimum."
+                continue
+
+            if not validate_script_quality(full_text, prompts_cfg, is_fictional=is_fictional, parsed_scenes=parsed_scenes):
+                last_error = "Failed quality check (score < 4/10 or failed variation/closure)."
+                continue
+
+            total_chars   = sum(len(s[0]) for s in parsed_scenes)
+            scene_weights = (
+                [len(s[0]) / total_chars for s in parsed_scenes]
+                if total_chars > 0 else []
+            )
+
+            print(
+                f"✅ [SCRIPT] Validated via {provider} "
+                f"({word_count} words). Voice: {chosen_voice}, "
+                f"Glow: {chosen_glow}, Mood: {chosen_mood}, Style: {chosen_caption_style}"
+            )
+            return (
+                full_text, img_prompts, pexels_queries, scene_weights,
+                provider, chosen_voice, chosen_glow, chosen_mood, chosen_caption_style
+            )
+
+        except Exception as e:
+            last_error = str(e)
+            trace = traceback.format_exc()
+            print(f"⚠️ [SCRIPT] Attempt {attempt + 1} failed:\n{trace}")
+            continue
+
+    # ── Emergency Fallback ─────────────────────────────────────────────────────
+    # All 3 LLM attempts exhausted. Pick a random varied fallback script.
+    # These are advertiser-safe, contain no CTAs, and cover all mood categories.
+    logger.error("🚨 Script Generation Fatal Exhaustion. Injecting Emergency Fallback Script.")
+
+    fb = _CHANNEL_FALLBACK_SCRIPTS.get(channel_id)
+    if not fb:
+        fb = _CHANNEL_FALLBACK_SCRIPTS.get("CH_01" if is_fictional else "CH_02")
+    if not fb:
+        fb = random.choice(_FALLBACK_SCRIPTS)
+
+    fallback_weights = [1.0 / len(fb["prompts"])] * len(fb["prompts"])
+    # Make last weight absorb rounding error
+    if fallback_weights:
+        fallback_weights[-1] = 1.0 - sum(fallback_weights[:-1])
+
+    return (
+        fb["text"],
+        fb["prompts"],
+        fb["pexels"],
+        fallback_weights,
+        "Emergency Fallback",
+        fb["voice"],
+        fb["glow_color"],
+        fb["mood"],
+        fb["caption_style"],
+    )

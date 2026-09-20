@@ -1,0 +1,28 @@
+# Environment & secrets
+.env
+*.env
+.env.*
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Local temp files
+*.mp4
+*.wav
+*.mp3
+*.srt
+*.ass
+temp_*
+final_*
+concat_list.txt
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,14 @@
+{
+  "name": "yt-automation-render",
+  "version": "1.0.0",
+  "description": "Kinetic motion overlay and vector graphics engine for YouTube Shorts automation",
+  "main": "kinetic_renderer.js",
+  "type": "module",
+  "scripts": {
+    "test": "node kinetic_renderer.js --text 'TEST' --output test.svg"
+  },
+  "keywords": ["shorts", "video-automation", "kinetic-overlay", "ffmpeg"],
+  "author": "Yuvraj",
+  "license": "MIT"
+}
+

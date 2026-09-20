@@ -1,0 +1,111 @@
+name: 01_Ghost_Daily_Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_mode:
+        description: 'Run in TEST MODE (no DB writes, no YouTube uploads, 1 video per channel)'
+        type: boolean
+        default: false
+  schedule:
+    - cron: '0 0 * * *'
+
+concurrency:
+  group: ghost-engine-lock
+  cancel-in-progress: false
+
+jobs:
+  build-and-vault:
+    runs-on: ubuntu-24.04
+    if: vars.GHOST_ENGINE_ENABLED != 'false'
+    
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq ffmpeg fonts-liberation espeak-ng
+        env:
+          DEBIAN_FRONTEND: noninteractive
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
+      - name: Install Python Dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Pre-flight System Integrity & Health Check
+        run: python scripts/system_integrity_check.py
+
+      - name: Run Ghost Engine
+        run: python main.py
+        env:
+          PYTHONUNBUFFERED: 1
+          GHOST_ENGINE_ENABLED: ${{ vars.GHOST_ENGINE_ENABLED }}
+          TEST_MODE:            ${{ inputs.test_mode || 'false' }}
+          GEMINI_API_KEY:        ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY:          ${{ secrets.GROQ_API_KEY }}
+          GH_MODELS_TOKEN:       ${{ secrets.GH_MODELS_TOKEN }}
+          OPENROUTER_API_KEY:    ${{ secrets.OPENROUTER_API_KEY }}
+          HF_TOKEN:              ${{ secrets.HF_TOKEN }}
+          CF_ACCOUNT_ID:         ${{ secrets.CF_ACCOUNT_ID }}
+          CF_API_TOKEN:          ${{ secrets.CF_API_TOKEN }}
+          PEXELS_API_KEY:        ${{ secrets.PEXELS_API_KEY }}
+          PIXABAY_API_KEY:       ${{ secrets.PIXABAY_API_KEY }}
+          
+          # Channel 1 Infrastructure
+          YOUTUBE_CLIENT_ID_CH1:       ${{ secrets.YOUTUBE_CLIENT_ID_CH1 }}
+          YOUTUBE_CLIENT_SECRET_CH1:   ${{ secrets.YOUTUBE_CLIENT_SECRET_CH1 }}
+          YOUTUBE_REFRESH_TOKEN_CH1:   ${{ secrets.YOUTUBE_REFRESH_TOKEN_CH1 }}
+          DISCORD_WEBHOOK_CH1:         ${{ secrets.DISCORD_WEBHOOK_CH1 }}
+
+          # Channel 2 Infrastructure
+          YOUTUBE_CLIENT_ID_CH2:       ${{ secrets.YOUTUBE_CLIENT_ID_CH2 }}
+          YOUTUBE_CLIENT_SECRET_CH2:   ${{ secrets.YOUTUBE_CLIENT_SECRET_CH2 }}
+          YOUTUBE_REFRESH_TOKEN_CH2:   ${{ secrets.YOUTUBE_REFRESH_TOKEN_CH2 }}
+          DISCORD_WEBHOOK_CH2:         ${{ secrets.DISCORD_WEBHOOK_CH2 }}
+
+      - name: Commit State & Memory
+        run: |
+          git config --global user.name  "Ghost-Engine-Bot"
+          git config --global user.email "bot@ghostengine.ai"
+          
+          # 🚨 V25 FIX: Safely ignore non-existent memory files to keep GitHub logs clean
+          git add memory/ghost_engine.db 2>/dev/null || true
+          git add memory/quota_state.json 2>/dev/null || true
+          git add memory/token_health.json 2>/dev/null || true
+          git add memory/dynamic_models_registry.json 2>/dev/null || true
+          git add config/channels.yaml 2>/dev/null || true
+          git add assets/lessons_learned.json 2>/dev/null || true
+          
+          if ! git diff --staged --quiet; then
+            git commit -m "Pipeline: Update state, quota & memory [skip ci]"
+            
+            for i in {1..5}; do
+              git push && break || {
+                echo "└ ⚠️ Git push conflict detected. Rebasing (Attempt $i/5)..."
+                git pull --rebase -X theirs origin main
+                sleep $(( i * 5 ))
+              }
+            done
+          fi
+
+      - name: Upload Video Artifacts
+        uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: ghost-engine-shorts-${{ github.run_number }}
+          path: final_*.mp4
+          if-no-files-found: warn
