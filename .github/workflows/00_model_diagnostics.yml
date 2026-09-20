@@ -41,6 +41,7 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           UPDATE_REGISTRY: ${{ inputs.update_registry }}
         run: |
+          python scratch/test_gh_token.py
           python scripts/model_diagnostics.py
 
       - name: Commit Updated Model Registry (If Requested)
