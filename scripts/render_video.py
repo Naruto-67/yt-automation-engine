@@ -544,9 +544,9 @@ def _mix_background_music(output_path: str, mood: str = "neutral", transition_ti
         else:
             master_in = "[voice_main]"
 
-        # Broadcast Radio Master: stereotools widening + EBU R128 loudness
+        # Broadcast Radio Master: EBU R128 loudness normalization
         filter_parts.append(
-            f"{master_in}stereotools=mwidth=1.35,loudnorm=I=-14:TP=-1.0:LRA=7[aout]"
+            f"{master_in}loudnorm=I=-14:TP=-1.0:LRA=7[aout]"
         )
 
         audio_filter = ";".join(filter_parts)
@@ -870,13 +870,19 @@ def render_video(image_paths, audio_path, output_path,
         return False, 0.0, 0
 
     # ── Compute per-scene durations ───────────────────────────────────────────
+    xfade_duration = float(
+        config_manager.get_settings().get("render", {}).get("xfade_duration", 0.3)
+    )
     clip_durs = (
         [w * total_dur for w in scene_weights]
         if scene_weights
         else [total_dur / len(image_paths)] * len(image_paths)
     )
     if clip_durs:
-        clip_durs[-1] += 0.6   # tail buffer for last scene
+        # Overlap compensation: xfade overlaps (N-1) clips by xfade_duration.
+        # Plus 1.2s tail buffer so spoken narration is NEVER truncated by -shortest!
+        overlap_compensation = (len(image_paths) - 1) * xfade_duration
+        clip_durs[-1] += overlap_compensation + 1.2
 
     # ── Generate Ken Burns clips ──────────────────────────────────────────────
     clip_files   = []

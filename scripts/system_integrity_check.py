@@ -197,9 +197,10 @@ class IntegrityChecker:
                 self.log_result("compilation", f"Syntax error in {fname}", "FAIL", err)
 
     def run_all(self) -> bool:
-        print("═" * 70)
-        print("🔍 [SYSTEM INTEGRITY] Starting Continuous System Health Audit...")
-        print("═" * 70)
+        box_w = 76
+        print(f"\n┌{'─' * box_w}┐")
+        print(f"│ PHASE 2: PRE-FLIGHT SYSTEM INTEGRITY & HEALTH AUDIT{' ' * (box_w - 53)}│")
+        print(f"└{'─' * box_w}┘\n")
 
         self.check_yaml_configs()
         self.check_directories_and_assets()
@@ -207,9 +208,9 @@ class IntegrityChecker:
         self.check_render_ecosystem()
         self.check_python_syntax()
 
-        print("═" * 70)
+        print("═" * 76)
         print(f"📊 SUMMARY: {self.passed} Passed | {self.warnings} Warnings | {self.failed} Failed")
-        print("═" * 70)
+        print("═" * 76)
 
         return self.failed == 0
 

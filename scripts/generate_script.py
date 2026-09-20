@@ -36,7 +36,7 @@ def extract_scene_data(scene_dict, fallback_topic: str):
 
 def validate_script_quality(script_text: str, prompts_cfg: dict,
                             is_fictional: bool = False,
-                            parsed_scenes: list = None) -> bool:
+                            parsed_scenes: list = None) -> tuple[bool, str]:
     """
     Quality gate enforcing YouTube Shorts retention standards:
     1. Word Floor & Ceiling: Strict 85-125 words (40-55s duration).
@@ -49,23 +49,19 @@ def validate_script_quality(script_text: str, prompts_cfg: dict,
     """
     trimmed = script_text.strip()
     if not trimmed:
-        print("⚠️ [SCRIPT] Script is empty — retry.")
-        return False
+        return False, "Script text is empty — retry required."
 
     words = trimmed.split()
     word_count = len(words)
 
     # ── 1. HARD WORD FLOOR GATE (40-55s sweet spot) ────────────────────────
     if word_count < _MIN_WORD_FLOOR:
-        print(f"⚠️ [SCRIPT] Script under word floor ({word_count} words < {_MIN_WORD_FLOOR} words, target 95-120 words for 40-55s) — retry.")
-        return False
+        return False, f"Script under word floor ({word_count} words < {_MIN_WORD_FLOOR} words, target 95-120 words)."
 
     if word_count > _ABSOLUTE_WORD_CEILING:
-        print(f"⚠️ [SCRIPT] Script exceeds word ceiling ({word_count} words > {_ABSOLUTE_WORD_CEILING} words) — retry.")
-        return False
+        return False, f"Script exceeds word ceiling ({word_count} words > {_ABSOLUTE_WORD_CEILING} words)."
 
     # ── 2. DETERMINISTIC SENTENCE CLOSURE GATE ─────────────────────────────
-    # Auto-normalize trailing ellipsis or dashes into clean terminal punctuation
     if trimmed.endswith("...") or trimmed.endswith("…") or trimmed.endswith("--") or trimmed.endswith("-"):
         trimmed = re.sub(r'[\.…\-—–\s]+$', '', trimmed) + "."
 
@@ -77,13 +73,11 @@ def validate_script_quality(script_text: str, prompts_cfg: dict,
     if last_words:
         last_1 = last_words[-1]
         last_2 = " ".join(last_words[-2:]) if len(last_words) >= 2 else ""
-        # Truly broken/dangling truncated fragments
         truncated_fragments = {
             "it was", "there was", "such as", "leading to", "resulting in", "and then"
         }
         if last_1 in truncated_fragments or last_2 in truncated_fragments:
-            print(f"⚠️ [SCRIPT] SentenceClosureCheck failed: dangling fragment ('{last_2 or last_1}') — retry.")
-            return False
+            return False, f"SentenceClosureCheck failed: dangling fragment ('{last_2 or last_1}')."
 
     # ── 3. AI CLICHÉ & FORMULAIC TEMPLATE GATE ─────────────────────────────
     banned_phrases = [
@@ -99,21 +93,18 @@ def validate_script_quality(script_text: str, prompts_cfg: dict,
     script_lower = trimmed.lower()
     for bp in banned_phrases:
         if bp in script_lower:
-            print(f"⚠️ [SCRIPT] Banned formulaic cliché detected ('{bp}') — retry.")
-            return False
+            return False, f"Banned formulaic cliché detected ('{bp}')."
 
-    # ── 4. SCENE VARIATION GATE (OpenMontage variation_checker) ────────────
+    # ── 4. SCENE VARIATION GATE ────────────────────────────────────────────
     if parsed_scenes and len(parsed_scenes) >= 3:
         for idx, scene in enumerate(parsed_scenes):
             narr = scene[0] if isinstance(scene, (list, tuple)) else str(scene)
             s_words = len(narr.split())
             if (s_words / word_count) > 0.50:
-                print(f"⚠️ [SCRIPT] Variation check failed: scene {idx+1} consumes {s_words}/{word_count} words (>50%) — retry.")
-                return False
+                return False, f"Variation check failed: scene {idx+1} consumes {s_words}/{word_count} words (>50%)."
 
     # ── 5. FICTION LIVING CHARACTER & ARC GATE ─────────────────────────────
     if is_fictional:
-        # Require living character entities (human, apprentice, creature, animal) — NOT bare inanimate objects
         living_entities = [
             "he", "she", "they", "him", "his", "her", "hers", "them", "their", "who",
             "boy", "girl", "man", "woman", "apprentice", "master", "inventor",
@@ -128,10 +119,8 @@ def validate_script_quality(script_text: str, prompts_cfg: dict,
         ]
         has_living = any(re.search(rf"\b{m}\b", script_lower) for m in living_entities) or bool(re.search(r'\b[A-Z][a-z]{2,15}\b', script_text))
         if not has_living:
-            print("⚠️ [SCRIPT] Fiction check failed: lacks living character protagonist (inanimate object poetry is banned) — retry.")
-            return False
+            return False, "Fiction check failed: lacks living character protagonist (inanimate object poetry is banned)."
 
-        # Require protagonist action and decision verbs (present or past tense)
         action_verbs = [
             "wants", "wanted", "tries", "tried", "must", "leaps", "leaped", "leapt", "climbs", "climbed",
             "forges", "forged", "forging", "decides", "decided", "steps", "stepped", "discovers",
@@ -154,13 +143,10 @@ def validate_script_quality(script_text: str, prompts_cfg: dict,
         ]
         has_action = any(re.search(rf"\b{a}\b", script_lower) for a in action_verbs)
         if not has_action:
-            print("⚠️ [SCRIPT] Fiction check failed: lacks active protagonist decision/action — retry.")
-            return False
-
+            return False, "Fiction check failed: lacks active protagonist decision/action."
 
     # ── 6. FACTUAL EMPIRICAL INTEGRITY GATE ────────────────────────────────
     else:
-        # Require concrete terminology, numbers, or process markers
         has_specifics = bool(re.search(r'\b\d+\b', trimmed)) or any(
             k in script_lower for k in [
                 "percent", "species", "process", "cells", "temperature", "years",
@@ -168,8 +154,7 @@ def validate_script_quality(script_text: str, prompts_cfg: dict,
             ]
         )
         if not has_specifics:
-            print("⚠️ [SCRIPT] Factual check failed: lacks concrete numbers, entities, or scientific mechanisms — retry.")
-            return False
+            return False, "Factual check failed: lacks concrete numbers, entities, or scientific mechanisms."
 
     # ── 7. SEAMLESS CIRCULAR LOOP GATE (2026 Playbook) ─────────────────────
     try:
@@ -180,8 +165,7 @@ def validate_script_quality(script_text: str, prompts_cfg: dict,
             ending_s = sentences[-1]
             loop_verdict = loop_engine.validate_circular_loop(hook_s, ending_s)
             if not loop_verdict.get("is_valid", True):
-                print(f"⚠️ [SCRIPT] Circular loop check failed: {loop_verdict.get('reason')} — retry.")
-                return False
+                return False, f"Circular loop check failed: {loop_verdict.get('reason')}."
     except Exception as cl_err:
         logger.debug(f"Circular loop check error: {cl_err}")
 
@@ -193,29 +177,28 @@ def validate_script_quality(script_text: str, prompts_cfg: dict,
     try:
         raw, _ = quota_manager.generate_text(user_msg, task_type="analysis", system_prompt=sys_msg)
     except Exception:
-        # If validation API call itself fails, pass the script — don't waste retries
-        return True
+        return True, "Approved (Validation API call skipped)"
 
     if not raw:
-        return True  # Empty response → pass (fail-safe)
+        return True, "Approved (Empty validator response fail-safe)"
 
     try:
         numbers = [int(n) for n in re.findall(r'\b\d+\b', raw)]
         if not numbers:
-            return True  # No number found → pass (fail-safe, not a failure)
+            return True, "Approved (No numeric rating fail-safe)"
 
-        # Handle "7/10" or "Score: 7 out of 10" format → take the score, not the denominator
         if len(numbers) >= 2 and numbers[-1] == 10 and numbers[-2] <= 10:
             score = numbers[-2]
         else:
             score = numbers[-1]
 
-        # Only reject truly bad scripts (1, 2, or 3 out of 10)
-        # Scores 4-10 all pass — we trust the LLM's generation over the validator's harsh rating
         passed = score >= 4
         if not passed:
-            print(f"⚠️ [SCRIPT] Quality validator returned {score}/10 — below rejection threshold of 4. Retrying...")
-        return passed
+            return False, f"LLM validator score {score}/10 is below rejection threshold of 4."
+        return True, f"Approved (Score: {score}/10)"
+
+    except Exception:
+        return True, "Approved (Validator parsing error fail-safe)"
 
     except Exception:
         trace = traceback.format_exc()
@@ -835,13 +818,24 @@ def generate_script(niche: str, topic: str):
                     last_error = "Script exceeded maximum mathematical word count."
                     continue
 
-            if word_count < 15:
-                print(f"      ⚠️ [SCRIPT] Script critically short ({word_count} words). Retrying...")
-                last_error = "Script generated below functional minimum."
-                continue
+            passed, val_reason = validate_script_quality(full_text, prompts_cfg, is_fictional=is_fictional, parsed_scenes=parsed_scenes)
 
-            if not validate_script_quality(full_text, prompts_cfg, is_fictional=is_fictional, parsed_scenes=parsed_scenes):
-                last_error = "Failed quality check (score < 4/10 or failed variation/closure)."
+            box_width = 76
+            status_symbol = "✅ APPROVED" if passed else "❌ REJECTED"
+            print(f"\n┌{'─' * box_width}┐")
+            print(f"│ [SCRIPT GENERATION] Attempt {attempt + 1}/3 | Provider: {provider}")
+            print(f"├{'─' * box_width}┤")
+            print(f"│ Status    : {status_symbol}")
+            print(f"│ Word Count: {word_count} words (Target: {_MIN_WORD_FLOOR}-{_ABSOLUTE_WORD_CEILING})")
+            print(f"│ Details   : {val_reason}")
+            print(f"├{'─' * box_width}┤")
+            print(f"│ GENERATED SCRIPT TEXT:")
+            for line in full_text.split("\n"):
+                print(f"│ \"{line}\"")
+            print(f"└{'─' * box_width}┘\n")
+
+            if not passed:
+                last_error = val_reason
                 continue
 
             total_chars   = sum(len(s[0]) for s in parsed_scenes)
@@ -850,11 +844,6 @@ def generate_script(niche: str, topic: str):
                 if total_chars > 0 else []
             )
 
-            print(
-                f"✅ [SCRIPT] Validated via {provider} "
-                f"({word_count} words). Voice: {chosen_voice}, "
-                f"Glow: {chosen_glow}, Mood: {chosen_mood}, Style: {chosen_caption_style}"
-            )
             return (
                 full_text, img_prompts, pexels_queries, scene_weights,
                 provider, chosen_voice, chosen_glow, chosen_mood, chosen_caption_style
@@ -869,25 +858,29 @@ def generate_script(niche: str, topic: str):
     # ── Emergency Fallback ─────────────────────────────────────────────────────
     # All 3 LLM attempts exhausted. Pick a random varied fallback script.
     # These are advertiser-safe, contain no CTAs, and cover all mood categories.
-    logger.error("🚨 Script Generation Fatal Exhaustion. Injecting Emergency Fallback Script.")
+    logger.error(f"🚨 Script Generation Fatal Exhaustion ({last_error}). Injecting Emergency Fallback Script.")
 
     fb = _CHANNEL_FALLBACK_SCRIPTS.get(channel_id)
+    fallback_source = f"Handcrafted {channel_id} Exemplar"
     if not fb:
         fb = _CHANNEL_FALLBACK_SCRIPTS.get("CH_01" if is_fictional else "CH_02")
+        fallback_source = "Handcrafted Channel Exemplar"
     if not fb:
         fb = random.choice(_FALLBACK_SCRIPTS)
+        fallback_source = "Handcrafted Generic Exemplar"
 
     fallback_weights = [1.0 / len(fb["prompts"])] * len(fb["prompts"])
-    # Make last weight absorb rounding error
     if fallback_weights:
         fallback_weights[-1] = 1.0 - sum(fallback_weights[:-1])
+
+    exact_provider_name = f"{fallback_source} (Fallback: {last_error})"
 
     return (
         fb["text"],
         fb["prompts"],
         fb["pexels"],
         fallback_weights,
-        "Emergency Fallback",
+        exact_provider_name,
         fb["voice"],
         fb["glow_color"],
         fb["mood"],

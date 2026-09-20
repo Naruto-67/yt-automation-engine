@@ -30,10 +30,13 @@ jobs:
           persist-credentials: true
           fetch-depth: 1
 
-      - name: Install System Dependencies
+      - name: "Phase 1: Setup System Dependencies"
         run: |
+          echo "::group::Installing FFmpeg, Fonts & Audio libraries..."
           sudo apt-get update -q
           sudo apt-get install -yq ffmpeg fonts-liberation espeak-ng
+          echo "::endgroup::"
+          echo "✅ System dependencies ready."
         env:
           DEBIAN_FRONTEND: noninteractive
 
@@ -42,11 +45,14 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Python Dependencies
+      - name: "Phase 1: Setup Python Dependencies"
         run: |
-          pip install -r requirements.txt
+          echo "::group::Installing Python PyPI requirements..."
+          pip install --quiet -r requirements.txt
+          echo "::endgroup::"
+          echo "✅ Python environment ready."
 
-      - name: Pre-flight System Integrity & Health Check
+      - name: "Phase 2: Pre-flight System Integrity & Health Check"
         run: python scripts/system_integrity_check.py
 
       - name: Run Ghost Engine

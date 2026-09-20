@@ -35,9 +35,12 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib \
+          echo "::group::Installing Researcher dependencies..."
+          pip install --quiet google-api-python-client google-auth-httplib2 google-auth-oauthlib \
                       google-genai requests pydantic pyyaml pytz
           echo "PYTHONPATH=$(pwd)" >> $GITHUB_ENV
+          echo "::endgroup::"
+          echo "✅ Researcher dependencies ready."
 
       - name: Run Research
         env:

@@ -26,6 +26,17 @@ from scripts.quota_manager import quota_manager
 from engine.logger import logger
 from engine.__version__ import __version__
 
+def print_phase_box(phase_num: int, phase_title: str, details: str = ""):
+    box_w = 76
+    title_str = f"PHASE {phase_num}: {phase_title.upper()}"
+    print(f"\n┌{'─' * box_w}┐")
+    print(f"│ {title_str.ljust(box_w - 2)} │")
+    if details:
+        print(f"├{'─' * box_w}┤")
+        print(f"│ {details[:box_w - 4].ljust(box_w - 2)} │")
+    print(f"└{'─' * box_w}┘\n")
+
+
 def main():
     # ─── POINT 3: SYSTEM KILL SWITCH ──────────────────────────────────────────
     # Reads from GitHub Repo Variables (GHOST_ENGINE_ENABLED)
@@ -42,13 +53,13 @@ def main():
             print(msg)
             sys.exit(0)
         else:
-            # We must explicitly set TEST_MODE for job_runner.py to read
             os.environ["TEST_MODE"] = "true"
             logger.engine("🧪 Test Mode active. Manual trigger detected.")
     elif os.environ.get("TEST_MODE", "").strip().lower() == "true":
         os.environ["TEST_MODE"] = "true"
         logger.engine("🧪 Test Mode active (explicit TEST_MODE=true).")
-    # ──────────────────────────────────────────────────────────────────────────
+
+    print_phase_box(1, "Environment & Engine Boot", f"V{__version__} Multi-Channel Production Pipeline")
 
     try:
         logger.engine(f"☀️ System Wake. V{__version__} Multi-Channel Orchestrator Booting...")

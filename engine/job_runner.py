@@ -28,6 +28,17 @@ def is_test_mode() -> bool:
 TEST_MODE = is_test_mode()
 
 
+def print_phase_box(phase_num: int, phase_title: str, details: str = ""):
+    box_w = 76
+    title_str = f"PHASE {phase_num}: {phase_title.upper()}"
+    print(f"\n┌{'─' * box_w}┐")
+    print(f"│ {title_str.ljust(box_w - 2)} │")
+    if details:
+        print(f"├{'─' * box_w}┤")
+        print(f"│ {details[:box_w - 4].ljust(box_w - 2)} │")
+    print(f"└{'─' * box_w}┘\n")
+
+
 class JobRunner:
     def __init__(self, job: VideoJob, youtube_client=None, channel_name: str = "",
                  channel_config=None, dry_run: bool = False):
@@ -134,6 +145,7 @@ class JobRunner:
             time.sleep(5)
 
     def _execute_script_generation(self):
+        print_phase_box(3, "Script Generation & AI Routing", f"Job {self.job.id} | Topic: {self.job.topic[:50]}")
         logger.generation("Drafting script...")
         # generate_script now returns a 9-tuple including mood and caption_style
         (
@@ -171,11 +183,12 @@ class JobRunner:
         self._transition_to(JobState.VOICE_GENERATION)
 
     def _execute_voice_generation(self):
-        logger.generation("Synthesizing audio...")
         script_data  = json.loads(self.job.script)
         audio_base   = f"temp_audio_{self.base_filename}"
         target_voice = script_data.get("target_voice", "am_adam")
         mood         = script_data.get("mood", "neutral")
+        print_phase_box(4, "Voice Synthesis & Timing Calibration", f"Voice: {target_voice} | Mood: {mood}")
+        logger.generation("Synthesizing audio...")
 
         success, prov, duration = generate_audio(
             script_data["text"],
@@ -190,7 +203,6 @@ class JobRunner:
         self._transition_to(JobState.VISUAL_GENERATION)
 
     def _execute_visual_generation(self):
-        logger.generation("Sourcing scene images...")
         script_data = json.loads(self.job.script)
         prompts     = script_data.get("prompts", [])
         pexels      = script_data.get("pexels",  [])
@@ -199,6 +211,8 @@ class JobRunner:
             raise ValueError("No image prompts available in script data.")
 
         content_type = getattr(self.channel_config, "content_type", "factual") if self.channel_config else "factual"
+        print_phase_box(5, "Visual Sourcing & AI Image Cascade", f"Content Type: {content_type} | Prompts: {len(prompts)}")
+        logger.generation("Sourcing scene images...")
 
         images, provider = fetch_scene_images(
             prompts,
@@ -224,7 +238,6 @@ class JobRunner:
 
 
     def _execute_rendering(self):
-        logger.generation("Rendering final video...")
         script_data = json.loads(self.job.script)
         images      = json.loads(self.job.image_paths)
         weights     = script_data.get("weights", [])
@@ -241,6 +254,9 @@ class JobRunner:
         # that predate these fields still render correctly using base style.
         mood          = script_data.get("mood",          "neutral")
         caption_style = script_data.get("caption_style", None)
+
+        print_phase_box(5, "Master Video Rendering & Audio Mix", f"Mood: {mood} | Caption Style: {caption_style or 'default'}")
+        logger.generation("Rendering final video...")
 
         scene_count = len(images)
         required_gb = max(2.0, (scene_count * 0.3) + 0.5)
@@ -287,6 +303,7 @@ class JobRunner:
         self._execute_upload()
 
     def _execute_upload(self):
+        print_phase_box(6, "Vaulting, Memory Sync & Discord Reporting", f"Channel: {self.channel_name}")
         metadata    = json.loads(self.job.metadata)    if self.job.metadata else {}
         script_data = json.loads(self.job.script)      if self.job.script   else {}
 

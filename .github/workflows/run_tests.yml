@@ -20,10 +20,12 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install pytest pytest-mock google-genai requests pytz pyyaml
-          # Assuming you might need some base packages from requirements.txt to import your modules
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          echo "::group::Installing test dependencies..."
+          python -m pip install --quiet --upgrade pip
+          pip install --quiet pytest pytest-mock google-genai requests pytz pyyaml
+          if [ -f requirements.txt ]; then pip install --quiet -r requirements.txt; fi
+          echo "::endgroup::"
+          echo "✅ Test environment ready."
 
       - name: Run Pytest
         env:

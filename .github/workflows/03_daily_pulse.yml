@@ -35,8 +35,11 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib \
+          echo "::group::Installing Analyst dependencies..."
+          pip install --quiet google-api-python-client google-auth-httplib2 google-auth-oauthlib \
                       google-genai requests pydantic pyyaml pytz
+          echo "::endgroup::"
+          echo "✅ Analyst dependencies ready."
 
       - name: Run Analyst
         env:

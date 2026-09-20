@@ -28,13 +28,19 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          pip install requests google-genai google-auth-httplib2 google-auth-oauthlib \
+          echo "::group::Installing Audit dependencies..."
+          pip install --quiet requests google-genai google-auth-httplib2 google-auth-oauthlib \
                       google-api-python-client pyyaml pytz pydantic
+          echo "::endgroup::"
+          echo "✅ Audit dependencies ready."
 
       - name: Install FFmpeg
         run: |
+          echo "::group::Installing FFmpeg..."
           sudo apt-get update -q
           sudo apt-get install -yq ffmpeg
+          echo "::endgroup::"
+          echo "✅ FFmpeg ready."
         env:
           DEBIAN_FRONTEND: noninteractive
 
