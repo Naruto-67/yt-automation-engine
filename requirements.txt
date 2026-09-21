@@ -23,4 +23,4 @@ en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_
 
 # Ghost Engine - Multi-Channel Enterprise Edition
 ctranslate2>=4.0.0
-onnxruntime>=1.17.0
+onnxruntime>=1.30.0
