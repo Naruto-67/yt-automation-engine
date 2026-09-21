@@ -139,7 +139,9 @@ def validate_script_quality(script_text: str, prompts_cfg: dict,
             "traced", "ignited", "lit", "bent", "bound", "spent", "dedicated", "pursued", "reached",
             "struck", "clambered", "uncovered", "realized", "demanded", "refused", "insisted",
             "embraced", "clutched", "stared", "ventured", "hoped", "prayed", "wandered", "journeyed",
-            "sought", "seized", "raised", "lowered", "gathered", "unlocked", "embarks", "conquers"
+            "sought", "seized", "raised", "lowered", "gathered", "unlocked", "embarks", "conquers",
+            "smuggled", "smuggles", "launched", "launches", "guided", "guides", "secured", "secures",
+            "wound", "winds", "piloted", "pilots", "navigated", "navigates", "made", "makes"
         ]
         has_action = any(re.search(rf"\b{a}\b", script_lower) for a in action_verbs)
         if not has_action:

@@ -27,18 +27,13 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: Install Dependencies
-        run: |
-          pip install -qq > /dev/null --upgrade pip
-          pip install -qq > /dev/null requests google-genai google-auth-httplib2 google-auth-oauthlib \
-                      google-api-python-client pyyaml pytz pydantic
-          echo "✅ Audit dependencies ready."
-
-      - name: Install FFmpeg
+      - name: "⚡ Environment Setup"
         run: |
           sudo apt-get update -qq > /dev/null
           sudo apt-get install -qq > /dev/null -y ffmpeg
-          echo "✅ FFmpeg ready."
+          pip install -qq > /dev/null --upgrade pip
+          pip install -qq > /dev/null requests google-genai google-auth-httplib2 google-auth-oauthlib \
+                      google-api-python-client pyyaml pytz pydantic
         env:
           DEBIAN_FRONTEND: noninteractive
 
