@@ -31,8 +31,8 @@ jobs:
         run: |
           sudo apt-get update -qq > /dev/null
           sudo apt-get install -qq > /dev/null -y ffmpeg
-          pip install -qq > /dev/null --upgrade pip
-          pip install -qq > /dev/null requests google-genai google-auth-httplib2 google-auth-oauthlib \
+          pip install -q --upgrade pip
+          pip install -q requests google-genai google-auth-httplib2 google-auth-oauthlib \
                       google-api-python-client pyyaml pytz pydantic
         env:
           DEBIAN_FRONTEND: noninteractive

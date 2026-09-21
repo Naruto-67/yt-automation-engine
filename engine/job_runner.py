@@ -10,6 +10,17 @@ from engine.models import VideoJob, JobState, FailureLog
 from engine.database import db
 from engine.context import ctx
 
+from scripts.generate_script   import generate_script
+from scripts.generate_voice    import generate_audio
+from scripts.generate_visuals  import fetch_scene_images
+from scripts.render_video      import render_video
+from scripts.generate_metadata import generate_seo_metadata
+from scripts.generate_thumbnail import generate_thumbnail, upload_thumbnail
+from scripts.discord_notifier  import notify_step, notify_production_success, notify_vault_secure
+from engine.self_learning      import self_learning
+from engine.decision_log       import decision_log
+from engine.delivery_promise   import get_delivery_promise
+
 
 
 class JobRunner:

@@ -54,8 +54,8 @@ jobs:
           DISCORD_WEBHOOK_CH2:         ${{ secrets.DISCORD_WEBHOOK_CH2 }}
 
         run: |
-          pip install -qq > /dev/null --upgrade pip
-          pip install -qq > /dev/null google-api-python-client google-auth-httplib2 google-auth-oauthlib \
+          pip install -q --upgrade pip
+          pip install -q google-api-python-client google-auth-httplib2 google-auth-oauthlib \
                       google-genai requests pydantic pyyaml pytz
           echo "PYTHONPATH=$(pwd)" >> $GITHUB_ENV
           python -m scripts.dynamic_researcher

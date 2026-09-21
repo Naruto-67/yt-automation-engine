@@ -49,8 +49,8 @@ jobs:
           echo ""
           echo "📦 Python Environment Setup  : Python 3.11 (Pip Wheel Cache Enabled)"
           echo "🔄 Installing Python PyPI requirements from requirements.txt..."
-          pip install -qq > /dev/null --upgrade pip
-          pip install -qq > /dev/null -r requirements.txt
+          pip install -q --upgrade pip
+          pip install -q -r requirements.txt
           echo "✅ Python environment ready."
           echo ""
           python scripts/system_integrity_check.py
