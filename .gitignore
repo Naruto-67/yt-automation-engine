@@ -26,3 +26,8 @@ concat_list.txt
 # OS
 .DS_Store
 Thumbs.db
+
+# Scratch / Temp debug folder
+scratch/
+scratch
+

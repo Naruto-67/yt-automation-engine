@@ -1,4 +1,4 @@
-# scratch/test_gh_token.py — Test GitHub Token API status & endpoints
+# scripts/test_gh_token.py — Test GitHub Token API status & endpoints
 import os
 import sys
 import urllib.request
