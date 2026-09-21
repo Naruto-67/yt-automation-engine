@@ -23,18 +23,9 @@ warnings.filterwarnings(
 from engine.orchestrator import Orchestrator
 from scripts.discord_notifier import notify_summary, notify_error
 from scripts.quota_manager import quota_manager
-from engine.logger import logger
+from engine.logger import logger, print_phase_box
 from engine.__version__ import __version__
 
-def print_phase_box(phase_num: int, phase_title: str, details: str = ""):
-    box_w = 76
-    title_str = f"PHASE {phase_num}: {phase_title.upper()}"
-    print(f"\n┌{'─' * box_w}┐")
-    print(f"│ {title_str.ljust(box_w - 2)} │")
-    if details:
-        print(f"├{'─' * box_w}┤")
-        print(f"│ {details[:box_w - 4].ljust(box_w - 2)} │")
-    print(f"└{'─' * box_w}┘\n")
 
 
 def main():

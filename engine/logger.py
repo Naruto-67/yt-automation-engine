@@ -48,3 +48,16 @@ class StructuredLogger:
 
 logger = StructuredLogger()
 
+def print_phase_box(phase_num: int, phase_title: str, details: str = ""):
+    line_w = 80
+    if phase_num > 0:
+        header = f"PHASE {phase_num}: {phase_title.upper()}"
+    else:
+        header = phase_title
+    if details:
+        header += f" — {details}"
+    print(f"\n{'=' * line_w}")
+    print(header)
+    print(f"{'=' * line_w}\n")
+
+

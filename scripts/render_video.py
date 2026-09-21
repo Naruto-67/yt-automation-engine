@@ -1089,11 +1089,8 @@ def render_video(image_paths, audio_path, output_path,
     _mix_background_music(output_path, mood, transition_timestamps=scene_transitions)
 
     final_size_mb = os.path.getsize(output_path) / (1024 * 1024)
-    print(f"\n┌──────────────────────────────────────────────────────────────────┐")
-    print(f"│ [FFMPEG] ✅ Master Video & Audio Engine Assembly Succeeded       │")
-    print(f"├──────────────────────────────────────────────────────────────────┤")
-    print(f"│ Video Encoding : H.264 / 1080x1920 @ 60fps (CRF 18)             │")
-    print(f"│ Audio Master   : AAC Stereo / EBU R128 (-14 LUFS) + SFX           │")
-    print(f"│ Output File    : {os.path.basename(output_path)} ({final_size_mb:.1f} MB, {total_dur:.1f}s)")
-    print(f"└──────────────────────────────────────────────────────────────────┘\n")
+    print("\n[FFMPEG] ✅ Master Video & Audio Engine Assembly Succeeded")
+    print("         • Video Stream  : H.264 / 1080x1920 @ 60fps (CRF 18)")
+    print("         • Audio Master  : AAC Stereo / EBU R128 (-14 LUFS) + SFX")
+    print(f"         • Output File   : {os.path.basename(output_path)} ({final_size_mb:.1f} MB, {total_dur:.1f}s)\n")
     return True, total_dur, final_size_mb

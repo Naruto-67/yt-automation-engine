@@ -38,10 +38,21 @@ jobs:
 
       - name: "⚡ Environment Setup & Pre-flight Audit"
         run: |
+          echo "================================================================================"
+          echo "PHASE 1: ENVIRONMENT & SYSTEM DEPENDENCY SETUP"
+          echo "================================================================================"
+          echo "📦 System Packages Required : [ffmpeg, fonts-liberation, espeak-ng]"
+          echo "🔄 Updating apt repositories & installing system dependencies..."
           sudo apt-get update -qq > /dev/null
           sudo apt-get install -qq > /dev/null -y ffmpeg fonts-liberation espeak-ng
+          echo "✅ System dependencies installed successfully."
+          echo ""
+          echo "📦 Python Environment Setup  : Python 3.11 (Pip Wheel Cache Enabled)"
+          echo "🔄 Installing Python PyPI requirements from requirements.txt..."
           pip install -qq > /dev/null --upgrade pip
           pip install -qq > /dev/null -r requirements.txt
+          echo "✅ Python environment ready."
+          echo ""
           python scripts/system_integrity_check.py
         env:
           DEBIAN_FRONTEND: noninteractive

@@ -34,15 +34,7 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: Install Dependencies
-        run: |
-          pip install -qq > /dev/null --upgrade pip
-          pip install -qq > /dev/null google-api-python-client google-auth-httplib2 google-auth-oauthlib \
-                      google-genai requests pydantic pyyaml pytz
-          echo "PYTHONPATH=$(pwd)" >> $GITHUB_ENV
-          echo "✅ Researcher dependencies ready."
-
-      - name: Run Research
+      - name: "⚡ Run Dynamic Research"
         env:
           GHOST_ENGINE_ENABLED: ${{ vars.GHOST_ENGINE_ENABLED }}
           GEMINI_API_KEY:        ${{ secrets.GEMINI_API_KEY }}
@@ -61,7 +53,12 @@ jobs:
           YOUTUBE_REFRESH_TOKEN_CH2:   ${{ secrets.YOUTUBE_REFRESH_TOKEN_CH2 }}
           DISCORD_WEBHOOK_CH2:         ${{ secrets.DISCORD_WEBHOOK_CH2 }}
 
-        run: python -m scripts.dynamic_researcher
+        run: |
+          pip install -qq > /dev/null --upgrade pip
+          pip install -qq > /dev/null google-api-python-client google-auth-httplib2 google-auth-oauthlib \
+                      google-genai requests pydantic pyyaml pytz
+          echo "PYTHONPATH=$(pwd)" >> $GITHUB_ENV
+          python -m scripts.dynamic_researcher
 
       - name: Commit State & Memory
         run: |

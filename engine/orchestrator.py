@@ -5,8 +5,9 @@ import glob
 import yaml
 import re
 import traceback
-from engine.logger import logger
+from engine.logger import logger, print_phase_box
 from engine.config_manager import config_manager
+
 from engine.database import db
 from engine.models import VideoJob, JobState
 from engine.job_runner import JobRunner
@@ -80,20 +81,13 @@ class Orchestrator:
         global_produced = 0  
         global_failed = False  # 🚨 FIX: Initialized here to prevent NameError on sys.exit
 
-        for channel in self.channels:
-            # ── In TEST_MODE, produce exactly one video per channel ────────────
-            # The `global_produced >= 1` guard was removed: in the previous
-            # implementation it caused the second channel to be skipped entirely,
-            # meaning only CH_01 ever got a dry-run test video. We now let both
-            # channels run their full pipeline. `max_videos = 1` below already
-            # limits each channel to one video.
-            
-            # 🚨 V25 FIX: Isolate tracking variables per channel
+        for idx, channel in enumerate(self.channels, 1):
             channel_produced = 0
             channel_failed = False
             
             set_channel_context(channel)
             ctx.set_channel_id(channel.channel_id)
+            print_phase_box(1, "Environment & Engine Boot", f"CHANNEL {idx} ({channel.channel_name} - {channel.channel_id})")
             logger.engine(f"🚀 Processing: {channel.channel_name}")
 
             if is_test_mode():
@@ -245,4 +239,6 @@ class Orchestrator:
             elif channel_produced > 0:
                 notify_summary(True, f"🌙 Pipeline cycle complete. Produced **{channel_produced}** video(s) for this channel.")
                 
+        print_phase_box(0, f"🌙 PIPELINE EXECUTION CYCLE FINISHED SUCCESSFULLY ({global_produced}/{len(self.channels)} Videos Generated)")
         if global_failed and is_test_mode(): sys.exit(1)
+

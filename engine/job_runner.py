@@ -5,38 +5,11 @@ import shutil
 import traceback
 import json
 from datetime import datetime, timezone
-from engine.logger import logger
+from engine.logger import logger, print_phase_box
 from engine.models import VideoJob, JobState, FailureLog
 from engine.database import db
 from engine.context import ctx
 
-from scripts.generate_script   import generate_script
-from scripts.generate_voice    import generate_audio
-from scripts.generate_visuals  import fetch_scene_images
-from scripts.render_video      import render_video
-from scripts.generate_metadata import generate_seo_metadata
-from scripts.generate_thumbnail import generate_thumbnail, upload_thumbnail
-from scripts.discord_notifier  import notify_step, notify_production_success, notify_vault_secure
-from engine.self_learning      import self_learning
-from engine.decision_log       import decision_log
-from engine.delivery_promise   import get_delivery_promise
-
-def is_test_mode() -> bool:
-    """Return True if TEST_MODE is active via environment variable."""
-    return os.environ.get("TEST_MODE", "false").lower() == "true"
-
-TEST_MODE = is_test_mode()
-
-
-def print_phase_box(phase_num: int, phase_title: str, details: str = ""):
-    box_w = 76
-    title_str = f"PHASE {phase_num}: {phase_title.upper()}"
-    print(f"\n┌{'─' * box_w}┐")
-    print(f"│ {title_str.ljust(box_w - 2)} │")
-    if details:
-        print(f"├{'─' * box_w}┤")
-        print(f"│ {details[:box_w - 4].ljust(box_w - 2)} │")
-    print(f"└{'─' * box_w}┘\n")
 
 
 class JobRunner:
@@ -145,7 +118,7 @@ class JobRunner:
             time.sleep(5)
 
     def _execute_script_generation(self):
-        print_phase_box(3, "Script Generation & AI Routing", f"Job {self.job.id} | Topic: {self.job.topic[:50]}")
+        print_phase_box(3, "Script Generation & AI Routing", self.job.channel_id)
         logger.generation("Drafting script...")
         # generate_script now returns a 9-tuple including mood and caption_style
         (
@@ -187,7 +160,7 @@ class JobRunner:
         audio_base   = f"temp_audio_{self.base_filename}"
         target_voice = script_data.get("target_voice", "am_adam")
         mood         = script_data.get("mood", "neutral")
-        print_phase_box(4, "Voice Synthesis & Timing Calibration", f"Voice: {target_voice} | Mood: {mood}")
+        print_phase_box(4, "Voice Synthesis & Timing Calibration", self.job.channel_id)
         logger.generation("Synthesizing audio...")
 
         success, prov, duration = generate_audio(
@@ -211,7 +184,7 @@ class JobRunner:
             raise ValueError("No image prompts available in script data.")
 
         content_type = getattr(self.channel_config, "content_type", "factual") if self.channel_config else "factual"
-        print_phase_box(5, "Visual Sourcing & AI Image Cascade", f"Content Type: {content_type} | Prompts: {len(prompts)}")
+        print_phase_box(5, "Visual Sourcing & Master Video Rendering", self.job.channel_id)
         logger.generation("Sourcing scene images...")
 
         images, provider = fetch_scene_images(
@@ -255,7 +228,6 @@ class JobRunner:
         mood          = script_data.get("mood",          "neutral")
         caption_style = script_data.get("caption_style", None)
 
-        print_phase_box(5, "Master Video Rendering & Audio Mix", f"Mood: {mood} | Caption Style: {caption_style or 'default'}")
         logger.generation("Rendering final video...")
 
         scene_count = len(images)
@@ -303,7 +275,7 @@ class JobRunner:
         self._execute_upload()
 
     def _execute_upload(self):
-        print_phase_box(6, "Vaulting, Memory Sync & Discord Reporting", f"Channel: {self.channel_name}")
+        print_phase_box(6, "Vaulting, Memory Sync & Discord Reporting", self.job.channel_id)
         metadata    = json.loads(self.job.metadata)    if self.job.metadata else {}
         script_data = json.loads(self.job.script)      if self.job.script   else {}
 

@@ -18,7 +18,15 @@ import os
 import sys
 import json
 import py_compile
+import subprocess
+import shutil
+import yaml
 from pathlib import Path
+
+# Add project root to sys.path for direct script invocation
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from engine.logger import print_phase_box
 
 # Force UTF-8 stdout
 if hasattr(sys.stdout, "reconfigure"):
@@ -228,10 +236,7 @@ class IntegrityChecker:
                 self.log_result("environment", "FFmpeg installation", "FAIL", f"FFmpeg missing: {e}")
 
     def run_all(self) -> bool:
-        box_w = 76
-        print(f"\n┌{'─' * box_w}┐")
-        print(f"│ PHASE 2: PRE-FLIGHT SYSTEM INTEGRITY & HEALTH AUDIT{' ' * (box_w - 53)}│")
-        print(f"└{'─' * box_w}┘\n")
+        print_phase_box(2, "Pre-Flight System Integrity & Health Audit")
 
         self.check_hardware_resources()
         self.check_ffmpeg_environment()
@@ -241,9 +246,9 @@ class IntegrityChecker:
         self.check_render_ecosystem()
         self.check_python_syntax()
 
-        print("═" * 76)
+        print("═" * 80)
         print(f"📊 SUMMARY: {self.passed} Passed | {self.warnings} Warnings | {self.failed} Failed")
-        print("═" * 76)
+        print("═" * 80)
 
         return self.failed == 0
 
