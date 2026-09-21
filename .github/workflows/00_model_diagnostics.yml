@@ -2,6 +2,10 @@
 name: "🔬 Multi-Provider Model Diagnostics & Health Audit"
 
 on:
+  schedule:
+    # Daily at 08:30 UTC — 30 min after Google's quota reset (08:00 UTC / midnight PT)
+    # Ensures all provider RPD limits are fresh before benchmarking
+    - cron: "30 8 * * *"
   workflow_dispatch:
     inputs:
       update_registry:
@@ -45,8 +49,9 @@ jobs:
           python scripts/test_gh_token.py
           python scripts/model_diagnostics.py
 
-      - name: Commit Updated Model Registry (If Requested)
-        if: ${{ inputs.update_registry }}
+      - name: Commit Updated Model Registry
+        # Always sync on scheduled runs; on manual dispatch only when explicitly requested
+        if: ${{ github.event_name == 'schedule' || inputs.update_registry == 'true' }}
         run: |
           git config --global user.name "Ghost-Engine-Bot"
           git config --global user.email "bot@ghostengine.ai"
