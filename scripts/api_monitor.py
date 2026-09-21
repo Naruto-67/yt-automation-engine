@@ -54,25 +54,27 @@ _WARN  = "🟡"
 
 
 def _check_gemini() -> tuple:
-    """Ping Gemini API with a minimal generate request."""
+    """Ping Gemini API with a models list query."""
     key = os.environ.get("GEMINI_API_KEY", "")
     if not key:
         return False, "GEMINI_API_KEY secret not set"
     try:
-        url  = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}"
-        body = {"contents": [{"parts": [{"text": "Say OK"}]}]}
-        r    = requests.post(url, json=body, timeout=15)
+        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={key}"
+        r   = requests.get(url, timeout=15)
         if r.status_code == 200:
             try:
                 from engine.quota_manager import quota_manager
                 quota_manager.record_usage("gemini", cost=1)
             except Exception:
                 pass
-            return True, "API key valid, model responding"
-        elif r.status_code == 401 or r.status_code == 403:
+            data = r.json()
+            models = [m.get("name", "").replace("models/", "") for m in data.get("models", []) if "gemini" in m.get("name", "")]
+            model_list = ", ".join(models[:3]) if models else "Standard models active"
+            return True, f"API key valid | Available: {model_list}"
+        elif r.status_code in (401, 403):
             return False, f"Key rejected (HTTP {r.status_code}) — key may be expired or revoked"
         elif r.status_code == 429:
-            return True, f"Key valid but rate-limited (HTTP 429) — quota exhausted today"
+            return True, "Key valid but rate-limited (HTTP 429) — quota exhausted today"
         else:
             return False, f"Unexpected HTTP {r.status_code}: {r.text[:120]}"
     except Exception as e:
