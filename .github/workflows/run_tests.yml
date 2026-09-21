@@ -17,14 +17,13 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: '3.11'
+          cache: 'pip'
 
       - name: Install dependencies
         run: |
-          echo "::group::Installing test dependencies..."
-          python -m pip install --quiet --upgrade pip
-          pip install --quiet pytest pytest-mock google-genai requests pytz pyyaml
-          if [ -f requirements.txt ]; then pip install --quiet -r requirements.txt; fi
-          echo "::endgroup::"
+          python -m pip install -qq > /dev/null --upgrade pip
+          pip install -qq > /dev/null pytest pytest-mock google-genai requests pytz pyyaml
+          if [ -f requirements.txt ]; then pip install -qq > /dev/null -r requirements.txt; fi
           echo "✅ Test environment ready."
 
       - name: Run Pytest

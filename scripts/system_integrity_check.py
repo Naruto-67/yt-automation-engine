@@ -196,12 +196,45 @@ class IntegrityChecker:
             for fname, err in compile_errors:
                 self.log_result("compilation", f"Syntax error in {fname}", "FAIL", err)
 
+    def check_hardware_resources(self):
+        """Audits disk space and system RAM."""
+        import shutil
+        try:
+            total, used, free = shutil.disk_usage("/")
+            free_gb = free / (1024 ** 3)
+            if free_gb >= 2.0:
+                self.log_result("hardware", "Disk space audit", "PASS", f"{free_gb:.1f} GB available")
+            else:
+                self.log_result("hardware", "Disk space audit", "WARN", f"Only {free_gb:.1f} GB available (<2.0 GB)")
+        except Exception as e:
+            self.log_result("hardware", "Disk space audit", "WARN", str(e))
+
+    def check_ffmpeg_environment(self):
+        """Audits FFmpeg binary installation and version."""
+        import subprocess
+        import shutil
+        ffmpeg_bin = shutil.which("ffmpeg") or "ffmpeg"
+        try:
+            res = subprocess.run([ffmpeg_bin, "-version"], capture_output=True, text=True, timeout=10)
+            if res.returncode == 0:
+                first_line = res.stdout.splitlines()[0] if res.stdout else "FFmpeg present"
+                self.log_result("environment", "FFmpeg installation", "PASS", first_line[:60])
+            else:
+                self.log_result("environment", "FFmpeg installation", "WARN", "FFmpeg exit non-zero")
+        except Exception as e:
+            if sys.platform == "win32":
+                self.log_result("environment", "FFmpeg installation", "WARN", f"FFmpeg not in Windows PATH (required for rendering, ready in CI runner)")
+            else:
+                self.log_result("environment", "FFmpeg installation", "FAIL", f"FFmpeg missing: {e}")
+
     def run_all(self) -> bool:
         box_w = 76
         print(f"\n┌{'─' * box_w}┐")
         print(f"│ PHASE 2: PRE-FLIGHT SYSTEM INTEGRITY & HEALTH AUDIT{' ' * (box_w - 53)}│")
         print(f"└{'─' * box_w}┘\n")
 
+        self.check_hardware_resources()
+        self.check_ffmpeg_environment()
         self.check_yaml_configs()
         self.check_directories_and_assets()
         self.check_memory_stores()

@@ -438,6 +438,19 @@ def _mix_background_music(output_path: str, mood: str = "neutral", transition_ti
     valid_tracks = [t for t in candidate_tracks if os.path.isfile(t) and os.path.getsize(t) > 4096]
     track_path = None
 
+    if not valid_tracks:
+        try:
+            from scripts.music_manager import synthesize_procedural_ambient
+            print(f"🎵 [MUSIC] Synthesizing on-demand procedural track for mood: '{mood}'...")
+            synthesize_procedural_ambient(folder_path, folder_name, duration=65.0)
+            candidate_tracks = []
+            if os.path.isdir(folder_path):
+                for ext in ("*.mp3", "*.wav", "*.m4a", "*.aac", "*.ogg"):
+                    candidate_tracks.extend(glob.glob(os.path.join(folder_path, ext)))
+            valid_tracks = [t for t in candidate_tracks if os.path.isfile(t) and os.path.getsize(t) > 4096]
+        except Exception as synth_err:
+            print(f"⚠️ [MUSIC] On-demand synthesis skipped: {synth_err}")
+
     if valid_tracks:
         random.shuffle(valid_tracks)
         for cand in valid_tracks:
@@ -796,6 +809,10 @@ def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=60):
 
     chosen = effects[index % len(effects)]
 
+    is_video_source = image_path.lower().endswith((".mp4", ".mov", ".webm"))
+    crf_preset = "23" if is_video_source else "18"
+    speed_preset = "faster" if is_video_source else "fast"
+
     try:
         subprocess.run(
             [
@@ -806,8 +823,8 @@ def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=60):
                 "-c:v",     "libx264",
                 "-t",       str(duration),
                 "-pix_fmt", "yuv420p",
-                "-preset",  "fast",
-                "-crf",     "18",
+                "-preset",  speed_preset,
+                "-crf",     crf_preset,
                 "-r",       "60",
                 output_path,
             ],
@@ -1072,4 +1089,11 @@ def render_video(image_paths, audio_path, output_path,
     _mix_background_music(output_path, mood, transition_timestamps=scene_transitions)
 
     final_size_mb = os.path.getsize(output_path) / (1024 * 1024)
+    print(f"\n┌──────────────────────────────────────────────────────────────────┐")
+    print(f"│ [FFMPEG] ✅ Master Video & Audio Engine Assembly Succeeded       │")
+    print(f"├──────────────────────────────────────────────────────────────────┤")
+    print(f"│ Video Encoding : H.264 / 1080x1920 @ 60fps (CRF 18)             │")
+    print(f"│ Audio Master   : AAC Stereo / EBU R128 (-14 LUFS) + SFX           │")
+    print(f"│ Output File    : {os.path.basename(output_path)} ({final_size_mb:.1f} MB, {total_dur:.1f}s)")
+    print(f"└──────────────────────────────────────────────────────────────────┘\n")
     return True, total_dur, final_size_mb

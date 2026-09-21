@@ -207,34 +207,49 @@ def notify_production_success(
 ):
     safe_title = str(metadata.get("title", topic))[:95]
     safe_desc  = str(metadata.get("description", ""))[:300].replace("\n", " ")
-    tags       = ", ".join(metadata.get("tags", []))[:150]
-    preview    = (script[:350] + "…") if len(script) > 350 else script
-    url        = f"https://youtu.be/{video_id}" if video_id and "test" not in video_id else None
+    tags_list  = [f"`{t.strip()}`" for t in metadata.get("tags", []) if t.strip()]
+    formatted_tags = " ".join(tags_list[:8]) if tags_list else "`shorts` `animation`"
+    preview    = (script[:300] + "…") if len(script) > 300 else script
+    url        = f"https://youtu.be/{video_id}" if video_id and "test" not in video_id else "Test Mode"
+    url_link   = f"[Watch on YouTube]({url})" if url != "Test Mode" else "Test Mode"
+
+    # Simplify tier strings if present
+    clean_script_ai = str(script_ai).replace("Tier 2 High-Capacity Workhorse", "Tier 2").replace("Tier 1 Speed & Efficiency", "Tier 1")
+    clean_voice_ai  = str(voice_ai).replace("Tier 2 High-Capacity Workhorse", "Tier 2").replace("Tier 1 Speed & Efficiency", "Tier 1")
+    clean_visual_ai = str(visual_ai).replace("Tier 2 High-Capacity Workhorse", "Tier 2").replace("Tier 1 Speed & Efficiency", "Tier 1")
+    clean_seo_ai    = str(seo_ai).replace("Tier 2 High-Capacity Workhorse", "Tier 2").replace("Tier 1 Speed & Efficiency", "Tier 1")
 
     desc = (
-        f"Successfully rendered and vaulted new video.\n\n"
-        f"**Link** - [Watch on YouTube]({url})\n\n" if url else "**Link** - Test Mode\n\n"
-    )
-    desc += (
-        f"**Duration** - {duration:.1f}s\n\n"
-        f"**Size** - {size:.1f} MB\n\n"
-        f"**Description**\n{safe_desc}\n\n"
-        f"**Tags**\n{tags}\n\n"
-        f"**Script Preview**\n{preview}\n\n"
-        f"**AI Stack**\n"
-        f"Writer: {script_ai} | SEO: {seo_ai} | Voice: {voice_ai} | Vision: {visual_ai}"
+        f"```text\n"
+        f"┌──────────────────────────────────────────────────────────────────┐\n"
+        f"│ 🎬 DURATION : {duration:4.1f}s   │   📦 SIZE : {size:4.1f} MB   │   📺 LINK : {url[:10]:<8} │\n"
+        f"└──────────────────────────────────────────────────────────────────┘\n"
+        f"```\n"
+        f"**📺 WATCH LINK**\n{url_link}\n\n"
+        f"**📝 DESCRIPTION**\n{safe_desc}\n\n"
+        f"**🏷️ TAGS**\n{formatted_tags}\n\n"
+        f"**📜 SCRIPT PREVIEW**\n```text\n{preview}\n```\n"
+        f"**🤖 AI STACK & PIPELINE ENGINE**\n"
+        f"```text\n"
+        f"Writer : {clean_script_ai}\n"
+        f"SEO    : {clean_seo_ai}\n"
+        f"Voice  : {clean_voice_ai}\n"
+        f"Vision : {clean_visual_ai}\n"
+        f"Render : Master FFmpeg Engine (H.264 / 60fps / EBU R128)\n"
+        f"```"
     )
 
     embeds = [{
-        "author": {"name": "GHOST ENGINE PRODUCTION COMPLETE"},
+        "author": {"name": f"🎬 GHOST ENGINE PRODUCTION COMPLETE  •  [{_ACTIVE_CHANNEL}]"},
         "title": safe_title,
-        "url": url,
+        "url": url if url != "Test Mode" else None,
         "color": _COLOR["green"],
         "description": desc,
-        "footer": {"text": f"Ghost Engine • {_ACTIVE_CHANNEL} • {_ts()}"}
+        "footer": {"text": f"Ghost Engine  •  {_ACTIVE_CHANNEL}  •  {_ts()}"}
     }]
 
-    _send(_ACTIVE_WEBHOOK, {"embeds": embeds})
+    webhook_to_use = _ACTIVE_WEBHOOK or os.environ.get("DISCORD_WEBHOOK_URL", "")
+    _send(webhook_to_use, {"embeds": embeds})
 
 
 # ── Research complete (WEEKLY PING) ───────────────────────────────────────────
@@ -275,41 +290,51 @@ def notify_daily_pulse(views: int, subs: int, growth_7d: int, intel: dict, analy
     top_pillar = max(intel.get("title_templates", {}), key=lambda k: intel.get("title_templates", {})[k].get("total_views", 0)) if intel.get("title_templates") else "Need more data"
     
     desc = (
-        f"**{phase}**\n"
-        f"{phase_desc}\n\n"
-        f"**Subscribers** - {subs:,}\n\n"
-        f"**Total Views** - {views:,}\n\n"
-        f"**Growth (7D)** - +{growth_7d:,}\n\n"
-    )
-    if analytics:
-        desc += (
-            f"**Click-Through Rate** - {ctr:.2f}%\n\n"
-            f"**Avg Retention** - {ret:.1f}%\n\n"
-        )
-    desc += (
-        f"**Top Performing Pillar** - {top_pillar.upper()}\n\n"
-        f"**Active Niche** - {intel.get('evolved_niche') or 'Default'}"
+        f"```text\n"
+        f"┌──────────────────────────────────────────────────────────────────┐\n"
+        f"│ 📊 {phase:<15} │  SUBS: {subs:<8,} │  VIEWS: {views:<9,} │\n"
+        f"└──────────────────────────────────────────────────────────────────┘\n"
+        f"```\n"
+        f"_{phase_desc}_\n\n"
+        f"**📈 CHANNEL PERFORMANCE**\n"
+        f"```text\n"
+        f"Subscribers  : +{growth_7d:,} (7D Growth)\n"
+        f"Total Views  : {views:,}\n"
+        f"Avg Click CTR: {ctr:.2f}%\n"
+        f"Avg Retention: {ret:.1f}%\n"
+        f"```\n"
+        f"**🏆 TOP PILLAR:** `{top_pillar.upper()}`\n"
+        f"**🎯 ACTIVE NICHE:** `{intel.get('evolved_niche') or 'Default'}`"
     )
 
     embeds = [{
-        "author": {"name": f"WEEKLY CHANNEL REPORT • {_ACTIVE_CHANNEL}"},
+        "author": {"name": f"📊 WEEKLY CHANNEL REPORT • {_ACTIVE_CHANNEL}"},
         "color": _COLOR["yellow"],
         "description": desc,
         "footer": {"text": f"Ghost Engine • {_ts()}"}
     }]
 
-    _send(_ACTIVE_WEBHOOK, {"embeds": embeds, "content": _MENTION_HERE})
+    webhook_to_use = _ACTIVE_WEBHOOK or os.environ.get("DISCORD_WEBHOOK_URL", "")
+    _send(webhook_to_use, {"embeds": embeds, "content": _MENTION_HERE})
 
 
 # ── Critical error (PING EVERYONE) ───────────────────────────────────────────
 def notify_error(module: str, error_type: str, details: str):
+    desc = (
+        f"```text\n"
+        f"┌──────────────────────────────────────────────────────────────────┐\n"
+        f"│ 🚨 CRITICAL PIPELINE FAILURE IN ENGINE MODULE                    │\n"
+        f"└──────────────────────────────────────────────────────────────────┘\n"
+        f"```\n"
+        f"**Module:** `{module}`\n"
+        f"**Error Type:** `{error_type}`\n\n"
+        f"**💬 STACKTRACE & ERROR LOG**\n"
+        f"```python\n{details[:1500]}\n```"
+    )
     _send_embed(
         title="🚨 CRITICAL PIPELINE ERROR",
-        description=f"**Module:** {module}\n**Type:** {error_type}",
+        description=desc,
         color=_COLOR["red"],
-        fields=[
-            {"name": "💬 Stacktrace / Details", "value": f"`python\n{details[:1000]}\n`", "inline": False},
-        ],
         mention=_MENTION_EVERYONE,  # ← critical ping
         broadcast=True,             # ← goes to ALL channel webhooks
     )

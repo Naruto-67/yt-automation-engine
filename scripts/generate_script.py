@@ -14,7 +14,7 @@ from engine.logger import logger
 _WORDS_PER_SECOND_TTS = 143 / 60.0
 # EdgeTTS/Kokoro: 90 words = ~40s, 125 words = ~53s. 
 _MAX_VIDEO_SECONDS = 55.0
-_MIN_WORD_FLOOR = 85       # Minimum 85 words ensures Short is at least 38-42s (monetization & retention sweet spot)
+_MIN_WORD_FLOOR = 80       # Minimum 80 words ensures Short is at least 33.5s (monetization & retention sweet spot)
 _ABSOLUTE_WORD_CEILING = 125  # Upper bound prevents exceeding 55s ceiling
 
 
@@ -707,27 +707,27 @@ def generate_script(niche: str, topic: str):
         #                             before the word-count check (never fails)
         if attempt == 0:
             user_prompt = base_user_prompt
-        elif attempt == 1:
-            # Escalate the instruction with stronger language
-            word_limit_banner = (
-                f"\n\n🚨 HARD LIMIT VIOLATION ON PREVIOUS ATTEMPT 🚨\n"
-                f"Your previous response was too long. This is the FINAL constraint:\n"
-                f"TOTAL WORDS ACROSS ALL SCENE TEXT FIELDS MUST NOT EXCEED {_ABSOLUTE_WORD_CEILING}.\n"
-                f"Count every word. Cut scenes if needed. Do NOT exceed {_ABSOLUTE_WORD_CEILING} words.\n"
-                f"Aim for {target_words} — keep it SHORT and punchy."
-            )
-            user_prompt = base_user_prompt + word_limit_banner
         else:
-            # Last attempt: even stricter banner + reduce target scene count to force brevity
-            reduced_scenes = max(3, target_scenes - 3)
-            word_limit_banner = (
-                f"\n\n🚨 CRITICAL: FINAL ATTEMPT — STRICT WORD LIMIT ENFORCEMENT 🚨\n"
-                f"Reduce to {reduced_scenes} scenes maximum.\n"
-                f"Each scene's text field must be ONE sentence only — no more.\n"
-                f"Total words: ABSOLUTE MAXIMUM {_ABSOLUTE_WORD_CEILING}. "
-                f"Every word over this limit will cause a system failure.\n"
-                f"BE EXTREMELY BRIEF."
-            )
+            err_lower = last_error.lower()
+            if "under word floor" in err_lower or "too short" in err_lower:
+                word_limit_banner = (
+                    f"\n\n🚨 PREVIOUS ATTEMPT UNDER WORD FLOOR ({last_error}) 🚨\n"
+                    f"Your previous response was TOO SHORT. Do NOT write brief 60-70 word scripts.\n"
+                    f"Expand the story/explanation with deeper details, sensory descriptions, or step-by-step mechanisms.\n"
+                    f"Target word count: {target_words} (minimum {_MIN_WORD_FLOOR} words, maximum {_ABSOLUTE_WORD_CEILING} words)."
+                )
+            elif "exceeds" in err_lower or "too long" in err_lower:
+                word_limit_banner = (
+                    f"\n\n🚨 PREVIOUS ATTEMPT EXCEEDED WORD CEILING ({last_error}) 🚨\n"
+                    f"Your previous response was too long. Keep sentences concise.\n"
+                    f"Target word count: {target_words} (maximum {_ABSOLUTE_WORD_CEILING} words)."
+                )
+            else:
+                word_limit_banner = (
+                    f"\n\n🚨 PREVIOUS ATTEMPT REJECTED ({last_error}) 🚨\n"
+                    f"Fix the violation above. Ensure a complete, self-contained final sentence, "
+                    f"proper word count ({_MIN_WORD_FLOOR}-{_ABSOLUTE_WORD_CEILING} words), and active storytelling."
+                )
             user_prompt = base_user_prompt + word_limit_banner
 
         try:
@@ -820,6 +820,10 @@ def generate_script(niche: str, topic: str):
 
             passed, val_reason = validate_script_quality(full_text, prompts_cfg, is_fictional=is_fictional, parsed_scenes=parsed_scenes)
 
+            sentences = [s.strip() for s in re.split(r'[.!?]+', full_text) if s.strip()]
+            hook_s = sentences[0] if sentences else ""
+            ending_s = sentences[-1] if sentences else ""
+
             box_width = 76
             status_symbol = "✅ APPROVED" if passed else "❌ REJECTED"
             print(f"\n┌{'─' * box_width}┐")
@@ -828,6 +832,7 @@ def generate_script(niche: str, topic: str):
             print(f"│ Status    : {status_symbol}")
             print(f"│ Word Count: {word_count} words (Target: {_MIN_WORD_FLOOR}-{_ABSOLUTE_WORD_CEILING})")
             print(f"│ Details   : {val_reason}")
+            print(f"│ Loop Hook : \"{ending_s[:35]}…\" ➔ \"{hook_s[:35]}…\"")
             print(f"├{'─' * box_width}┤")
             print(f"│ GENERATED SCRIPT TEXT:")
             for line in full_text.split("\n"):

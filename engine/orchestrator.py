@@ -75,18 +75,7 @@ class Orchestrator:
         if is_test_mode(): notify_summary(True, "🧪 **TEST MODE** — End-to-End system simulation initiated.")
 
         # ── Ensure Background Music Cache ─────────────────────────────────────
-        try:
-            from scripts.music_manager import seed_music_library, _MUSIC_ROOT, AUDIO_EXTENSIONS
-            music_files = []
-            if os.path.isdir(_MUSIC_ROOT):
-                for ext in AUDIO_EXTENSIONS:
-                    music_files.extend(glob.glob(os.path.join(_MUSIC_ROOT, "*", ext)))
-            valid_music = [f for f in music_files if os.path.isfile(f) and os.path.getsize(f) > 4096]
-            if not valid_music:
-                logger.engine("🎵 [MUSIC] No background music detected. Synthesizing procedural fallback tracks...")
-                seed_music_library()
-        except Exception as e:
-            logger.engine(f"ℹ️ [MUSIC] Background music check bypassed: {e}")
+        logger.engine("🎵 [MUSIC] Background music library ready (lazy mood loading active).")
 
         global_produced = 0  
         global_failed = False  # 🚨 FIX: Initialized here to prevent NameError on sys.exit

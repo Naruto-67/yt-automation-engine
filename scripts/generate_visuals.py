@@ -745,14 +745,24 @@ def fetch_scene_images(
                     tier2_active = False
             break
 
-        # ── Tier 3: Pixabay Video B-Roll (RESTRICTED: Factual Only) ──────────
+        # ── Tier 3: Pexels Stock Photos (RESTRICTED: Factual Only) ───────────
+        if not success:
+            if not is_fictional:
+                safe_query = pexels_queries[i] if i < len(pexels_queries) else original_prompt
+                success, err = fallback_pexels_image(safe_query, output_path)
+                if success:
+                    final_provider = "Pexels Stock"
+            else:
+                print("      🛡️ [ISOLATION] Bypassing Pexels Stock for fictional channel (ANIMATION_LED rule).")
+
+        # ── Tier 4: Pixabay Video B-Roll (RESTRICTED: Factual Only) ──────────
         if not success:
             if not is_fictional:
                 safe_query = pexels_queries[i] if i < len(pexels_queries) else original_prompt
                 api_key = os.environ.get("PIXABAY_API_KEY")
                 if api_key:
                     try:
-                        print(f"      [Tier 3: Pixabay Video] Searching: '{safe_query[:30]}'...")
+                        print(f"      [Tier 4: Pixabay Video] Searching: '{safe_query[:30]}'...")
                         v_url = f"https://pixabay.com/api/videos/?key={api_key}&q={urllib.parse.quote(safe_query)}&video_type=film&orientation=vertical"
                         v_res = requests.get(v_url, timeout=10)
                         if v_res.status_code == 200 and v_res.json().get('hits'):
@@ -781,9 +791,9 @@ def fetch_scene_images(
             else:
                 print("      🛡️ [ISOLATION] Bypassing Pixabay Video for fictional channel (ANIMATION_LED rule).")
 
-        # ── Tier 4: Pollinations.ai FLUX (Universal Free AI Generation) ───────
+        # ── Tier 5: Pollinations.ai FLUX (Emergency Last-Resort AI Generation) ───────
         if not success:
-            print("      [Tier 4: Pollinations.ai] Attempting FLUX endpoint...")
+            print("      [Tier 5: Pollinations.ai] Attempting FLUX emergency endpoint...")
             try:
                 style_prefix = "3D Pixar digital animation render, " if is_fictional and "pixar" not in current_prompt.lower() else ""
                 safe_prompt = urllib.parse.quote(style_prefix + current_prompt + _QUALITY_SUFFIX)
@@ -797,16 +807,6 @@ def fetch_scene_images(
                     final_provider = "Pollinations.ai"
             except Exception as e:
                 print(f"      ⚠️ [POLLINATIONS] Failed: {e}")
-
-        # ── Tier 5: Pexels Stock Photos (RESTRICTED: Factual Only) ───────────
-        if not success:
-            if not is_fictional:
-                safe_query = pexels_queries[i] if i < len(pexels_queries) else original_prompt
-                success, err = fallback_pexels_image(safe_query, output_path)
-                if success:
-                    final_provider = "Pexels Stock"
-            else:
-                print("      🛡️ [ISOLATION] Bypassing Pexels Stock for fictional channel (ANIMATION_LED rule).")
 
         # ── Tier 6: Local Offline Gradient (Deterministic Safety Net) ─────────
         if not success:

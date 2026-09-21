@@ -121,17 +121,6 @@ class VisionCritic:
         Audits a generated frame via Gemini Flash Vision (free tier)
         or falls back to deterministic heuristic inspection.
         """
-        # Video b-roll files (.mp4) pass directly through heuristic validation
-        if image_path.lower().endswith((".mp4", ".mov", ".webm")):
-            if os.path.exists(image_path) and os.path.getsize(image_path) > 50_000:
-                return {
-                    "approved": True,
-                    "score": 8.5,
-                    "remedy_hint": "",
-                    "reasons": ["Video b-roll verified with valid container size."],
-                    "engine": "video_passthrough"
-                }
-
         # 1. First run deterministic local check
         local_result = self._heuristic_check(image_path)
         if not local_result["approved"] and local_result["score"] <= 3.0:

@@ -122,8 +122,9 @@ class CircularLoopEngine:
         """Returns the prompt shard mandating circular loop script structure."""
         return (
             "── 2026 INFINITE SEAMLESS LOOP MANDATE (ALGORITHM RETENTION MULTIPLIER):\n"
-            "• The final sentence of Scene 4 must be engineered to flow seamlessly back into your opening hook.\n"
-            "• Connect the ending clause directly to the beginning thought (e.g. Ending: '...and that is why scientists are amazed that' → Hook: 'A four-millimeter creature in the ocean never dies.').\n"
+            "• The final sentence of Scene 4 must be a complete, grammatically self-contained sentence that semantically bridges back into your opening hook.\n"
+            "• Synthesize the ending so it answers or reinforces the opening hook (e.g. Ending: 'And that is how the secret of the mountain forge lives on.' → Hook: 'Before the guild awoke, young blacksmith Kael smuggled...').\n"
+            "• Ensure the final sentence ends with full proper punctuation (. ! ?). Do NOT leave open dangling prepositions like 'that.', 'because.', or 'to.'.\n"
             "• NEVER include sign-offs like 'thanks for watching', 'subscribe', or 'the end' — these cause immediate viewer swipes.\n"
             "• End on high momentum so replaying the video feels like one continuous, circular narrative."
         )

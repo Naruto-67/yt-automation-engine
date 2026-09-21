@@ -32,10 +32,8 @@ jobs:
 
       - name: "Phase 1: Setup System Dependencies"
         run: |
-          echo "::group::Installing FFmpeg, Fonts & Audio libraries..."
-          sudo apt-get update -q
-          sudo apt-get install -yq ffmpeg fonts-liberation espeak-ng
-          echo "::endgroup::"
+          sudo apt-get update -qq > /dev/null
+          sudo apt-get install -qq > /dev/null -y ffmpeg fonts-liberation espeak-ng
           echo "✅ System dependencies ready."
         env:
           DEBIAN_FRONTEND: noninteractive
@@ -44,12 +42,12 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: '3.11'
+          cache: 'pip'
 
       - name: "Phase 1: Setup Python Dependencies"
         run: |
-          echo "::group::Installing Python PyPI requirements..."
-          pip install --quiet -r requirements.txt
-          echo "::endgroup::"
+          pip install -qq > /dev/null --upgrade pip
+          pip install -qq > /dev/null -r requirements.txt
           echo "✅ Python environment ready."
 
       - name: "Phase 2: Pre-flight System Integrity & Health Check"
@@ -70,6 +68,7 @@ jobs:
           CF_API_TOKEN:          ${{ secrets.CF_API_TOKEN }}
           PEXELS_API_KEY:        ${{ secrets.PEXELS_API_KEY }}
           PIXABAY_API_KEY:       ${{ secrets.PIXABAY_API_KEY }}
+          DISCORD_WEBHOOK_URL:   ${{ secrets.DISCORD_WEBHOOK_URL }}
           
           # Channel 1 Infrastructure
           YOUTUBE_CLIENT_ID_CH1:       ${{ secrets.YOUTUBE_CLIENT_ID_CH1 }}
@@ -115,3 +114,4 @@ jobs:
           name: ghost-engine-shorts-${{ github.run_number }}
           path: final_*.mp4
           if-no-files-found: warn
+          compression-level: 1
