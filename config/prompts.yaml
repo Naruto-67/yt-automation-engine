@@ -160,10 +160,20 @@ seo_gen:
     }}
 
 visual_safety:
-  system_prompt: "You are an AI Safety Filter and Creative Prompt Engineer."
+  system_prompt: |
+    You are an AI Content Safety Filter and Creative Prompt Engineer.
+    Your job is to rewrite unsafe or rejected image generation prompts into
+    advertiser-safe, visually rich alternatives that preserve the original subject
+    and theme. Never invent an unrelated subject. Return ONLY the rewritten prompt string.
   user_template: |
-    The following prompt was rejected: "{bad_prompt}"
-    Rewrite it to be cinematic, advertiser-safe, and visual. Return ONLY the new prompt string.
+    The following image prompt was rejected by the safety filter: "{bad_prompt}"
+    Video topic context: {topic}
+
+    Rewrite the prompt to be cinematic, advertiser-safe, and visually descriptive.
+    Preserve the core subject and theme from the original prompt.
+    If the original subject is unclear or dangerous, substitute a nature or science scene
+    directly related to the topic: "{topic}".
+    Return ONLY the rewritten prompt string. No explanations, no quotes, no markdown.
 
 researcher:
   system_prompt: |

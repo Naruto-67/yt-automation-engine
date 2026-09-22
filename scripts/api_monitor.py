@@ -63,7 +63,7 @@ def _check_gemini() -> tuple:
         r   = requests.get(url, timeout=15)
         if r.status_code == 200:
             try:
-                from engine.quota_manager import quota_manager
+                from scripts.quota_manager import quota_manager
                 quota_manager.record_usage("gemini", cost=1)
             except Exception:
                 pass

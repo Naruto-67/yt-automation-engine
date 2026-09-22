@@ -223,11 +223,11 @@ def _execute_jitter_backoff(attempt: int, api_name: str):
     time.sleep(wait_time)
 
 
-def _regenerate_safe_prompt(bad_prompt):
+def _regenerate_safe_prompt(bad_prompt, topic=""):
     prompts_cfg = load_config_prompts()
     sys_msg  = prompts_cfg.get("visual_safety", {}).get("system_prompt", "You are an AI Safety Filter & Creative Prompt Engineer.")
     template = prompts_cfg.get("visual_safety", {}).get("user_template", "Rewrite this to be safe: {bad_prompt}")
-    user_msg = template.format(bad_prompt=bad_prompt)
+    user_msg = template.format(bad_prompt=bad_prompt, topic=topic or bad_prompt[:60])
     try:
         clean_text, _ = quota_manager.generate_text(user_msg, task_type="creative", system_prompt=sys_msg)
         if clean_text:
