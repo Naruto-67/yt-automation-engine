@@ -46,8 +46,28 @@ class ConfigManager:
                     content_type=ch.get("content_type", "factual"),
                     brand_voice=ch.get("brand_voice", ""),
                     personality=ch.get("personality", []),
+                    visual_style_card=ch.get("visual_style_card", {}),
+                    narrator_persona=ch.get("narrator_persona", {}),
                 ))
         return active_channels
+
+    def get_channel(self, channel_id: str = None) -> Any:
+        """
+        Retrieve ChannelConfig for a specific channel_id, or current channel from context.
+        """
+        if not channel_id:
+            try:
+                from engine.context import ctx
+                channel_id = ctx.get_channel_id()
+            except Exception:
+                channel_id = None
+        
+        channels = self.get_active_channels()
+        if channel_id:
+            for ch in channels:
+                if ch.channel_id == channel_id:
+                    return ch
+        return channels[0] if channels else None
 
     def get_providers(self) -> Dict[str, Any]:
         return self._load_yaml(self.providers_path)

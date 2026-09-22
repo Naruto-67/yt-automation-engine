@@ -24,6 +24,99 @@ TEST_MODE = is_test_mode()
 _FILE_NAME = "quota_state_test.json" if is_test_mode() else "quota_state.json"
 _QUOTA_JSON_PATH = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")), "memory", _FILE_NAME)
 
+
+class CostTracker:
+    """
+    P2.8: Cost & Token Spend Optimizer.
+    Tracks estimated token spend per video and daily total across all LLM operations.
+    Formula: tokens ≈ (prompt_words + output_words) * 1.33.
+    Features:
+    - Logs daily token totals to memory/cost_log.json.
+    - Alerts Discord if per-video tokens exceed max_cost_per_video_tokens.
+    - Flags is_budget_strained() if daily token spend exceeds 80% of daily_token_budget.
+    """
+    def __init__(self):
+        self.root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        self.log_file = os.path.join(self.root_dir, "memory", "cost_log.json")
+        self._current_video_tokens = 0
+
+    def _today(self) -> str:
+        return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    def _read_log(self) -> dict:
+        if not os.path.exists(self.log_file):
+            return {"date": self._today(), "daily_tokens": 0, "entries": []}
+        try:
+            with open(self.log_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if data.get("date") != self._today():
+                    return {"date": self._today(), "daily_tokens": 0, "entries": []}
+                return data
+        except Exception:
+            return {"date": self._today(), "daily_tokens": 0, "entries": []}
+
+    def _write_log(self, data: dict):
+        try:
+            os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
+            with open(self.log_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except Exception:
+            pass
+
+    def reset_video_tracking(self):
+        self._current_video_tokens = 0
+
+    def record_generation(self, prompt: str, output: str, task_type: str = "creative", model_name: str = "") -> int:
+        p_words = len((prompt or "").split())
+        o_words = len((output or "").split())
+        est_tokens = int((p_words + o_words) * 1.33)
+        self._current_video_tokens += est_tokens
+
+        data = self._read_log()
+        data["daily_tokens"] = data.get("daily_tokens", 0) + est_tokens
+        data["entries"].append({
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "task_type": task_type,
+            "model": model_name,
+            "tokens": est_tokens,
+            "cumulative_daily": data["daily_tokens"]
+        })
+        if len(data["entries"]) > 50:
+            data["entries"] = data["entries"][-50:]
+        self._write_log(data)
+
+        # Check per-video token threshold
+        try:
+            settings = config_manager.get_settings()
+            cost_cfg = settings.get("cost_tracking", {})
+            max_vid_tokens = cost_cfg.get("max_cost_per_video_tokens", 3500)
+            if self._current_video_tokens > max_vid_tokens:
+                from scripts.discord_notifier import notify_quota_warning
+                notify_quota_warning(
+                    provider=f"Token Limit ({model_name})",
+                    usage=self._current_video_tokens,
+                    limit=max_vid_tokens
+                )
+        except Exception:
+            pass
+
+        return est_tokens
+
+    def is_budget_strained(self, threshold: float = 0.80) -> bool:
+        try:
+            settings = config_manager.get_settings()
+            cost_cfg = settings.get("cost_tracking", {})
+            daily_budget = cost_cfg.get("daily_token_budget", 150000)
+            data = self._read_log()
+            current_daily = data.get("daily_tokens", 0)
+            return current_daily >= (daily_budget * threshold)
+        except Exception:
+            return False
+
+    def get_video_token_spend(self) -> int:
+        return self._current_video_tokens
+
+
 class MasterQuotaManager:
     def __init__(self):
         self.root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -31,6 +124,7 @@ class MasterQuotaManager:
         self.LIMITS = settings.get("api_limits", {
             "gemini": 38, "cloudflare": 90, "huggingface": 45, "youtube": 9200
         })
+        self.cost_tracker = CostTracker()
 
     def _today_utc(self) -> str: return datetime.now(timezone.utc).strftime("%Y-%m-%d")
     def _today_pt(self) -> str: return datetime.now(_get_pt_timezone()).strftime("%Y-%m-%d")
@@ -98,7 +192,18 @@ class MasterQuotaManager:
         
         if provider_key and provider_key != "none":
             self.consume_points(provider_key, 1)
-            
+
+        # ── P2.8: Cost & Token Spend Tracking ─────────────────────────────────
+        try:
+            self.cost_tracker.record_generation(
+                prompt=prompt,
+                output=generated_text or "",
+                task_type=task_type,
+                model_name=provider_log_name
+            )
+        except Exception:
+            pass
+
         return generated_text, provider_log_name
 
     def diagnose_fatal_error(self, module: str, exception: Exception):
@@ -116,3 +221,4 @@ class MasterQuotaManager:
         except: pass
 
 quota_manager = MasterQuotaManager()
+cost_tracker  = quota_manager.cost_tracker

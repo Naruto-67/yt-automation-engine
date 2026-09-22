@@ -843,7 +843,7 @@ def create_ken_burns_clip(image_path, duration, output_path, index=0, fps=60):
 def render_video(image_paths, audio_path, output_path,
                  scene_weights=None, watermark_text="Topato", glow_color=None,
                  mood="neutral", caption_style=None,
-                 subtitle_color=None):
+                 subtitle_color=None, palette=None):
     """
     Master render function.
 
@@ -860,6 +860,12 @@ def render_video(image_paths, audio_path, output_path,
 
     if glow_color is None and subtitle_color is not None:
         glow_color = subtitle_color
+
+    if palette and isinstance(palette, dict):
+        if not glow_color:
+            glow_color = palette.get("subtitle_glow_hex")
+        if not caption_style:
+            caption_style = palette.get("caption_style_override")
 
     if not _check_disk_space():
         return False, 0.0, 0
@@ -1027,6 +1033,9 @@ def render_video(image_paths, audio_path, output_path,
     # ── Watermark (mood-driven dynamic position) ──────────────────────────────
     safe_watermark   = re.sub(r"[^a-zA-Z0-9\s]", "", watermark_text).strip().upper() or "TOPATO"
     wm               = _select_watermark_preset(mood)
+    if palette and isinstance(palette, dict) and "watermark_opacity" in palette:
+        wm["opacity"] = palette["watermark_opacity"]
+
     watermark_filter = (
         f",drawtext=fontfile='{safe_font}':text='{safe_watermark}':"
         f"fontcolor=0xC8C8C8@{wm['opacity']}:"
@@ -1046,9 +1055,10 @@ def render_video(image_paths, audio_path, output_path,
         scene_transitions.append(round(accum_t, 2))
 
     # ── Kinetic Progress Bar Overlay (Hybrid Python/FFmpeg + Node.js) ────────
+    bar_color = (palette.get("progress_bar_color") if palette and isinstance(palette, dict) else None) or resolved_glow or "FF3366"
     progress_bar_filter = kinetic_engine.get_progress_bar_filter(
         duration=total_dur,
-        color_hex=resolved_glow or "FF3366"
+        color_hex=bar_color
     )
 
     # The ASS file now contains word-by-word events with two-layer glow + kinetic progress bar

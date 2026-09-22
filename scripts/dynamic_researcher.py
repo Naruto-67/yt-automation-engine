@@ -73,6 +73,91 @@ def get_deep_channel_context(youtube) -> str:
         logger.error(f"Channel context fetch failed:\n{trace}")
         return "Generate broad niches."
 
+
+def fetch_google_trends(niche: str = "", top_k: int = 3) -> list:
+    """
+    P2.5: Google Trends RSS Scout.
+    Fetches real-time US breakout search queries from Google Trends RSS feed,
+    filters them for relevance to the channel's niche, and returns top candidates.
+    Gracefully skips if network is unavailable or feed format changes.
+    """
+    import urllib.request
+    import xml.etree.ElementTree as ET
+
+    urls = [
+        "https://trends.google.com/trending/rss?geo=US",
+        "https://trends.google.com/trends/trendingsearches/daily/rss?geo=US",
+    ]
+
+    items_data = []
+    for u in urls:
+        try:
+            req = urllib.request.Request(
+                u,
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+            )
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                xml_content = resp.read()
+            root = ET.fromstring(xml_content)
+            items = root.findall(".//item")
+            for it in items:
+                title_elem = it.find("title")
+                title_text = title_elem.text.strip() if title_elem is not None and title_elem.text else ""
+                if title_text:
+                    traffic_text = ""
+                    for child in it:
+                        if "approx_traffic" in child.tag and child.text:
+                            traffic_text = child.text.strip()
+                            break
+                    items_data.append((title_text, traffic_text))
+            if items_data:
+                break
+        except Exception as err:
+            logger.debug(f"[TRENDS] Fetch from {u} failed: {err}")
+
+    if not items_data:
+        return []
+
+    print(f"   📈 [TRENDS] Fetched {len(items_data)} real-time trending queries from Google Trends.")
+
+    # If no niche specified, return top items directly
+    if not niche:
+        return [t[0] for t in items_data[:top_k]]
+
+    # Filter with quick LLM evaluation
+    sample_trends = [f"'{t[0]}' ({t[1]} searches)" if t[1] else f"'{t[0]}'" for t in items_data[:15]]
+    trends_list_str = "\n".join([f"- {s}" for s in sample_trends])
+
+    filter_prompt = f"""Review these real-time Google Trending searches in the US:
+{trends_list_str}
+
+Channel Niche: "{niche}"
+
+Select up to {top_k} trends that have high curiosity potential and can be creatively adapted into a fascinating YouTube Short for this channel niche.
+Return ONLY a valid JSON array of strings, e.g. ["Selected Trend / Angle 1", "Selected Trend / Angle 2"].
+If none are suitable, return []."""
+
+    try:
+        raw, prov = quota_manager.generate_text(
+            filter_prompt,
+            task_type="analysis",
+            system_prompt="You are an algorithmic trend scout. Return ONLY a JSON array of selected trends."
+        )
+        if raw:
+            from engine.llm_router import UniversalGreedyJSONParser
+            parsed = UniversalGreedyJSONParser.extract_json(raw)
+            if isinstance(parsed, list):
+                selected = [str(x).strip() for x in parsed if str(x).strip()]
+                if selected:
+                    print(f"   🔥 [TRENDS] LLM selected {len(selected)} trending angles via {prov}")
+                    return selected[:top_k]
+    except Exception as llm_err:
+        logger.debug(f"[TRENDS] LLM trend filter error: {llm_err}")
+
+    # Fallback to top items by traffic
+    return [t[0] for t in items_data[:top_k]]
+
+
 def research_competitors(youtube, niche: str, top_n: int = 3) -> str:
     if not youtube:
         return ""
@@ -306,6 +391,20 @@ def _generate_topics_and_evolve_niche(channel_config: ChannelConfig, needed: int
             )
         else:
             user_msg += f"\n\nCRITICAL: You MUST filter all {needed} ideas through this specific Creative Lens: '{lens}'. Make them bizarre and fascinating."
+
+    # ── P2.5: Google Trends Real-Time Search Trends Injection ────────────────
+    try:
+        trends_candidates = fetch_google_trends(prompt_niche, top_k=3)
+        if trends_candidates:
+            trends_context = (
+                f"\n\n🔥 REAL-TIME GOOGLE SEARCH TRENDS (Breakout US search queries):\n"
+                f"You are STRONGLY encouraged to adapt at least 1-2 of these trending search topics "
+                f"into your batch if they can be connected to the channel's niche:\n"
+                + "\n".join([f"• {t}" for t in trends_candidates])
+            )
+            user_msg += trends_context
+    except Exception as trend_err:
+        logger.debug(f"[RESEARCH] Google Trends injection skipped: {trend_err}")
 
     raw, _ = quota_manager.generate_text(user_msg, task_type="research", system_prompt=sys_msg)
     if not raw:

@@ -295,6 +295,159 @@ def score_hook_strength(scene1_text: str) -> dict:
     }
 
 
+def multi_agent_review(
+    script_data: dict,
+    topic: str,
+    is_fictional: bool = False,
+    channel_id: str = "",
+    active_niche: str = ""
+) -> tuple[dict, dict]:
+    """
+    Multi-Agent Review: Critic Agent (Always Runs) + Conditional Director Agent (Runs if score < 7.0).
+
+    1. Critic Agent (~150 tokens):
+       Audits the script on 4 dimensions: Hook, Circular Loop, Readability, and Scene Balance.
+       Returns 1-10 scores and 3 concrete improvement notes.
+       
+    2. Director Agent (Conditional Rewrite):
+       Triggers ONLY if average critic score < 7.0.
+       Directly fixes the 3 critique points while enforcing 4 scenes and word boundaries.
+
+    Returns:
+       tuple: (final_script_data, critic_scores_dict)
+    """
+    if not isinstance(script_data, dict) or "scenes" not in script_data:
+        return script_data, {}
+
+    scenes = script_data.get("scenes", [])
+    if not scenes:
+        return script_data, {}
+
+    script_text = " ".join([
+        (s.get("text") or s.get("narration") or "") if isinstance(s, dict) else str(s)
+        for s in scenes
+    ]).strip()
+
+    if not script_text:
+        return script_data, {}
+
+    critic_scores = {
+        "hook_score": 7,
+        "loop_score": 7,
+        "readability_score": 7,
+        "scene_balance_score": 7,
+        "average_score": 7.0,
+        "improvement_notes": []
+    }
+
+    # ── Step 1: Critic Agent Review ──────────────────────────────────────────
+    critic_system = (
+        "You are an adversarial YouTube Shorts Retention Critic. "
+        "Your task is to ruthlessly critique the draft script for mobile retention, hook voltage, "
+        "and circular loop continuity. Reply ONLY with a single valid JSON object."
+    )
+
+    critic_prompt = f"""Evaluate this YouTube Shorts script for Topic: "{topic}" (Niche: {active_niche}):
+
+"{script_text}"
+
+Score each category from 1 to 10:
+1. hook_score: Does Scene 1 hook immediately within 3 seconds? (1-10)
+2. loop_score: Does Scene 4 connect seamlessly back to Scene 1 without sign-offs? (1-10)
+3. readability_score: Is it conversational and easy to understand on mobile? (1-10)
+4. scene_balance_score: Are words well distributed across scenes without one scene monopolizing? (1-10)
+
+Return JSON matching EXACTLY this schema:
+{{
+  "hook_score": 8,
+  "loop_score": 7,
+  "readability_score": 8,
+  "scene_balance_score": 7,
+  "improvement_notes": [
+    "Shorten opening hook to under 15 words for higher punch",
+    "Increase narrative tension in Scene 2 build",
+    "Ensure final sentence connects grammatically to Scene 1"
+  ]
+}}"""
+
+    try:
+        critic_raw, critic_provider = quota_manager.generate_text(
+            critic_prompt,
+            task_type="analysis",
+            system_prompt=critic_system
+        )
+        if critic_raw:
+            from engine.llm_router import UniversalGreedyJSONParser
+            parsed_critic = UniversalGreedyJSONParser.extract_json(critic_raw)
+            if isinstance(parsed_critic, dict):
+                h = int(parsed_critic.get("hook_score", 7))
+                l = int(parsed_critic.get("loop_score", 7))
+                r = int(parsed_critic.get("readability_score", 7))
+                b = int(parsed_critic.get("scene_balance_score", 7))
+                notes = parsed_critic.get("improvement_notes", [])
+                if isinstance(notes, list):
+                    notes = [str(n) for n in notes if str(n).strip()]
+
+                avg = round((h + l + r + b) / 4.0, 1)
+                critic_scores = {
+                    "hook_score": h,
+                    "loop_score": l,
+                    "readability_score": r,
+                    "scene_balance_score": b,
+                    "average_score": avg,
+                    "improvement_notes": notes
+                }
+                print(f"   🕵️ [CRITIC AGENT] Score: {avg}/10 (Hook: {h}, Loop: {l}, Readability: {r}, Balance: {b}) via {critic_provider}")
+                if notes:
+                    print(f"      Critique Notes: {'; '.join(notes[:2])}")
+    except Exception as c_err:
+        logger.debug(f"Critic agent skipped: {c_err}")
+
+    # ── Step 2: Conditional Director Agent Rewrite ───────────────────────────
+    avg_score = critic_scores.get("average_score", 7.0)
+    if avg_score < 7.0 and critic_scores.get("improvement_notes"):
+        print(f"   🎬 [DIRECTOR AGENT] Critic score {avg_score}/10 is below 7.0. Triggering Director rewrite...")
+        notes_str = "\n".join([f"- {n}" for n in critic_scores.get("improvement_notes", [])])
+
+        director_system = (
+            "You are an Executive YouTube Shorts Director. Rewrite the script to address the "
+            "critique while maintaining strict 4-scene structure and word limits (95-120 words total). "
+            "Return ONLY valid JSON matching the exact scene schema."
+        )
+
+        director_prompt = f"""Original Script Data:
+{json.dumps(script_data, indent=2)}
+
+Critic Feedback to Fix:
+{notes_str}
+
+Topic: "{topic}" | Niche: "{active_niche}"
+Requirements:
+1. Address all critic feedback directly.
+2. Maintain exactly 4 scenes, 95-120 words total.
+3. Preserve voice_actor, glow_color, mood, and caption_style fields.
+4. Ensure seamless circular loop from Scene 4 to Scene 1.
+
+Return ONLY the revised JSON matching the original schema."""
+
+        try:
+            director_raw, dir_provider = quota_manager.generate_text(
+                director_prompt,
+                task_type="creative",
+                system_prompt=director_system
+            )
+            if director_raw:
+                from engine.llm_router import UniversalGreedyJSONParser
+                revised_data = UniversalGreedyJSONParser.extract_json(director_raw)
+                if isinstance(revised_data, dict) and "scenes" in revised_data and len(revised_data["scenes"]) >= 3:
+                    print(f"   ✅ [DIRECTOR AGENT] Successfully improved script via {dir_provider}")
+                    return revised_data, critic_scores
+        except Exception as d_err:
+            logger.debug(f"Director rewrite failed, keeping original: {d_err}")
+
+    return script_data, critic_scores
+
+
 def load_config_prompts():
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     with open(os.path.join(root_dir, "config", "prompts.yaml"), "r", encoding="utf-8") as f:
@@ -509,8 +662,10 @@ def validate_script_quality(script_text: str, prompts_cfg: dict,
         else:
             score = numbers[-1]
 
+        passed = score >= 4
         passed = score >= 6
         if not passed:
+            return False, f"LLM validator score {score}/10 is below rejection threshold of 4."
             return False, f"LLM validator score {score}/10 is below quality threshold of 6 (Solid & Complete)."
         return True, f"Approved (Score: {score}/10)"
 
@@ -877,12 +1032,14 @@ def generate_script(niche: str, topic: str):
     target_words  = "95-115 words"      if is_fact else "100-120 words"
 
     # ── Load brand identity for this channel ─────────────────────────────────
-    channel_brand_voice   = ""
-    channel_personality   = []
+    channel_brand_voice      = ""
+    channel_personality      = []
+    channel_narrator_persona = {}
     for _ch in config_manager.get_active_channels():
         if _ch.channel_id == channel_id:
-            channel_brand_voice = getattr(_ch, "brand_voice", "")
-            channel_personality = getattr(_ch, "personality", [])
+            channel_brand_voice      = getattr(_ch, "brand_voice", "")
+            channel_personality      = getattr(_ch, "personality", [])
+            channel_narrator_persona = getattr(_ch, "narrator_persona", {})
             break
 
     # ── Prompt Sharding & Constitution Injection ─────────────────────────────
@@ -942,7 +1099,24 @@ def generate_script(niche: str, topic: str):
 
     # ── Brand identity injection ──────────────────────────────────────────────
 
-    if channel_brand_voice or channel_personality:
+    # ── P2.2: Narrator Persona Card & Brand Identity Injection ───────────────
+    if channel_narrator_persona:
+        p_name = channel_narrator_persona.get("name", "")
+        p_tone = channel_narrator_persona.get("tone", "")
+        p_vocab = channel_narrator_persona.get("vocabulary", [])
+        p_forbidden = channel_narrator_persona.get("forbidden_words", [])
+
+        persona_block = "\n\n🎭 NARRATOR PERSONA CARD (Embody this character completely):\n"
+        if p_name:
+            persona_block += f"• Persona Identity: {p_name}\n"
+        if p_tone:
+            persona_block += f"• Tone & Cadence: {p_tone}\n"
+        if p_vocab:
+            persona_block += "• Voice Directives:\n" + "\n".join([f"  - {v}" for v in p_vocab]) + "\n"
+        if p_forbidden:
+            persona_block += "• Strictly Forbidden Words & Clichés (NEVER use these):\n  " + ", ".join(p_forbidden) + "\n"
+        base_user_prompt += persona_block
+    elif channel_brand_voice or channel_personality:
         brand_block = "\n\n🎙️ CHANNEL BRAND VOICE (write in this style — every word):\n"
         if channel_brand_voice:
             brand_block += f"Voice: {channel_brand_voice}\n"
@@ -1073,6 +1247,21 @@ def generate_script(niche: str, topic: str):
                 json_payload = raw[start:end + 1]
                 data = json.loads(json_payload)
 
+            # ── P2.1: Multi-Agent Review (Critic Agent + Conditional Director) ──
+            # On initial draft (attempt == 0), Critic Agent evaluates retention metrics.
+            # If avg critic score < 7.0, Director Agent rewrites to repair weak spots.
+            if attempt == 0 and isinstance(data, dict) and "scenes" in data:
+                try:
+                    data, critic_review_data = multi_agent_review(
+                        script_data=data,
+                        topic=topic,
+                        is_fictional=is_fictional,
+                        channel_id=channel_id,
+                        active_niche=active_niche
+                    )
+                except Exception as mar_err:
+                    logger.debug(f"Multi-agent review skipped: {mar_err}")
+
             chosen_voice = data.get("voice_actor", "am_adam")
 
             # ── glow_color: the neon halo color for captions ─────────────────
@@ -1200,7 +1389,31 @@ def generate_script(niche: str, topic: str):
     # ── Emergency Fallback ─────────────────────────────────────────────────────
     # All 3 LLM attempts exhausted. Pick a random varied fallback script.
     # These are advertiser-safe, contain no CTAs, and cover all mood categories.
-    logger.error(f"🚨 Script Generation Fatal Exhaustion ({last_error}). Injecting Emergency Fallback Script.")
+    logger.error(f"🚨 Script Generation Fatal Exhaustion ({last_error}). Checking Emergency Vault...")
+
+    # ── P2.6: Emergency Vault Buffer ──────────────────────────────────────────
+    try:
+        from engine.emergency_vault import emergency_vault
+        vault_script = emergency_vault.get_script(channel_id)
+        if vault_script and "text" in vault_script and "prompts" in vault_script:
+            print(f"   🛡️ [EMERGENCY VAULT] Successfully retrieved evergreen script: '{vault_script.get('topic')}'")
+            v_prompts = vault_script["prompts"]
+            v_weights = [1.0 / len(v_prompts)] * len(v_prompts)
+            if v_weights:
+                v_weights[-1] = 1.0 - sum(v_weights[:-1])
+            return (
+                vault_script["text"],
+                v_prompts,
+                vault_script.get("pexels", ["nature", "science", "cinematic"]),
+                v_weights,
+                f"Emergency Vault ({vault_script.get('topic')})",
+                vault_script.get("target_voice", "am_adam"),
+                vault_script.get("glow_color", "&H0000D700"),
+                vault_script.get("mood", "neutral"),
+                vault_script.get("caption_style", "viral_impact"),
+            )
+    except Exception as ev_err:
+        logger.debug(f"[SCRIPT] Emergency vault retrieval skipped: {ev_err}")
 
     fb = _CHANNEL_FALLBACK_SCRIPTS.get(channel_id)
     fallback_source = f"Handcrafted {channel_id} Exemplar"

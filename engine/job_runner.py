@@ -16,7 +16,7 @@ from scripts.generate_visuals  import fetch_scene_images
 from scripts.render_video      import render_video
 from scripts.generate_metadata import generate_seo_metadata
 from scripts.generate_thumbnail import generate_thumbnail, upload_thumbnail
-from scripts.discord_notifier  import notify_step, notify_production_success, notify_vault_secure
+from scripts.discord_notifier  import notify_step, notify_production_success, notify_vault_secure, notify_stage_progress
 from engine.self_learning      import self_learning
 from engine.decision_log       import decision_log
 from engine.delivery_promise   import get_delivery_promise
@@ -90,6 +90,13 @@ class JobRunner:
 
             if self.job.state == JobState.VAULTED:
                 logger.success(f"Job {self.job.id} vaulted. YouTube ID: {self.job.youtube_id}")
+                try:
+                    notify_stage_progress("VAULT_COMPLETE", {
+                        "topic": self.job.topic,
+                        "duration": getattr(self, "final_duration", 0.0),
+                    })
+                except Exception:
+                    pass
 
         except Exception as e:
             trace = traceback.format_exc()
@@ -131,6 +138,10 @@ class JobRunner:
     def _execute_script_generation(self):
         print_phase_box(3, "Script Generation & AI Routing", self.job.channel_id)
         logger.generation("Drafting script...")
+        try:
+            notify_stage_progress("SCRIPT_STARTED", {"topic": self.job.topic})
+        except Exception:
+            pass
         # generate_script now returns a 9-tuple including mood and caption_style
         (
             script_text, prompts, pexels, weights, prov,
@@ -152,6 +163,11 @@ class JobRunner:
                 "_seo_ai":     "Fallback",
             }
 
+        # ── P2.3: Emotion-to-Palette Calibrator ──────────────────────────────
+        content_type = getattr(self.channel_config, "content_type", "factual") if self.channel_config else "factual"
+        from engine.palette_engine import palette_engine
+        palette = palette_engine.calibrate_palette(mood=mood, content_type=content_type)
+
         self.job.script = json.dumps({
             "text":          script_text,
             "prompts":       prompts,
@@ -162,8 +178,38 @@ class JobRunner:
             "glow_color":    glow_color,    # caption neon halo color (ASS &HAABBGGRR)
             "mood":          mood,          # emotional register for voice + music + watermark
             "caption_style": caption_style, # visual subtitle preset key
+            "palette":       palette,       # calibrated palette for styling
         })
         self.job.metadata = json.dumps(meta_data)
+
+        # ── P2.4: Episodic Memory Logging ────────────────────────────────────
+        try:
+            from engine.episodic_memory import episodic_memory
+            import re
+            sentences = [s.strip() for s in re.split(r'[.!?]+', script_text) if s.strip()]
+            hook_s = sentences[0] if sentences else ""
+            episodic_memory.log_video(
+                channel_id=self.job.channel_id,
+                topic=self.job.topic,
+                hook=hook_s,
+                script_summary=script_text[:300],
+                quality_score=7.0,
+                critic_scores=palette or {},
+                metadata=meta_data,
+            )
+        except Exception as em_err:
+            logger.debug(f"Episodic memory logging skipped: {em_err}")
+
+        try:
+            notify_stage_progress("SCRIPT_LOCKED", {
+                "topic": self.job.topic,
+                "word_count": len(script_text.split()),
+                "provider": prov,
+                "voice": voice,
+            })
+        except Exception:
+            pass
+
         self._transition_to(JobState.VOICE_GENERATION)
 
     def _execute_voice_generation(self):
@@ -173,6 +219,10 @@ class JobRunner:
         mood         = script_data.get("mood", "neutral")
         print_phase_box(4, "Voice Synthesis & Timing Calibration", self.job.channel_id)
         logger.generation("Synthesizing audio...")
+        try:
+            notify_stage_progress("VOICE_STARTED", {"topic": self.job.topic, "voice": target_voice})
+        except Exception:
+            pass
 
         success, prov, duration = generate_audio(
             script_data["text"],
@@ -197,6 +247,10 @@ class JobRunner:
         content_type = getattr(self.channel_config, "content_type", "factual") if self.channel_config else "factual"
         print_phase_box(5, "Visual Sourcing & Master Video Rendering", self.job.channel_id)
         logger.generation("Sourcing scene images...")
+        try:
+            notify_stage_progress("VISUALS_STARTED", {"topic": self.job.topic})
+        except Exception:
+            pass
 
         images, provider = fetch_scene_images(
             prompts,
@@ -238,8 +292,13 @@ class JobRunner:
         # that predate these fields still render correctly using base style.
         mood          = script_data.get("mood",          "neutral")
         caption_style = script_data.get("caption_style", None)
+        palette       = script_data.get("palette",       None)
 
         logger.generation("Rendering final video...")
+        try:
+            notify_stage_progress("RENDER_STARTED", {"topic": self.job.topic})
+        except Exception:
+            pass
 
         scene_count = len(images)
         required_gb = max(2.0, (scene_count * 0.3) + 0.5)
@@ -261,6 +320,7 @@ class JobRunner:
             glow_color=glow_color,
             mood=mood,               # ← dynamic watermark + background music
             caption_style=caption_style,  # ← dynamic caption style preset
+            palette=palette,         # ← calibrated styling palette
         )
 
         if not success:

@@ -247,6 +247,19 @@ class LLMRouter:
             active_providers=active_providers
         )
 
+        # ── P2.8: Budget Strain Guard ─────────────────────────────────────────
+        # If daily token budget is 80%+ consumed, prioritize high-quota 'flash-lite' models
+        try:
+            from scripts.quota_manager import cost_tracker
+            if cost_tracker.is_budget_strained(threshold=0.80):
+                print("   💸 [COST OPTIMIZER] Daily token budget >80% consumed. Prioritizing flash-lite models.")
+                dispatch_plan = sorted(
+                    dispatch_plan,
+                    key=lambda item: 0 if ("lite" in item[0].model_name.lower() or item[0].max_rpd >= 500) else 1
+                )
+        except Exception:
+            pass
+
         for entity, tier_label in dispatch_plan:
             if entity.entity_id in self._run_failed_models:
                 continue

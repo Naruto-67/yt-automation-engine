@@ -195,6 +195,7 @@ def score_packaging_ctr(title: str, niche: str = "") -> dict:
 
 def generate_seo_metadata(niche, script):
     print("🔍 [SEO] Generating optimized metadata...")
+    
 
     channel_id = ctx.get_channel_id()
     intel = db.get_channel_intelligence(channel_id)
@@ -228,8 +229,10 @@ def generate_seo_metadata(niche, script):
                 if not isinstance(data, dict):
                     data = {}
                 
+                safe_title_raw = data.get("title", f"Amazing {niche} Facts #shorts")
                 safe_title_raw = data.get("title", _build_fallback_title(niche))
                 if isinstance(safe_title_raw, list): 
+                    safe_title_raw = safe_title_raw[0] if safe_title_raw else f"Amazing {niche} Facts #shorts"
                     safe_title_raw = safe_title_raw[0] if safe_title_raw else _build_fallback_title(niche)
                 
                 raw_title = str(safe_title_raw).replace("<", "").replace(">", "").strip()
@@ -237,6 +240,8 @@ def generate_seo_metadata(niche, script):
                 safe_title = raw_title[:85].rsplit(' ', 1)[0] if len(raw_title) > 85 else raw_title
                 if "#shorts" not in safe_title.lower(): 
                     safe_title = f"{safe_title.strip()} #shorts"
+                
+                final_title = safe_title[:100] if len(safe_title) > 0 else "Amazing Video #shorts"
                 
                 final_title = safe_title[:100] if len(safe_title) > 0 else _build_fallback_title(niche)
 
@@ -305,18 +310,23 @@ def generate_seo_metadata(niche, script):
         # GOD-TIER FIX: Do not silently pass on extraction errors. Log them before falling back.
         logger.error(f"SEO Generation encountered an error: {e}. Executing fallback metadata.")
     
+    # Fallback — use a niche-appropriate description instead of hardcoded "Mind blowing facts"
     # Fallback — use a niche-appropriate description and curiosity-gap title
     niche_lower = niche.lower()
     if any(k in niche_lower for k in ['storytelling', 'moral', 'pixar', 'anime', 'animation']):
+        fallback_desc = f"Watch this short story and discover the lesson hidden inside. {hashtags}"
         fallback_desc = f"Every short story hides a truth nobody tells you. Watch until the end. {hashtags}"
     elif any(k in niche_lower for k in ['space', 'cosmic', 'stellar', 'galaxy']):
         fallback_desc = f"The universe is stranger than any science fiction. Here's proof. {hashtags}"
     elif any(k in niche_lower for k in ['horror', 'dark', 'scary']):
         fallback_desc = f"Some facts are so unsettling they change how you see everything. {hashtags}"
     else:
+        fallback_desc = f"Discover amazing facts you never knew. {hashtags}"
         fallback_desc = f"The fact nobody teaches you — until now. {hashtags}"
 
     return {
+        "title": f"{niche} #shorts"[:95], 
+        "description": fallback_desc, 
         "title": _build_fallback_title(niche),
         "description": fallback_desc,
         "tags": ["shorts", niche, "viral", "facts", "fyp"],

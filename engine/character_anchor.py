@@ -226,3 +226,4 @@ class CharacterAnchorEngine:
 
 # Module-level singleton
 character_anchor = CharacterAnchorEngine()
+

@@ -428,3 +428,57 @@ def notify_published(topic: str, video_id: str, publish_time: str):
 # ── Dead notification stubs (removed features — kept as no-ops to avoid import errors) ──
 def notify_engagement_report(*args, **kwargs): pass
 def notify_security_flag(*args, **kwargs): pass
+
+
+# ── Stage progress notification (P2.7 — gated by settings) ───────────────────
+def notify_stage_progress(stage_name: str, details: dict = None, channel_name: str = None):
+    """
+    P2.7: Lightweight stage progress Discord notification.
+    Stages: SCRIPT_STARTED, SCRIPT_LOCKED, VOICE_STARTED, VISUALS_STARTED, RENDER_STARTED, VAULT_COMPLETE.
+    Gated behind settings.yaml -> notifications.discord_progress_updates.
+    """
+    try:
+        from engine.config_manager import config_manager
+        settings = config_manager.get_settings()
+        if not settings.get("notifications", {}).get("discord_progress_updates", False):
+            return
+    except Exception:
+        pass
+
+    details = details or {}
+    stage_meta = {
+        "SCRIPT_STARTED":   ("✍️ Script Generation Started", _COLOR["blue"], "AI director drafting 4-scene narrative..."),
+        "SCRIPT_LOCKED":    ("📝 Narrative Script Locked",   _COLOR["green"], "Script passed retention & loop quality gates."),
+        "VOICE_STARTED":    ("🎙️ Voice Synthesis Started",  _COLOR["teal"],  "Synthesizing narration & timing calibration..."),
+        "VISUALS_STARTED":  ("🎨 Visual Sourcing Started",   _COLOR["purple"], "Rendering scene frames & cinematography..."),
+        "RENDER_STARTED":   ("🎬 Master Render Started",     _COLOR["orange"], "Assembling Ken Burns animation & ASS subtitles..."),
+        "VAULT_COMPLETE":   ("🔒 Video Vaulted & Ready",     _COLOR["pink"],  "Shorts package vaulted for scheduled publishing."),
+    }
+
+    title, color, default_desc = stage_meta.get(stage_name, (f"⚡ {stage_name}", _COLOR["blue"], ""))
+    desc = details.get("description", default_desc)
+
+    fields = []
+    if "topic" in details:
+        fields.append({"name": "Topic", "value": str(details["topic"])[:100], "inline": False})
+    if "word_count" in details:
+        fields.append({"name": "Words", "value": f"{details['word_count']} words", "inline": True})
+    if "hook_score" in details:
+        fields.append({"name": "Hook Voltage", "value": f"{details['hook_score']}/10", "inline": True})
+    if "critic_score" in details:
+        fields.append({"name": "Critic Score", "value": f"{details['critic_score']}/10", "inline": True})
+    if "provider" in details:
+        fields.append({"name": "Provider", "value": str(details["provider"]), "inline": True})
+    if "voice" in details:
+        fields.append({"name": "Voice Actor", "value": str(details["voice"]), "inline": True})
+    if "duration" in details:
+        fields.append({"name": "Duration", "value": f"{details['duration']:.1f}s", "inline": True})
+
+    _send_embed(
+        title=title,
+        description=desc,
+        color=color,
+        fields=fields if fields else None,
+        footer_extra=f"Stage: {stage_name}",
+        mention=_MENTION_NONE,
+    )

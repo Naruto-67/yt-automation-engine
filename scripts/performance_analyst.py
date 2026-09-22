@@ -452,6 +452,17 @@ def run_daily_analysis():
                                 )
                             except Exception as sle_err:
                                 logger.debug(f"Self-learning record skipped: {sle_err}")
+
+                        # ── Tag actual view & retention metrics in Episodic Memory ────
+                        try:
+                            from engine.episodic_memory import episodic_memory
+                            episodic_memory.tag_performance(
+                                topic_or_id=job.topic,
+                                views=job_views,
+                                retention=avg_view_pct if avg_view_pct > 0 else 0.0
+                            )
+                        except Exception as em_err:
+                            logger.debug(f"Episodic memory tag skipped: {em_err}")
                     except Exception:
                         continue
 

@@ -1,4 +1,4 @@
-# config/prompts.yaml
+# config/prompts.yaml — Ghost Engine
 version: "27.0.0"
 
 script_gen:
@@ -18,7 +18,7 @@ script_gen:
       • Open with a SPECIFIC empirical anchor — real number, exact species name, named scientist, or documented date.
       • Reading level: 8th grade maximum. Punchy, conversational, relatable. Short sentences. Never lecture.
       • Target duration: 95-120 words total across 4 scenes.
-      • Image prompts: Photorealistic 8K cinematic descriptions (subject, setting, lighting, camera angle, 9:16 vertical). NOT Pixar-style — real-world photography aesthetic.
+      • Image prompts: Photorealistic 8K cinematic descriptions (subject, setting, lighting, camera angle, vertical 9:16 frame). NOT Pixar-style — real-world photography aesthetic.
 
     fictional: |
       ── FICTIONAL SHARD (Character-Driven Pixar/Anime Arc):

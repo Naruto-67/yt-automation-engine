@@ -1,6 +1,6 @@
 # engine/models.py
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 from enum import Enum
 from datetime import datetime, timezone
 
@@ -33,6 +33,8 @@ class ChannelConfig(BaseModel):
     # Brand identity — injected into script prompts to give each channel a consistent voice
     brand_voice: str = ""          # One sentence describing how the channel talks (tone, style)
     personality: List[str] = Field(default_factory=list)  # 3 personality traits e.g. ["curious", "dry-wit", "direct"]
+    visual_style_card: Dict[str, Any] = Field(default_factory=dict)
+    narrator_persona: Dict[str, Any] = Field(default_factory=dict)
 
 class VideoJob(BaseModel):
     id: Optional[int] = None

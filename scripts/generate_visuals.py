@@ -171,6 +171,7 @@ def build_cinematography_prompt(scene_data, style_hint: str = "", index: int = 0
     # When scene_data is a raw string prompt
     raw_prompt = str(scene_data).strip()
     if not raw_prompt:
+        return raw_prompt
         return ""
 
     # Rotational shot sizes and dynamic camera motion for variety (anti-slideshow)

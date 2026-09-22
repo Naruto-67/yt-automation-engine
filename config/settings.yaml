@@ -346,3 +346,12 @@ monetization:
   cta_url: ""        # Alias for affiliate_link
   pinned_comment_enabled: true
 
+# ─── REAL-TIME PROGRESS NOTIFICATIONS (Phase 2) ──────────────────────────────
+notifications:
+  discord_progress_updates: true  # Sends lightweight Discord embed at pipeline stage transitions
+
+# ─── TOKEN & COST OPTIMIZER (Phase 2) ─────────────────────────────────────────
+cost_tracking:
+  max_cost_per_video_tokens: 3500  # Token threshold alert per video
+  daily_token_budget: 150000       # Daily soft ceiling across all free models
+
