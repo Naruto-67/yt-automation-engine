@@ -310,7 +310,7 @@ class SlidingWindowRateLimiter:
     @staticmethod
     def calculate_pacing_delay(entity: ModelEntity) -> float:
         rpm = max(entity.max_rpm, 1)
-        min_interval = 60.0 / float(rpm)
+        min_interval = max(60.0 / float(rpm), 1.5)
         elapsed = time.time() - entity.last_call_timestamp
         if elapsed < min_interval:
             return round(min(min_interval - elapsed, 4.0), 3)

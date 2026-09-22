@@ -97,6 +97,7 @@ class GoogleGenAIAdapter:
         client = self._get_client(timeout_ms)
 
         cfg_kwargs: Dict[str, Any] = {
+            "http_options": types.HttpOptions(timeout=timeout_ms),
             "automatic_function_calling": types.AutomaticFunctionCallingConfig(disable=True)
         }
         if system_prompt:
@@ -345,10 +346,10 @@ class LLMRouter:
                     err_str = str(e).lower()
 
                     # 4-Pathway Error Handling
-                    if "503" in err_str or "unavailable" in err_str or "high demand" in err_str:
+                    if any(x in err_str for x in ["503", "504", "unavailable", "high demand", "deadline_exceeded", "timed out", "timeout"]):
                         if attempt < 2:
                             backoff = ((attempt + 1) * 8.0) + random.uniform(1.0, 3.0)
-                            logger.warn(f"⏳ [TRANSIENT 503] {entity.entity_id} capacity spike. Retrying attempt {attempt + 2}/3 in {backoff:.1f}s...")
+                            logger.warn(f"⏳ [TRANSIENT CAPACITY SURGE] {entity.entity_id} surge ({e}). Retrying attempt {attempt + 2}/3 in {backoff:.1f}s...")
                             time.sleep(backoff)
                             continue
                         else:

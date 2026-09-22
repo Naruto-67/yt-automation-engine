@@ -1317,6 +1317,7 @@ def generate_script(niche: str, topic: str):
                         channel_id=channel_id,
                         active_niche=active_niche
                     )
+                    previous_draft_json = data
                 except Exception as mar_err:
                     logger.debug(f"Multi-agent review skipped: {mar_err}")
 

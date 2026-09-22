@@ -429,6 +429,11 @@ class JobRunner:
 
     def _record_success_in_learning_engine(self, script_data: dict):
         """Persist successful execution to self-learning memory and decision log."""
+        from engine.context import is_test_mode
+        if self.dry_run or is_test_mode():
+            logger.engine("🧪 [TEST MODE] Bypassing self-learning and decision log updates.")
+            return
+
         try:
             content_type = getattr(self.channel_config, "content_type", "factual") if self.channel_config else "factual"
             pillar = getattr(self.channel_config, "primary_pillar", "default") if self.channel_config else "default"
