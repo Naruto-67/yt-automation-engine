@@ -270,7 +270,7 @@ def generate_fallback_srt(text: str, duration: float, srt_path: str) -> bool:
         return False
 
 
-def transcribe_and_create_srt(wav_path: str, srt_path: str, clean_text: str, duration: float) -> bool:
+def transcribe_and_create_srt(wav_path: str, srt_path: str, clean_text: str, duration: float, language: str = "en") -> bool:
     """
     Transcribe wav_path with Faster-Whisper, apply ASR phonetic corrections,
     and export max-3-word chunked subtitles in SRT format.
@@ -279,7 +279,8 @@ def transcribe_and_create_srt(wav_path: str, srt_path: str, clean_text: str, dur
     try:
         print("📝 [VOICE] Transcribing and Chunking Captions (Max 3 words)...")
         whisper = get_whisper_model()
-        segments, _ = whisper.transcribe(wav_path, language="en", word_timestamps=True)
+        transcribe_lang = language if language != "en" else "en"
+        segments, _ = whisper.transcribe(wav_path, language=transcribe_lang, word_timestamps=True)
 
         srt_lines = []
         idx = 1
@@ -437,7 +438,8 @@ def _inject_orpheus_emotion(text: str, mood: str) -> str:
 
 
 def generate_audio(text: str, output_base: str = "temp_audio",
-                   target_voice: str = None, mood: str = "neutral"):
+                   target_voice: str = None, mood: str = "neutral",
+                   tts_locale: str = "en-US", language: str = "en"):
     """
     Synthesize TTS audio for the given script text.
 
@@ -447,6 +449,8 @@ def generate_audio(text: str, output_base: str = "temp_audio",
     output_base  : file path base (without extension) — .wav and .srt written here
     target_voice : Kokoro voice name (e.g. "am_adam")
     mood         : emotional register — controls emotion injection preprocessing
+    tts_locale   : regional locale for TTS synthesis (e.g. "en-US", "es-ES")
+    language     : ISO 639-1 language code (e.g. "en", "es", "ja")
 
     Returns
     -------
@@ -469,38 +473,42 @@ def generate_audio(text: str, output_base: str = "temp_audio",
     if kokoro_voice not in valid_kokoro:
         kokoro_voice = "am_adam"
 
-    # ── Primary: Kokoro TTS with emotion preprocessing ───────────────────────
-    try:
-        import numpy as np
-        import soundfile as sf
+    # ── Primary: Kokoro TTS with emotion preprocessing (English only) ─────────
+    # If target language is not English, skip Kokoro directly to EdgeTTS which natively supports 40+ languages.
+    if language == "en":
+        try:
+            import numpy as np
+            import soundfile as sf
 
-        kokoro_text  = _inject_kokoro_emotion(clean_text, mood)
-        pipeline     = get_kokoro_pipeline()
-        audio_chunks = []
-        print(f"🎙️ [VOICE] Attempting Kokoro TTS ({kokoro_voice})...")
+            kokoro_text  = _inject_kokoro_emotion(clean_text, mood)
+            pipeline     = get_kokoro_pipeline()
+            audio_chunks = []
+            print(f"🎙️ [VOICE] Attempting Kokoro TTS ({kokoro_voice})...")
 
-        for _, _, audio in pipeline(kokoro_text, voice=kokoro_voice, speed=tts_speed):
-            if audio is not None:
-                audio_chunks.append(audio)
+            for _, _, audio in pipeline(kokoro_text, voice=kokoro_voice, speed=tts_speed):
+                if audio is not None:
+                    audio_chunks.append(audio)
 
-        if audio_chunks:
-            full_audio = np.concatenate(audio_chunks)
-            sf.write(wav_path, full_audio, 24000)
-            ok, duration = trim_audio_precision(wav_path)
-            if ok and duration > 0:
-                transcribe_and_create_srt(wav_path, srt_path, clean_text, duration)
-                print(f"✅ [TTS] Kokoro — {duration:.1f}s | Voice: {kokoro_voice} | Mood: {mood}")
-                return True, "Kokoro", duration
+            if audio_chunks:
+                full_audio = np.concatenate(audio_chunks)
+                sf.write(wav_path, full_audio, 24000)
+                ok, duration = trim_audio_precision(wav_path)
+                if ok and duration > 0:
+                    transcribe_and_create_srt(wav_path, srt_path, clean_text, duration, language=language)
+                    print(f"✅ [TTS] Kokoro — {duration:.1f}s | Voice: {kokoro_voice} | Mood: {mood}")
+                    return True, "Kokoro", duration
+                else:
+                    print("⚠️ [TTS] Kokoro produced empty/invalid audio. Fallback to EdgeTTS.")
             else:
-                print("⚠️ [TTS] Kokoro produced empty/invalid audio. Fallback to EdgeTTS.")
-        else:
-            print("⚠️ [TTS] Kokoro produced no audio chunks. Fallback to EdgeTTS.")
+                print("⚠️ [TTS] Kokoro produced no audio chunks. Fallback to EdgeTTS.")
 
-    except Exception as e:
-        trace = traceback.format_exc()
-        print(f"⚠️ [TTS] Kokoro failed:\n{trace}\nFallback to EdgeTTS.")
+        except Exception as e:
+            trace = traceback.format_exc()
+            print(f"⚠️ [TTS] Kokoro failed:\n{trace}\nFallback to EdgeTTS.")
+    else:
+        print(f"🌍 [TTS] Non-English language detected ('{language}', '{tts_locale}'). Routing directly to EdgeTTS Neural.")
 
-    # ── Fallback 1: EdgeTTS (Microsoft Azure Neural Voices) ───────────────────
+    # ── Fallback 1 / Multilingual Primary: EdgeTTS (Microsoft Azure Neural Voices) ─
     try:
         # 1-to-1 mapping to maintain strict consistency with the script generator's chosen actor
         edge_voice_map = {
@@ -510,6 +518,22 @@ def generate_audio(text: str, output_base: str = "temp_audio",
             "af_sarah": "en-US-AriaNeural"        # Bright / Professional / Clear
         }
         edge_voice = edge_voice_map.get(target_voice, "en-US-ChristopherNeural")
+
+        # P3.6: Multilingual EdgeTTS Voice Selection
+        if language != "en" and tts_locale:
+            multilingual_voices = {
+                "es-es": "es-ES-AlvaroNeural",
+                "es-mx": "es-MX-JorgeNeural",
+                "fr-fr": "fr-FR-HenriNeural",
+                "de-de": "de-DE-ConradNeural",
+                "pt-br": "pt-BR-AntonioNeural",
+                "ja-jp": "ja-JP-KeitaNeural",
+                "hi-in": "hi-IN-MadhurNeural",
+                "it-it": "it-IT-DiegoNeural",
+                "ko-kr": "ko-KR-InJoonNeural",
+            }
+            edge_voice = multilingual_voices.get(tts_locale.lower(), f"{tts_locale}-Standard")
+
         print(f"🎙️ [VOICE] Attempting EdgeTTS ({edge_voice})...")
 
         # pydub in trim_audio_precision will read the MP3-encoded file natively and export as true WAV.
@@ -520,7 +544,7 @@ def generate_audio(text: str, output_base: str = "temp_audio",
         if res.returncode == 0 and os.path.exists(wav_path):
             ok, duration = trim_audio_precision(wav_path)
             if ok and duration > 0:
-                transcribe_and_create_srt(wav_path, srt_path, clean_text, duration)
+                transcribe_and_create_srt(wav_path, srt_path, clean_text, duration, language=language)
                 print(f"✅ [TTS] EdgeTTS — {duration:.1f}s | Voice: {edge_voice} | Mood: {mood}")
                 return True, "EdgeTTS", duration
         else:

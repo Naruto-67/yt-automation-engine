@@ -1035,11 +1035,15 @@ def generate_script(niche: str, topic: str):
     channel_brand_voice      = ""
     channel_personality      = []
     channel_narrator_persona = {}
+    channel_language         = "en"
+    channel_locale           = "en-US"
     for _ch in config_manager.get_active_channels():
         if _ch.channel_id == channel_id:
             channel_brand_voice      = getattr(_ch, "brand_voice", "")
             channel_personality      = getattr(_ch, "personality", [])
             channel_narrator_persona = getattr(_ch, "narrator_persona", {})
+            channel_language         = getattr(_ch, "language", "en")
+            channel_locale           = getattr(_ch, "locale", "en-US")
             break
 
     # ── Prompt Sharding & Constitution Injection ─────────────────────────────
@@ -1173,6 +1177,17 @@ def generate_script(niche: str, topic: str):
             f"3D-Pixar-style animation stills of the actual characters/setting."
         )
 
+    # ── P3.6: Multi-Language Narration Instruction ───────────────────────────
+    if channel_language and channel_language != "en":
+        base_user_prompt += (
+            f"\n\n🌍 TARGET LANGUAGE MANDATE:\n"
+            f"The channel's target audience requires narration strictly in '{channel_language}' (Locale: '{channel_locale}').\n"
+            f"• All spoken dialogue and narration text across all scenes MUST be in fluent, natural {channel_language}.\n"
+            f"• Keep 'image_prompt' and 'pexels_query' in English so text-to-image AI interprets them perfectly.\n"
+            f"• Maintain punchy sentence pacing and emotional retention in {channel_language}."
+        )
+        print(f"🌍 [SCRIPT] Injected target language requirement: {channel_language} ({channel_locale})")
+
     # ── Circular Script Seamless Loop Engine (2026 Playbook) ─────────────────
     try:
         from engine.loop_engine import loop_engine
@@ -1181,6 +1196,33 @@ def generate_script(niche: str, topic: str):
             base_user_prompt += f"\n\n{loop_block.strip()}\n"
     except Exception as le_err:
         logger.debug(f"Loop engine prompt injection skipped: {le_err}")
+
+    # ── P3.1: Chain-of-Thought Pre-Draft Reasoning ───────────────────────────
+    # Executes one focused planning reasoning step before drafting scenes.
+    # Thinks through: hook mechanism, narrative escalation, counter-intuitive twist, circular loop.
+    # Skips gracefully if quota is exhausted or on any exception.
+    try:
+        cot_prompt = (
+            f"You are a master YouTube Shorts storytelling architect.\n"
+            f"Plan a viral 4-scene Short on the topic: '{topic}' (Niche: '{active_niche}').\n\n"
+            f"Think step-by-step:\n"
+            f"1. Hook Mechanism: What exact curiosity gap or pattern interrupt hooks in seconds 0-3?\n"
+            f"2. Narrative Tension: How does Scene 2 escalate the stakes or test assumptions?\n"
+            f"3. Counter-Intuitive Climax: What surprising truth or bold action lands in Scene 3?\n"
+            f"4. Circular Loop Anchor: How does the final sentence of Scene 4 loop back to Scene 1?\n\n"
+            f"Keep your strategic plan under 90 words total. Be razor-sharp and punchy."
+        )
+        cot_raw, cot_provider = quota_manager.generate_text(
+            cot_prompt,
+            task_type="reasoning",
+            system_prompt="You are a YouTube Shorts retention strategist. Provide a brief 4-beat blueprint."
+        )
+        if cot_raw and len(cot_raw.strip()) > 25:
+            cot_plan = cot_raw.strip()
+            print(f"   🧠 [COT PRE-DRAFT] Strategic blueprint generated via {cot_provider}")
+            base_user_prompt += f"\n\n🧭 DIRECTORS STRATEGIC BLUEPRINT (Follow this story arc closely):\n{cot_plan}\n"
+    except Exception as cot_err:
+        logger.debug(f"CoT pre-draft reasoning skipped: {cot_err}")
 
     last_error = "Unknown Error"
 

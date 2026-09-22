@@ -664,6 +664,18 @@ def generate_offline_gradient(output_path):
         return False, "Fatal Render"
 
 
+def generate_broll_variants(base_prompt: str) -> list:
+    """
+    P3.2: Dynamic B-Roll Variant Generator.
+    Produces 3 candidate framing styles: wide environmental, medium dynamic action, macro extreme detail.
+    """
+    return [
+        f"{base_prompt}, wide establishing panoramic cinematic perspective, epic atmospheric scale",
+        f"{base_prompt}, dynamic medium focal action angle, crisp subject focus and motion",
+        f"{base_prompt}, dramatic extreme close-up macro detail, deep textural contrast, volumetric lighting",
+    ]
+
+
 def fetch_scene_images(
     prompts_list,
     pexels_queries,
@@ -828,6 +840,7 @@ def fetch_scene_images(
 
         if success:
             # ── Vision Critic Pre-Flight Quality Audit ───────────────────────
+            best_score = 7.0
             try:
                 verdict = vision_critic.evaluate_frame(
                     actual_path,
@@ -835,15 +848,43 @@ def fetch_scene_images(
                     scene_text=original_prompt,
                     channel_id=channel_id
                 )
+                best_score = verdict.get("score", 7.0)
                 if verdict.get("approved"):
-                    print(f"      🔍 [VISION CRITIC] Frame {i+1} approved (score: {verdict.get('score', 0):.1f} via {verdict.get('engine', 'unknown')}).")
+                    print(f"      🔍 [VISION CRITIC] Frame {i+1} approved (score: {best_score:.1f} via {verdict.get('engine', 'unknown')}).")
                 else:
                     print(
-                        f"      ⚠️ [VISION CRITIC] Frame {i+1} flagged (score: {verdict.get('score', 0):.1f}). "
+                        f"      ⚠️ [VISION CRITIC] Frame {i+1} flagged (score: {best_score:.1f}). "
                         f"Remedy hint: {verdict.get('remedy_hint')}"
                     )
             except Exception as vc_err:
                 logger.debug(f"Vision critic pre-flight check skipped: {vc_err}")
+
+            # ── P3.2: Dynamic B-Roll Selection Tournament ─────────────────────
+            dynamic_broll_enabled = config_manager.get_settings().get("visuals", {}).get("dynamic_broll", False)
+            if dynamic_broll_enabled and best_score < 7.5:
+                variants = generate_broll_variants(original_prompt)
+                for var_idx, var_prompt in enumerate(variants[:2]):
+                    cand_path = f"{base_filename}_{i}_cand_{var_idx}.jpg"
+                    cand_cinematic = build_cinematography_prompt(
+                        var_prompt, style_hint=style_hint, index=i, total_scenes=len(audited_prompts)
+                    )
+                    cand_ok, _ = generate_cloudflare_image(cand_cinematic, cand_path) if tier1_active else (False, "inactive")
+                    if cand_ok and os.path.exists(cand_path):
+                        cand_verdict = vision_critic.evaluate_frame(
+                            cand_path, prompt=cand_cinematic, scene_text=original_prompt, channel_id=channel_id
+                        )
+                        cand_score = cand_verdict.get("score", 0.0)
+                        if cand_score > best_score:
+                            print(f"      🏆 [DYNAMIC B-ROLL] Candidate {var_idx+1} won tournament ({cand_score:.1f} > {best_score:.1f})")
+                            best_score = cand_score
+                            try:
+                                shutil.copyfile(cand_path, actual_path)
+                            except Exception:
+                                pass
+                        try:
+                            os.remove(cand_path)
+                        except Exception:
+                            pass
 
             successful_images.append(actual_path)
         time.sleep(2)

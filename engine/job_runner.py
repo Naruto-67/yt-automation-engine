@@ -152,7 +152,7 @@ class JobRunner:
             raise ValueError("Empty script returned from generator.")
 
         try:
-            meta_data, seo_prov = generate_seo_metadata(self.job.niche, script_text)
+            meta_data, seo_prov = generate_seo_metadata(self.job.niche, script_text, channel_config=self.channel_config)
             meta_data["_seo_ai"] = seo_prov
         except Exception as e:
             logger.error(f"SEO Generation failed: {e}. Using fallback metadata.")
@@ -197,8 +197,14 @@ class JobRunner:
                 critic_scores=palette or {},
                 metadata=meta_data,
             )
+            from engine.knowledge_graph import knowledge_graph
+            knowledge_graph.add_covered(
+                channel_id=self.job.channel_id,
+                topic=self.job.topic,
+                pillar=meta_data.get("pillar") or "general"
+            )
         except Exception as em_err:
-            logger.debug(f"Episodic memory logging skipped: {em_err}")
+            logger.debug(f"Episodic memory / KG logging skipped: {em_err}")
 
         try:
             notify_stage_progress("SCRIPT_LOCKED", {
@@ -224,11 +230,16 @@ class JobRunner:
         except Exception:
             pass
 
+        channel_lang = getattr(self.channel_config, "language", "en") if self.channel_config else "en"
+        channel_tts_locale = getattr(self.channel_config, "tts_locale", "en-US") if self.channel_config else "en-US"
+
         success, prov, duration = generate_audio(
             script_data["text"],
             output_base=audio_base,
             target_voice=target_voice,
             mood=mood,               # ← emotion injection based on mood
+            tts_locale=channel_tts_locale,
+            language=channel_lang,
         )
         if not success:
             raise RuntimeError("TTS pipeline collapsed — all providers failed.")

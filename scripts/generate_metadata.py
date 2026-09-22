@@ -193,7 +193,7 @@ def score_packaging_ctr(title: str, niche: str = "") -> dict:
     }
 
 
-def generate_seo_metadata(niche, script):
+def generate_seo_metadata(niche, script, channel_config=None):
     print("🔍 [SEO] Generating optimized metadata...")
     
 
@@ -206,6 +206,15 @@ def generate_seo_metadata(niche, script):
 
     user_msg = prompts_cfg['seo_gen']['user_template'].format(script_text=script, recent_tags=tags_str, visual_preference=vis_str)
 
+    target_lang = getattr(channel_config, "language", "en") if channel_config else "en"
+    if target_lang != "en":
+        user_msg += (
+            f"\n\n🌍 MULTILINGUAL SEO REQUIREMENT:\n"
+            f"The video narration is in '{target_lang}'. Generate title, description, and pinned comment strictly in '{target_lang}'. "
+            f"Include relevant hashtags in both {target_lang} and English for discovery."
+        )
+        print(f"🌍 [SEO] Injected target language requirement: {target_lang}")
+
     hashtags = _build_hashtags(niche)
 
     try:
@@ -217,95 +226,123 @@ def generate_seo_metadata(niche, script):
                 start = raw_text.find('{')
                 end = raw_text.rfind('}')
                 if start != -1 and end != -1 and end > start:
-                    data = json.loads(raw_text[start:end+1])
+                    try:
+                        data = json.loads(raw_text[start:end+1])
+                    except Exception:
+                        data = {}
                 else:
                     data = {}
+            
+            if isinstance(data, dict) and "metadata" in data and isinstance(data["metadata"], dict):
+                data = data["metadata"]
+            elif isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
+                data = data[0]
                 
-                if "metadata" in data and isinstance(data["metadata"], dict):
-                    data = data["metadata"]
-                elif isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
-                    data = data[0]
-                    
-                if not isinstance(data, dict):
-                    data = {}
-                
-                safe_title_raw = data.get("title", f"Amazing {niche} Facts #shorts")
-                safe_title_raw = data.get("title", _build_fallback_title(niche))
-                if isinstance(safe_title_raw, list): 
-                    safe_title_raw = safe_title_raw[0] if safe_title_raw else f"Amazing {niche} Facts #shorts"
-                    safe_title_raw = safe_title_raw[0] if safe_title_raw else _build_fallback_title(niche)
-                
-                raw_title = str(safe_title_raw).replace("<", "").replace(">", "").strip()
-                
-                safe_title = raw_title[:85].rsplit(' ', 1)[0] if len(raw_title) > 85 else raw_title
-                if "#shorts" not in safe_title.lower(): 
-                    safe_title = f"{safe_title.strip()} #shorts"
-                
-                final_title = safe_title[:100] if len(safe_title) > 0 else "Amazing Video #shorts"
-                
-                final_title = safe_title[:100] if len(safe_title) > 0 else _build_fallback_title(niche)
+            if not isinstance(data, dict):
+                data = {}
+            
+            safe_title_raw = data.get("title", _build_fallback_title(niche))
+            if isinstance(safe_title_raw, list): 
+                safe_title_raw = safe_title_raw[0] if safe_title_raw else _build_fallback_title(niche)
+            
+            raw_title = str(safe_title_raw).replace("<", "").replace(">", "").strip()
+            
+            safe_title = raw_title[:85].rsplit(' ', 1)[0] if len(raw_title) > 85 else raw_title
+            if "#shorts" not in safe_title.lower(): 
+                safe_title = f"{safe_title.strip()} #shorts"
+            
+            final_title = safe_title[:100] if len(safe_title) > 0 else _build_fallback_title(niche)
 
-                # ── CTR Packaging Score ──────────────────────────────────
+            # ── P3.4 & P3.5: A/B Testing & Prompt Evolver Feedback ──────────
+            try:
+                from engine.ab_engine import ab_engine
+                from engine.prompt_evolver import prompt_evolver
+
+                var_a, var_b = ab_engine.generate_variants(final_title, niche, script)
+                if var_b["ctr_score"] > var_a["ctr_score"]:
+                    final_title = var_b["title"]
+                    selected_var = "B"
+                    best_ctr = var_b
+                else:
+                    selected_var = "A"
+                    best_ctr = var_a
+
+                prompt_evolver.log_feedback(
+                    channel_id=channel_id,
+                    metric="ctr_archetype",
+                    variant=best_ctr["archetype"],
+                    score=best_ctr["ctr_score"]
+                )
+
+                ab_engine.create_test(
+                    channel_id=channel_id,
+                    job_id=0,
+                    video_id=f"pending_{channel_id}",
+                    variant_a=var_a,
+                    variant_b=var_b,
+                    selected_variant=selected_var
+                )
+            except Exception as _ab_err:
+                logger.debug(f"[A/B ENGINE] Setup skipped: {_ab_err}")
                 try:
                     ctr_result = score_packaging_ctr(final_title, niche)
                     print(
                         f"   📦 [CTR SCORE] {ctr_result['grade']} {ctr_result['score']}/100 "
                         f"| Archetype: {ctr_result['archetype'] or 'None'} "
-                        f"| {ctr_result['char_count']} chars "
-                        f"| {ctr_result['feedback']}"
+                        f"| {ctr_result['char_count']} chars"
                     )
-                except Exception as _ctr_err:
-                    pass  # CTR scoring is advisory — never blocks metadata generation
+                except Exception:
+                    pass
 
-                raw_tags = data.get("tags", ["shorts", niche])
-                if isinstance(raw_tags, str):
-                    safe_tags = [t.strip().replace("#", "") for t in raw_tags.split(",") if t.strip()]
-                elif isinstance(raw_tags, list):
-                    safe_tags = [str(t).strip().replace("#", "") for t in raw_tags if str(t).strip()]
+            raw_tags = data.get("tags", ["shorts", niche])
+            if isinstance(raw_tags, str):
+                safe_tags = [t.strip().replace("#", "") for t in raw_tags.split(",") if t.strip()]
+            elif isinstance(raw_tags, list):
+                safe_tags = [str(t).strip().replace("#", "") for t in raw_tags if str(t).strip()]
+            else:
+                safe_tags = ["shorts", niche]
+            
+            # Allow up to 500 chars of tags (YouTube limit)
+            valid_tags = []
+            total_len = 0
+            for t in safe_tags:
+                if total_len + len(t) + 1 <= 490:
+                    valid_tags.append(t)
+                    total_len += len(t) + 1
                 else:
-                    safe_tags = ["shorts", niche]
-                
-                # Allow up to 500 chars of tags (YouTube limit) — old 400 cap was leaving value unused
-                valid_tags = []
-                total_len = 0
-                for t in safe_tags:
-                    if total_len + len(t) + 1 <= 490:
-                        valid_tags.append(t)
-                        total_len += len(t) + 1
-                    else:
-                        break
-                
-                # Extract high-converting pinned engagement comment
-                raw_pinned = data.get("pinned_comment", "")
-                pinned_comment = str(raw_pinned).replace("<", "").replace(">", "").strip() if raw_pinned else "What surprised you the most? Share below! 👇"
+                    break
+            
+            # Extract high-converting pinned engagement comment
+            raw_pinned = data.get("pinned_comment", "")
+            pinned_comment = str(raw_pinned).replace("<", "").replace(">", "").strip() if raw_pinned else "What surprised you the most? Share below! 👇"
 
-                # Monetization description CTA injection
-                from engine.config_manager import config_manager
-                settings = config_manager.get_settings()
-                monetization = settings.get("monetization", {})
-                is_monetization_enabled = monetization.get("enabled", True)
-                cta_slot = monetization.get("description_cta", "") or monetization.get("cta_text", "")
-                affiliate_link = monetization.get("affiliate_link", "") or monetization.get("cta_url", "")
+            # Monetization description CTA injection
+            from engine.config_manager import config_manager
+            settings = config_manager.get_settings()
+            monetization = settings.get("monetization", {})
+            is_monetization_enabled = monetization.get("enabled", True)
+            cta_slot = monetization.get("description_cta", "") or monetization.get("cta_text", "")
+            affiliate_link = monetization.get("affiliate_link", "") or monetization.get("cta_url", "")
 
-                cta_text = ""
-                if is_monetization_enabled and cta_slot:
-                    cta_text = f"\n\n{cta_slot}"
-                    if affiliate_link:
-                        cta_text += f"\n🔗 {affiliate_link}"
+            cta_text = ""
+            if is_monetization_enabled and cta_slot:
+                cta_text = f"\n\n{cta_slot}"
+                if affiliate_link:
+                    cta_text += f"\n🔗 {affiliate_link}"
 
-                # Append hashtags to description — YouTube uses these for hashtag search surfacing
-                raw_desc = str(data.get("description", "")).replace("<", "").replace(">", "").strip()
-                if raw_desc:
-                    full_desc = f"{raw_desc}{cta_text}\n\n{hashtags}"
-                else:
-                    full_desc = f"{cta_text}\n\n{hashtags}".strip() or hashtags
+            # Append hashtags to description
+            raw_desc = str(data.get("description", "")).replace("<", "").replace(">", "").strip()
+            if raw_desc:
+                full_desc = f"{raw_desc}{cta_text}\n\n{hashtags}"
+            else:
+                full_desc = f"{cta_text}\n\n{hashtags}".strip() or hashtags
 
-                return {
-                    "title": final_title, 
-                    "description": full_desc[:4900], 
-                    "tags": valid_tags,
-                    "pinned_comment": pinned_comment
-                }, provider
+            return {
+                "title": final_title, 
+                "description": full_desc[:4900], 
+                "tags": valid_tags,
+                "pinned_comment": pinned_comment
+            }, provider
     except Exception as e:
         # GOD-TIER FIX: Do not silently pass on extraction errors. Log them before falling back.
         logger.error(f"SEO Generation encountered an error: {e}. Executing fallback metadata.")

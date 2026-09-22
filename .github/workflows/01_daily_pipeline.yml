@@ -96,6 +96,11 @@ jobs:
           git add memory/quota_state.json 2>/dev/null || true
           git add memory/token_health.json 2>/dev/null || true
           git add memory/dynamic_models_registry.json 2>/dev/null || true
+          git add memory/knowledge_graph.json 2>/dev/null || true
+          git add memory/ab_tests.json 2>/dev/null || true
+          git add memory/prompt_evolution.json 2>/dev/null || true
+          git add memory/episodic_memory.jsonl 2>/dev/null || true
+          git add memory/cost_log.json 2>/dev/null || true
           git add config/channels.yaml 2>/dev/null || true
           git add assets/lessons_learned.json 2>/dev/null || true
           

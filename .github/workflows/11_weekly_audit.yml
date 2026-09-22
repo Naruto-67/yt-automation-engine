@@ -102,6 +102,13 @@ jobs:
           echo "   To enable: register at freesound.org/apiv2/apply/ and"
           echo "   add FREESOUND_API_KEY secret, then update music_manager.py."
 
+      - name: Run Prompt Evolution & Optimization
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          python -c "from engine.prompt_evolver import prompt_evolver; res = prompt_evolver.run_weekly_evolution(); print('Prompt Evolution Complete:', res)"
+
       - name: Commit State & Memory
         run: |
           git config --global user.name  "Ghost-Engine-Bot"
@@ -110,7 +117,13 @@ jobs:
           git add memory/ghost_engine.db || true
           git add memory/quota_state.json || true
           git add memory/token_health.json || true
+          git add memory/knowledge_graph.json 2>/dev/null || true
+          git add memory/ab_tests.json 2>/dev/null || true
+          git add memory/prompt_evolution.json 2>/dev/null || true
+          git add memory/episodic_memory.jsonl 2>/dev/null || true
+          git add memory/cost_log.json 2>/dev/null || true
           git add config/channels.yaml || true
+          git add config/prompts.yaml 2>/dev/null || true
           git add assets/lessons_learned.json 2>/dev/null || true
           git add assets/music/ || true
 

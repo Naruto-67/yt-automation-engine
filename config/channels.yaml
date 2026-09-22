@@ -9,6 +9,8 @@ channels:
     target_audience: "US"
     category_id: "1"          # Film & Animation — higher RPM than People & Blogs (22)
     language: "en"             # English TTS — required for US ad targeting
+    locale: "en-US"
+    tts_locale: "en-US"
     content_type: "fictional"  # Signals script_gen to use storytelling rules, not fact rules
     brand_voice: "Warm, cinematic narrator — like a campfire storyteller who knows Pixar films by heart. Gentle pacing, vivid imagery, and an earned emotional moment at the end."
     personality:
@@ -68,6 +70,8 @@ channels:
     target_audience: "US"
     category_id: "27"          # Education — highest-RPM tier for fact/educational content
     language: "en"              # English TTS — required for US ad targeting
+    locale: "en-US"
+    tts_locale: "en-US"
     content_type: "factual"    # Signals script_gen to enforce real facts and specifics
     brand_voice: "Punchy, curious, and conversational — like a smart friend who just learned something wild and has to tell you right now. Short sentences. Specific numbers. Never lectures."
     personality:

@@ -406,6 +406,20 @@ def _generate_topics_and_evolve_niche(channel_config: ChannelConfig, needed: int
     except Exception as trend_err:
         logger.debug(f"[RESEARCH] Google Trends injection skipped: {trend_err}")
 
+    # ── P3.3: Knowledge Graph Coverage Context ───────────────────────────────
+    try:
+        from engine.knowledge_graph import knowledge_graph
+        kg_map = knowledge_graph.get_coverage_map(channel_config.channel_id)
+        under = kg_map.get("under_explored_pillars", [])
+        if under:
+            user_msg += (
+                f"\n\n🌐 KNOWLEDGE GRAPH COVERAGE MAP:\n"
+                f"Your channel currently has low coverage in these pillars: {', '.join(under)}.\n"
+                f"Strongly prioritize pitching at least 2-3 topics in these under-explored areas to balance your library."
+            )
+    except Exception as kg_err:
+        logger.debug(f"[RESEARCH] Knowledge graph context skipped: {kg_err}")
+
     raw, _ = quota_manager.generate_text(user_msg, task_type="research", system_prompt=sys_msg)
     if not raw:
         return [], None
@@ -577,6 +591,14 @@ def run_dynamic_research(channel_config: ChannelConfig, yt_client):
                 if any(_jaccard_similarity(topic_clean, h) > 0.6 for h in historical_topics):
                     continue
 
+                try:
+                    from engine.knowledge_graph import knowledge_graph
+                    if knowledge_graph.is_topic_covered(channel_config.channel_id, topic_clean):
+                        print(f"      ⏭️  Skipping covered topic in Knowledge Graph: '{topic_clean[:60]}'")
+                        continue
+                except Exception:
+                    pass
+
                 # ── FICTIONAL quality gate: reject abstract/nonsense topics ──
                 # A fiction channel's topic MUST read like a character-driven
                 # logline — ≥5 words, contains an actor/goal verb, and is NOT a
@@ -618,6 +640,15 @@ def run_dynamic_research(channel_config: ChannelConfig, yt_client):
                     metadata=_json.dumps(job_metadata) if job_metadata else None,
                 ))
                 db.archive_topic(channel_config.channel_id, topic_clean, validated_niche)
+                try:
+                    from engine.knowledge_graph import knowledge_graph
+                    knowledge_graph.add_covered(
+                        channel_id=channel_config.channel_id,
+                        topic=topic_clean,
+                        pillar=topic_pillar or "general"
+                    )
+                except Exception:
+                    pass
                 historical_topics.append(topic_clean.lower())
                 added_count += 1
                 valid_topics_added_in_chunk += 1

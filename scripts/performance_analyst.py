@@ -463,6 +463,24 @@ def run_daily_analysis():
                             )
                         except Exception as em_err:
                             logger.debug(f"Episodic memory tag skipped: {em_err}")
+
+                        # ── P3.4: Evaluate Active A/B Tests ───────────────────────────
+                        try:
+                            from engine.ab_engine import ab_engine
+                            active_tests = ab_engine.get_active_tests()
+                            for test in active_tests:
+                                if test.get("channel_id") == channel.channel_id:
+                                    test_vid = test.get("video_id", "")
+                                    if str(job.id) in test_vid or (job.topic and job.topic.lower() in test.get("variant_a", {}).get("title", "").lower()):
+                                        sel = test.get("selected_variant", "A")
+                                        winner = sel if (job_views >= 1000 or avg_view_pct >= 60.0) else ("B" if sel == "A" else "A")
+                                        ab_engine.record_result(
+                                            video_id=test["test_id"],
+                                            winner=winner,
+                                            metrics={"views": job_views, "retention_pct": avg_view_pct}
+                                        )
+                        except Exception as ab_ev_err:
+                            logger.debug(f"A/B test evaluation skipped: {ab_ev_err}")
                     except Exception:
                         continue
 

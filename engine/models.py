@@ -29,6 +29,8 @@ class ChannelConfig(BaseModel):
     # Monetization metadata — all optional with safe defaults so existing code never breaks
     category_id: str = "22"        # YouTube category. Default 22=People&Blogs. Set per channel in channels.yaml.
     language: str = "en"           # Audio/video language for ad targeting
+    locale: str = "en-US"          # Full regional locale (e.g. en-US, es-ES, ja-JP)
+    tts_locale: str = "en-US"      # Voice synthesizer locale code
     content_type: str = "factual"  # "factual" or "fictional" — controls script_gen prompt behaviour
     # Brand identity — injected into script prompts to give each channel a consistent voice
     brand_voice: str = ""          # One sentence describing how the channel talks (tone, style)

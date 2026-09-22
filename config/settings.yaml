@@ -48,6 +48,10 @@ video:
   max_duration: 59 # HARDCODED
   min_disk_gb: 2.5 # Minimum free disk before rendering (GB). Auto-scales with scene count.
 
+# ─── VISUAL GENERATION & B-ROLL CONFIG ───────────────────────────────────────
+visuals:
+  dynamic_broll: false  # Multi-candidate B-roll tournament (off by default to conserve quota)
+
 # ─── RENDER MOTION / TRANSITION CONFIG ────────────────────────────────────────
 # Tune the Ken Burns animation and scene transitions. All values here are read
 # by scripts/render_video.py at render time — no code changes needed to tune.
