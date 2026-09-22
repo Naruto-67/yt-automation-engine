@@ -1,5 +1,5 @@
 # config/channels.yaml
-version: "26.0.0"
+version: "27.0.0"
 
 channels:
   - id: "CH_01"
@@ -14,6 +14,38 @@ channels:
       - "warm and empathetic"
       - "visually descriptive"
       - "quietly profound — the lesson sneaks up on you"
+
+    # ── Character Anchor: Visual Style Card ──────────────────────────────────
+    # Defines the permanent art style for ALL AnimeRise videos.
+    # Used by engine/character_anchor.py to prepend a style lock to every image prompt.
+    visual_style_card:
+      art_style: "Studio Ghibli-inspired watercolor anime, warm amber and gold palette, soft expressive linework"
+      render_engine: "2D hand-drawn animation aesthetic, painterly backgrounds, cel-shaded characters"
+      color_treatment: "warm golden hour lighting, muted earth tones, soft atmospheric glow, high contrast character silhouettes"
+
+    # ── Narrator Persona Card ─────────────────────────────────────────────────
+    # Structured persona injected into the script generation prompt.
+    # More precise than the free-text brand_voice field — LLM can operationalize these.
+    narrator_persona:
+      name: "The Ember Narrator"
+      tone: "Warm, unhurried, cinematic — speaks like a wise elder around a fire, never rushes, lets silence breathe"
+      vocabulary:
+        - "Use vivid sensory details (what they heard, felt, smelled)"
+        - "Short declarative sentences for impact beats"
+        - "Vary rhythm — long flowing description then one punchy line"
+        - "Prefer concrete nouns over abstract ones"
+      forbidden_words:
+        - "remarkable"
+        - "fascinating"
+        - "incredible"
+        - "amazing"
+        - "ultimately"
+        - "journey"
+        - "tapestry"
+        - "delve"
+        - "truly"
+        - "simply"
+
     youtube_client_id_env: "YOUTUBE_CLIENT_ID_CH1"
     youtube_client_secret_env: "YOUTUBE_CLIENT_SECRET_CH1"
     youtube_refresh_token_env: "YOUTUBE_REFRESH_TOKEN_CH1"
@@ -41,6 +73,37 @@ channels:
       - "casually brilliant — drops facts like it's nothing"
       - "dry wit — funny without trying to be funny"
       - "direct and specific — no vague claims, always the exact number or name"
+
+    # ── Character Anchor: Visual Style Card ──────────────────────────────────
+    # Topato is a factual channel — no fictional protagonist.
+    # Style card defines the photographic aesthetic for all image prompts.
+    visual_style_card:
+      art_style: "Photorealistic 8K cinematic documentary photography, National Geographic aesthetic"
+      render_engine: "Real-world photography — no animation, no illustration, no CGI"
+      color_treatment: "Dramatic natural lighting, high contrast, deep shadows, saturated subject, 9:16 vertical frame"
+
+    # ── Narrator Persona Card ─────────────────────────────────────────────────
+    narrator_persona:
+      name: "The Fact Bomber"
+      tone: "Punchy, direct, slightly conspiratorial — like a brilliant friend who can't believe you don't know this yet"
+      vocabulary:
+        - "Short sentences. Max 15 words per sentence in Scenes 1 and 4"
+        - "Always lead with the most shocking word or number"
+        - "No throat-clearing — start mid-thought as if already deep in the subject"
+        - "Dry understatement works better than hyperbole"
+      forbidden_words:
+        - "amazing"
+        - "incredible"
+        - "mind-blowing"
+        - "fascinating"
+        - "really interesting"
+        - "believe it or not"
+        - "did you know"
+        - "actually"
+        - "basically"
+        - "essentially"
+        - "in conclusion"
+
     youtube_client_id_env: "YOUTUBE_CLIENT_ID_CH2"
     youtube_client_secret_env: "YOUTUBE_CLIENT_SECRET_CH2"
     youtube_refresh_token_env: "YOUTUBE_REFRESH_TOKEN_CH2"

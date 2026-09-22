@@ -171,7 +171,7 @@ def build_cinematography_prompt(scene_data, style_hint: str = "", index: int = 0
     # When scene_data is a raw string prompt
     raw_prompt = str(scene_data).strip()
     if not raw_prompt:
-        return raw_prompt
+        return ""
 
     # Rotational shot sizes and dynamic camera motion for variety (anti-slideshow)
     shot_rotations = [
@@ -199,6 +199,17 @@ def build_cinematography_prompt(scene_data, style_hint: str = "", index: int = 0
 
     if style_hint and f"style: {style_hint.lower()}" not in lower_p:
         layers.append(f"Style: {style_hint}")
+
+    # ── UI Safe-Zone Constraint (YouTube Shorts overlay avoidance) ─────────
+    # YouTube Shorts overlays: right-side action buttons (like, share, follow, comment)
+    # cover approx 15% of right edge. Bottom 25% is reserved for caption overlay.
+    # Key subject must be in upper-center third to remain fully visible.
+    layers.append(
+        "focal subject in upper-middle third of frame, "
+        "bottom 25% kept clear for caption overlay, "
+        "right 15% edge kept clear for YouTube action buttons, "
+        "vertical 9:16 aspect ratio"
+    )
 
     return ", ".join(filter(None, layers))
 

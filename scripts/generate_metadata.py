@@ -27,9 +27,175 @@ def _build_hashtags(niche: str) -> str:
     else:
         return "#shorts #viral #fyp #trending"
 
+def _build_fallback_title(niche: str) -> str:
+    """
+    Generate a curiosity-gap fallback title when the LLM SEO call fails.
+    Avoids cliché openers ('Amazing', 'Incredible') that signal low-quality content.
+    Rotates through archetype templates based on niche keywords.
+    """
+    import random
+    niche_lower = niche.lower()
+
+    if any(k in niche_lower for k in ['storytelling', 'moral', 'pixar', 'anime', 'animation', 'fictional']):
+        templates = [
+            "The Choice That Changed Everything 🎬 #shorts",
+            "Nobody Expected This to Happen 🌟 #shorts",
+            "One Decision. Zero Regrets. 🔥 #shorts",
+            "The Secret He Carried for Years 💡 #shorts",
+        ]
+    elif any(k in niche_lower for k in ['space', 'cosmic', 'stellar', 'galaxy', 'universe']):
+        templates = [
+            "Scientists Can't Explain This Space Anomaly 🌌 #shorts",
+            "The Object That Breaks All Physics Laws 🤯 #shorts",
+            "This Star Shouldn't Exist — But It Does 🔭 #shorts",
+            "The Void Scientists Refuse to Name 🌠 #shorts",
+        ]
+    elif any(k in niche_lower for k in ['horror', 'terror', 'scary', 'eldritch', 'dark']):
+        templates = [
+            "The Sound No Human Should Ever Hear 😱 #shorts",
+            "This Creature Has No Natural Predators — Except One 🕷️ #shorts",
+            "The Place Where Compasses Stop Working 🧭 #shorts",
+            "Your Brain Does This While You Sleep 😰 #shorts",
+        ]
+    elif any(k in niche_lower for k in ['tech', 'ai', 'future', 'automation', 'technology']):
+        templates = [
+            "The Algorithm That Knows You Better Than You Do 🤖 #shorts",
+            "This Tech Has Existed for 40 Years — Hidden 💻 #shorts",
+            "Why Your Phone Lies to You Every Day 📱 #shorts",
+            "The Code Running Silently in Every Device 🔐 #shorts",
+        ]
+    elif any(k in niche_lower for k in ['biology', 'science', 'body', 'nature', 'animal']):
+        templates = [
+            "Your Body Does This Every 7 Seconds — Silently 🧬 #shorts",
+            "The Animal That Cannot Die of Old Age 🐙 #shorts",
+            "This Plant Makes Its Own Light — No Sun Needed 🌿 #shorts",
+            "The Organ Science Ignored for 300 Years 🫀 #shorts",
+        ]
+    else:
+        templates = [
+            "The Fact That Changes Everything You Thought 💡 #shorts",
+            "Nobody Tells You This — But It's True 🔍 #shorts",
+            "The Number That Breaks Human Intuition 🤯 #shorts",
+            "This Happens Every Day — You Just Don't Notice 👁️ #shorts",
+        ]
+
+    return random.choice(templates)
+
+
+def score_packaging_ctr(title: str, niche: str = "") -> dict:
+    """
+    CTR Packaging Scorer.
+
+    Scores a YouTube Shorts title against 8 algorithmic curiosity archetypes
+    that consistently produce above-average Click-Through Rates.
+
+    Scoring breakdown (0-100):
+    - Archetype match (+30): Matches one of the 8 proven viral patterns
+    - Length compliance (+20): Under 60 chars before #shorts
+    - No cliché opener (+15): Does not start with "Amazing/Incredible/Mind-blowing"
+    - Has number or proper noun (+15): Concrete anchor (more credible than vague claims)
+    - Has emoji (+10): 1-2 emojis signal visual energy
+    - No generic question opener (+10): "Did you know" / "Have you ever" patterns penalized
+
+    Returns:
+        dict with keys: score (0-100), archetype, compliant_length, feedback
+    """
+    import re as _re
+    score = 0
+    feedback_parts = []
+
+    # Strip #shorts for length check
+    title_clean = _re.sub(r'#shorts?\s*', '', title, flags=_re.IGNORECASE).strip()
+
+    # ── 8 Curiosity Archetype Patterns ────────────────────────────────────
+    _ARCHETYPES = [
+        (r'\b(zero|no|never|cannot|impossible|defies?|breaks?|without)\b', "Impossible Juxtaposition"),
+        (r'\b(secret|hidden|nobody|never told|they don\'t|government|military)\b', "Forbidden Secret"),
+        (r'\b(\d[\d,\.]*\s*(billion|million|trillion|years?|times?|percent|%)|every|entire|all of|outweigh|smallest|oldest|fastest|largest)\b', "Extreme Scale"),
+        (r'\b(real(ly)? reason|why your|how your|secretly|silently|every (night|day|second|year))\b', "Hidden Mechanism"),
+        (r'\b(kill|die|dead|never do|survive|danger|must not|lethal|fatal|kills? you|stay alive)\b', "Survival Instinct"),
+        (r'\b(chose|sacrifice|abandon|despite|was right|lied to|saved \d+|by abandon)\b', "Moral Dilemma"),
+        (r'\b(color|colour|frequency|no (word|name)|nameless|humans (can|cannot)|has no word)\b', "Forbidden Knowledge"),
+        (r'\b(your body|you (are|were|have)|every human|nobody (knows|tells)|you never|we all)\b', "Identity Challenge"),
+    ]
+
+    archetype_matched = None
+    title_lower = title_clean.lower()
+    for pattern, name in _ARCHETYPES:
+        if _re.search(pattern, title_lower):
+            archetype_matched = name
+            score += 30
+            feedback_parts.append(f"✅ Archetype: {name}")
+            break
+
+    if not archetype_matched:
+        feedback_parts.append("⚠️ No archetype match — title may feel generic")
+
+    # ── Length compliance (<60 chars before #shorts) ──────────────────────
+    char_count = len(title_clean)
+    if char_count <= 60:
+        score += 20
+        feedback_parts.append(f"✅ Length: {char_count} chars (≤60)")
+    elif char_count <= 70:
+        score += 10
+        feedback_parts.append(f"⚠️ Length: {char_count} chars (slightly over 60 target)")
+    else:
+        feedback_parts.append(f"❌ Length: {char_count} chars (over 70 — truncated by YouTube)")
+
+    # ── No cliché opener ───────────────────────────────────────────────────
+    _CLICHE_OPENERS = ["amazing", "incredible", "mind-blowing", "unbelievable", "shocking",
+                       "you won't believe", "the most", "jaw-dropping", "epic", "insane"]
+    has_cliche = any(title_lower.startswith(c) or f" {c}" in title_lower[:20] for c in _CLICHE_OPENERS)
+    if not has_cliche:
+        score += 15
+        feedback_parts.append("✅ No cliché opener")
+    else:
+        feedback_parts.append("❌ Cliché opener detected — weakens CTR signal")
+
+    # ── Contains number or proper noun ────────────────────────────────────
+    has_number = bool(_re.search(r'\b\d+[\d,\.]*\b', title_clean))
+    has_proper = bool(_re.search(r'\b[A-Z][a-z]{2,}\b', title_clean))
+    if has_number or has_proper:
+        score += 15
+        feedback_parts.append(f"✅ Concrete anchor: {'number' if has_number else 'proper noun'}")
+    else:
+        feedback_parts.append("⚠️ No number or proper noun — abstract claims are less credible")
+
+    # ── Has emoji ─────────────────────────────────────────────────────────
+    emoji_count = len(_re.findall(r'[\U00010000-\U0010ffff]', title_clean, flags=_re.UNICODE))
+    if 1 <= emoji_count <= 2:
+        score += 10
+        feedback_parts.append(f"✅ Emoji: {emoji_count} (optimal)")
+    elif emoji_count == 0:
+        feedback_parts.append("⚠️ No emoji — misses visual energy signal")
+    else:
+        feedback_parts.append(f"⚠️ Too many emojis ({emoji_count}) — looks spammy")
+
+    # ── No generic question opener ─────────────────────────────────────────
+    generic_q = ["did you know", "have you ever", "do you know", "what if i told you"]
+    has_generic_q = any(title_lower.startswith(q) for q in generic_q)
+    if not has_generic_q:
+        score += 10
+        feedback_parts.append("✅ No generic question opener")
+    else:
+        feedback_parts.append("❌ Generic question opener — algorithm-penalised pattern")
+
+    score = min(100, max(0, score))
+    grade = "🔴 Weak" if score < 40 else "🟡 Decent" if score < 65 else "🟢 Strong" if score < 85 else "⚡ Exceptional"
+
+    return {
+        "score": score,
+        "grade": grade,
+        "archetype": archetype_matched,
+        "char_count": char_count,
+        "compliant_length": char_count <= 60,
+        "feedback": " | ".join(feedback_parts),
+    }
+
+
 def generate_seo_metadata(niche, script):
     print("🔍 [SEO] Generating optimized metadata...")
-    
+
     channel_id = ctx.get_channel_id()
     intel = db.get_channel_intelligence(channel_id)
     prompts_cfg = load_config_prompts()
@@ -62,9 +228,9 @@ def generate_seo_metadata(niche, script):
                 if not isinstance(data, dict):
                     data = {}
                 
-                safe_title_raw = data.get("title", f"Amazing {niche} Facts #shorts")
+                safe_title_raw = data.get("title", _build_fallback_title(niche))
                 if isinstance(safe_title_raw, list): 
-                    safe_title_raw = safe_title_raw[0] if safe_title_raw else f"Amazing {niche} Facts #shorts"
+                    safe_title_raw = safe_title_raw[0] if safe_title_raw else _build_fallback_title(niche)
                 
                 raw_title = str(safe_title_raw).replace("<", "").replace(">", "").strip()
                 
@@ -72,8 +238,20 @@ def generate_seo_metadata(niche, script):
                 if "#shorts" not in safe_title.lower(): 
                     safe_title = f"{safe_title.strip()} #shorts"
                 
-                final_title = safe_title[:100] if len(safe_title) > 0 else "Amazing Video #shorts"
-                
+                final_title = safe_title[:100] if len(safe_title) > 0 else _build_fallback_title(niche)
+
+                # ── CTR Packaging Score ──────────────────────────────────
+                try:
+                    ctr_result = score_packaging_ctr(final_title, niche)
+                    print(
+                        f"   📦 [CTR SCORE] {ctr_result['grade']} {ctr_result['score']}/100 "
+                        f"| Archetype: {ctr_result['archetype'] or 'None'} "
+                        f"| {ctr_result['char_count']} chars "
+                        f"| {ctr_result['feedback']}"
+                    )
+                except Exception as _ctr_err:
+                    pass  # CTR scoring is advisory — never blocks metadata generation
+
                 raw_tags = data.get("tags", ["shorts", niche])
                 if isinstance(raw_tags, str):
                     safe_tags = [t.strip().replace("#", "") for t in raw_tags.split(",") if t.strip()]
@@ -127,16 +305,20 @@ def generate_seo_metadata(niche, script):
         # GOD-TIER FIX: Do not silently pass on extraction errors. Log them before falling back.
         logger.error(f"SEO Generation encountered an error: {e}. Executing fallback metadata.")
     
-    # Fallback — use a niche-appropriate description instead of hardcoded "Mind blowing facts"
+    # Fallback — use a niche-appropriate description and curiosity-gap title
     niche_lower = niche.lower()
     if any(k in niche_lower for k in ['storytelling', 'moral', 'pixar', 'anime', 'animation']):
-        fallback_desc = f"Watch this short story and discover the lesson hidden inside. {hashtags}"
+        fallback_desc = f"Every short story hides a truth nobody tells you. Watch until the end. {hashtags}"
+    elif any(k in niche_lower for k in ['space', 'cosmic', 'stellar', 'galaxy']):
+        fallback_desc = f"The universe is stranger than any science fiction. Here's proof. {hashtags}"
+    elif any(k in niche_lower for k in ['horror', 'dark', 'scary']):
+        fallback_desc = f"Some facts are so unsettling they change how you see everything. {hashtags}"
     else:
-        fallback_desc = f"Discover amazing facts you never knew. {hashtags}"
+        fallback_desc = f"The fact nobody teaches you — until now. {hashtags}"
 
     return {
-        "title": f"{niche} #shorts"[:95], 
-        "description": fallback_desc, 
+        "title": _build_fallback_title(niche),
+        "description": fallback_desc,
         "tags": ["shorts", niche, "viral", "facts", "fyp"],
         "pinned_comment": "What surprised you the most? Share below! 👇"
     }, "Fallback"

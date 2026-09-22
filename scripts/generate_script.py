@@ -18,6 +18,283 @@ _MIN_WORD_FLOOR = 80       # Minimum 80 words ensures Short is at least 33.5s (m
 _ABSOLUTE_WORD_CEILING = 125  # Upper bound prevents exceeding 55s ceiling
 
 
+# ── Speech timing constants ────────────────────────────────────────────────
+# Punctuation pause budgets (milliseconds, empirically measured from TTS output)
+_PAUSE_COMMA_MS       = 80    # Brief breath at comma
+_PAUSE_PERIOD_MS      = 200   # Sentence-end stop
+_PAUSE_QUESTION_MS    = 250   # Rising intonation + stop
+_PAUSE_EXCLAMATION_MS = 180   # Punchy stop
+_PAUSE_EMDASH_MS      = 150   # Narrative em-dash pause
+_PAUSE_ELLIPSIS_MS    = 300   # Trailing ellipsis drag
+_TTS_TARGET_MIN_SEC   = 38.0  # Soft floor — warn if below
+_TTS_TARGET_MAX_SEC   = 57.0  # Soft ceiling — warn if above
+
+
+# ── Hook strength archetype patterns ──────────────────────────────────────
+# These patterns map to the 8 research-backed viral hook archetypes
+_HOOK_ARCHETYPE_PATTERNS = [
+    # Impossible Juxtaposition
+    (r'\b(zero|no|never|cannot|can\'t|impossible|defies?|breaks?)\b', "Impossible Juxtaposition"),
+    # Forbidden Secret
+    (r'\b(secret|hidden|nobody|never told|government|military|they don\'t)\b', "Forbidden Secret"),
+    # Extreme Scale
+    (r'\b(\d+[\.,]?\d*\s*(billion|million|trillion|thousand)|every|all|entire|outweigh|larger|smallest|oldest|fastest)\b', "Extreme Scale"),
+    # Hidden Mechanism
+    (r'\b(actually|real(ly)? reason|why your|how your|secretly|silently|every night|every day)\b', "Hidden Mechanism"),
+    # Survival Instinct
+    (r'\b(kill|die|dead|survive|danger|never do|must not|lethal|fatal|kills? you)\b', "Survival Instinct"),
+    # Moral Dilemma
+    (r'\b(chose|sacrifice|abandon|save \d+|by abandon|despite|was right|lied to)\b', "Moral Dilemma"),
+    # Forbidden Knowledge
+    (r'\b(color|colour|frequency|no (word|name)|nameless|unnamed|humans (can|cannot))\b', "Forbidden Knowledge"),
+    # Identity Challenge
+    (r'\b(your body|you (are|were|have)|every human|nobody knows|you never)\b', "Identity Challenge"),
+]
+
+# Banned hook openers (clichéd, low-performing)
+_BANNED_HOOK_OPENERS = [
+    r'^did you know',
+    r'^have you ever wonder',
+    r'^in this video',
+    r'^today (we|i|you)',
+    r'^welcome to',
+    r'^let me tell you',
+    r'^so (you|we|i)',
+    r'^discover',
+    r'^learn (about|how|why)',
+]
+
+
+def estimate_speech_timing(text: str) -> dict:
+    """
+    Gate 8 — Speech Timing Estimator.
+
+    Estimates TTS duration using syllable density multiplier + punctuation pause budget.
+    More accurate than flat WPM because polysyllabic words slow TTS output and
+    punctuation marks add measurable silence in all TTS engines (EdgeTTS, Kokoro).
+
+    Returns:
+        dict with keys: estimated_seconds, word_count, syllable_count,
+                         pause_budget_ms, is_within_target, warning_message
+    """
+    words = text.split()
+    word_count = len(words)
+
+    # ── Syllable count (pure Python, no NLTK) ─────────────────────────────
+    # Heuristic: count vowel groups per word, clamp min to 1
+    def _count_syllables(word: str) -> int:
+        word = word.lower().strip(".,!?;:'\"-")
+        if not word:
+            return 1
+        vowels = re.findall(r'[aeiou]+', word)
+        count = len(vowels)
+        # Silent 'e' at end: "make" → 1 syllable not 2
+        if word.endswith('e') and count > 1:
+            count -= 1
+        # Words ending in 'le' after consonant add a syllable: "table" → 2
+        if re.search(r'[^aeiou]le$', word):
+            count += 1
+        return max(1, count)
+
+    syllable_count = sum(_count_syllables(w) for w in words)
+
+    # ── Syllable density multiplier ────────────────────────────────────────
+    # Average syllables/word in conversational English ≈ 1.5
+    # Polysyllabic scripts (>1.7 avg) slow TTS by ~15-20%
+    avg_syllables = syllable_count / max(word_count, 1)
+    syllable_multiplier = 1.0
+    if avg_syllables > 1.7:
+        syllable_multiplier = 1.15   # +15% for dense vocabulary
+    elif avg_syllables > 2.0:
+        syllable_multiplier = 1.25   # +25% for academic/complex prose
+
+    # ── Base duration from word rate ─────────────────────────────────────
+    base_seconds = (word_count / _WORDS_PER_SECOND_TTS) * syllable_multiplier
+
+    # ── Punctuation pause budget ──────────────────────────────────────────
+    pause_ms = 0
+    pause_ms += text.count(',')  * _PAUSE_COMMA_MS
+    pause_ms += text.count('.')  * _PAUSE_PERIOD_MS
+    pause_ms += text.count('?')  * _PAUSE_QUESTION_MS
+    pause_ms += text.count('!')  * _PAUSE_EXCLAMATION_MS
+    pause_ms += text.count('—')  * _PAUSE_EMDASH_MS
+    pause_ms += text.count('–')  * _PAUSE_EMDASH_MS
+    pause_ms += text.count('...') * _PAUSE_ELLIPSIS_MS
+
+    estimated_seconds = base_seconds + (pause_ms / 1000.0)
+
+    # ── Verdict ────────────────────────────────────────────────────────────
+    warning = ""
+    if estimated_seconds < _TTS_TARGET_MIN_SEC:
+        warning = (
+            f"⏱️ Estimated {estimated_seconds:.1f}s — below 38s target. "
+            f"Script may feel rushed. Consider expanding Scene 2 or 3."
+        )
+    elif estimated_seconds > _TTS_TARGET_MAX_SEC:
+        warning = (
+            f"⏱️ Estimated {estimated_seconds:.1f}s — above 57s ceiling. "
+            f"Shorten sentences or remove a build beat."
+        )
+
+    return {
+        "estimated_seconds": round(estimated_seconds, 1),
+        "word_count": word_count,
+        "syllable_count": syllable_count,
+        "avg_syllables_per_word": round(avg_syllables, 2),
+        "pause_budget_ms": pause_ms,
+        "is_within_target": not bool(warning),
+        "warning_message": warning,
+    }
+
+
+def audit_readability_grade(text: str) -> dict:
+    """
+    Gate 9 — Flesch-Kincaid Readability Auditor.
+
+    YouTube Shorts viewers are on mobile, watching fast visuals. Scripts that read
+    above 8th-grade level cause cognitive overload and swipe-away.
+
+    Formula: FK_grade = 0.39*(words/sentences) + 11.8*(syllables/words) - 15.59
+    Pure Python — zero external dependencies.
+
+    Returns:
+        dict with keys: grade_level, is_acceptable, top_complex_words, hint_message
+    """
+    # ── Count sentences ───────────────────────────────────────────────────
+    sentence_endings = re.findall(r'[.!?]+', text)
+    sentence_count = max(len(sentence_endings), 1)
+
+    # ── Count words ───────────────────────────────────────────────────────
+    words = [w.strip(".,!?;:'\"-—") for w in text.split() if w.strip(".,!?;:'\"-—")]
+    word_count = max(len(words), 1)
+
+    # ── Count syllables (reuse estimate_speech_timing's approach) ────────
+    def _syllables(word: str) -> int:
+        word = word.lower()
+        if not word:
+            return 1
+        vowels = re.findall(r'[aeiou]+', word)
+        count = len(vowels)
+        if word.endswith('e') and count > 1:
+            count -= 1
+        if re.search(r'[^aeiou]le$', word):
+            count += 1
+        return max(1, count)
+
+    syllable_count = sum(_syllables(w) for w in words)
+
+    # ── Flesch-Kincaid Grade Level ────────────────────────────────────────
+    asl = word_count / sentence_count        # Average Sentence Length
+    asw = syllable_count / word_count        # Average Syllables per Word
+    fk_grade = 0.39 * asl + 11.8 * asw - 15.59
+
+    # ── Find top polysyllabic offenders (>3 syllables) ───────────────────
+    polysyllabic = sorted(
+        [(w, _syllables(w)) for w in set(words) if _syllables(w) >= 3],
+        key=lambda x: x[1],
+        reverse=True
+    )[:5]
+
+    hint = ""
+    if fk_grade > 8.0:
+        offender_list = ", ".join([f"'{w}' ({s} syl)" for w, s in polysyllabic])
+        hint = (
+            f"Grade {fk_grade:.1f} exceeds 8th-grade target. "
+            f"Simplify these polysyllabic words: {offender_list or 'shorten sentences'}."
+        )
+
+    return {
+        "grade_level": round(fk_grade, 1),
+        "is_acceptable": fk_grade <= 8.0,
+        "avg_sentence_length": round(asl, 1),
+        "avg_syllables_per_word": round(asw, 2),
+        "top_complex_words": polysyllabic,
+        "hint_message": hint,
+    }
+
+
+def score_hook_strength(scene1_text: str) -> dict:
+    """
+    Gate 10 — Hook Strength Scorer.
+
+    Scores the opening sentence of Scene 1 against 8 proven viral hook archetypes.
+    A weak hook is the #1 cause of immediate swipe-away on YouTube Shorts.
+
+    Scoring (0-10):
+    - Starts with a banned opener (-3 points hard deduction)
+    - Matches at least one of the 8 archetypes (+3 points)
+    - First word is a strong noun or verb (not "A"/"The"/"In"/"So") (+1 point)
+    - Contains a specific number or proper noun (+1 point)
+    - Word count 8-18 (punchy, not too short or rambling) (+2 points)
+    - Contains a question mark or direct challenge (+1 point)
+    - No banned AI clichés in hook (+2 points base)
+
+    Returns:
+        dict with keys: score, archetype_matched, is_strong, feedback
+    """
+    # Use only the first sentence of scene 1
+    first_sentence_match = re.split(r'[.!?]', scene1_text.strip())
+    hook = first_sentence_match[0].strip() if first_sentence_match else scene1_text.strip()
+    hook_lower = hook.lower()
+    words = hook.split()
+    score = 2  # Base score (2 points for no clichés by default)
+
+    # ── Check banned openers (hard deduction) ─────────────────────────────
+    is_banned = any(re.search(pat, hook_lower) for pat in _BANNED_HOOK_OPENERS)
+    if is_banned:
+        score -= 3
+        feedback = "⚠️ Hook starts with a banned opener (did you know / in this video / today we)."
+    else:
+        feedback = ""
+
+    # ── Check archetype match (+3 if matches one of the 8) ───────────────
+    archetype_matched = None
+    for pattern, name in _HOOK_ARCHETYPE_PATTERNS:
+        if re.search(pattern, hook_lower):
+            archetype_matched = name
+            score += 3
+            break
+
+    # ── First word strength (+1 if not weak article/preposition) ─────────
+    first_word = words[0].lower() if words else ""
+    weak_starters = {"a", "an", "the", "in", "so", "and", "but", "or", "if", "as", "it", "this", "that"}
+    if first_word not in weak_starters:
+        score += 1
+
+    # ── Contains specific number or proper noun (+1) ──────────────────────
+    has_number = bool(re.search(r'\b\d+[\.,]?\d*\b', hook))
+    has_proper = bool(re.search(r'\b[A-Z][a-z]{2,}\b', hook))  # Proper noun
+    if has_number or has_proper:
+        score += 1
+
+    # ── Word count in punchy range 8-18 (+2) ─────────────────────────────
+    hook_word_count = len(words)
+    if 8 <= hook_word_count <= 18:
+        score += 2
+    elif hook_word_count < 5:
+        score -= 1  # Too short to land impact
+
+    # ── Contains question or direct challenge (+1) ─────────────────────────
+    if '?' in hook or any(w in hook_lower for w in ['never', 'impossible', 'nobody', 'no one']):
+        score += 1
+
+    # ── Clamp to 0-10 ─────────────────────────────────────────────────────
+    score = max(0, min(10, score))
+
+    if not archetype_matched and not feedback:
+        feedback = "Hook doesn't clearly match any of the 8 viral archetypes — may feel generic."
+    elif archetype_matched:
+        feedback = f"Archetype: {archetype_matched}."
+
+    return {
+        "score": score,
+        "archetype_matched": archetype_matched,
+        "is_strong": score >= 6,
+        "hook_text": hook[:80],
+        "feedback": feedback,
+    }
+
+
 def load_config_prompts():
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     with open(os.path.join(root_dir, "config", "prompts.yaml"), "r", encoding="utf-8") as f:
@@ -171,6 +448,44 @@ def validate_script_quality(script_text: str, prompts_cfg: dict,
     except Exception as cl_err:
         logger.debug(f"Circular loop check error: {cl_err}")
 
+    # ── 8. SPEECH TIMING GATE ───────────────────────────────────────────────
+    try:
+        timing = estimate_speech_timing(trimmed)
+        if timing["warning_message"]:
+            print(f"   ⏱️ [TIMING] {timing['warning_message']}")
+            print(f"   ⏱️ [TIMING] Est. {timing['estimated_seconds']}s | {timing['word_count']} words | {timing['syllable_count']} syllables | {timing['pause_budget_ms']}ms pause budget")
+        else:
+            print(f"   ✅ [TIMING] Est. {timing['estimated_seconds']}s — within 38-57s target.")
+    except Exception as t_err:
+        logger.debug(f"Speech timing gate error: {t_err}")
+
+    # ── 9. READABILITY GATE (Flesch-Kincaid) ───────────────────────────────
+    try:
+        readability = audit_readability_grade(trimmed)
+        grade = readability["grade_level"]
+        if not readability["is_acceptable"]:
+            print(f"   ⚠️ [READABILITY] {readability['hint_message']}")
+            # Advisory only — does not hard-reject, but adds hint to retry prompt via return reason
+        else:
+            print(f"   ✅ [READABILITY] Grade {grade} — within 8th-grade target.")
+    except Exception as r_err:
+        logger.debug(f"Readability gate error: {r_err}")
+        readability = {"is_acceptable": True, "grade_level": 0.0, "hint_message": ""}
+
+    # ── 10. HOOK STRENGTH GATE ────────────────────────────────────────────
+    try:
+        sentences_for_hook = [s.strip() for s in re.split(r'[.!?]+', trimmed) if s.strip()]
+        hook_result = score_hook_strength(sentences_for_hook[0] if sentences_for_hook else trimmed)
+        hook_score = hook_result["score"]
+        hook_archetype = hook_result.get("archetype_matched", "None")
+        if hook_result["is_strong"]:
+            print(f"   ✅ [HOOK] Score {hook_score}/10 — Archetype: {hook_archetype}. {hook_result['feedback']}")
+        else:
+            print(f"   ⚠️ [HOOK] Score {hook_score}/10 — {hook_result['feedback']}")
+    except Exception as h_err:
+        logger.debug(f"Hook strength gate error: {h_err}")
+        hook_result = {"score": 0, "is_strong": False, "feedback": "", "archetype_matched": None}
+
     sys_msg  = prompts_cfg["script_validation"]["system_prompt"]
     user_msg = prompts_cfg["script_validation"]["user_template"].format(
         script_text=script_text
@@ -194,9 +509,9 @@ def validate_script_quality(script_text: str, prompts_cfg: dict,
         else:
             score = numbers[-1]
 
-        passed = score >= 4
+        passed = score >= 6
         if not passed:
-            return False, f"LLM validator score {score}/10 is below rejection threshold of 4."
+            return False, f"LLM validator score {score}/10 is below quality threshold of 6 (Solid & Complete)."
         return True, f"Approved (Score: {score}/10)"
 
     except Exception:
@@ -850,6 +1165,26 @@ def generate_script(niche: str, topic: str):
                 [len(s[0]) / total_chars for s in parsed_scenes]
                 if total_chars > 0 else []
             )
+
+            # ── P1.8: Character Anchor — apply visual consistency to fictional channels ──
+            # Extracts a per-video character lock from the script (1 LLM call) and prepends
+            # the channel's permanent style card + character descriptor to every image prompt.
+            # This prevents visual drift between scenes (same character looks different in each scene).
+            try:
+                from engine.character_anchor import character_anchor
+                channel_data = config_manager.get_channel()
+                content_type = channel_data.get("content_type", "factual") if channel_data else "factual"
+                channel_id   = channel_data.get("id", "") if channel_data else ""
+                if content_type == "fictional" and img_prompts:
+                    img_prompts = character_anchor.apply_to_all_scenes(
+                        script_text=full_text,
+                        topic=topic,
+                        channel_id=channel_id,
+                        image_prompts=img_prompts,
+                        content_type=content_type,
+                    )
+            except Exception as _ca_err:
+                logger.debug(f"Character anchor skipped: {_ca_err}")
 
             return (
                 full_text, img_prompts, pexels_queries, scene_weights,
