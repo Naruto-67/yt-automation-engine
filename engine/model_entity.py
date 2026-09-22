@@ -321,6 +321,7 @@ class SlidingWindowRateLimiter:
         delay = SlidingWindowRateLimiter.calculate_pacing_delay(entity)
         if delay > 0:
             time.sleep(delay)
+        entity.last_call_timestamp = time.time()
 
 
 class ScarcityWaterfallResolver:

@@ -334,3 +334,4 @@ class KnowledgeGraph:
 
 # Global singleton
 knowledge_graph = KnowledgeGraph()
+

@@ -211,11 +211,11 @@ def discover_github_models(api_key: Optional[str] = None, force: bool = False) -
     if not key:
         return []
 
-    # Curated free-tier models available through GitHub Models token
-    candidates = ["gpt-4o-mini", "meta/llama-3.3-70b-instruct", "Phi-3.5-mini-instruct", "Mistral-large-2407"]
+    # Curated free-tier models available through GitHub Models token (Azure AI Inference)
+    candidates = ["gpt-4o-mini", "meta-llama-3.3-70b-instruct", "Phi-3.5-mini-instruct", "Mistral-large-2407"]
     verified: List[str] = []
     endpoints = [
-        "https://models.github.ai/inference/chat/completions"
+        "https://models.inference.ai.azure.com/chat/completions"
     ]
     for model in candidates:
         for ep in endpoints:
@@ -224,7 +224,11 @@ def discover_github_models(api_key: Optional[str] = None, force: bool = False) -
                     break
                 resp = requests.post(
                     ep,
-                    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                    headers={
+                        "Authorization": f"Bearer {key}",
+                        "Content-Type": "application/json",
+                        "User-Agent": "Ghost-Engine/2.0"
+                    },
                     json={"model": model, "messages": [{"role": "user", "content": "ping"}], "max_tokens": 2},
                     timeout=5.0
                 )

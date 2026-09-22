@@ -57,20 +57,46 @@ class Orchestrator:
                 try: os.remove(f)
                 except: pass
 
-    def _get_test_topics(self) -> dict:
+    def _generate_dynamic_test_topic(self, channel) -> str:
         """
-        Load per-channel test topics from settings.yaml.
-        Returns {channel_id: topic_string}
-        Falls back to safe generic topics if settings block is missing.
+        Dynamically generates a fresh, unique, high-curiosity test topic via LLM
+        for the channel's niche, avoiding stale hardcoded repetitions.
+        Falls back to settings.yaml / safe exemplar if generation fails.
         """
-        settings     = config_manager.get_settings()
-        test_topics  = settings.get("test_mode", {}).get("test_topics", {})
-        fallbacks    = {
+        settings = config_manager.get_settings()
+        fallbacks = {
             "CH_01": "A young blacksmith's apprentice secretly crafts a mechanical bird to save a trapped mountain climber, defying guild rules",
             "CH_02": "The immortal jellyfish Turritopsis dohrnii can revert its mature cells back into polyp cells, theoretically living forever",
         }
-        # Merge: settings values take priority over built-in fallbacks
-        return {**fallbacks, **test_topics}
+        test_topics = settings.get("test_mode", {}).get("test_topics", {})
+        default_fallback = test_topics.get(channel.channel_id, fallbacks.get(channel.channel_id, f"Amazing phenomenon in {channel.niche}"))
+
+        try:
+            from scripts.quota_manager import quota_manager
+            prompt = (
+                f"You are a YouTube Shorts trend strategist.\n"
+                f"Generate ONE fresh, viral, high-curiosity video topic for YouTube Shorts in the niche '{channel.niche}'.\n"
+                f"Content type: {channel.content_type}.\n"
+                f"Target audience: {channel.target_audience}.\n"
+                f"Rules:\n"
+                f"1. Must be a complete 1-sentence logline or surprising factual anchor (under 25 words).\n"
+                f"2. For fictional: A named character facing a clear dilemma or urgent choice.\n"
+                f"3. For factual: A specific curious mechanism, bizarre discovery, or surprising number.\n"
+                f"4. Return ONLY the topic sentence, nothing else. No quotation marks, no preamble."
+            )
+            raw_topic, provider = quota_manager.generate_text(
+                prompt,
+                task_type="creative",
+                system_prompt="Return ONLY a single punchy topic sentence under 25 words."
+            )
+            if raw_topic and len(raw_topic.strip()) > 15:
+                clean_topic = raw_topic.strip().strip('"').strip("'").split('\n')[0].strip()
+                logger.engine(f"💡 [DYNAMIC TEST TOPIC] Generated fresh topic via {provider}: '{clean_topic}'")
+                return clean_topic
+        except Exception as e:
+            logger.debug(f"[DYNAMIC TEST TOPIC] Generation skipped ({e}), using fallback.")
+
+        return default_fallback
 
     def run_pipeline(self):
         if is_test_mode(): notify_summary(True, "🧪 **TEST MODE** — End-to-End system simulation initiated.")
@@ -137,8 +163,7 @@ class Orchestrator:
 
             # ── DRY RUN PATH: synthetic in-memory jobs, zero DB interaction ───
             if is_test_mode():
-                test_topics = self._get_test_topics()
-                test_topic  = test_topics.get(channel.channel_id, f"Amazing fact about {channel.niche}")
+                test_topic = self._generate_dynamic_test_topic(channel)
 
                 logger.engine(
                     f"🧪 [TEST MODE] Creating synthetic in-memory job for {channel.channel_id}:\n"

@@ -1,10 +1,10 @@
 {
-  "updated_at": "2026-09-20T12:23:40.924849+00:00",
+  "updated_at": "2026-09-22T18:50:48.034544+00:00",
   "provider_reset_dates": {
-    "google": "2026-09-20",
-    "groq": "2026-09-20",
-    "github": "2026-09-20",
-    "openrouter": "2026-09-20"
+    "google": "2026-09-22",
+    "groq": "2026-09-22",
+    "github": "2026-09-22",
+    "openrouter": "2026-09-22"
   },
   "entities": {
     "google:gemini-3.8-flash": {
@@ -58,7 +58,7 @@
       },
       "max_rpm": 30,
       "max_rpd": 500,
-      "consumed_today": 10,
+      "consumed_today": 0,
       "last_call_timestamp": 1789907019.573781,
       "status": "ACTIVE",
       "reset_epoch": 0.0,
@@ -79,7 +79,7 @@
       },
       "max_rpm": 30,
       "max_rpd": 500,
-      "consumed_today": 8,
+      "consumed_today": 0,
       "last_call_timestamp": 1789907020.9248407,
       "status": "ACTIVE",
       "reset_epoch": 0.0,
@@ -98,7 +98,7 @@
       },
       "max_rpm": 30,
       "max_rpd": 14400,
-      "consumed_today": 14386,
+      "consumed_today": 0,
       "last_call_timestamp": 0.0,
       "status": "DEPRECATED",
       "reset_epoch": 1789900372.9570594,

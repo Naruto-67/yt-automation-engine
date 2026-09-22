@@ -411,7 +411,8 @@ Return JSON matching EXACTLY this schema:
 
         director_system = (
             "You are an Executive YouTube Shorts Director. Rewrite the script to address the "
-            "critique while maintaining strict 4-scene structure and word limits (95-120 words total). "
+            "critique while maintaining strict 4-scene structure and word limits (95-115 words total). "
+            "CRITICAL: The revised script MUST be at least 95 words. Never compress below 90 words. "
             "Return ONLY valid JSON matching the exact scene schema."
         )
 
@@ -424,9 +425,11 @@ Critic Feedback to Fix:
 Topic: "{topic}" | Niche: "{active_niche}"
 Requirements:
 1. Address all critic feedback directly.
-2. Maintain exactly 4 scenes, 95-120 words total.
-3. Preserve voice_actor, glow_color, mood, and caption_style fields.
-4. Ensure seamless circular loop from Scene 4 to Scene 1.
+2. CRITICAL WORD FLOOR RULE: Total words across all 4 scenes MUST remain strictly between 95 and 115 words.
+   If you shorten the opening hook in Scene 1, you MUST expand Scene 2 and Scene 3 with richer narrative action, concrete mechanisms, or sensory details so the total script NEVER drops below 95 words.
+3. Maintain exactly 4 scenes.
+4. Preserve voice_actor, glow_color, mood, and caption_style fields.
+5. Ensure seamless circular loop from Scene 4 to Scene 1.
 
 Return ONLY the revised JSON matching the original schema."""
 
@@ -440,8 +443,16 @@ Return ONLY the revised JSON matching the original schema."""
                 from engine.llm_router import UniversalGreedyJSONParser
                 revised_data = UniversalGreedyJSONParser.extract_json(director_raw)
                 if isinstance(revised_data, dict) and "scenes" in revised_data and len(revised_data["scenes"]) >= 3:
-                    print(f"   ✅ [DIRECTOR AGENT] Successfully improved script via {dir_provider}")
-                    return revised_data, critic_scores
+                    rev_text = " ".join(
+                        str(s.get("text") or s.get("narration") or "")
+                        for s in revised_data["scenes"]
+                    )
+                    rev_words = len(rev_text.split())
+                    if rev_words < _MIN_WORD_FLOOR or rev_words > _ABSOLUTE_WORD_CEILING:
+                        print(f"   ⚠️ [DIRECTOR AGENT] Rewrite word count out of bounds ({rev_words} words). Retaining original draft.")
+                    else:
+                        print(f"   ✅ [DIRECTOR AGENT] Successfully improved script via {dir_provider} ({rev_words} words)")
+                        return revised_data, critic_scores
         except Exception as d_err:
             logger.debug(f"Director rewrite failed, keeping original: {d_err}")
 
@@ -1225,43 +1236,45 @@ def generate_script(niche: str, topic: str):
         logger.debug(f"CoT pre-draft reasoning skipped: {cot_err}")
 
     last_error = "Unknown Error"
+    previous_draft_json = None
 
     for attempt in range(3):
-        # ── BUG #4 FIX: Progressive word-limit constraints on retry ───────────
-        # Original code sent the exact same prompt all 3 times. If the LLM
-        # ignored the word ceiling on attempt 1 (as it did today: 207→198→239),
-        # all 3 retries were guaranteed to fail, burning 3 Gemini quota points
-        # and falling to the emergency fallback script.
-        #
-        # Strategy:
-        #   Attempt 0 (first try) → base prompt, no extra constraint
-        #   Attempt 1 (first retry) → inject an explicit bolded hard-limit banner
-        #   Attempt 2 (last chance) → banner + hard-truncate the JSON text ourselves
-        #                             before the word-count check (never fails)
-        if attempt == 0:
+        # ── Editorial Repair Loop: Refine rejected draft rather than starting from scratch ──
+        if attempt == 0 or not previous_draft_json:
             user_prompt = base_user_prompt
         else:
+            print(f"   🛠️ [EDITORIAL REPAIR] Polishing and expanding previous draft to resolve: {last_error}")
             err_lower = last_error.lower()
             if "under word floor" in err_lower or "too short" in err_lower:
-                word_limit_banner = (
-                    f"\n\n🚨 PREVIOUS ATTEMPT UNDER WORD FLOOR ({last_error}) 🚨\n"
-                    f"Your previous response was TOO SHORT. Do NOT write brief 60-70 word scripts.\n"
-                    f"Expand the story/explanation with deeper details, sensory descriptions, or step-by-step mechanisms.\n"
-                    f"Target word count: {target_words} (minimum {_MIN_WORD_FLOOR} words, maximum {_ABSOLUTE_WORD_CEILING} words)."
+                specific_fix = (
+                    f"The previous draft was under the word floor ({last_error}). "
+                    f"Do NOT write a 60-70 word script. Keep the opening hook in Scene 1 and the resolution in Scene 4. "
+                    f"EXPAND Scene 2 and Scene 3 with richer narrative action, sensory details, or concrete mechanisms so the total script reaches 95-115 words."
                 )
             elif "exceeds" in err_lower or "too long" in err_lower:
-                word_limit_banner = (
-                    f"\n\n🚨 PREVIOUS ATTEMPT EXCEEDED WORD CEILING ({last_error}) 🚨\n"
-                    f"Your previous response was too long. Keep sentences concise.\n"
-                    f"Target word count: {target_words} (maximum {_ABSOLUTE_WORD_CEILING} words)."
+                specific_fix = (
+                    f"The previous draft was too long ({last_error}). "
+                    f"Trim wordiness and simplify sentences so the total script lands between 95 and 115 words while preserving 4 scenes."
                 )
             else:
-                word_limit_banner = (
-                    f"\n\n🚨 PREVIOUS ATTEMPT REJECTED ({last_error}) 🚨\n"
-                    f"Fix the violation above. Ensure a complete, self-contained final sentence, "
-                    f"proper word count ({_MIN_WORD_FLOOR}-{_ABSOLUTE_WORD_CEILING} words), and active storytelling."
-                )
-            user_prompt = base_user_prompt + word_limit_banner
+                specific_fix = f"Fix the violation: {last_error}. Ensure a complete final sentence and 95-115 words total."
+
+            repair_prompt = (
+                f"You are an Executive YouTube Shorts Script Editor.\n"
+                f"We are refining an existing draft that had great creative concepts but failed quality validation.\n\n"
+                f"EDITORIAL MANDATE:\n"
+                f"{specific_fix}\n\n"
+                f"PREVIOUS DRAFT TO REPAIR:\n"
+                f"{json.dumps(previous_draft_json, indent=2)}\n\n"
+                f"Topic: '{topic}' | Niche: '{active_niche}'\n"
+                f"Requirements:\n"
+                f"1. Preserve the strong hook, named protagonist (if fictional), and verified facts (if factual).\n"
+                f"2. Maintain EXACTLY 4 scenes in the 'scenes' array.\n"
+                f"3. Strict word calibration: Total words across all 4 scenes MUST be between 95 and 115 words.\n"
+                f"4. Ensure seamless circular loop from Scene 4 to Scene 1.\n"
+                f"5. Return ONLY the repaired JSON object matching the original schema."
+            )
+            user_prompt = repair_prompt
 
         try:
             raw, provider = quota_manager.generate_text(
@@ -1288,6 +1301,9 @@ def generate_script(niche: str, topic: str):
                     continue
                 json_payload = raw[start:end + 1]
                 data = json.loads(json_payload)
+
+            if isinstance(data, dict) and "scenes" in data:
+                previous_draft_json = data
 
             # ── P2.1: Multi-Agent Review (Critic Agent + Conditional Director) ──
             # On initial draft (attempt == 0), Critic Agent evaluates retention metrics.
@@ -1404,8 +1420,8 @@ def generate_script(niche: str, topic: str):
             try:
                 from engine.character_anchor import character_anchor
                 channel_data = config_manager.get_channel()
-                content_type = channel_data.get("content_type", "factual") if channel_data else "factual"
-                channel_id   = channel_data.get("id", "") if channel_data else ""
+                content_type = getattr(channel_data, "content_type", "factual") if channel_data else "factual"
+                channel_id   = getattr(channel_data, "channel_id", "") if channel_data else ""
                 if content_type == "fictional" and img_prompts:
                     img_prompts = character_anchor.apply_to_all_scenes(
                         script_text=full_text,

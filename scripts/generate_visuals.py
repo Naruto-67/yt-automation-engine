@@ -387,6 +387,8 @@ def discover_cf_image_model() -> str:
 
 
 def generate_cloudflare_image(prompt, output_path):
+    if is_test_mode():
+        return False, "Test Mode: Cloudflare Bypassed"
     print("      [Tier 1: Cloudflare AI] Attempting FLUX/Text-to-Image...")
     if SIMULATE_CASCADE_TEST or quota_manager.is_provider_exhausted("cloudflare"):
         return False, "Quota Reached"

@@ -10,6 +10,7 @@ import os
 import re
 import json
 import time
+import random
 try:
     import requests
 except ImportError:
@@ -64,9 +65,20 @@ class UniversalGreedyJSONParser:
 
 
 class GoogleGenAIAdapter:
-    """Native Google GenAI SDK Adapter."""
+    """Native Google GenAI SDK Adapter with persistent client and dynamic thinking preservation."""
     def __init__(self, api_key: str):
         self.api_key = api_key
+        self._client = None
+
+    def _get_client(self, timeout_ms: int = 120000):
+        if self._client is None:
+            from google import genai
+            from google.genai import types
+            self._client = genai.Client(
+                api_key=self.api_key,
+                http_options=types.HttpOptions(timeout=timeout_ms)
+            )
+        return self._client
 
     def generate_text(
         self,
@@ -74,31 +86,25 @@ class GoogleGenAIAdapter:
         prompt: str,
         system_prompt: Optional[str] = None,
         task_type: str = "general",
-        timeout_s: float = 60.0
+        timeout_s: float = 120.0
     ) -> Tuple[Optional[str], Dict[str, Any], float]:
         if not self.api_key:
             raise ValueError("GEMINI_API_KEY is not configured.")
 
-        from google import genai
         from google.genai import types
 
         timeout_ms = int(timeout_s * 1000)
-        client = genai.Client(api_key=self.api_key, http_options={"timeout": timeout_ms})
+        client = self._get_client(timeout_ms)
 
         cfg_kwargs: Dict[str, Any] = {
-            "http_options": {"timeout": timeout_ms},
             "automatic_function_calling": types.AutomaticFunctionCallingConfig(disable=True)
         }
         if system_prompt:
             cfg_kwargs["system_instruction"] = system_prompt
 
-        # Thinking config for Gemini 3.7 / 3.8 Flash
-        if any(v in entity.model_name for v in ["3.8", "3.7"]):
-            try:
-                cfg_kwargs["thinking_config"] = types.ThinkingConfig(thinking_level="low")
-            except Exception:
-                pass
-
+        # Full Dynamic Thinking preserved: Gemini 3.x models engage in native thinking by default.
+        # Per official Gemini 3.x migration rules, omit temperature, top_p, and top_k when thinking is active
+        # to prevent token decoding stalls and 504 deadline exceeded.
         gen_cfg = types.GenerateContentConfig(**cfg_kwargs)
 
         start_time = time.time()
@@ -115,17 +121,24 @@ class GoogleGenAIAdapter:
 
 class OpenAICompatibleAdapter:
     """
-    Unified lightweight HTTP adapter serving Groq Cloud, GitHub Models,
-    and OpenRouter with standard OpenAI-compatible completions and live response header capture.
+    Unified lightweight HTTP adapter serving Groq Cloud, GitHub Models (Azure AI),
+    and OpenRouter with standard OpenAI-compatible completions, persistent session pooling,
+    and live response header capture.
     """
     ENDPOINTS = {
         "groq": "https://api.groq.com/openai/v1/chat/completions",
-        "github": "https://models.github.ai/inference/chat/completions",
+        "github": "https://models.inference.ai.azure.com/chat/completions",
         "openrouter": "https://openrouter.ai/api/v1/chat/completions"
     }
 
     def __init__(self, keys: Dict[str, str]):
         self.keys = keys
+        self._session = None
+
+    def _get_session(self):
+        if self._session is None and requests is not None:
+            self._session = requests.Session()
+        return self._session
 
     def generate_text(
         self,
@@ -133,7 +146,7 @@ class OpenAICompatibleAdapter:
         prompt: str,
         system_prompt: Optional[str] = None,
         task_type: str = "general",
-        timeout_s: float = 60.0
+        timeout_s: float = 120.0
     ) -> Tuple[Optional[str], Dict[str, Any], float]:
         provider = entity.provider
         api_key = self.keys.get(provider, "")
@@ -146,7 +159,8 @@ class OpenAICompatibleAdapter:
 
         headers = {
             "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "User-Agent": "Ghost-Engine/2.0"
         }
 
         # Extra headers for OpenRouter rankings
@@ -159,26 +173,43 @@ class OpenAICompatibleAdapter:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
+        # Normalize model slug for Azure AI / GitHub Models
+        model_name = entity.model_name
+        if provider == "github":
+            model_name = model_name.replace("/", "-")
+
         payload: Dict[str, Any] = {
-            "model": entity.model_name,
+            "model": model_name,
             "messages": messages,
             "temperature": 0.7 if task_type == "creative" else 0.2
         }
 
-        # Enable structured JSON mode for SEO / JSON tasks when supported
+        # Enable structured JSON mode ONLY when supported.
+        # OpenRouter free-tier (:free) backends frequently reject response_format with HTTP 503.
+        # We rely on UniversalGreedyJSONParser for robust extraction across open models.
         if task_type in ("seo_json", "json"):
-            payload["response_format"] = {"type": "json_object"}
+            if provider != "openrouter" or not model_name.endswith(":free"):
+                payload["response_format"] = {"type": "json_object"}
 
-        if requests is None:
+        session = self._get_session()
+        if session is None:
             raise RuntimeError("The 'requests' library is required to execute OpenAICompatibleAdapter calls.")
+
         start_time = time.time()
-        resp = requests.post(endpoint, json=payload, headers=headers, timeout=(10.0, float(timeout_s)))
+        resp = session.post(endpoint, json=payload, headers=headers, timeout=(10.0, float(timeout_s)))
         latency = round(time.time() - start_time, 2)
 
         resp_headers = dict(resp.headers)
 
         if resp.status_code == 200:
-            data = resp.json()
+            body_text = resp.text.strip()
+            if not body_text:
+                raise RuntimeError(f"Provider {provider} ({model_name}) returned empty HTTP 200 payload (char 0).")
+            try:
+                data = resp.json()
+            except Exception as j_err:
+                raise RuntimeError(f"Provider {provider} ({model_name}) failed to parse JSON: {j_err} | Body: {body_text[:120]}")
+
             choices = data.get("choices", [])
             text = ""
             if choices and "message" in choices[0]:
@@ -316,8 +347,8 @@ class LLMRouter:
                     # 4-Pathway Error Handling
                     if "503" in err_str or "unavailable" in err_str or "high demand" in err_str:
                         if attempt < 2:
-                            backoff = 3.0 * (attempt + 1)
-                            logger.warn(f"⏳ [TRANSIENT 503] {entity.entity_id} capacity spike. Retrying attempt {attempt + 2}/3 in {backoff}s...")
+                            backoff = ((attempt + 1) * 8.0) + random.uniform(1.0, 3.0)
+                            logger.warn(f"⏳ [TRANSIENT 503] {entity.entity_id} capacity spike. Retrying attempt {attempt + 2}/3 in {backoff:.1f}s...")
                             time.sleep(backoff)
                             continue
                         else:

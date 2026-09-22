@@ -16,7 +16,7 @@ script_gen:
       ── FACTUAL SHARD (Verifiable Curious Truths):
       • USE ONLY HIGH-CONFIDENCE KNOWLEDGE: Write only facts you are certain of. If you are uncertain about a specific number or date, express the mechanism qualitatively rather than inventing a false figure. The system will verify facts externally — your job is to write with precision and confidence, not to speculate.
       • Open with a SPECIFIC empirical anchor — real number, exact species name, named scientist, or documented date.
-      • Reading level: 8th grade maximum. Punchy, conversational, relatable. Short sentences. Never lecture.
+      • Reading level: 6th-8th grade conversational vocabulary. Avoid dense multi-syllable textbook prose (e.g. use 'freeze' instead of 'immobilization', 'cell reset' instead of 'transdifferentiation'). Keep sentences under 15 words. Never lecture.
       • Target duration: 95-120 words total across 4 scenes.
       • Image prompts: Photorealistic 8K cinematic descriptions (subject, setting, lighting, camera angle, vertical 9:16 frame). NOT Pixar-style — real-world photography aesthetic.
 
@@ -52,7 +52,7 @@ script_gen:
     - Scene 3 (17-36s, 32-40 words): Climax & Turning Point (the bold action, breakthrough, or unexpected twist).
     - Scene 4 (37-52s, 22-28 words): Circular Loop Bridge (satisfying emotional/factual payoff that grammatically connects directly back into Scene 1's hook).
 
-    OUTPUT: Return ONLY a single valid JSON object. No preamble, no explanation, no markdown outside the JSON, no <THINKING> tags, no reasoning text before or after the JSON.
+    OUTPUT: Return ONLY a valid JSON object matching the scene schema. Ensure all fields are properly closed and formatted.
 
   user_template: |
     NICHE: '{niche}'

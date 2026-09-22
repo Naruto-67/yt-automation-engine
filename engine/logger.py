@@ -8,13 +8,13 @@ _IS_GITHUB = os.environ.get("GITHUB_ACTIONS") == "true"
 class StructuredLogger:
     @staticmethod
     def _log(tag: str, message: str, level: str = "INFO"):
-        if _IS_GITHUB:
-            # GitHub UI adds timestamps natively, keeping it clean
-            print(f"[{tag}] [{level}] {message}")
-        else:
-            # Local runs need minimal timestamps
-            timestamp = datetime.now(timezone.utc).strftime("%H:%M:%S")
-            print(f"[{timestamp}] [{tag}] [{level}] {message}")
+        timestamp = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        log_line = f"[{tag}] [{level}] {message}" if _IS_GITHUB else f"[{timestamp}] [{tag}] [{level}] {message}"
+        try:
+            print(log_line)
+        except UnicodeEncodeError:
+            clean_line = log_line.encode("ascii", errors="replace").decode("ascii")
+            print(clean_line)
 
     @classmethod
     def engine(cls, msg: str, level="INFO"): cls._log("ENGINE", msg, level)
@@ -42,6 +42,11 @@ class StructuredLogger:
 
     @classmethod
     def error(cls, msg: str): cls._log("SYSTEM", msg, "ERROR")
+
+    @classmethod
+    def debug(cls, msg: str):
+        if os.environ.get("GHOST_DEBUG", "").lower() in ("true", "1"):
+            cls._log("DEBUG", msg, "DEBUG")
 
     @classmethod
     def success(cls, msg: str): cls._log("SYSTEM", msg, "SUCCESS")

@@ -145,3 +145,4 @@ class PaletteEngine:
 
 # Singleton instance
 palette_engine = PaletteEngine()
+

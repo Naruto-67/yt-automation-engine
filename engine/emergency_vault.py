@@ -238,3 +238,4 @@ class EmergencyVault:
 
 # Singleton instance
 emergency_vault = EmergencyVault()
+
