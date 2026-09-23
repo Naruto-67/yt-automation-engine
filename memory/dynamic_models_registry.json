@@ -13,9 +13,11 @@
       "model_name": "gemini-3.8-flash",
       "task_quality_scores": {
         "scriptwriting": 9.5,
+        "creative": 9.5,
         "seo_json": 9.0,
         "vision_audit": 9.0,
-        "fact_grounding": 8.5
+        "fact_grounding": 8.5,
+        "analysis": 8.5
       },
       "max_rpm": 15,
       "max_rpd": 20,
@@ -32,9 +34,11 @@
       "model_name": "gemini-3.6-flash",
       "task_quality_scores": {
         "scriptwriting": 9.2,
+        "creative": 9.2,
         "seo_json": 8.8,
         "vision_audit": 8.8,
-        "fact_grounding": 8.5
+        "fact_grounding": 8.5,
+        "analysis": 8.5
       },
       "max_rpm": 15,
       "max_rpd": 20,
@@ -51,10 +55,10 @@
       "model_name": "gemini-flash-lite-latest",
       "task_quality_scores": {
         "scriptwriting": 8.6,
+        "creative": 8.6,
         "seo_json": 9.4,
         "vision_audit": 8.5,
-        "fact_grounding": 8.8,
-        "creative": 8.89
+        "fact_grounding": 8.8
       },
       "max_rpm": 30,
       "max_rpd": 500,
@@ -71,11 +75,10 @@
       "model_name": "gemini-3.5-flash-lite",
       "task_quality_scores": {
         "scriptwriting": 8.5,
+        "creative": 8.5,
         "seo_json": 9.3,
         "vision_audit": 8.3,
-        "fact_grounding": 8.6,
-        "analysis": 8.59,
-        "seo": 8.59
+        "fact_grounding": 8.6
       },
       "max_rpm": 30,
       "max_rpd": 500,
@@ -143,10 +146,10 @@
       "average_latency": 1.5,
       "cooldown_until": 1789902347.1743271
     },
-    "github:meta/llama-3.3-70b-instruct": {
-      "entity_id": "github:meta/llama-3.3-70b-instruct",
+    "github:meta-llama-3.3-70b-instruct": {
+      "entity_id": "github:meta-llama-3.3-70b-instruct",
       "provider": "github",
-      "model_name": "meta/llama-3.3-70b-instruct",
+      "model_name": "meta-llama-3.3-70b-instruct",
       "task_quality_scores": {
         "scriptwriting": 8.9,
         "seo_json": 8.5,

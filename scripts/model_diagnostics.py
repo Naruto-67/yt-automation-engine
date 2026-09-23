@@ -23,12 +23,18 @@ if hasattr(sys.stdout, "reconfigure"):
 
 import time
 import json
+import random
 import traceback
 try:
     import requests
 except ImportError:
     requests = None
 from typing import Dict, Any, List, Optional
+from engine.model_entity import DynamicQuotaTracker
+
+
+def _calc_diagnostic_backoff(attempt: int) -> float:
+    return ((attempt + 1) * 8.0) + random.uniform(1.0, 3.0)
 
 DIVIDER_HEAVY = "=" * 88
 DIVIDER_LIGHT = "-" * 88
@@ -91,14 +97,16 @@ def test_google_provider(api_key: str, models_to_test: Optional[List[str]] = Non
                 break
             except Exception as e:
                 err_str = str(e)
-                if ("503" in err_str or "UNAVAILABLE" in err_str) and attempt < 2:
-                    wait_s = 2.0 * (attempt + 1)
-                    print(f"   │   ⏳ Task 0 hit 503 demand spike. Retrying in {wait_s}s...")
+                if any(x in err_str.lower() for x in ["503", "504", "unavailable", "high demand", "deadline_exceeded", "timeout"]) and attempt < 2:
+                    wait_s = _calc_diagnostic_backoff(attempt)
+                    print(f"   │   ⏳ Task 0 hit capacity surge. Retrying in {wait_s:.1f}s...")
                     time.sleep(wait_s)
                     continue
                 lat = round(time.time() - t0, 2)
                 print(f"   ├── Task 0 (Minimal Ping): ❌ FAIL ({lat}s) -> {e}")
                 break
+
+        time.sleep(2.0)
 
         # 2. Creative Script
         script_ok = False
@@ -109,11 +117,6 @@ def test_google_provider(api_key: str, models_to_test: Optional[List[str]] = Non
                     system_instruction="You are a scriptwriter. Output exactly 4 scenes between 85-125 words total as JSON.",
                     automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
                 )
-                if "3.8" in model_name:
-                    try:
-                        cfg.thinking_config = types.ThinkingConfig(thinking_level="low")
-                    except Exception:
-                        pass
 
                 resp = client.models.generate_content(
                     model=model_name,
@@ -129,14 +132,16 @@ def test_google_provider(api_key: str, models_to_test: Optional[List[str]] = Non
                 break
             except Exception as e:
                 err_str = str(e)
-                if ("503" in err_str or "UNAVAILABLE" in err_str) and attempt < 2:
-                    wait_s = 2.0 * (attempt + 1)
-                    print(f"   │   ⏳ Task 1 hit 503 demand spike. Retrying in {wait_s}s...")
+                if any(x in err_str.lower() for x in ["503", "504", "unavailable", "high demand", "deadline_exceeded", "timeout"]) and attempt < 2:
+                    wait_s = _calc_diagnostic_backoff(attempt)
+                    print(f"   │   ⏳ Task 1 hit capacity surge. Retrying in {wait_s:.1f}s...")
                     time.sleep(wait_s)
                     continue
                 lat_script = round(time.time() - t1, 2)
                 print(f"   ├── Task 1 (Scriptwriting): ❌ FAIL ({lat_script}s) -> {e}")
                 break
+
+        time.sleep(2.0)
 
         # 3. SEO JSON
         seo_ok = False
@@ -159,9 +164,9 @@ def test_google_provider(api_key: str, models_to_test: Optional[List[str]] = Non
                 break
             except Exception as e:
                 err_str = str(e)
-                if ("503" in err_str or "UNAVAILABLE" in err_str) and attempt < 2:
-                    wait_s = 2.0 * (attempt + 1)
-                    print(f"   │   ⏳ Task 2 hit 503 demand spike. Retrying in {wait_s}s...")
+                if any(x in err_str.lower() for x in ["503", "504", "unavailable", "high demand", "deadline_exceeded", "timeout"]) and attempt < 2:
+                    wait_s = _calc_diagnostic_backoff(attempt)
+                    print(f"   │   ⏳ Task 2 hit capacity surge. Retrying in {wait_s:.1f}s...")
                     time.sleep(wait_s)
                     continue
                 lat_seo = round(time.time() - t2, 2)
@@ -175,6 +180,7 @@ def test_google_provider(api_key: str, models_to_test: Optional[List[str]] = Non
             "seo": seo_ok,
             "latency": lat
         })
+        time.sleep(3.0)
 
     return results
 
@@ -230,8 +236,8 @@ def test_openai_compatible_provider(
                     ping_ok = True
                     break
                 elif resp.status_code in (502, 503, 504) and attempt < 2:
-                    wait_s = 2.0 * (attempt + 1)
-                    print(f"   │   ⏳ Task 0 hit HTTP {resp.status_code}. Retrying in {wait_s}s...")
+                    wait_s = _calc_diagnostic_backoff(attempt)
+                    print(f"   │   ⏳ Task 0 hit HTTP {resp.status_code}. Retrying in {wait_s:.1f}s...")
                     time.sleep(wait_s)
                     continue
                 else:
@@ -239,14 +245,16 @@ def test_openai_compatible_provider(
                     break
             except Exception as e:
                 err_str = str(e)
-                if ("503" in err_str or "timeout" in err_str.lower()) and attempt < 2:
-                    wait_s = 2.0 * (attempt + 1)
-                    print(f"   │   ⏳ Task 0 transient network issue. Retrying in {wait_s}s...")
+                if any(x in err_str.lower() for x in ["502", "503", "504", "timeout", "unavailable"]) and attempt < 2:
+                    wait_s = _calc_diagnostic_backoff(attempt)
+                    print(f"   │   ⏳ Task 0 transient network issue. Retrying in {wait_s:.1f}s...")
                     time.sleep(wait_s)
                     continue
                 lat = round(time.time() - t0, 2)
                 print(f"   ├── Task 0 (Minimal Ping): ❌ FAIL ({lat}s) -> {e}")
                 break
+
+        time.sleep(1.5)
 
         # 2. Scriptwriting
         script_ok = False
@@ -272,8 +280,8 @@ def test_openai_compatible_provider(
                     script_ok = True
                     break
                 elif resp.status_code in (502, 503, 504) and attempt < 2:
-                    wait_s = 2.0 * (attempt + 1)
-                    print(f"   │   ⏳ Task 1 hit HTTP {resp.status_code}. Retrying in {wait_s}s...")
+                    wait_s = _calc_diagnostic_backoff(attempt)
+                    print(f"   │   ⏳ Task 1 hit HTTP {resp.status_code}. Retrying in {wait_s:.1f}s...")
                     time.sleep(wait_s)
                     continue
                 else:
@@ -281,14 +289,16 @@ def test_openai_compatible_provider(
                     break
             except Exception as e:
                 err_str = str(e)
-                if ("503" in err_str or "timeout" in err_str.lower()) and attempt < 2:
-                    wait_s = 2.0 * (attempt + 1)
-                    print(f"   │   ⏳ Task 1 transient network issue. Retrying in {wait_s}s...")
+                if any(x in err_str.lower() for x in ["502", "503", "504", "timeout", "unavailable"]) and attempt < 2:
+                    wait_s = _calc_diagnostic_backoff(attempt)
+                    print(f"   │   ⏳ Task 1 transient network issue. Retrying in {wait_s:.1f}s...")
                     time.sleep(wait_s)
                     continue
                 lat_script = round(time.time() - t1, 2)
                 print(f"   ├── Task 1 (Scriptwriting): ❌ FAIL ({lat_script}s) -> {e}")
                 break
+
+        time.sleep(1.5)
 
         # 3. SEO JSON
         seo_ok = False
@@ -312,8 +322,8 @@ def test_openai_compatible_provider(
                     seo_ok = True
                     break
                 elif resp.status_code in (502, 503, 504) and attempt < 2:
-                    wait_s = 2.0 * (attempt + 1)
-                    print(f"   │   ⏳ Task 2 hit HTTP {resp.status_code}. Retrying in {wait_s}s...")
+                    wait_s = _calc_diagnostic_backoff(attempt)
+                    print(f"   │   ⏳ Task 2 hit HTTP {resp.status_code}. Retrying in {wait_s:.1f}s...")
                     time.sleep(wait_s)
                     continue
                 else:
@@ -321,9 +331,9 @@ def test_openai_compatible_provider(
                     break
             except Exception as e:
                 err_str = str(e)
-                if ("503" in err_str or "timeout" in err_str.lower()) and attempt < 2:
-                    wait_s = 2.0 * (attempt + 1)
-                    print(f"   │   ⏳ Task 2 transient network issue. Retrying in {wait_s}s...")
+                if any(x in err_str.lower() for x in ["502", "503", "504", "timeout", "unavailable"]) and attempt < 2:
+                    wait_s = _calc_diagnostic_backoff(attempt)
+                    print(f"   │   ⏳ Task 2 transient network issue. Retrying in {wait_s:.1f}s...")
                     time.sleep(wait_s)
                     continue
                 lat_seo = round(time.time() - t2, 2)
@@ -337,6 +347,7 @@ def test_openai_compatible_provider(
             "seo": seo_ok,
             "latency": lat
         })
+        time.sleep(2.0)
 
     return results
 

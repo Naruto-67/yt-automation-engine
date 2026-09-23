@@ -503,6 +503,10 @@ def validate_script_quality(script_text: str, prompts_cfg: dict,
         return False, f"Script exceeds word ceiling ({word_count} words > {_ABSOLUTE_WORD_CEILING} words)."
 
     # ── 2. DETERMINISTIC SENTENCE CLOSURE GATE ─────────────────────────────
+    raw_ending = script_text.strip()
+    if raw_ending.endswith(",") or raw_ending.endswith(";") or raw_ending.endswith(":"):
+        return False, f"SentenceClosureCheck failed: script ends with trailing punctuation ('{raw_ending[-1]}'). Final sentence must end with a period."
+
     if trimmed.endswith("...") or trimmed.endswith("…") or trimmed.endswith("--") or trimmed.endswith("-"):
         trimmed = re.sub(r'[\.…\-—–\s]+$', '', trimmed) + "."
 
@@ -515,10 +519,12 @@ def validate_script_quality(script_text: str, prompts_cfg: dict,
         last_1 = last_words[-1]
         last_2 = " ".join(last_words[-2:]) if len(last_words) >= 2 else ""
         truncated_fragments = {
-            "it was", "there was", "such as", "leading to", "resulting in", "and then"
+            "it was", "there was", "such as", "leading to", "resulting in", "and then",
+            "once again", "proving that", "because", "such that", "which is", "so that",
+            "and", "but", "or", "so", "as", "while", "that", "which"
         }
         if last_1 in truncated_fragments or last_2 in truncated_fragments:
-            return False, f"SentenceClosureCheck failed: dangling fragment ('{last_2 or last_1}')."
+            return False, f"SentenceClosureCheck failed: dangling fragment ('{last_2 or last_1}'). Ensure a complete, closed final sentence."
 
     # ── 3. AI CLICHÉ & FORMULAIC TEMPLATE GATE ─────────────────────────────
     banned_phrases = [
@@ -673,20 +679,15 @@ def validate_script_quality(script_text: str, prompts_cfg: dict,
         else:
             score = numbers[-1]
 
-        passed = score >= 4
         passed = score >= 6
         if not passed:
-            return False, f"LLM validator score {score}/10 is below rejection threshold of 4."
             return False, f"LLM validator score {score}/10 is below quality threshold of 6 (Solid & Complete)."
         return True, f"Approved (Score: {score}/10)"
 
     except Exception:
-        return True, "Approved (Validator parsing error fail-safe)"
-
-    except Exception:
         trace = traceback.format_exc()
         logger.error(f"Validation parsing error:\n{trace}")
-        return True  # Parsing failure → pass (fail-safe)
+        return True, "Approved (Validator parsing error fail-safe)"
 
 
 # ── Valid mood and caption_style values (must match settings.yaml) ─────────────
@@ -1255,6 +1256,20 @@ def generate_script(niche: str, topic: str):
                 specific_fix = (
                     f"The previous draft was too long ({last_error}). "
                     f"Trim wordiness and simplify sentences so the total script lands between 95 and 115 words while preserving 4 scenes."
+                )
+            elif "sentenceclosure" in err_lower or "trailing punctuation" in err_lower or "dangling" in err_lower:
+                specific_fix = (
+                    f"The previous draft failed sentence closure validation ({last_error}). "
+                    f"Ensure Scene 4 ends with a grammatically complete, independent clause terminated with a single period ('.'). "
+                    f"Do NOT leave trailing commas or dangling clauses (e.g. 'proving that once again,' or 'because...'). "
+                    f"Total script must land between 95 and 115 words across 4 scenes."
+                )
+            elif "validator score" in err_lower or "quality threshold" in err_lower:
+                specific_fix = (
+                    f"The previous draft scored below the editorial quality threshold ({last_error}). "
+                    f"Elevate the storytelling quality: strengthen the opening hook in Scene 1, ensure concrete details and pacing in Scenes 2-3, "
+                    f"and deliver a satisfying, conclusive ending in Scene 4 that seamlessly loops back to Scene 1. "
+                    f"Strictly maintain 95-115 total words across all 4 scenes."
                 )
             else:
                 specific_fix = f"Fix the violation: {last_error}. Ensure a complete final sentence and 95-115 words total."

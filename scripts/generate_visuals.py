@@ -15,6 +15,7 @@ from engine.guardian import guardian
 from engine.slideshow_risk import audit_and_remedy_prompts
 from engine.decision_log import decision_log
 from engine.vision_critic import vision_critic
+from engine.config_manager import config_manager
 
 logger = logging.getLogger("yt_engine.visuals")
 
@@ -485,8 +486,6 @@ def generate_huggingface_cascade(prompt, output_path):
 
         short_name = model.split('/')[-1]
         print(f"      -> Routing to {short_name}...")
-        if SIMULATE_CASCADE_TEST and "FLUX" in model:
-            continue
 
         url = f"https://router.huggingface.co/hf-inference/models/{model}"
 
@@ -821,8 +820,11 @@ def fetch_scene_images(
         if not success:
             print("      [Tier 5: Pollinations.ai] Attempting FLUX emergency endpoint...")
             try:
-                style_prefix = "3D Pixar digital animation render, " if is_fictional and "pixar" not in current_prompt.lower() else ""
-                safe_prompt = urllib.parse.quote(style_prefix + current_prompt + _QUALITY_SUFFIX)
+                style_prefix = "3D Pixar animation, " if is_fictional and "pixar" not in current_prompt.lower() else ""
+                clean_desc = re.sub(r'\[.*?\]', '', current_prompt)
+                clean_desc = re.sub(r'[^a-zA-Z0-9,\s]', ' ', clean_desc)
+                clean_desc = " ".join(clean_desc.split())[:180]
+                safe_prompt = urllib.parse.quote(f"{style_prefix}{clean_desc}")
                 url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1080&height=1920&nologo=true"
                 res = requests.get(url, timeout=(10, 45))
                 res.raise_for_status()

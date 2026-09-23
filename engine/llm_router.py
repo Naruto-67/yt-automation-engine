@@ -128,7 +128,7 @@ class OpenAICompatibleAdapter:
     """
     ENDPOINTS = {
         "groq": "https://api.groq.com/openai/v1/chat/completions",
-        "github": "https://models.inference.ai.azure.com/chat/completions",
+        "github": "https://models.github.ai/inference/chat/completions",
         "openrouter": "https://openrouter.ai/api/v1/chat/completions"
     }
 

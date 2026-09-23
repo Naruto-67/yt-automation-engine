@@ -77,6 +77,29 @@ class ModelEntity:
 
         return self.status == "ACTIVE"
 
+    def get_task_score(self, task_type: str) -> float:
+        """
+        Normalizes task type aliases to ensure flagship models are not penalized
+        by missing dictionary keys when invoked via semantic task names.
+        """
+        norm = (task_type or "").lower().strip()
+        if norm in ("creative", "storytelling", "narrative"):
+            key = "scriptwriting"
+        elif norm in ("seo", "seo_json", "json"):
+            key = "seo_json"
+        elif norm in ("analysis", "fact_grounding", "critic", "research"):
+            key = "fact_grounding"
+        elif norm in ("vision", "vision_audit", "critic_frame"):
+            key = "vision_audit"
+        else:
+            key = norm
+
+        if key in self.task_quality_scores:
+            return float(self.task_quality_scores[key])
+        if norm in self.task_quality_scores:
+            return float(self.task_quality_scores[norm])
+        return 7.5
+
 
 class DynamicQuotaTracker:
     """
@@ -252,7 +275,7 @@ class DynamicQuotaTracker:
         entity.average_latency = round(0.8 * entity.average_latency + 0.2 * latency, 2)
 
         # Update EMA task quality score
-        current_score = entity.task_quality_scores.get(task_type, 8.0)
+        current_score = entity.get_task_score(task_type)
         new_score = round(0.8 * current_score + 0.2 * quality_rating, 2)
         entity.task_quality_scores[task_type] = new_score
 
@@ -349,13 +372,15 @@ class ScarcityWaterfallResolver:
         # Sort by task quality score descending
         available.sort(
             key=lambda e: (
-                e.task_quality_scores.get(task_type, 7.0),
+                e.get_task_score(task_type),
                 -e.average_latency
             ),
             reverse=True
         )
 
-        resolved_plan: List[Tuple[ModelEntity, str]] = []
+        tier1_flagships: List[Tuple[ModelEntity, str]] = []
+        tier2_workhorses: List[Tuple[ModelEntity, str]] = []
+        tier3_reserve: List[Tuple[ModelEntity, str]] = []
 
         # Partition into scarce flagships (<50 RPD) vs high-capacity workhorses (>=50 RPD)
         for entity in available:
@@ -363,12 +388,12 @@ class ScarcityWaterfallResolver:
             under_85 = entity.is_under_scarcity_ceiling(ceiling=0.85)
 
             if is_scarce and under_85:
-                resolved_plan.append((entity, f"{entity.entity_id} (Tier 1 Flagship Canary)"))
+                tier1_flagships.append((entity, f"{entity.entity_id} (Tier 1 Flagship Canary)"))
             elif not is_scarce:
-                resolved_plan.append((entity, f"{entity.entity_id} (Tier 2 High-Capacity Workhorse)"))
+                tier2_workhorses.append((entity, f"{entity.entity_id} (Tier 2 High-Capacity Workhorse)"))
             else:
-                # Scarce model has exhausted its 85% ceiling; place at the tail as absolute emergency backup
-                resolved_plan.append((entity, f"{entity.entity_id} (Tier 3 Emergency Reserve)"))
+                # Scarce model has exhausted its 85% ceiling; place at the tail as emergency backup
+                tier3_reserve.append((entity, f"{entity.entity_id} (Tier 3 Emergency Reserve)"))
 
-        return resolved_plan
+        return tier1_flagships + tier2_workhorses + tier3_reserve
 
