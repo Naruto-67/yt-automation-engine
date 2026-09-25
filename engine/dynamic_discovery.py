@@ -25,13 +25,14 @@ BANNED_MODALITY_PATTERNS = [
     r"robotics", r"video", r"veo", r"whisper", r"transcribe",
     r"guard", r"safeguard", r"deepseek-r1-distill-qwen-1\.5b",
     r"omni", r"imagen",
+    r"orpheus", r"canopylabs", r"speech", r"voice", r"sound", r"realtime",
+    r"inkling",
 ]
 
 # Deprecated legacy models known to return 404 / 410
 DEPRECATED_KNOWN = {
     "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash",
     "gemini-1.5-flash-8b", "gemini-1.5-pro", "gemini-2.0-pro",
-    "gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"
     "gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite",
     "mixtral-8x7b-32768", "gemma2-9b-it", "llama3-70b-8192", "llama3-8b-8192"
 }
@@ -99,8 +100,30 @@ def get_cached_provider_models(provider: str) -> Optional[List[str]]:
     return None
 
 
+def deduplicate_google_aliases(models: List[str]) -> List[str]:
+    """
+    Deduplicates Google model aliases to avoid double-spending scarce daily quotas (e.g. 20 RPD on 3.8-flash).
+    Prefers canonical numbered versions over generic '-latest' or redundant '-preview' aliases.
+    """
+    deduped = []
+    has_numbered_flash = any(bool(re.search(r"gemini-\d+(\.\d+)?-flash", m)) for m in models if "lite" not in m)
+
+    for m in models:
+        # If explicit versioned flash models exist (e.g. gemini-3.8-flash), drop redundant 'gemini-flash-latest' alias
+        if m == "gemini-flash-latest" and has_numbered_flash:
+            continue
+        # If canonical version exists without '-preview', drop the redundant '-preview' duplicate
+        if m.endswith("-preview"):
+            base_preview = m[:-8]
+            if base_preview in models:
+                continue
+        deduped.append(m)
+
+    return deduped
+
+
 def discover_google_models(client=None, force: bool = False) -> List[str]:
-    """Queries Google GenAI client.models.list() and filters for viable Flash models."""
+    """Queries Google GenAI client.models.list() and filters for viable Flash models with alias deduplication."""
     if not force:
         cached = get_cached_provider_models("google")
         if cached is not None:
@@ -130,6 +153,8 @@ def discover_google_models(client=None, force: bool = False) -> List[str]:
 
             if "flash" in clean_name.lower():
                 discovered.append(clean_name)
+
+        discovered = deduplicate_google_aliases(discovered)
 
     except Exception as e:
         logger.warn(f"⚠️ [DYNAMIC DISCOVERY] Google catalog discovery failed: {e}")
@@ -233,25 +258,106 @@ def discover_github_models(api_key: Optional[str] = None, force: bool = False) -
                     json={"model": model, "messages": [{"role": "user", "content": "ping"}], "max_tokens": 2},
                     timeout=5.0
                 )
-                if resp.status_code in (200, 429):  # 200 OK or rate-limited indicates active model access
-                    if model not in verified:
-                        verified.append(model)
-                    if resp.status_code == 200:
+                if resp.status_code == 200:
+                    c_type = resp.headers.get("content-type", "").lower()
+                    if "application/json" in c_type:
                         try:
-                            from engine.model_entity import DynamicQuotaTracker
-                            t_tracker = DynamicQuotaTracker(REGISTRY_PATH)
-                            t_tracker.record_call_success(f"github:{model}", "ping", 1.0)
+                            data = resp.json()
+                            if "choices" in data or "id" in data:
+                                if model not in verified:
+                                    verified.append(model)
+                                try:
+                                    from engine.model_entity import DynamicQuotaTracker
+                                    t_tracker = DynamicQuotaTracker(REGISTRY_PATH)
+                                    t_tracker.record_call_success(f"github:{model}", "ping", 1.0)
+                                except Exception:
+                                    pass
+                                break
                         except Exception:
                             pass
+                elif resp.status_code == 429:
+                    # Legitimate 429 rate limit confirms active model endpoint
+                    if model not in verified:
+                        verified.append(model)
                     break
             except Exception:
                 pass
 
+    if not verified:
+        logger.info("ℹ️ [DYNAMIC DISCOVERY] GitHub Models inference returned non-JSON / inactive responses (Service retired). Skipping.")
+
     return verified
 
 
-def sync_registry(force: bool = False) -> Dict[str, Any]:
+def calibrate_registry_from_benchmark(results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Directly calibrates memory/dynamic_models_registry.json with empirical benchmark data
+    (quality scores, latency, throughput, thinking detection, status).
+    """
+    from engine.model_entity import DynamicQuotaTracker, ModelEntity
+
+    tracker = DynamicQuotaTracker(REGISTRY_PATH)
+    calibrated_count = 0
+
+    for r in results:
+        eid = r.get("entity_id")
+        if not eid:
+            continue
+
+        entity = tracker.get_entity(eid)
+        if not entity:
+            prov = r.get("provider", eid.split(":")[0] if ":" in eid else "unknown")
+            m_name = eid.split(":", 1)[-1] if ":" in eid else eid
+            entity = ModelEntity(entity_id=eid, provider=prov, model_name=m_name)
+            tracker.entities[eid] = entity
+
+        # Update empirical task quality scores
+        if r.get("script") and r.get("script_score", 0.0) > 0:
+            entity.task_quality_scores["scriptwriting"] = round(float(r["script_score"]), 2)
+            entity.task_quality_scores["creative"] = round(float(r["script_score"]), 2)
+        if r.get("seo") and r.get("seo_score", 0.0) > 0:
+            entity.task_quality_scores["seo_json"] = round(float(r["seo_score"]), 2)
+
+        # Update empirical latency & throughput
+        if r.get("latency", 0.0) > 0:
+            entity.average_latency = round(float(r["latency"]), 2)
+        if r.get("throughput", 0.0) > 0:
+            entity.average_throughput = round(float(r["throughput"]), 1)
+
+        # Update thinking telemetry
+        if r.get("thinking"):
+            entity.supports_thinking = True
+            entity.thinking_type = r.get("thinking_type", "active")
+            if r.get("thinking_tokens", 0) > 0:
+                entity.average_thinking_tokens = int(r["thinking_tokens"])
+
+        # Update operational status
+        if r.get("ping") or r.get("script") or r.get("seo"):
+            entity.status = "ACTIVE"
+        elif r.get("quota_exhausted"):
+            entity.status = "QUOTA_EXHAUSTED"
+
+        calibrated_count += 1
+
+    tracker.persist()
+    fresh_reg = load_registry()
+    fresh_reg["last_discovery_timestamp"] = time.time()
+    save_registry(fresh_reg)
+
+    logger.success(f"✅ [REGISTRY CALIBRATION] Successfully calibrated {calibrated_count} models in {REGISTRY_PATH}")
+    return {
+        "status": "SUCCESS",
+        "total_calibrated": calibrated_count,
+        "total_entities": len(tracker.entities),
+        "updated_at": fresh_reg.get("updated_at", "")
+    }
+
+
+def sync_registry(force: bool = False, benchmark_results: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     """Performs full discovery across all 4 providers and updates the local registry."""
+    if benchmark_results:
+        return calibrate_registry_from_benchmark(benchmark_results)
+
     from engine.model_entity import DynamicQuotaTracker, ModelEntity
 
     reg = load_registry()

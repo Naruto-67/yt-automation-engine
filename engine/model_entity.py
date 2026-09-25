@@ -38,6 +38,7 @@ class ModelEntity:
     supports_thinking: bool = False         # Dynamically detected via wire-level response inspection
     thinking_type: str = "none"             # "native_part", "reasoning_content", "token_metadata", "xml_tags"
     average_thinking_tokens: int = 0        # Empirical average reasoning token volume
+    average_throughput: float = 0.0         # Empirical tokens/sec throughput
 
     @property
     def utilization_rate(self) -> float:
@@ -181,7 +182,8 @@ class DynamicQuotaTracker:
                 cooldown_until=saved.get("cooldown_until", 0.0),
                 supports_thinking=saved.get("supports_thinking", False),
                 thinking_type=saved.get("thinking_type", "none"),
-                average_thinking_tokens=saved.get("average_thinking_tokens", 0)
+                average_thinking_tokens=saved.get("average_thinking_tokens", 0),
+                average_throughput=saved.get("average_throughput", 0.0)
             )
 
         # 2. Restore dynamically discovered entities not in default catalog
@@ -204,7 +206,8 @@ class DynamicQuotaTracker:
                     cooldown_until=s_data.get("cooldown_until", 0.0),
                     supports_thinking=s_data.get("supports_thinking", False),
                     thinking_type=s_data.get("thinking_type", "none"),
-                    average_thinking_tokens=s_data.get("average_thinking_tokens", 0)
+                    average_thinking_tokens=s_data.get("average_thinking_tokens", 0),
+                    average_throughput=s_data.get("average_throughput", 0.0)
                 )
 
         self.evaluate_daily_resets()

@@ -86,6 +86,7 @@ def test_google_provider(api_key: str, models_to_test: Optional[List[str]] = Non
         entity_id = f"google:{model_name}"
         entity = tracker.get_entity(entity_id)
         is_known_thinking = getattr(entity, "supports_thinking", False) if entity else False
+        quota_exhausted_for_model = False
 
         print(f"\n   ┌── Model: [{entity_id}]")
 
@@ -124,6 +125,12 @@ def test_google_provider(api_key: str, models_to_test: Optional[List[str]] = Non
                 break
             except Exception as e:
                 err_str = str(e)
+                if any(x in err_str.lower() for x in ["429", "resource_exhausted", "quota"]):
+                    lat_ping = round(time.time() - t0, 2)
+                    print(f"   ├── Task 0 (Minimal Ping)  : 🛑 QUOTA EXHAUSTED ({lat_ping}s) -> Daily Limit Reached (429)")
+                    tracker.record_call_error(entity_id, 429, err_str)
+                    quota_exhausted_for_model = True
+                    break
                 if any(x in err_str.lower() for x in ["503", "504", "unavailable", "high demand", "deadline_exceeded", "timeout"]) and attempt < 2:
                     wait_s = _calc_diagnostic_backoff(attempt, is_thinking=is_known_thinking)
                     print(f"   │   ⏳ Task 0 hit capacity surge. Retrying in {wait_s:.1f}s...")
@@ -133,8 +140,6 @@ def test_google_provider(api_key: str, models_to_test: Optional[List[str]] = Non
                 print(f"   ├── Task 0 (Minimal Ping)  : ❌ FAIL ({lat_ping}s) -> {e}")
                 break
 
-        time.sleep(2.0)
-
         # ── 2. Scriptwriting Quality Audit ────────────────────────────────────
         script_ok = False
         t1 = time.time()
@@ -142,80 +147,88 @@ def test_google_provider(api_key: str, models_to_test: Optional[List[str]] = Non
         script_audit = {"score": 0.0, "word_count": 0, "scene_count": 0, "feedback": []}
         script_throughput = 0.0
 
-        for attempt in range(3):
-            try:
-                cfg = types.GenerateContentConfig(
-                    system_instruction="You are a professional YouTube Shorts scriptwriter. Output exactly 4 scenes between 85-125 words total as JSON with a 'scenes' array.",
-                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
-                )
+        if quota_exhausted_for_model:
+            print(f"   │   🛑 Quota exhausted for [{entity_id}]. Skipping remaining tasks to protect quota.")
+        else:
+            time.sleep(2.0)
+            for attempt in range(3):
+                try:
+                    cfg = types.GenerateContentConfig(
+                        system_instruction="You are a professional YouTube Shorts scriptwriter. Output exactly 4 scenes between 85-125 words total as JSON with a 'scenes' array.",
+                        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
+                    )
 
-                # Socket-Preserving Streaming for Thinking Models
-                raw_script = ""
-                if is_known_thinking:
-                    try:
-                        stream = client.models.generate_content_stream(
+                    # Socket-Preserving Streaming for Thinking Models
+                    raw_script = ""
+                    if is_known_thinking:
+                        try:
+                            stream = client.models.generate_content_stream(
+                                model=model_name,
+                                contents="Write a 4-scene video script about Turritopsis dohrnii immortal jellyfish.",
+                                config=cfg
+                            )
+                            chunks = []
+                            for ch in stream:
+                                if ch.text:
+                                    chunks.append(ch.text)
+                            raw_script = "".join(chunks).strip()
+                        except Exception as s_err:
+                            raw_script = ""
+
+                    if not raw_script:
+                        resp = client.models.generate_content(
                             model=model_name,
                             contents="Write a 4-scene video script about Turritopsis dohrnii immortal jellyfish.",
                             config=cfg
                         )
-                        chunks = []
-                        for ch in stream:
-                            if ch.text:
-                                chunks.append(ch.text)
-                        raw_script = "".join(chunks).strip()
-                    except Exception as s_err:
-                        raw_script = ""
+                        raw_script = (resp.text or "").strip()
+                        # Re-detect thinking on full generation
+                        t_detect = ThinkingDetector.detect_google_response(resp)
+                        if t_detect["is_thinking"]:
+                            thinking_meta = t_detect
+                            is_known_thinking = True
 
-                if not raw_script:
-                    resp = client.models.generate_content(
-                        model=model_name,
-                        contents="Write a 4-scene video script about Turritopsis dohrnii immortal jellyfish.",
-                        config=cfg
+                    lat_script = round(time.time() - t1, 2)
+                    est_tokens = max(1, len(raw_script) // 4)
+                    script_throughput = round(est_tokens / max(lat_script, 0.1), 1)
+
+                    # Resilient Parsing (Level 1-3 -> Level 4 Fallback)
+                    parsed_script = UniversalGreedyJSONParser.extract_or_synthesize(raw_script, expected_type="script", fallback_topic="Turritopsis dohrnii")
+
+                    # Multi-Gate Quality Scoring
+                    script_audit = QualityEvaluator.audit_script(parsed_script, raw_text=raw_script)
+                    score = script_audit["score"]
+
+                    fb_summary = " | ".join(script_audit["feedback"][:3])
+                    print(f"   ├── Task 1 (Scriptwriting) : ✅ PASS ({lat_script}s) | Score: {score}/10 | {script_audit['word_count']} words | {script_audit['scene_count']} scenes | ~{script_throughput} tok/s")
+                    print(f"   │   📊 Gate Audit: {fb_summary}")
+                    if thinking_meta["is_thinking"]:
+                        print(f"   │   🧠 Thinking Telemetry: {thinking_meta['method']} (~{thinking_meta['thought_tokens']} tokens) | Snippet: \"{thinking_meta['thought_snippet'][:80]}...\"")
+
+                    tracker.record_call_success(
+                        entity_id, "scriptwriting", lat_script, quality_rating=score,
+                        supports_thinking=thinking_meta["is_thinking"],
+                        thinking_type=thinking_meta["method"],
+                        thinking_tokens=thinking_meta["thought_tokens"]
                     )
-                    raw_script = (resp.text or "").strip()
-                    # Re-detect thinking on full generation
-                    t_detect = ThinkingDetector.detect_google_response(resp)
-                    if t_detect["is_thinking"]:
-                        thinking_meta = t_detect
-                        is_known_thinking = True
-
-                lat_script = round(time.time() - t1, 2)
-                est_tokens = max(1, len(raw_script) // 4)
-                script_throughput = round(est_tokens / max(lat_script, 0.1), 1)
-
-                # Resilient Parsing (Level 1-3 -> Level 4 Fallback)
-                parsed_script = UniversalGreedyJSONParser.extract_or_synthesize(raw_script, expected_type="script", fallback_topic="Turritopsis dohrnii")
-
-                # Multi-Gate Quality Scoring
-                script_audit = QualityEvaluator.audit_script(parsed_script, raw_text=raw_script)
-                score = script_audit["score"]
-
-                fb_summary = " | ".join(script_audit["feedback"][:3])
-                print(f"   ├── Task 1 (Scriptwriting) : ✅ PASS ({lat_script}s) | Score: {score}/10 | {script_audit['word_count']} words | {script_audit['scene_count']} scenes | ~{script_throughput} tok/s")
-                print(f"   │   📊 Gate Audit: {fb_summary}")
-                if thinking_meta["is_thinking"]:
-                    print(f"   │   🧠 Thinking Telemetry: {thinking_meta['method']} (~{thinking_meta['thought_tokens']} tokens) | Snippet: \"{thinking_meta['thought_snippet'][:80]}...\"")
-
-                tracker.record_call_success(
-                    entity_id, "scriptwriting", lat_script, quality_rating=score,
-                    supports_thinking=thinking_meta["is_thinking"],
-                    thinking_type=thinking_meta["method"],
-                    thinking_tokens=thinking_meta["thought_tokens"]
-                )
-                script_ok = True
-                break
-            except Exception as e:
-                err_str = str(e)
-                if any(x in err_str.lower() for x in ["503", "504", "unavailable", "high demand", "deadline_exceeded", "timeout"]) and attempt < 2:
-                    wait_s = _calc_diagnostic_backoff(attempt, is_thinking=is_known_thinking)
-                    print(f"   │   ⏳ Task 1 hit capacity surge. Retrying in {wait_s:.1f}s...")
-                    time.sleep(wait_s)
-                    continue
-                lat_script = round(time.time() - t1, 2)
-                print(f"   ├── Task 1 (Scriptwriting) : ❌ FAIL ({lat_script}s) -> {e}")
-                break
-
-        time.sleep(2.0)
+                    script_ok = True
+                    break
+                except Exception as e:
+                    err_str = str(e)
+                    if any(x in err_str.lower() for x in ["429", "resource_exhausted", "quota"]):
+                        lat_script = round(time.time() - t1, 2)
+                        print(f"   ├── Task 1 (Scriptwriting) : 🛑 QUOTA EXHAUSTED ({lat_script}s) -> Daily Limit Reached (429)")
+                        tracker.record_call_error(entity_id, 429, err_str)
+                        quota_exhausted_for_model = True
+                        break
+                    if any(x in err_str.lower() for x in ["503", "504", "unavailable", "high demand", "deadline_exceeded", "timeout"]) and attempt < 2:
+                        wait_s = _calc_diagnostic_backoff(attempt, is_thinking=is_known_thinking)
+                        print(f"   │   ⏳ Task 1 hit capacity surge. Retrying in {wait_s:.1f}s...")
+                        time.sleep(wait_s)
+                        continue
+                    lat_script = round(time.time() - t1, 2)
+                    print(f"   ├── Task 1 (Scriptwriting) : ❌ FAIL ({lat_script}s) -> {e}")
+                    break
 
         # ── 3. SEO JSON & CTR Packaging Quality Audit ─────────────────────────
         seo_ok = False
@@ -224,44 +237,52 @@ def test_google_provider(api_key: str, models_to_test: Optional[List[str]] = Non
         seo_audit = {"score": 0.0, "title": "", "tag_count": 0, "feedback": []}
         seo_throughput = 0.0
 
-        for attempt in range(3):
-            try:
-                cfg = types.GenerateContentConfig(
-                    system_instruction="Return ONLY valid JSON matching: {\"title\": \"...\", \"description\": \"...\", \"tags\": [\"...\"]}",
-                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
-                )
-                resp = client.models.generate_content(
-                    model=model_name,
-                    contents="Generate viral YouTube SEO metadata for Turritopsis dohrnii immortal jellyfish.",
-                    config=cfg
-                )
-                lat_seo = round(time.time() - t2, 2)
-                raw_seo = (resp.text or "").strip()
-                est_tokens = max(1, len(raw_seo) // 4)
-                seo_throughput = round(est_tokens / max(lat_seo, 0.1), 1)
+        if not quota_exhausted_for_model:
+            time.sleep(2.0)
+            for attempt in range(3):
+                try:
+                    cfg = types.GenerateContentConfig(
+                        system_instruction="Return ONLY valid JSON matching: {\"title\": \"...\", \"description\": \"...\", \"tags\": [\"...\"]}",
+                        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
+                    )
+                    resp = client.models.generate_content(
+                        model=model_name,
+                        contents="Generate viral YouTube SEO metadata for Turritopsis dohrnii immortal jellyfish.",
+                        config=cfg
+                    )
+                    lat_seo = round(time.time() - t2, 2)
+                    raw_seo = (resp.text or "").strip()
+                    est_tokens = max(1, len(raw_seo) // 4)
+                    seo_throughput = round(est_tokens / max(lat_seo, 0.1), 1)
 
-                # Resilient Parsing & Audit
-                parsed_seo = UniversalGreedyJSONParser.extract_or_synthesize(raw_seo, expected_type="seo", fallback_topic="Turritopsis dohrnii")
-                seo_audit = QualityEvaluator.audit_seo(parsed_seo, raw_text=raw_seo)
-                score = seo_audit["score"]
+                    # Resilient Parsing & Audit
+                    parsed_seo = UniversalGreedyJSONParser.extract_or_synthesize(raw_seo, expected_type="seo", fallback_topic="Turritopsis dohrnii")
+                    seo_audit = QualityEvaluator.audit_seo(parsed_seo, raw_text=raw_seo)
+                    score = seo_audit["score"]
 
-                fb_summary = " | ".join(seo_audit["feedback"][:3])
-                print(f"   └── Task 2 (SEO Metadata)  : ✅ PASS ({lat_seo}s) | Score: {score}/10 | Title: \"{seo_audit.get('title', '')[:35]}...\" | {seo_audit.get('tag_count', 0)} tags | ~{seo_throughput} tok/s")
-                print(f"       📊 Gate Audit: {fb_summary}")
+                    fb_summary = " | ".join(seo_audit["feedback"][:3])
+                    print(f"   └── Task 2 (SEO Metadata)  : ✅ PASS ({lat_seo}s) | Score: {score}/10 | Title: \"{seo_audit.get('title', '')[:35]}...\" | {seo_audit.get('tag_count', 0)} tags | ~{seo_throughput} tok/s")
+                    print(f"       📊 Gate Audit: {fb_summary}")
 
-                tracker.record_call_success(entity_id, "seo_json", lat_seo, quality_rating=score)
-                seo_ok = True
-                break
-            except Exception as e:
-                err_str = str(e)
-                if any(x in err_str.lower() for x in ["503", "504", "unavailable", "high demand", "deadline_exceeded", "timeout"]) and attempt < 2:
-                    wait_s = _calc_diagnostic_backoff(attempt, is_thinking=is_known_thinking)
-                    print(f"   │   ⏳ Task 2 hit capacity surge. Retrying in {wait_s:.1f}s...")
-                    time.sleep(wait_s)
-                    continue
-                lat_seo = round(time.time() - t2, 2)
-                print(f"   └── Task 2 (SEO Metadata)  : ❌ FAIL ({lat_seo}s) -> {e}")
-                break
+                    tracker.record_call_success(entity_id, "seo_json", lat_seo, quality_rating=score)
+                    seo_ok = True
+                    break
+                except Exception as e:
+                    err_str = str(e)
+                    if any(x in err_str.lower() for x in ["429", "resource_exhausted", "quota"]):
+                        lat_seo = round(time.time() - t2, 2)
+                        print(f"   └── Task 2 (SEO Metadata)  : 🛑 QUOTA EXHAUSTED ({lat_seo}s) -> Daily Limit Reached (429)")
+                        tracker.record_call_error(entity_id, 429, err_str)
+                        quota_exhausted_for_model = True
+                        break
+                    if any(x in err_str.lower() for x in ["503", "504", "unavailable", "high demand", "deadline_exceeded", "timeout"]) and attempt < 2:
+                        wait_s = _calc_diagnostic_backoff(attempt, is_thinking=is_known_thinking)
+                        print(f"   │   ⏳ Task 2 hit capacity surge. Retrying in {wait_s:.1f}s...")
+                        time.sleep(wait_s)
+                        continue
+                    lat_seo = round(time.time() - t2, 2)
+                    print(f"   └── Task 2 (SEO Metadata)  : ❌ FAIL ({lat_seo}s) -> {e}")
+                    break
 
         results.append({
             "entity_id": entity_id,
@@ -274,7 +295,9 @@ def test_google_provider(api_key: str, models_to_test: Optional[List[str]] = Non
             "latency": lat_script or lat_ping,
             "throughput": script_throughput or seo_throughput,
             "thinking": thinking_meta["is_thinking"],
-            "thinking_type": thinking_meta["method"]
+            "thinking_type": thinking_meta["method"],
+            "thinking_tokens": thinking_meta["thought_tokens"],
+            "quota_exhausted": quota_exhausted_for_model
         })
         time.sleep(3.0)
 
@@ -301,15 +324,23 @@ def test_openai_compatible_provider(
     results = []
     headers = {
         "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "User-Agent": "Ghost-Engine/2.0"
     }
     if extra_headers:
         headers.update(extra_headers)
 
+    provider_daily_limit_hit = False
+
     for model_name in models_to_test:
+        if provider_daily_limit_hit:
+            print(f"\n   ⏭️ Skipping remaining [{provider_name}] models due to daily provider quota ceiling.")
+            break
+
         entity_id = f"{provider_name}:{model_name}"
         entity = tracker.get_entity(entity_id)
         is_known_thinking = getattr(entity, "supports_thinking", False) if entity else False
+        quota_exhausted_for_model = False
 
         print(f"\n   ┌── Model: [{entity_id}]")
 
@@ -329,7 +360,17 @@ def test_openai_compatible_provider(
                 )
                 lat_ping = round(time.time() - t0, 2)
                 if resp.status_code == 200:
-                    resp_json = resp.json()
+                    c_type = resp.headers.get("content-type", "").lower()
+                    body_text = (resp.text or "").strip()
+                    if "application/json" not in c_type or not (body_text.startswith("{") or body_text.startswith("[")):
+                        print(f"   ├── Task 0 (Minimal Ping)  : ❌ FAIL ({lat_ping}s) -> HTTP 200 Non-JSON: '{body_text[:60]}'")
+                        break
+                    try:
+                        resp_json = resp.json()
+                    except Exception as j_err:
+                        print(f"   ├── Task 0 (Minimal Ping)  : ❌ FAIL ({lat_ping}s) -> JSON decode error: {j_err}")
+                        break
+
                     t_detect = ThinkingDetector.detect_openai_response(resp_json)
                     if t_detect["is_thinking"]:
                         thinking_meta = t_detect
@@ -356,11 +397,30 @@ def test_openai_compatible_provider(
                     print(f"   │   ⏳ Task 0 hit HTTP {resp.status_code}. Retrying in {wait_s:.1f}s...")
                     time.sleep(wait_s)
                     continue
+                elif resp.status_code == 429:
+                    err_snippet = resp.text[:200]
+                    if any(x in err_snippet.lower() for x in ["free-models-per-day", "daily"]):
+                        print(f"   ├── Task 0 (Minimal Ping)  : 🛑 DAILY LIMIT ({lat_ping}s) -> HTTP 429: {err_snippet}")
+                        print(f"   🛑 [CIRCUIT BREAKER] {provider_name.title()} daily free-tier limit reached ('free-models-per-day'). Skipping remaining models.")
+                        provider_daily_limit_hit = True
+                        quota_exhausted_for_model = True
+                        break
+                    else:
+                        print(f"   ├── Task 0 (Minimal Ping)  : 🛑 QUOTA EXHAUSTED ({lat_ping}s) -> HTTP 429: {err_snippet[:100]}")
+                        tracker.record_call_error(entity_id, 429, resp.text)
+                        quota_exhausted_for_model = True
+                        break
                 else:
                     print(f"   ├── Task 0 (Minimal Ping)  : ❌ FAIL ({lat_ping}s) -> HTTP {resp.status_code}: {resp.text[:120]}")
                     break
             except Exception as e:
                 err_str = str(e)
+                if any(x in err_str.lower() for x in ["429", "resource_exhausted", "quota"]):
+                    lat_ping = round(time.time() - t0, 2)
+                    print(f"   ├── Task 0 (Minimal Ping)  : 🛑 QUOTA EXHAUSTED ({lat_ping}s) -> Daily Limit Reached (429)")
+                    tracker.record_call_error(entity_id, 429, err_str)
+                    quota_exhausted_for_model = True
+                    break
                 if any(x in err_str.lower() for x in ["502", "503", "504", "timeout", "unavailable"]) and attempt < 2:
                     wait_s = _calc_diagnostic_backoff(attempt, is_thinking=is_known_thinking)
                     print(f"   │   ⏳ Task 0 transient network issue. Retrying in {wait_s:.1f}s...")
@@ -370,8 +430,6 @@ def test_openai_compatible_provider(
                 print(f"   ├── Task 0 (Minimal Ping)  : ❌ FAIL ({lat_ping}s) -> {e}")
                 break
 
-        time.sleep(1.5)
-
         # ── 2. Scriptwriting Quality Audit ────────────────────────────────────
         script_ok = False
         t1 = time.time()
@@ -379,69 +437,100 @@ def test_openai_compatible_provider(
         script_audit = {"score": 0.0, "word_count": 0, "scene_count": 0, "feedback": []}
         script_throughput = 0.0
 
-        for attempt in range(3):
-            try:
-                payload = {
-                    "model": model_name,
-                    "messages": [
-                        {"role": "system", "content": "You are a professional YouTube Shorts scriptwriter. Output exactly 4 scenes between 85-125 words total as JSON with a 'scenes' array."},
-                        {"role": "user", "content": "Write a 4-scene video script about Turritopsis dohrnii immortal jellyfish."}
-                    ],
-                    "temperature": 0.7
-                }
-                resp = requests.post(endpoint, headers=headers, json=payload, timeout=(10.0, 120.0))
-                lat_script = round(time.time() - t1, 2)
-                if resp.status_code == 200:
-                    resp_json = resp.json()
-                    content = resp_json.get("choices", [{}])[0].get("message", {}).get("content", "")
-                    est_tokens = max(1, len(content) // 4)
-                    script_throughput = round(est_tokens / max(lat_script, 0.1), 1)
+        if quota_exhausted_for_model or provider_daily_limit_hit:
+            print(f"   │   🛑 Quota exhausted for [{entity_id}]. Skipping remaining tasks.")
+        else:
+            time.sleep(1.5)
+            for attempt in range(3):
+                try:
+                    payload = {
+                        "model": model_name,
+                        "messages": [
+                            {"role": "system", "content": "You are a professional YouTube Shorts scriptwriter. Output exactly 4 scenes between 85-125 words total as JSON with a 'scenes' array."},
+                            {"role": "user", "content": "Write a 4-scene video script about Turritopsis dohrnii immortal jellyfish."}
+                        ],
+                        "temperature": 0.7
+                    }
+                    resp = requests.post(endpoint, headers=headers, json=payload, timeout=(10.0, 120.0))
+                    lat_script = round(time.time() - t1, 2)
+                    if resp.status_code == 200:
+                        c_type = resp.headers.get("content-type", "").lower()
+                        body_text = (resp.text or "").strip()
+                        if "application/json" not in c_type or not (body_text.startswith("{") or body_text.startswith("[")):
+                            print(f"   ├── Task 1 (Scriptwriting) : ❌ FAIL ({lat_script}s) -> HTTP 200 Non-JSON: '{body_text[:60]}'")
+                            break
+                        try:
+                            resp_json = resp.json()
+                        except Exception as j_err:
+                            print(f"   ├── Task 1 (Scriptwriting) : ❌ FAIL ({lat_script}s) -> JSON decode error: {j_err}")
+                            break
 
-                    # Dynamic wire-level thinking check
-                    t_detect = ThinkingDetector.detect_openai_response(resp_json, content)
-                    if t_detect["is_thinking"]:
-                        thinking_meta = t_detect
-                        is_known_thinking = True
+                        content = resp_json.get("choices", [{}])[0].get("message", {}).get("content", "")
+                        est_tokens = max(1, len(content) // 4)
+                        script_throughput = round(est_tokens / max(lat_script, 0.1), 1)
 
-                    parsed_script = UniversalGreedyJSONParser.extract_or_synthesize(content, expected_type="script", fallback_topic="Turritopsis dohrnii")
-                    script_audit = QualityEvaluator.audit_script(parsed_script, raw_text=content)
-                    score = script_audit["score"]
+                        # Dynamic wire-level thinking check
+                        t_detect = ThinkingDetector.detect_openai_response(resp_json, content)
+                        if t_detect["is_thinking"]:
+                            thinking_meta = t_detect
+                            is_known_thinking = True
 
-                    fb_summary = " | ".join(script_audit["feedback"][:3])
-                    print(f"   ├── Task 1 (Scriptwriting) : ✅ PASS ({lat_script}s) | Score: {score}/10 | {script_audit['word_count']} words | {script_audit['scene_count']} scenes | ~{script_throughput} tok/s")
-                    print(f"   │   📊 Gate Audit: {fb_summary}")
-                    if thinking_meta["is_thinking"]:
-                        print(f"   │   🧠 Thinking Telemetry: {thinking_meta['method']} (~{thinking_meta['thought_tokens']} tokens) | Snippet: \"{thinking_meta['thought_snippet'][:80]}...\"")
+                        parsed_script = UniversalGreedyJSONParser.extract_or_synthesize(content, expected_type="script", fallback_topic="Turritopsis dohrnii")
+                        script_audit = QualityEvaluator.audit_script(parsed_script, raw_text=content)
+                        score = script_audit["score"]
 
-                    tracker.sniff_headers(entity_id, resp.headers)
-                    tracker.record_call_success(
-                        entity_id, "scriptwriting", lat_script, quality_rating=score,
-                        supports_thinking=thinking_meta["is_thinking"],
-                        thinking_type=thinking_meta["method"],
-                        thinking_tokens=thinking_meta["thought_tokens"]
-                    )
-                    script_ok = True
+                        fb_summary = " | ".join(script_audit["feedback"][:3])
+                        print(f"   ├── Task 1 (Scriptwriting) : ✅ PASS ({lat_script}s) | Score: {score}/10 | {script_audit['word_count']} words | {script_audit['scene_count']} scenes | ~{script_throughput} tok/s")
+                        print(f"   │   📊 Gate Audit: {fb_summary}")
+                        if thinking_meta["is_thinking"]:
+                            print(f"   │   🧠 Thinking Telemetry: {thinking_meta['method']} (~{thinking_meta['thought_tokens']} tokens) | Snippet: \"{thinking_meta['thought_snippet'][:80]}...\"")
+
+                        tracker.sniff_headers(entity_id, resp.headers)
+                        tracker.record_call_success(
+                            entity_id, "scriptwriting", lat_script, quality_rating=score,
+                            supports_thinking=thinking_meta["is_thinking"],
+                            thinking_type=thinking_meta["method"],
+                            thinking_tokens=thinking_meta["thought_tokens"]
+                        )
+                        script_ok = True
+                        break
+                    elif resp.status_code in (502, 503, 504) and attempt < 2:
+                        wait_s = _calc_diagnostic_backoff(attempt, is_thinking=is_known_thinking)
+                        print(f"   │   ⏳ Task 1 hit HTTP {resp.status_code}. Retrying in {wait_s:.1f}s...")
+                        time.sleep(wait_s)
+                        continue
+                    elif resp.status_code == 429:
+                        err_snippet = resp.text[:200]
+                        if any(x in err_snippet.lower() for x in ["free-models-per-day", "daily"]):
+                            print(f"   ├── Task 1 (Scriptwriting) : 🛑 DAILY LIMIT ({lat_script}s) -> HTTP 429: {err_snippet}")
+                            print(f"   🛑 [CIRCUIT BREAKER] {provider_name.title()} daily free-tier limit reached ('free-models-per-day'). Skipping remaining models.")
+                            provider_daily_limit_hit = True
+                            quota_exhausted_for_model = True
+                            break
+                        else:
+                            print(f"   ├── Task 1 (Scriptwriting) : 🛑 QUOTA EXHAUSTED ({lat_script}s) -> HTTP 429: {err_snippet[:100]}")
+                            tracker.record_call_error(entity_id, 429, resp.text)
+                            quota_exhausted_for_model = True
+                            break
+                    else:
+                        print(f"   ├── Task 1 (Scriptwriting) : ❌ FAIL ({lat_script}s) -> HTTP {resp.status_code}")
+                        break
+                except Exception as e:
+                    err_str = str(e)
+                    if any(x in err_str.lower() for x in ["429", "resource_exhausted", "quota"]):
+                        lat_script = round(time.time() - t1, 2)
+                        print(f"   ├── Task 1 (Scriptwriting) : 🛑 QUOTA EXHAUSTED ({lat_script}s) -> Daily Limit Reached (429)")
+                        tracker.record_call_error(entity_id, 429, err_str)
+                        quota_exhausted_for_model = True
+                        break
+                    if any(x in err_str.lower() for x in ["502", "503", "504", "timeout", "unavailable"]) and attempt < 2:
+                        wait_s = _calc_diagnostic_backoff(attempt, is_thinking=is_known_thinking)
+                        print(f"   │   ⏳ Task 1 transient network issue. Retrying in {wait_s:.1f}s...")
+                        time.sleep(wait_s)
+                        continue
+                    lat_script = round(time.time() - t1, 2)
+                    print(f"   ├── Task 1 (Scriptwriting) : ❌ FAIL ({lat_script}s) -> {e}")
                     break
-                elif resp.status_code in (502, 503, 504) and attempt < 2:
-                    wait_s = _calc_diagnostic_backoff(attempt, is_thinking=is_known_thinking)
-                    print(f"   │   ⏳ Task 1 hit HTTP {resp.status_code}. Retrying in {wait_s:.1f}s...")
-                    time.sleep(wait_s)
-                    continue
-                else:
-                    print(f"   ├── Task 1 (Scriptwriting) : ❌ FAIL ({lat_script}s) -> HTTP {resp.status_code}")
-                    break
-            except Exception as e:
-                err_str = str(e)
-                if any(x in err_str.lower() for x in ["502", "503", "504", "timeout", "unavailable"]) and attempt < 2:
-                    wait_s = _calc_diagnostic_backoff(attempt, is_thinking=is_known_thinking)
-                    print(f"   │   ⏳ Task 1 transient network issue. Retrying in {wait_s:.1f}s...")
-                    time.sleep(wait_s)
-                    continue
-                lat_script = round(time.time() - t1, 2)
-                print(f"   ├── Task 1 (Scriptwriting) : ❌ FAIL ({lat_script}s) -> {e}")
-                break
-
-        time.sleep(1.5)
 
         # ── 3. Structured SEO JSON Quality Audit ──────────────────────────────
         seo_ok = False
@@ -450,54 +539,85 @@ def test_openai_compatible_provider(
         seo_audit = {"score": 0.0, "title": "", "tag_count": 0, "feedback": []}
         seo_throughput = 0.0
 
-        for attempt in range(3):
-            try:
-                payload = {
-                    "model": model_name,
-                    "messages": [
-                        {"role": "system", "content": "Return ONLY valid JSON matching: {\"title\": \"...\", \"description\": \"...\", \"tags\": [\"...\"]}"},
-                        {"role": "user", "content": "Generate viral YouTube SEO metadata for Turritopsis dohrnii immortal jellyfish."}
-                    ],
-                    "temperature": 0.2
-                }
-                resp = requests.post(endpoint, headers=headers, json=payload, timeout=(10.0, 120.0))
-                lat_seo = round(time.time() - t2, 2)
-                if resp.status_code == 200:
-                    resp_json = resp.json()
-                    content = resp_json.get("choices", [{}])[0].get("message", {}).get("content", "")
-                    est_tokens = max(1, len(content) // 4)
-                    seo_throughput = round(est_tokens / max(lat_seo, 0.1), 1)
+        if not quota_exhausted_for_model and not provider_daily_limit_hit:
+            time.sleep(1.5)
+            for attempt in range(3):
+                try:
+                    payload = {
+                        "model": model_name,
+                        "messages": [
+                            {"role": "system", "content": "Return ONLY valid JSON matching: {\"title\": \"...\", \"description\": \"...\", \"tags\": [\"...\"]}"},
+                            {"role": "user", "content": "Generate viral YouTube SEO metadata for Turritopsis dohrnii immortal jellyfish."}
+                        ],
+                        "temperature": 0.2
+                    }
+                    resp = requests.post(endpoint, headers=headers, json=payload, timeout=(10.0, 120.0))
+                    lat_seo = round(time.time() - t2, 2)
+                    if resp.status_code == 200:
+                        c_type = resp.headers.get("content-type", "").lower()
+                        body_text = (resp.text or "").strip()
+                        if "application/json" not in c_type or not (body_text.startswith("{") or body_text.startswith("[")):
+                            print(f"   └── Task 2 (SEO Metadata)  : ❌ FAIL ({lat_seo}s) -> HTTP 200 Non-JSON: '{body_text[:60]}'")
+                            break
+                        try:
+                            resp_json = resp.json()
+                        except Exception as j_err:
+                            print(f"   └── Task 2 (SEO Metadata)  : ❌ FAIL ({lat_seo}s) -> JSON decode error: {j_err}")
+                            break
 
-                    parsed_seo = UniversalGreedyJSONParser.extract_or_synthesize(content, expected_type="seo", fallback_topic="Turritopsis dohrnii")
-                    seo_audit = QualityEvaluator.audit_seo(parsed_seo, raw_text=content)
-                    score = seo_audit["score"]
+                        content = resp_json.get("choices", [{}])[0].get("message", {}).get("content", "")
+                        est_tokens = max(1, len(content) // 4)
+                        seo_throughput = round(est_tokens / max(lat_seo, 0.1), 1)
 
-                    fb_summary = " | ".join(seo_audit["feedback"][:3])
-                    print(f"   └── Task 2 (SEO Metadata)  : ✅ PASS ({lat_seo}s) | Score: {score}/10 | Title: \"{seo_audit.get('title', '')[:35]}...\" | {seo_audit.get('tag_count', 0)} tags | ~{seo_throughput} tok/s")
-                    print(f"       📊 Gate Audit: {fb_summary}")
+                        parsed_seo = UniversalGreedyJSONParser.extract_or_synthesize(content, expected_type="seo", fallback_topic="Turritopsis dohrnii")
+                        seo_audit = QualityEvaluator.audit_seo(parsed_seo, raw_text=content)
+                        score = seo_audit["score"]
 
-                    tracker.sniff_headers(entity_id, resp.headers)
-                    tracker.record_call_success(entity_id, "seo_json", lat_seo, quality_rating=score)
-                    seo_ok = True
+                        fb_summary = " | ".join(seo_audit["feedback"][:3])
+                        print(f"   └── Task 2 (SEO Metadata)  : ✅ PASS ({lat_seo}s) | Score: {score}/10 | Title: \"{seo_audit.get('title', '')[:35]}...\" | {seo_audit.get('tag_count', 0)} tags | ~{seo_throughput} tok/s")
+                        print(f"       📊 Gate Audit: {fb_summary}")
+
+                        tracker.sniff_headers(entity_id, resp.headers)
+                        tracker.record_call_success(entity_id, "seo_json", lat_seo, quality_rating=score)
+                        seo_ok = True
+                        break
+                    elif resp.status_code in (502, 503, 504) and attempt < 2:
+                        wait_s = _calc_diagnostic_backoff(attempt, is_thinking=is_known_thinking)
+                        print(f"   │   ⏳ Task 2 hit HTTP {resp.status_code}. Retrying in {wait_s:.1f}s...")
+                        time.sleep(wait_s)
+                        continue
+                    elif resp.status_code == 429:
+                        err_snippet = resp.text[:200]
+                        if any(x in err_snippet.lower() for x in ["free-models-per-day", "daily"]):
+                            print(f"   └── Task 2 (SEO Metadata)  : 🛑 DAILY LIMIT ({lat_seo}s) -> HTTP 429: {err_snippet}")
+                            print(f"   🛑 [CIRCUIT BREAKER] {provider_name.title()} daily free-tier limit reached ('free-models-per-day'). Skipping remaining models.")
+                            provider_daily_limit_hit = True
+                            quota_exhausted_for_model = True
+                            break
+                        else:
+                            print(f"   └── Task 2 (SEO Metadata)  : 🛑 QUOTA EXHAUSTED ({lat_seo}s) -> HTTP 429: {err_snippet[:100]}")
+                            tracker.record_call_error(entity_id, 429, resp.text)
+                            quota_exhausted_for_model = True
+                            break
+                    else:
+                        print(f"   └── Task 2 (SEO Metadata)  : ❌ FAIL ({lat_seo}s) -> HTTP {resp.status_code}")
+                        break
+                except Exception as e:
+                    err_str = str(e)
+                    if any(x in err_str.lower() for x in ["429", "resource_exhausted", "quota"]):
+                        lat_seo = round(time.time() - t2, 2)
+                        print(f"   └── Task 2 (SEO Metadata)  : 🛑 QUOTA EXHAUSTED ({lat_seo}s) -> Daily Limit Reached (429)")
+                        tracker.record_call_error(entity_id, 429, err_str)
+                        quota_exhausted_for_model = True
+                        break
+                    if any(x in err_str.lower() for x in ["502", "503", "504", "timeout", "unavailable"]) and attempt < 2:
+                        wait_s = _calc_diagnostic_backoff(attempt, is_thinking=is_known_thinking)
+                        print(f"   │   ⏳ Task 2 transient network issue. Retrying in {wait_s:.1f}s...")
+                        time.sleep(wait_s)
+                        continue
+                    lat_seo = round(time.time() - t2, 2)
+                    print(f"   └── Task 2 (SEO Metadata)  : ❌ FAIL ({lat_seo}s) -> {e}")
                     break
-                elif resp.status_code in (502, 503, 504) and attempt < 2:
-                    wait_s = _calc_diagnostic_backoff(attempt, is_thinking=is_known_thinking)
-                    print(f"   │   ⏳ Task 2 hit HTTP {resp.status_code}. Retrying in {wait_s:.1f}s...")
-                    time.sleep(wait_s)
-                    continue
-                else:
-                    print(f"   └── Task 2 (SEO Metadata)  : ❌ FAIL ({lat_seo}s) -> HTTP {resp.status_code}")
-                    break
-            except Exception as e:
-                err_str = str(e)
-                if any(x in err_str.lower() for x in ["502", "503", "504", "timeout", "unavailable"]) and attempt < 2:
-                    wait_s = _calc_diagnostic_backoff(attempt, is_thinking=is_known_thinking)
-                    print(f"   │   ⏳ Task 2 transient network issue. Retrying in {wait_s:.1f}s...")
-                    time.sleep(wait_s)
-                    continue
-                lat_seo = round(time.time() - t2, 2)
-                print(f"   └── Task 2 (SEO Metadata)  : ❌ FAIL ({lat_seo}s) -> {e}")
-                break
 
         results.append({
             "entity_id": entity_id,
@@ -510,7 +630,9 @@ def test_openai_compatible_provider(
             "latency": lat_script or lat_ping,
             "throughput": script_throughput or seo_throughput,
             "thinking": thinking_meta["is_thinking"],
-            "thinking_type": thinking_meta["method"]
+            "thinking_type": thinking_meta["method"],
+            "thinking_tokens": thinking_meta["thought_tokens"],
+            "quota_exhausted": quota_exhausted_for_model
         })
         time.sleep(2.0)
 
@@ -600,9 +722,9 @@ def main():
     print(DIVIDER_HEAVY)
 
     # Sync dynamic registry to disk with freshly calibrated empirical quality scores
-    from engine.dynamic_discovery import sync_registry
-    sync_res = sync_registry(force=True)
-    print(f"🔄 [REGISTRY CALIBRATION] Synchronized {len(sync_res.get('entities', {}))} models to memory/dynamic_models_registry.json")
+    from engine.dynamic_discovery import calibrate_registry_from_benchmark
+    sync_res = calibrate_registry_from_benchmark(all_results)
+    print(f"🔄 [REGISTRY CALIBRATION] Synchronized {sync_res.get('total_calibrated', 0)} evaluated models ({sync_res.get('total_entities', 0)} total) to memory/dynamic_models_registry.json")
 
 
 if __name__ == "__main__":
