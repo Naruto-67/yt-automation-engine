@@ -46,11 +46,17 @@ def test_resilient_json_parser():
     synth_script = UniversalGreedyJSONParser.extract_or_synthesize(prose_script, expected_type="script")
     assert "scenes" in synth_script and len(synth_script["scenes"]) == 4, f"Script synthesis failed: {synth_script}"
     print("✅ Resilient Parser Level 1-4 tests passed!")
-    return synth_script, prose_script
 
 
-def test_quality_evaluator(synth_script, prose_script):
+def test_quality_evaluator():
     print("--- Testing QualityEvaluator ---")
+    prose_script = """
+    Scene 1: Turritopsis dohrnii is the only known creature capable of biological immortality.
+    Scene 2: When starving or injured, it reverts its cells back to a juvenile polyp state.
+    Scene 3: This transdifferentiation process completely resets its biological clock to zero.
+    Scene 4: And that is why scientists are studying this tiny creature to unlock the secret of human longevity.
+    """
+    synth_script = UniversalGreedyJSONParser.extract_or_synthesize(prose_script, expected_type="script")
     audit = QualityEvaluator.audit_script(synth_script, raw_text=prose_script)
     assert audit["score"] >= 6.0, f"Audit score too low: {audit}"
     assert audit["scene_count"] == 4, f"Scene count wrong: {audit}"
@@ -121,7 +127,7 @@ def test_thinking_detector():
 
 
 if __name__ == "__main__":
-    synth_script, prose_script = test_resilient_json_parser()
-    test_quality_evaluator(synth_script, prose_script)
+    test_resilient_json_parser()
+    test_quality_evaluator()
     test_thinking_detector()
     print("\n🎉 ALL 3 TEST SUITES PASSED WITH 100% SUCCESS!")
