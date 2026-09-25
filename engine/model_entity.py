@@ -35,6 +35,9 @@ class ModelEntity:
     reset_epoch: float = 0.0                # Epoch seconds when quota resets
     average_latency: float = 2.0            # Exponential moving average latency in seconds
     cooldown_until: float = 0.0             # Epoch seconds until transient cooldown expires
+    supports_thinking: bool = False         # Dynamically detected via wire-level response inspection
+    thinking_type: str = "none"             # "native_part", "reasoning_content", "token_metadata", "xml_tags"
+    average_thinking_tokens: int = 0        # Empirical average reasoning token volume
 
     @property
     def utilization_rate(self) -> float:
@@ -149,7 +152,7 @@ class DynamicQuotaTracker:
             # GitHub Models Free Tier (Azure AI)
             {"entity_id": "github:gpt-4o-mini", "provider": "github", "model_name": "gpt-4o-mini",
              "max_rpm": 15, "max_rpd": 150, "task_scores": {"scriptwriting": 8.8, "seo_json": 9.2, "vision_audit": 7.5, "fact_grounding": 8.7}},
-            {"entity_id": "github:meta/llama-3.3-70b-instruct", "provider": "github", "model_name": "meta/llama-3.3-70b-instruct",
+            {"entity_id": "github:meta-llama-3.3-70b-instruct", "provider": "github", "model_name": "meta-llama-3.3-70b-instruct",
              "max_rpm": 15, "max_rpd": 150, "task_scores": {"scriptwriting": 8.9, "seo_json": 8.5, "vision_audit": 6.0, "fact_grounding": 8.3}},
 
             # OpenRouter Free Tier Pool
@@ -159,6 +162,7 @@ class DynamicQuotaTracker:
              "max_rpm": 20, "max_rpd": 200, "task_scores": {"scriptwriting": 8.6, "seo_json": 8.5, "vision_audit": 5.0, "fact_grounding": 8.0}}
         ]
 
+        # 1. Load default catalog with saved overrides
         for item in default_catalog:
             eid = item["entity_id"]
             saved = saved_entities.get(eid, {})
@@ -174,8 +178,34 @@ class DynamicQuotaTracker:
                 status=saved.get("status", "ACTIVE"),
                 reset_epoch=saved.get("reset_epoch", 0.0),
                 average_latency=saved.get("average_latency", 2.0),
-                cooldown_until=saved.get("cooldown_until", 0.0)
+                cooldown_until=saved.get("cooldown_until", 0.0),
+                supports_thinking=saved.get("supports_thinking", False),
+                thinking_type=saved.get("thinking_type", "none"),
+                average_thinking_tokens=saved.get("average_thinking_tokens", 0)
             )
+
+        # 2. Restore dynamically discovered entities not in default catalog
+        for eid, s_data in saved_entities.items():
+            if eid not in self.entities and isinstance(s_data, dict):
+                prov = s_data.get("provider") or eid.split(":")[0] if ":" in eid else "unknown"
+                m_name = s_data.get("model_name") or eid.split(":", 1)[-1] if ":" in eid else eid
+                self.entities[eid] = ModelEntity(
+                    entity_id=eid,
+                    provider=prov,
+                    model_name=m_name,
+                    task_quality_scores=s_data.get("task_quality_scores", {"scriptwriting": 8.5, "seo_json": 8.5}),
+                    max_rpm=s_data.get("max_rpm", 20),
+                    max_rpd=s_data.get("max_rpd", 200),
+                    consumed_today=s_data.get("consumed_today", 0),
+                    last_call_timestamp=s_data.get("last_call_timestamp", 0.0),
+                    status=s_data.get("status", "ACTIVE"),
+                    reset_epoch=s_data.get("reset_epoch", 0.0),
+                    average_latency=s_data.get("average_latency", 2.0),
+                    cooldown_until=s_data.get("cooldown_until", 0.0),
+                    supports_thinking=s_data.get("supports_thinking", False),
+                    thinking_type=s_data.get("thinking_type", "none"),
+                    average_thinking_tokens=s_data.get("average_thinking_tokens", 0)
+                )
 
         self.evaluate_daily_resets()
         self.persist()
@@ -261,8 +291,17 @@ class DynamicQuotaTracker:
 
     update_from_headers = sniff_headers
 
-    def record_call_success(self, entity_id: str, task_type: str, latency: float, quality_rating: float = 9.0):
-        """Updates EMA quality score, EMA latency, and increments daily consumption."""
+    def record_call_success(
+        self,
+        entity_id: str,
+        task_type: str,
+        latency: float,
+        quality_rating: float = 9.0,
+        supports_thinking: Optional[bool] = None,
+        thinking_type: Optional[str] = None,
+        thinking_tokens: Optional[int] = None
+    ):
+        """Updates EMA quality score, EMA latency, increments daily consumption, and registers thinking telemetry."""
         if entity_id not in self.entities:
             return
 
@@ -278,6 +317,17 @@ class DynamicQuotaTracker:
         current_score = entity.get_task_score(task_type)
         new_score = round(0.8 * current_score + 0.2 * quality_rating, 2)
         entity.task_quality_scores[task_type] = new_score
+
+        # Dynamically update thinking telemetry without hardcoding
+        if supports_thinking is not None:
+            entity.supports_thinking = bool(supports_thinking)
+        if thinking_type and thinking_type != "none":
+            entity.thinking_type = thinking_type
+        if thinking_tokens and thinking_tokens > 0:
+            if entity.average_thinking_tokens <= 0:
+                entity.average_thinking_tokens = int(thinking_tokens)
+            else:
+                entity.average_thinking_tokens = int(0.7 * entity.average_thinking_tokens + 0.3 * thinking_tokens)
 
         self.persist()
 

@@ -3,8 +3,11 @@
 Comprehensive multi-provider diagnostic test harness for Ghost Engine.
 Evaluates Google GenAI, Groq Cloud, GitHub Models, and OpenRouter across:
 - Task 0: Minimal Ping & Response Header Sniffing (Validates auth and sniffs rate limits)
-- Task 1: Creative Script Generation (Evaluates 4 scenes, word counts, and circular loop)
-- Task 2: Structured SEO JSON Generation (Evaluates schema parsing & curiosity gap)
+- Task 1: Creative Script Generation (Evaluates 4 scenes, word counts, sentence closure, hook, circular loop)
+- Task 2: Structured SEO JSON Generation (Evaluates schema parsing, curiosity gap, title CTR length)
+- Real-time wire-level Thinking & Reasoning Detection (zero hardcoding)
+- Latency & Token Generation Throughput (tok/s) Telemetry
+- Dynamic Registry Calibration (Empirical Quality Rating 0.0–10.0 scale)
 Guarantees 100% API key secrecy (masking all tokens as '***').
 """
 
@@ -31,13 +34,18 @@ except ImportError:
     requests = None
 from typing import Dict, Any, List, Optional
 from engine.model_entity import DynamicQuotaTracker
+from engine.thinking_detector import ThinkingDetector
+from engine.quality_evaluator import QualityEvaluator
+from engine.llm_router import UniversalGreedyJSONParser
 
 
-def _calc_diagnostic_backoff(attempt: int) -> float:
-    return ((attempt + 1) * 8.0) + random.uniform(1.0, 3.0)
+def _calc_diagnostic_backoff(attempt: int, is_thinking: bool = False) -> float:
+    base = 10.0 if is_thinking else 6.0
+    return ((attempt + 1) * base) + random.uniform(1.0, 3.0)
 
-DIVIDER_HEAVY = "=" * 88
-DIVIDER_LIGHT = "-" * 88
+
+DIVIDER_HEAVY = "=" * 94
+DIVIDER_LIGHT = "-" * 94
 
 
 def mask_key(k: str) -> str:
@@ -62,7 +70,6 @@ def test_google_provider(api_key: str, models_to_test: Optional[List[str]] = Non
 
     from google import genai
     from google.genai import types
-    from engine.model_entity import DynamicQuotaTracker
 
     tracker = DynamicQuotaTracker()
     results = []
@@ -77,108 +84,197 @@ def test_google_provider(api_key: str, models_to_test: Optional[List[str]] = Non
 
     for model_name in models_to_test:
         entity_id = f"google:{model_name}"
+        entity = tracker.get_entity(entity_id)
+        is_known_thinking = getattr(entity, "supports_thinking", False) if entity else False
+
         print(f"\n   ┌── Model: [{entity_id}]")
-        # 1. Minimal Ping
+
+        # ── 1. Minimal Ping & Wire Check ──────────────────────────────────────
         ping_ok = False
         t0 = time.time()
-        lat = 0.0
+        lat_ping = 0.0
+        thinking_meta = {"is_thinking": False, "method": "none", "thought_tokens": 0, "thought_snippet": ""}
+
         for attempt in range(3):
             try:
                 cfg = types.GenerateContentConfig(
-                    max_output_tokens=10,
+                    max_output_tokens=15,
                     automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
                 )
                 resp = client.models.generate_content(model=model_name, contents="ping", config=cfg)
-                lat = round(time.time() - t0, 2)
+                lat_ping = round(time.time() - t0, 2)
                 txt = (resp.text or "").strip()
-                print(f"   ├── Task 0 (Minimal Ping): ✅ PASS ({lat}s) -> '{txt}'")
-                tracker.record_call_success(entity_id, "ping", lat)
+
+                # Dynamic Thinking Detection on Ping
+                t_detect = ThinkingDetector.detect_google_response(resp)
+                if t_detect["is_thinking"]:
+                    thinking_meta = t_detect
+                    is_known_thinking = True
+
+                think_str = f" | 🧠 Thinking Detected ({t_detect['thought_tokens']} tok)" if t_detect["is_thinking"] else ""
+                print(f"   ├── Task 0 (Minimal Ping)  : ✅ PASS ({lat_ping}s) -> '{txt}'{think_str}")
+
+                tracker.record_call_success(
+                    entity_id, "ping", lat_ping, quality_rating=9.5,
+                    supports_thinking=t_detect["is_thinking"],
+                    thinking_type=t_detect["method"],
+                    thinking_tokens=t_detect["thought_tokens"]
+                )
                 ping_ok = True
                 break
             except Exception as e:
                 err_str = str(e)
                 if any(x in err_str.lower() for x in ["503", "504", "unavailable", "high demand", "deadline_exceeded", "timeout"]) and attempt < 2:
-                    wait_s = _calc_diagnostic_backoff(attempt)
+                    wait_s = _calc_diagnostic_backoff(attempt, is_thinking=is_known_thinking)
                     print(f"   │   ⏳ Task 0 hit capacity surge. Retrying in {wait_s:.1f}s...")
                     time.sleep(wait_s)
                     continue
-                lat = round(time.time() - t0, 2)
-                print(f"   ├── Task 0 (Minimal Ping): ❌ FAIL ({lat}s) -> {e}")
+                lat_ping = round(time.time() - t0, 2)
+                print(f"   ├── Task 0 (Minimal Ping)  : ❌ FAIL ({lat_ping}s) -> {e}")
                 break
 
         time.sleep(2.0)
 
-        # 2. Creative Script
+        # ── 2. Scriptwriting Quality Audit ────────────────────────────────────
         script_ok = False
         t1 = time.time()
+        lat_script = 0.0
+        script_audit = {"score": 0.0, "word_count": 0, "scene_count": 0, "feedback": []}
+        script_throughput = 0.0
+
         for attempt in range(3):
             try:
                 cfg = types.GenerateContentConfig(
-                    system_instruction="You are a scriptwriter. Output exactly 4 scenes between 85-125 words total as JSON.",
+                    system_instruction="You are a professional YouTube Shorts scriptwriter. Output exactly 4 scenes between 85-125 words total as JSON with a 'scenes' array.",
                     automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
                 )
 
-                resp = client.models.generate_content(
-                    model=model_name,
-                    contents="Write a 4-scene script about the immortal jellyfish Turritopsis dohrnii.",
-                    config=cfg
-                )
+                # Socket-Preserving Streaming for Thinking Models
+                raw_script = ""
+                if is_known_thinking:
+                    try:
+                        stream = client.models.generate_content_stream(
+                            model=model_name,
+                            contents="Write a 4-scene video script about Turritopsis dohrnii immortal jellyfish.",
+                            config=cfg
+                        )
+                        chunks = []
+                        for ch in stream:
+                            if ch.text:
+                                chunks.append(ch.text)
+                        raw_script = "".join(chunks).strip()
+                    except Exception as s_err:
+                        raw_script = ""
+
+                if not raw_script:
+                    resp = client.models.generate_content(
+                        model=model_name,
+                        contents="Write a 4-scene video script about Turritopsis dohrnii immortal jellyfish.",
+                        config=cfg
+                    )
+                    raw_script = (resp.text or "").strip()
+                    # Re-detect thinking on full generation
+                    t_detect = ThinkingDetector.detect_google_response(resp)
+                    if t_detect["is_thinking"]:
+                        thinking_meta = t_detect
+                        is_known_thinking = True
+
                 lat_script = round(time.time() - t1, 2)
-                text = (resp.text or "").strip()
-                words = len(text.split())
-                print(f"   ├── Task 1 (Scriptwriting): ✅ PASS ({lat_script}s, {words} words)")
-                tracker.record_call_success(entity_id, "scriptwriting", lat_script)
+                est_tokens = max(1, len(raw_script) // 4)
+                script_throughput = round(est_tokens / max(lat_script, 0.1), 1)
+
+                # Resilient Parsing (Level 1-3 -> Level 4 Fallback)
+                parsed_script = UniversalGreedyJSONParser.extract_or_synthesize(raw_script, expected_type="script", fallback_topic="Turritopsis dohrnii")
+
+                # Multi-Gate Quality Scoring
+                script_audit = QualityEvaluator.audit_script(parsed_script, raw_text=raw_script)
+                score = script_audit["score"]
+
+                fb_summary = " | ".join(script_audit["feedback"][:3])
+                print(f"   ├── Task 1 (Scriptwriting) : ✅ PASS ({lat_script}s) | Score: {score}/10 | {script_audit['word_count']} words | {script_audit['scene_count']} scenes | ~{script_throughput} tok/s")
+                print(f"   │   📊 Gate Audit: {fb_summary}")
+                if thinking_meta["is_thinking"]:
+                    print(f"   │   🧠 Thinking Telemetry: {thinking_meta['method']} (~{thinking_meta['thought_tokens']} tokens) | Snippet: \"{thinking_meta['thought_snippet'][:80]}...\"")
+
+                tracker.record_call_success(
+                    entity_id, "scriptwriting", lat_script, quality_rating=score,
+                    supports_thinking=thinking_meta["is_thinking"],
+                    thinking_type=thinking_meta["method"],
+                    thinking_tokens=thinking_meta["thought_tokens"]
+                )
                 script_ok = True
                 break
             except Exception as e:
                 err_str = str(e)
                 if any(x in err_str.lower() for x in ["503", "504", "unavailable", "high demand", "deadline_exceeded", "timeout"]) and attempt < 2:
-                    wait_s = _calc_diagnostic_backoff(attempt)
+                    wait_s = _calc_diagnostic_backoff(attempt, is_thinking=is_known_thinking)
                     print(f"   │   ⏳ Task 1 hit capacity surge. Retrying in {wait_s:.1f}s...")
                     time.sleep(wait_s)
                     continue
                 lat_script = round(time.time() - t1, 2)
-                print(f"   ├── Task 1 (Scriptwriting): ❌ FAIL ({lat_script}s) -> {e}")
+                print(f"   ├── Task 1 (Scriptwriting) : ❌ FAIL ({lat_script}s) -> {e}")
                 break
 
         time.sleep(2.0)
 
-        # 3. SEO JSON
+        # ── 3. SEO JSON & CTR Packaging Quality Audit ─────────────────────────
         seo_ok = False
         t2 = time.time()
+        lat_seo = 0.0
+        seo_audit = {"score": 0.0, "title": "", "tag_count": 0, "feedback": []}
+        seo_throughput = 0.0
+
         for attempt in range(3):
             try:
                 cfg = types.GenerateContentConfig(
-                    system_instruction="Return ONLY valid JSON: {\"title\": \"...\", \"tags\": [\"...\"]}",
+                    system_instruction="Return ONLY valid JSON matching: {\"title\": \"...\", \"description\": \"...\", \"tags\": [\"...\"]}",
                     automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
                 )
                 resp = client.models.generate_content(
                     model=model_name,
-                    contents="Generate YouTube SEO metadata for an immortal jellyfish video.",
+                    contents="Generate viral YouTube SEO metadata for Turritopsis dohrnii immortal jellyfish.",
                     config=cfg
                 )
                 lat_seo = round(time.time() - t2, 2)
-                print(f"   └── Task 2 (SEO JSON): ✅ PASS ({lat_seo}s)")
-                tracker.record_call_success(entity_id, "seo_json", lat_seo)
+                raw_seo = (resp.text or "").strip()
+                est_tokens = max(1, len(raw_seo) // 4)
+                seo_throughput = round(est_tokens / max(lat_seo, 0.1), 1)
+
+                # Resilient Parsing & Audit
+                parsed_seo = UniversalGreedyJSONParser.extract_or_synthesize(raw_seo, expected_type="seo", fallback_topic="Turritopsis dohrnii")
+                seo_audit = QualityEvaluator.audit_seo(parsed_seo, raw_text=raw_seo)
+                score = seo_audit["score"]
+
+                fb_summary = " | ".join(seo_audit["feedback"][:3])
+                print(f"   └── Task 2 (SEO Metadata)  : ✅ PASS ({lat_seo}s) | Score: {score}/10 | Title: \"{seo_audit.get('title', '')[:35]}...\" | {seo_audit.get('tag_count', 0)} tags | ~{seo_throughput} tok/s")
+                print(f"       📊 Gate Audit: {fb_summary}")
+
+                tracker.record_call_success(entity_id, "seo_json", lat_seo, quality_rating=score)
                 seo_ok = True
                 break
             except Exception as e:
                 err_str = str(e)
                 if any(x in err_str.lower() for x in ["503", "504", "unavailable", "high demand", "deadline_exceeded", "timeout"]) and attempt < 2:
-                    wait_s = _calc_diagnostic_backoff(attempt)
+                    wait_s = _calc_diagnostic_backoff(attempt, is_thinking=is_known_thinking)
                     print(f"   │   ⏳ Task 2 hit capacity surge. Retrying in {wait_s:.1f}s...")
                     time.sleep(wait_s)
                     continue
                 lat_seo = round(time.time() - t2, 2)
-                print(f"   └── Task 2 (SEO JSON): ❌ FAIL ({lat_seo}s) -> {e}")
+                print(f"   └── Task 2 (SEO Metadata)  : ❌ FAIL ({lat_seo}s) -> {e}")
                 break
 
         results.append({
-            "entity_id": f"google:{model_name}",
+            "entity_id": entity_id,
+            "provider": "google",
             "ping": ping_ok,
             "script": script_ok,
+            "script_score": script_audit["score"],
             "seo": seo_ok,
-            "latency": lat
+            "seo_score": seo_audit["score"],
+            "latency": lat_script or lat_ping,
+            "throughput": script_throughput or seo_throughput,
+            "thinking": thinking_meta["is_thinking"],
+            "thinking_type": thinking_meta["method"]
         })
         time.sleep(3.0)
 
@@ -212,59 +308,83 @@ def test_openai_compatible_provider(
 
     for model_name in models_to_test:
         entity_id = f"{provider_name}:{model_name}"
+        entity = tracker.get_entity(entity_id)
+        is_known_thinking = getattr(entity, "supports_thinking", False) if entity else False
+
         print(f"\n   ┌── Model: [{entity_id}]")
-        # 1. Minimal Ping & Header Sniffing
+
+        # ── 1. Minimal Ping & Rate Limit Header Sniffing ──────────────────────
         ping_ok = False
         t0 = time.time()
-        lat = 0.0
+        lat_ping = 0.0
+        thinking_meta = {"is_thinking": False, "method": "none", "thought_tokens": 0, "thought_snippet": ""}
+
         for attempt in range(3):
             try:
                 resp = requests.post(
                     endpoint,
                     headers=headers,
-                    json={"model": model_name, "messages": [{"role": "user", "content": "ping"}], "max_tokens": 5},
-                    timeout=(10.0, 20.0)
+                    json={"model": model_name, "messages": [{"role": "user", "content": "ping"}], "max_tokens": 10},
+                    timeout=(10.0, 25.0)
                 )
-                lat = round(time.time() - t0, 2)
+                lat_ping = round(time.time() - t0, 2)
                 if resp.status_code == 200:
-                    print(f"   ├── Task 0 (Minimal Ping): ✅ PASS ({lat}s)")
+                    resp_json = resp.json()
+                    t_detect = ThinkingDetector.detect_openai_response(resp_json)
+                    if t_detect["is_thinking"]:
+                        thinking_meta = t_detect
+                        is_known_thinking = True
+
+                    think_str = f" | 🧠 Thinking Detected ({t_detect['thought_tokens']} tok)" if t_detect["is_thinking"] else ""
+                    print(f"   ├── Task 0 (Minimal Ping)  : ✅ PASS ({lat_ping}s){think_str}")
+
                     sniffed_rpm = resp.headers.get("x-ratelimit-limit-requests") or resp.headers.get("x-ratelimit-limit") or "N/A"
                     sniffed_rem = resp.headers.get("x-ratelimit-remaining-requests") or resp.headers.get("x-ratelimit-remaining") or "N/A"
                     print(f"   │   📡 Sniffed Headers -> RPM Limit: {sniffed_rpm} | Remaining: {sniffed_rem}")
+
                     tracker.sniff_headers(entity_id, resp.headers)
-                    tracker.record_call_success(entity_id, "ping", lat)
+                    tracker.record_call_success(
+                        entity_id, "ping", lat_ping, quality_rating=9.5,
+                        supports_thinking=t_detect["is_thinking"],
+                        thinking_type=t_detect["method"],
+                        thinking_tokens=t_detect["thought_tokens"]
+                    )
                     ping_ok = True
                     break
                 elif resp.status_code in (502, 503, 504) and attempt < 2:
-                    wait_s = _calc_diagnostic_backoff(attempt)
+                    wait_s = _calc_diagnostic_backoff(attempt, is_thinking=is_known_thinking)
                     print(f"   │   ⏳ Task 0 hit HTTP {resp.status_code}. Retrying in {wait_s:.1f}s...")
                     time.sleep(wait_s)
                     continue
                 else:
-                    print(f"   ├── Task 0 (Minimal Ping): ❌ FAIL ({lat}s) -> HTTP {resp.status_code}: {resp.text[:120]}")
+                    print(f"   ├── Task 0 (Minimal Ping)  : ❌ FAIL ({lat_ping}s) -> HTTP {resp.status_code}: {resp.text[:120]}")
                     break
             except Exception as e:
                 err_str = str(e)
                 if any(x in err_str.lower() for x in ["502", "503", "504", "timeout", "unavailable"]) and attempt < 2:
-                    wait_s = _calc_diagnostic_backoff(attempt)
+                    wait_s = _calc_diagnostic_backoff(attempt, is_thinking=is_known_thinking)
                     print(f"   │   ⏳ Task 0 transient network issue. Retrying in {wait_s:.1f}s...")
                     time.sleep(wait_s)
                     continue
-                lat = round(time.time() - t0, 2)
-                print(f"   ├── Task 0 (Minimal Ping): ❌ FAIL ({lat}s) -> {e}")
+                lat_ping = round(time.time() - t0, 2)
+                print(f"   ├── Task 0 (Minimal Ping)  : ❌ FAIL ({lat_ping}s) -> {e}")
                 break
 
         time.sleep(1.5)
 
-        # 2. Scriptwriting
+        # ── 2. Scriptwriting Quality Audit ────────────────────────────────────
         script_ok = False
         t1 = time.time()
+        lat_script = 0.0
+        script_audit = {"score": 0.0, "word_count": 0, "scene_count": 0, "feedback": []}
+        script_throughput = 0.0
+
         for attempt in range(3):
             try:
                 payload = {
                     "model": model_name,
                     "messages": [
-                        {"role": "system", "content": "You are a scriptwriter. Output 4 scenes between 85-125 words total as JSON."},
+                        {"role": "system", "content": "You are a professional YouTube Shorts scriptwriter. Output exactly 4 scenes between 85-125 words total as JSON with a 'scenes' array."},
                         {"role": "user", "content": "Write a 4-scene video script about Turritopsis dohrnii immortal jellyfish."}
                     ],
                     "temperature": 0.7
@@ -272,80 +392,125 @@ def test_openai_compatible_provider(
                 resp = requests.post(endpoint, headers=headers, json=payload, timeout=(10.0, 120.0))
                 lat_script = round(time.time() - t1, 2)
                 if resp.status_code == 200:
-                    content = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
-                    words = len(content.split())
-                    print(f"   ├── Task 1 (Scriptwriting): ✅ PASS ({lat_script}s, {words} words)")
+                    resp_json = resp.json()
+                    content = resp_json.get("choices", [{}])[0].get("message", {}).get("content", "")
+                    est_tokens = max(1, len(content) // 4)
+                    script_throughput = round(est_tokens / max(lat_script, 0.1), 1)
+
+                    # Dynamic wire-level thinking check
+                    t_detect = ThinkingDetector.detect_openai_response(resp_json, content)
+                    if t_detect["is_thinking"]:
+                        thinking_meta = t_detect
+                        is_known_thinking = True
+
+                    parsed_script = UniversalGreedyJSONParser.extract_or_synthesize(content, expected_type="script", fallback_topic="Turritopsis dohrnii")
+                    script_audit = QualityEvaluator.audit_script(parsed_script, raw_text=content)
+                    score = script_audit["score"]
+
+                    fb_summary = " | ".join(script_audit["feedback"][:3])
+                    print(f"   ├── Task 1 (Scriptwriting) : ✅ PASS ({lat_script}s) | Score: {score}/10 | {script_audit['word_count']} words | {script_audit['scene_count']} scenes | ~{script_throughput} tok/s")
+                    print(f"   │   📊 Gate Audit: {fb_summary}")
+                    if thinking_meta["is_thinking"]:
+                        print(f"   │   🧠 Thinking Telemetry: {thinking_meta['method']} (~{thinking_meta['thought_tokens']} tokens) | Snippet: \"{thinking_meta['thought_snippet'][:80]}...\"")
+
                     tracker.sniff_headers(entity_id, resp.headers)
-                    tracker.record_call_success(entity_id, "scriptwriting", lat_script)
+                    tracker.record_call_success(
+                        entity_id, "scriptwriting", lat_script, quality_rating=score,
+                        supports_thinking=thinking_meta["is_thinking"],
+                        thinking_type=thinking_meta["method"],
+                        thinking_tokens=thinking_meta["thought_tokens"]
+                    )
                     script_ok = True
                     break
                 elif resp.status_code in (502, 503, 504) and attempt < 2:
-                    wait_s = _calc_diagnostic_backoff(attempt)
+                    wait_s = _calc_diagnostic_backoff(attempt, is_thinking=is_known_thinking)
                     print(f"   │   ⏳ Task 1 hit HTTP {resp.status_code}. Retrying in {wait_s:.1f}s...")
                     time.sleep(wait_s)
                     continue
                 else:
-                    print(f"   ├── Task 1 (Scriptwriting): ❌ FAIL ({lat_script}s) -> HTTP {resp.status_code}")
+                    print(f"   ├── Task 1 (Scriptwriting) : ❌ FAIL ({lat_script}s) -> HTTP {resp.status_code}")
                     break
             except Exception as e:
                 err_str = str(e)
                 if any(x in err_str.lower() for x in ["502", "503", "504", "timeout", "unavailable"]) and attempt < 2:
-                    wait_s = _calc_diagnostic_backoff(attempt)
+                    wait_s = _calc_diagnostic_backoff(attempt, is_thinking=is_known_thinking)
                     print(f"   │   ⏳ Task 1 transient network issue. Retrying in {wait_s:.1f}s...")
                     time.sleep(wait_s)
                     continue
                 lat_script = round(time.time() - t1, 2)
-                print(f"   ├── Task 1 (Scriptwriting): ❌ FAIL ({lat_script}s) -> {e}")
+                print(f"   ├── Task 1 (Scriptwriting) : ❌ FAIL ({lat_script}s) -> {e}")
                 break
 
         time.sleep(1.5)
 
-        # 3. SEO JSON
+        # ── 3. Structured SEO JSON Quality Audit ──────────────────────────────
         seo_ok = False
         t2 = time.time()
+        lat_seo = 0.0
+        seo_audit = {"score": 0.0, "title": "", "tag_count": 0, "feedback": []}
+        seo_throughput = 0.0
+
         for attempt in range(3):
             try:
                 payload = {
                     "model": model_name,
                     "messages": [
-                        {"role": "system", "content": "Return ONLY valid JSON: {\"title\": \"...\", \"tags\": [\"...\"]}"},
-                        {"role": "user", "content": "Generate YouTube SEO metadata for Turritopsis dohrnii."}
+                        {"role": "system", "content": "Return ONLY valid JSON matching: {\"title\": \"...\", \"description\": \"...\", \"tags\": [\"...\"]}"},
+                        {"role": "user", "content": "Generate viral YouTube SEO metadata for Turritopsis dohrnii immortal jellyfish."}
                     ],
                     "temperature": 0.2
                 }
                 resp = requests.post(endpoint, headers=headers, json=payload, timeout=(10.0, 120.0))
                 lat_seo = round(time.time() - t2, 2)
                 if resp.status_code == 200:
-                    print(f"   └── Task 2 (SEO JSON): ✅ PASS ({lat_seo}s)")
+                    resp_json = resp.json()
+                    content = resp_json.get("choices", [{}])[0].get("message", {}).get("content", "")
+                    est_tokens = max(1, len(content) // 4)
+                    seo_throughput = round(est_tokens / max(lat_seo, 0.1), 1)
+
+                    parsed_seo = UniversalGreedyJSONParser.extract_or_synthesize(content, expected_type="seo", fallback_topic="Turritopsis dohrnii")
+                    seo_audit = QualityEvaluator.audit_seo(parsed_seo, raw_text=content)
+                    score = seo_audit["score"]
+
+                    fb_summary = " | ".join(seo_audit["feedback"][:3])
+                    print(f"   └── Task 2 (SEO Metadata)  : ✅ PASS ({lat_seo}s) | Score: {score}/10 | Title: \"{seo_audit.get('title', '')[:35]}...\" | {seo_audit.get('tag_count', 0)} tags | ~{seo_throughput} tok/s")
+                    print(f"       📊 Gate Audit: {fb_summary}")
+
                     tracker.sniff_headers(entity_id, resp.headers)
-                    tracker.record_call_success(entity_id, "seo_json", lat_seo)
+                    tracker.record_call_success(entity_id, "seo_json", lat_seo, quality_rating=score)
                     seo_ok = True
                     break
                 elif resp.status_code in (502, 503, 504) and attempt < 2:
-                    wait_s = _calc_diagnostic_backoff(attempt)
+                    wait_s = _calc_diagnostic_backoff(attempt, is_thinking=is_known_thinking)
                     print(f"   │   ⏳ Task 2 hit HTTP {resp.status_code}. Retrying in {wait_s:.1f}s...")
                     time.sleep(wait_s)
                     continue
                 else:
-                    print(f"   └── Task 2 (SEO JSON): ❌ FAIL ({lat_seo}s) -> HTTP {resp.status_code}")
+                    print(f"   └── Task 2 (SEO Metadata)  : ❌ FAIL ({lat_seo}s) -> HTTP {resp.status_code}")
                     break
             except Exception as e:
                 err_str = str(e)
                 if any(x in err_str.lower() for x in ["502", "503", "504", "timeout", "unavailable"]) and attempt < 2:
-                    wait_s = _calc_diagnostic_backoff(attempt)
+                    wait_s = _calc_diagnostic_backoff(attempt, is_thinking=is_known_thinking)
                     print(f"   │   ⏳ Task 2 transient network issue. Retrying in {wait_s:.1f}s...")
                     time.sleep(wait_s)
                     continue
                 lat_seo = round(time.time() - t2, 2)
-                print(f"   └── Task 2 (SEO JSON): ❌ FAIL ({lat_seo}s) -> {e}")
+                print(f"   └── Task 2 (SEO Metadata)  : ❌ FAIL ({lat_seo}s) -> {e}")
                 break
 
         results.append({
-            "entity_id": f"{provider_name}:{model_name}",
+            "entity_id": entity_id,
+            "provider": provider_name,
             "ping": ping_ok,
             "script": script_ok,
+            "script_score": script_audit["score"],
             "seo": seo_ok,
-            "latency": lat
+            "seo_score": seo_audit["score"],
+            "latency": lat_script or lat_ping,
+            "throughput": script_throughput or seo_throughput,
+            "thinking": thinking_meta["is_thinking"],
+            "thinking_type": thinking_meta["method"]
         })
         time.sleep(2.0)
 
@@ -353,8 +518,9 @@ def test_openai_compatible_provider(
 
 
 def main():
+    suite_start = time.time()
     print(DIVIDER_HEAVY)
-    print("🚀 GHOST ENGINE — MULTI-PROVIDER MODEL DIAGNOSTICS & HEALTH AUDIT")
+    print("🚀 GHOST ENGINE — MULTI-PROVIDER MODEL DIAGNOSTICS & EMPIRICAL HEALTH BENCHMARK")
     print(DIVIDER_HEAVY)
 
     gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
@@ -397,7 +563,7 @@ def main():
         )
         all_results.extend(gh_res)
     else:
-        print("\n   ℹ️ GitHub Models: No active models discovered (service in brownout/retired). Skipping.")
+        print("\n   ℹ️ GitHub Models: No active models discovered. Skipping.")
 
     # 4. OpenRouter Free Pool
     discovered_or = discover_openrouter_models(openrouter_key) or [
@@ -414,28 +580,30 @@ def main():
     )
     all_results.extend(or_res)
 
-    # ── Final Summary Matrix ──────────────────────────────────────────────────
-    print_header("Final Comparative Summary Matrix")
-    print(f"{'Namespaced Model URI':<45} | {'Ping':<8} | {'Script':<8} | {'SEO':<8} | {'Latency':<8}")
-    print(f"{'-'*45}-+-{'-'*8}-+-{'-'*8}-+-{'-'*8}-+-{'-'*8}")
+    # ── Final Comparative Benchmark Matrix ────────────────────────────────────
+    suite_elapsed = round(time.time() - suite_start, 2)
+    print_header(f"Final Comparative Summary Matrix (Total Suite Duration: {suite_elapsed}s)")
+    print(f"{'Namespaced Model URI':<42} | {'Ping':<6} | {'Script Score':<12} | {'SEO Score':<10} | {'Latency':<8} | {'Speed':<9} | {'Thinking'}")
+    print(f"{'-'*42}-+-{'-'*6}-+-{'-'*12}-+-{'-'*10}-+-{'-'*8}-+-{'-'*9}-+-{'-'*12}")
 
     for r in all_results:
-        p = "✅ PASS" if r["ping"] else "❌ FAIL"
-        s = "✅ PASS" if r["script"] else "❌ FAIL"
-        j = "✅ PASS" if r["seo"] else "❌ FAIL"
+        p = "PASS" if r["ping"] else "FAIL"
+        s = f"{r['script_score']:.1f}/10" if r["script"] else "FAIL"
+        j = f"{r['seo_score']:.1f}/10" if r["seo"] else "FAIL"
         lat_str = f"{r['latency']:.2f}s"
-        print(f"{r['entity_id']:<45} | {p:<8} | {s:<8} | {j:<8} | {lat_str:<8}")
+        spd_str = f"{r.get('throughput', 0.0):.0f} tok/s"
+        think_str = f"YES ({r.get('thinking_type', 'active')})" if r.get("thinking") else "NO"
+        print(f"{r['entity_id']:<42} | {p:<6} | {s:<12} | {j:<10} | {lat_str:<8} | {spd_str:<9} | {think_str}")
 
     print(f"\n{DIVIDER_HEAVY}")
-    print("✅ Diagnostic Suite Completed.")
+    print(f"✅ Diagnostic Suite Completed in {suite_elapsed}s across {len(all_results)} evaluated models.")
     print(DIVIDER_HEAVY)
 
-    # Sync registry dynamically
+    # Sync dynamic registry to disk with freshly calibrated empirical quality scores
     from engine.dynamic_discovery import sync_registry
-    sync_res = sync_registry()
-    print(f"🔄 [REGISTRY SYNC] {sync_res}")
+    sync_res = sync_registry(force=True)
+    print(f"🔄 [REGISTRY CALIBRATION] Synchronized {len(sync_res.get('entities', {}))} models to memory/dynamic_models_registry.json")
 
 
 if __name__ == "__main__":
     main()
-

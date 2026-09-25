@@ -26,27 +26,39 @@ from engine.model_entity import (
 
 
 class UniversalGreedyJSONParser:
-    """Robust JSON extractor that handles markdown blocks, stray preambles, and syntax flaws."""
-    @staticmethod
-    def extract_json(raw_text: str) -> Optional[Dict[str, Any]]:
+    """
+    Ultra-Resilient 4-Level JSON & Plain-Text Parser.
+    Level 1: Direct JSON parsing.
+    Level 2: Markdown fence stripping & greedy brace isolation.
+    Level 3: Syntax auto-repair (trailing commas, single quotes, Python literals, unclosed brackets/braces).
+    Level 4: Heuristic Plain-Text Fallback Synthesizer for scripts and SEO metadata when an LLM hallucinates pure prose.
+    """
+
+    @classmethod
+    def extract_json(cls, raw_text: str) -> Optional[Dict[str, Any]]:
+        """Executes Level 1 to Level 3 JSON extraction and syntax auto-repair."""
         if not raw_text or not isinstance(raw_text, str):
             return None
 
         cleaned = raw_text.strip()
 
-        # 1. Remove markdown fences (```json ... ``` or ``` ... ```)
-        if "```" in cleaned:
-            match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", cleaned, re.IGNORECASE)
-            if match:
-                cleaned = match.group(1).strip()
-
-        # 2. Try direct parse
+        # Level 1: Direct parse
         try:
             return json.loads(cleaned)
         except Exception:
             pass
 
-        # 3. Greedy isolate outermost { ... }
+        # Level 2: Markdown fence extraction
+        if "```" in cleaned:
+            match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", cleaned, re.IGNORECASE)
+            if match:
+                fenced = match.group(1).strip()
+                try:
+                    return json.loads(fenced)
+                except Exception:
+                    cleaned = fenced
+
+        # Level 2b: Greedy isolation of outermost { ... }
         start = cleaned.find("{")
         end = cleaned.rfind("}")
         if start != -1 and end != -1 and end > start:
@@ -54,14 +66,201 @@ class UniversalGreedyJSONParser:
             try:
                 return json.loads(snippet)
             except Exception:
-                # 4. Repair trailing commas before closing braces/brackets
-                repaired = re.sub(r",\s*([\]}])", r"\1", snippet)
-                try:
-                    return json.loads(repaired)
-                except Exception:
-                    pass
+                pass
+
+            # Level 3: Syntax Auto-Repair
+            repaired = cls._repair_syntax(snippet)
+            try:
+                return json.loads(repaired)
+            except Exception:
+                pass
+
+        # Level 3b: Incomplete JSON with open bracket but no closing bracket (token truncation)
+        if start != -1:
+            snippet = cleaned[start:]
+            repaired = cls._repair_truncated_json(snippet)
+            try:
+                return json.loads(repaired)
+            except Exception:
+                pass
 
         return None
+
+    @classmethod
+    def _repair_syntax(cls, snippet: str) -> str:
+        """Repairs trailing commas, single quotes, and Python literals."""
+        # 1. Strip trailing commas before closing brackets/braces
+        s = re.sub(r",\s*([\]}])", r"\1", snippet)
+        # 2. Convert Python booleans and None to JSON literals
+        s = re.sub(r'\bTrue\b', 'true', s)
+        s = re.sub(r'\bFalse\b', 'false', s)
+        s = re.sub(r'\bNone\b', 'null', s)
+        # 3. If single quotes wrap keys/strings
+        if "'" in s and '"' not in s:
+            s = s.replace("'", '"')
+        elif "'" in s:
+            s = re.sub(r"'\s*([a-zA-Z0-9_\-]+)\s*'\s*:", r'"\1":', s)
+        return s
+
+    @classmethod
+    def _repair_truncated_json(cls, snippet: str) -> str:
+        """Closes unclosed braces and brackets in correct LIFO stack order when generation was truncated."""
+        s = cls._repair_syntax(snippet)
+        s = s.rstrip(' ,\n\r\t')
+
+        # If a string was left open (odd count of unescaped quotes), close it
+        quotes = len(re.findall(r'(?<!\\)"', s))
+        if quotes % 2 != 0:
+            s += '"'
+            s = s.rstrip(' ,\n\r\t')
+
+        # Track bracket stack in LIFO order
+        stack: List[str] = []
+        in_string = False
+        escape = False
+        for ch in s:
+            if escape:
+                escape = False
+                continue
+            if ch == '\\':
+                escape = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if not in_string:
+                if ch in ('{', '['):
+                    stack.append('}' if ch == '{' else ']')
+                elif ch in ('}', ']'):
+                    if stack and stack[-1] == ch:
+                        stack.pop()
+
+        # Append missing closing tokens in exact LIFO order
+        while stack:
+            s += stack.pop()
+
+        return s
+
+    @classmethod
+    def synthesize_script_from_prose(cls, raw_text: str, fallback_topic: str = "curiosity") -> Dict[str, Any]:
+        """
+        Level 4 Fallback: If an LLM completely hallucinated and returned pure narrative prose
+        instead of JSON, this heuristic synthesizer parses the text into 4 scene blocks,
+        derives visual prompts from narrative cues, and returns a fully compliant script schema.
+        """
+        if not raw_text:
+            return {
+                "scenes": [
+                    {"text": f"Did you know the secret of {fallback_topic}?", "image_prompt": f"Cinematic shot of {fallback_topic}", "pexels_query": fallback_topic}
+                ],
+                "mood": "neutral",
+                "caption_style": "viral_impact"
+            }
+
+        # Clean text
+        clean = re.sub(r'```.*?```', '', raw_text, flags=re.DOTALL)
+        clean = re.sub(r'<(think|thought|THINKING)>.*?</\1>', '', clean, flags=re.DOTALL | re.IGNORECASE).strip()
+
+        # Check for Scene markers: Scene 1, Scene 2, Act 1, [1], 1.
+        scene_splits = re.split(r'(?:^|\n+)(?:Scene\s*\d+|Act\s*\d+|\[\d+\]|\d+\.)[:\s\-]*', clean, flags=re.IGNORECASE)
+        scene_chunks = [s.strip() for s in scene_splits if s and len(s.strip()) > 10]
+
+        # If no explicit markers found, split by paragraphs or sentences
+        if len(scene_chunks) < 3:
+            paras = [p.strip() for p in clean.split('\n\n') if len(p.strip()) > 15]
+            if len(paras) >= 3:
+                scene_chunks = paras
+            else:
+                sentences = [s.strip() for s in re.split(r'[.!?]+', clean) if s.strip()]
+                if len(sentences) >= 4:
+                    k = max(1, len(sentences) // 4)
+                    scene_chunks = [
+                        ". ".join(sentences[i:i + k]) + "."
+                        for i in range(0, len(sentences), k)
+                    ][:4]
+                else:
+                    scene_chunks = [clean]
+
+        # Ensure exactly 4 scenes
+        while len(scene_chunks) < 4:
+            scene_chunks.append(scene_chunks[-1] if scene_chunks else f"The mystery of {fallback_topic} continues.")
+        if len(scene_chunks) > 4:
+            scene_chunks = [
+                scene_chunks[0],
+                " ".join(scene_chunks[1:-2]),
+                scene_chunks[-2],
+                scene_chunks[-1]
+            ]
+
+        final_scenes = []
+        for idx, text in enumerate(scene_chunks[:4]):
+            first_words = " ".join(text.split()[:12])
+            final_scenes.append({
+                "text": text,
+                "image_prompt": f"Cinematic photorealistic shot illustrating: {first_words}, 8k resolution, dramatic lighting",
+                "pexels_query": fallback_topic
+            })
+
+        return {
+            "scenes": final_scenes,
+            "voice_actor": "am_adam",
+            "mood": "neutral",
+            "caption_style": "viral_impact",
+            "glow_color": "&H0000D700"
+        }
+
+    @classmethod
+    def synthesize_seo_from_prose(cls, raw_text: str, fallback_topic: str = "curiosity") -> Dict[str, Any]:
+        """
+        Level 4 Fallback: Extracts title, description, and tags from unstructured text.
+        """
+        title = ""
+        desc = ""
+        tags = []
+
+        if raw_text:
+            t_match = re.search(r'(?:Title|Headline)[:\s]+([^\n]+)', raw_text, re.IGNORECASE)
+            if t_match:
+                title = t_match.group(1).strip().strip('"\'')
+
+            d_match = re.search(r'(?:Description|Summary)[:\s]+([^\n]+(?:\n[^\n]+)?)', raw_text, re.IGNORECASE)
+            if d_match:
+                desc = d_match.group(1).strip().strip('"\'')
+
+            tag_match = re.search(r'(?:Tags|Hashtags|Keywords)[:\s]+([^\n]+)', raw_text, re.IGNORECASE)
+            if tag_match:
+                raw_tags = tag_match.group(1)
+                tags = [t.strip().strip('#"\'') for t in re.split(r'[,#\s]+', raw_tags) if t.strip()]
+
+        if not title:
+            lines = [l.strip() for l in raw_text.split('\n') if l.strip()] if raw_text else []
+            title = lines[0][:60] if lines else f"The Truth About {fallback_topic} #shorts"
+
+        if not desc:
+            desc = f"Discover the unbelievable truth about {fallback_topic}. Subscribe for more mind-bending facts!"
+
+        if not tags:
+            tags = [fallback_topic, "shorts", "viral", "curiosity", "facts", "education", "science"]
+
+        return {
+            "title": title[:70],
+            "description": desc[:300],
+            "tags": tags[:12]
+        }
+
+    @classmethod
+    def extract_or_synthesize(cls, raw_text: str, expected_type: str = "general", fallback_topic: str = "curiosity") -> Dict[str, Any]:
+        """Attempts JSON parse through Level 3, falling back to Level 4 heuristic synthesis."""
+        data = cls.extract_json(raw_text)
+        if isinstance(data, dict):
+            return data
+
+        if expected_type in ("script", "creative", "storytelling"):
+            return cls.synthesize_script_from_prose(raw_text, fallback_topic=fallback_topic)
+        elif expected_type in ("seo", "seo_json", "json"):
+            return cls.synthesize_seo_from_prose(raw_text, fallback_topic=fallback_topic)
+
+        return {"raw_content": raw_text}
 
 
 class GoogleGenAIAdapter:
@@ -109,6 +308,26 @@ class GoogleGenAIAdapter:
         gen_cfg = types.GenerateContentConfig(**cfg_kwargs)
 
         start_time = time.time()
+        # Socket-Preserving Streaming for Thinking Models & Creative tasks:
+        # Pumps chunks continuously across the wire, keeping intermediate gateways alive
+        is_thinking_model = getattr(entity, "supports_thinking", False) or task_type == "creative"
+        if is_thinking_model:
+            try:
+                response_stream = client.models.generate_content_stream(
+                    model=entity.model_name,
+                    contents=prompt,
+                    config=gen_cfg
+                )
+                accumulated_parts = []
+                for chunk in response_stream:
+                    if chunk.text:
+                        accumulated_parts.append(chunk.text)
+                text = "".join(accumulated_parts).strip()
+                latency = round(time.time() - start_time, 2)
+                return text, {"streaming": True}, latency
+            except Exception as stream_err:
+                logger.debug(f"Streaming fallback to unary for {entity.entity_id}: {stream_err}")
+
         response = client.models.generate_content(
             model=entity.model_name,
             contents=prompt,
@@ -117,7 +336,14 @@ class GoogleGenAIAdapter:
         latency = round(time.time() - start_time, 2)
 
         text = response.text if response and response.text else ""
-        return text, {}, latency
+        meta: Dict[str, Any] = {}
+        try:
+            from engine.thinking_detector import ThinkingDetector
+            meta["thinking"] = ThinkingDetector.detect_google_response(response)
+        except Exception:
+            pass
+
+        return text, meta, latency
 
 
 class OpenAICompatibleAdapter:
@@ -215,6 +441,13 @@ class OpenAICompatibleAdapter:
             text = ""
             if choices and "message" in choices[0]:
                 text = choices[0]["message"].get("content", "")
+
+            try:
+                from engine.thinking_detector import ThinkingDetector
+                resp_headers["thinking"] = ThinkingDetector.detect_openai_response(data, text)
+            except Exception:
+                pass
+
             return text, resp_headers, latency
         else:
             err_msg = f"HTTP {resp.status_code}: {resp.text}"

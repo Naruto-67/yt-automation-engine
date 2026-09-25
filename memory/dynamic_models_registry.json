@@ -1,10 +1,10 @@
 {
-  "updated_at": "2026-09-22T18:50:48.034544+00:00",
+  "updated_at": "2026-09-25T15:07:48.388698+00:00",
   "provider_reset_dates": {
-    "google": "2026-09-22",
-    "groq": "2026-09-22",
-    "github": "2026-09-22",
-    "openrouter": "2026-09-22"
+    "google": "2026-09-25",
+    "groq": "2026-09-25",
+    "github": "2026-09-25",
+    "openrouter": "2026-09-25"
   },
   "entities": {
     "google:gemini-3.8-flash": {
@@ -26,7 +26,10 @@
       "status": "ACTIVE",
       "reset_epoch": 0.0,
       "average_latency": 2.2,
-      "cooldown_until": 0.0
+      "cooldown_until": 0.0,
+      "supports_thinking": false,
+      "thinking_type": "none",
+      "average_thinking_tokens": 0
     },
     "google:gemini-3.6-flash": {
       "entity_id": "google:gemini-3.6-flash",
@@ -47,7 +50,10 @@
       "status": "ACTIVE",
       "reset_epoch": 0.0,
       "average_latency": 2.1,
-      "cooldown_until": 0.0
+      "cooldown_until": 0.0,
+      "supports_thinking": false,
+      "thinking_type": "none",
+      "average_thinking_tokens": 0
     },
     "google:gemini-flash-lite-latest": {
       "entity_id": "google:gemini-flash-lite-latest",
@@ -67,7 +73,10 @@
       "status": "ACTIVE",
       "reset_epoch": 0.0,
       "average_latency": 4.93,
-      "cooldown_until": 0.0
+      "cooldown_until": 0.0,
+      "supports_thinking": false,
+      "thinking_type": "none",
+      "average_thinking_tokens": 0
     },
     "google:gemini-3.5-flash-lite": {
       "entity_id": "google:gemini-3.5-flash-lite",
@@ -87,7 +96,10 @@
       "status": "ACTIVE",
       "reset_epoch": 0.0,
       "average_latency": 1.05,
-      "cooldown_until": 0.0
+      "cooldown_until": 0.0,
+      "supports_thinking": false,
+      "thinking_type": "none",
+      "average_thinking_tokens": 0
     },
     "groq:llama-3.3-70b-versatile": {
       "entity_id": "groq:llama-3.3-70b-versatile",
@@ -106,7 +118,10 @@
       "status": "DEPRECATED",
       "reset_epoch": 1789900372.9570594,
       "average_latency": 0.8,
-      "cooldown_until": 0.0
+      "cooldown_until": 0.0,
+      "supports_thinking": false,
+      "thinking_type": "none",
+      "average_thinking_tokens": 0
     },
     "groq:llama-3.1-8b-instant": {
       "entity_id": "groq:llama-3.1-8b-instant",
@@ -125,7 +140,10 @@
       "status": "DEPRECATED",
       "reset_epoch": 0.0,
       "average_latency": 0.4,
-      "cooldown_until": 0.0
+      "cooldown_until": 0.0,
+      "supports_thinking": false,
+      "thinking_type": "none",
+      "average_thinking_tokens": 0
     },
     "github:gpt-4o-mini": {
       "entity_id": "github:gpt-4o-mini",
@@ -144,7 +162,10 @@
       "status": "ACTIVE",
       "reset_epoch": 0.0,
       "average_latency": 1.5,
-      "cooldown_until": 1789902347.1743271
+      "cooldown_until": 1789902347.1743271,
+      "supports_thinking": false,
+      "thinking_type": "none",
+      "average_thinking_tokens": 0
     },
     "github:meta-llama-3.3-70b-instruct": {
       "entity_id": "github:meta-llama-3.3-70b-instruct",
@@ -163,7 +184,10 @@
       "status": "ACTIVE",
       "reset_epoch": 0.0,
       "average_latency": 1.8,
-      "cooldown_until": 0.0
+      "cooldown_until": 0.0,
+      "supports_thinking": false,
+      "thinking_type": "none",
+      "average_thinking_tokens": 0
     },
     "openrouter:meta-llama/llama-3.3-70b-instruct:free": {
       "entity_id": "openrouter:meta-llama/llama-3.3-70b-instruct:free",
@@ -182,7 +206,10 @@
       "status": "ACTIVE",
       "reset_epoch": 0.0,
       "average_latency": 2.5,
-      "cooldown_until": 0.0
+      "cooldown_until": 0.0,
+      "supports_thinking": false,
+      "thinking_type": "none",
+      "average_thinking_tokens": 0
     },
     "openrouter:qwen/qwen-2.5-72b-instruct:free": {
       "entity_id": "openrouter:qwen/qwen-2.5-72b-instruct:free",
@@ -201,7 +228,10 @@
       "status": "ACTIVE",
       "reset_epoch": 0.0,
       "average_latency": 2.6,
-      "cooldown_until": 0.0
+      "cooldown_until": 0.0,
+      "supports_thinking": false,
+      "thinking_type": "none",
+      "average_thinking_tokens": 0
     }
   }
 }
