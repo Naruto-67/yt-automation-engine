@@ -17,6 +17,7 @@ pytz>=2024.1
 # Audio & Image Helpers
 pydub>=0.25.1
 Pillow>=10.0.0
+mutagen>=1.47.0
 
 # Testing
 pytest>=8.0.0

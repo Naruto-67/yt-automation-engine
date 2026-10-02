@@ -82,6 +82,11 @@ def run_spec_stage(video_type: str = "short") -> None:
             full_phonetic_script, audio_output, voice=voice_id
         )
 
+        if total_duration <= 0.0:
+            words_count = len(full_phonetic_script.split())
+            total_duration = max(15.0, round(words_count / 2.5, 2))
+            print(f"⚠️ [TTS] Measured duration was 0.0s — calculated fallback duration: {total_duration:.1f}s")
+
         # Map scene timing approximately across word timestamps
         scenes_spec = []
         word_cursor = 0
@@ -97,6 +102,10 @@ def run_spec_stage(video_type: str = "short") -> None:
             word_cursor += s_word_count
             
             s_dur = (scene_words[-1].end - scene_words[0].start) if scene_words else (total_duration / len(raw_scenes))
+            if s_dur <= 0.0:
+                s_dur = round(total_duration / len(raw_scenes), 2)
+            if s_dur <= 0.0:
+                s_dur = 5.0
 
             scenes_spec.append(
                 SceneSpec(
@@ -120,6 +129,8 @@ def run_spec_stage(video_type: str = "short") -> None:
             tags=seo_data.get("tags", ["shorts", "psychology", "facts"])
         )
 
+        calculated_total = round(max(total_duration, sum(sc.duration_seconds for sc in scenes_spec)), 2)
+
         # 5. Output spec.json artifact
         spec = SpecOutput(
             topic=topic,
@@ -127,7 +138,7 @@ def run_spec_stage(video_type: str = "short") -> None:
             sub_format=sub_format,
             seo=seo,
             scenes=scenes_spec,
-            total_duration_seconds=round(total_duration, 2),
+            total_duration_seconds=calculated_total if calculated_total > 0.0 else 30.0,
             audio_path=audio_output,
             thought_process=script_data.get("thought_process")
         )

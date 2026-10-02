@@ -103,11 +103,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         # Fallback if no word timestamps captured: create scene-level subtitles
         current_time = 0.0
         for scene in scenes:
+            sc_dur = scene.duration_seconds if scene.duration_seconds > 0.0 else 5.0
             start_ts = format_ts(current_time)
-            end_ts = format_ts(current_time + scene.duration_seconds)
+            end_ts = format_ts(current_time + sc_dur)
             text = scene.spoken_text.replace("\n", " ")
             events.append(f"Dialogue: 0,{start_ts},{end_ts},Default,,0,0,0,,{text}")
-            current_time += scene.duration_seconds
+            current_time += sc_dur
     else:
         # Chunk words into groups of 3
         chunk_size = 3
@@ -184,7 +185,32 @@ def render_video_ffmpeg(
     ass_path = os.path.join("output", "captions.ass")
     generate_ass_subtitles(spec.scenes, ass_path, width=target_w, height=target_h)
 
-    # 3. Build FFmpeg Filter Complex
+    # 3. Calculate Target Total Duration (Safeguard against 0.0s)
+    narration_path = spec.audio_path or os.path.join("output", "narration.mp3")
+    total_duration = spec.total_duration_seconds or sum(s.duration_seconds for s in spec.scenes)
+    if not total_duration or total_duration <= 0.0:
+        # Measure narration audio file if present
+        try:
+            from mutagen.mp3 import MP3
+            if os.path.exists(narration_path):
+                audio = MP3(narration_path)
+                if audio.info and audio.info.length > 0:
+                    total_duration = round(float(audio.info.length), 2)
+        except Exception:
+            pass
+
+    if not total_duration or total_duration <= 0.0:
+        if os.path.exists(narration_path):
+            file_size = os.path.getsize(narration_path)
+            if file_size > 1000:
+                total_duration = round(file_size / 6000.0, 2)
+
+    if not total_duration or total_duration <= 0.0:
+        total_duration = 30.0
+
+    print(f"⏱️ [RENDERER] Target video duration established: {total_duration:.1f}s", flush=True)
+
+    # 4. Build FFmpeg Filter Complex
     # Prepare individual scaled, cropped, framerate-normalized, trimmed clips
     inputs = []
     filter_chains = []
@@ -193,6 +219,10 @@ def render_video_ffmpeg(
         # Pass input clip directly without stream_loop
         inputs.extend(["-i", clip_path])
         dur = scene.duration_seconds
+        if not dur or dur <= 0.0:
+            dur = round(total_duration / len(local_clips), 2)
+        if dur <= 0.0:
+            dur = 5.0
 
         # Guarantee exact duration, 30fps, target resolution, yuv420p, SAR 1:1, reset PTS
         filter_chains.append(
@@ -244,8 +274,7 @@ def render_video_ffmpeg(
 
     full_filter_complex = "".join(filter_chains)
 
-    # 4. Audio Inputs (Narration)
-    narration_path = spec.audio_path or os.path.join("output", "narration.mp3")
+    # 5. Audio Inputs (Narration)
     audio_inputs = []
     audio_map = []
     if os.path.exists(narration_path):
@@ -253,8 +282,6 @@ def render_video_ffmpeg(
         audio_map = ["-map", f"{len(local_clips)}:a", "-c:a", "aac", "-b:a", "192k"]
     else:
         print(f"⚠️ [RENDERER] Narration file '{narration_path}' not found — rendering video without external narration.", flush=True)
-
-    total_duration = spec.total_duration_seconds or sum(s.duration_seconds for s in spec.scenes)
 
     # Full FFmpeg Command
     cmd = [

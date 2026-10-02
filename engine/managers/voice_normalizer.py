@@ -157,6 +157,46 @@ class VoiceNormalizer:
 
         # Measure audio duration
         duration = word_timestamps[-1].end if word_timestamps else 0.0
+
+        if duration <= 0.0:
+            # Fallback 1: Measure via mutagen if available
+            try:
+                from mutagen.mp3 import MP3
+                audio = MP3(output_audio_path)
+                if audio.info and audio.info.length > 0:
+                    duration = round(float(audio.info.length), 2)
+            except Exception:
+                pass
+
+        if duration <= 0.0:
+            # Fallback 2: Estimate from file size (Edge-TTS default 48kbps mono is ~6,000 bytes/sec)
+            try:
+                if os.path.exists(output_audio_path):
+                    file_size = os.path.getsize(output_audio_path)
+                    if file_size > 1000:
+                        duration = round(file_size / 6000.0, 2)
+            except Exception:
+                pass
+
+        if duration <= 0.0:
+            # Fallback 3: Estimate from spoken word count (avg 150 words/minute = 2.5 words/sec)
+            words_count = len(phonetic_text.split())
+            duration = max(15.0, round(words_count / 2.5, 2))
+
+        # If word_timestamps was omitted by Edge-TTS, synthesize evenly distributed word timings
+        if not word_timestamps and duration > 0.0:
+            words = phonetic_text.split()
+            if words:
+                step = duration / len(words)
+                for i, w in enumerate(words):
+                    word_timestamps.append(
+                        WordTimestamp(
+                            word=w,
+                            start=round(i * step, 3),
+                            end=round((i + 1) * step, 3)
+                        )
+                    )
+
         return (duration, word_timestamps)
 
     @classmethod
