@@ -101,8 +101,6 @@ jobs:
           path: output/
       - name: Setup FFmpeg
         uses: FedericoCarboni/setup-ffmpeg@v3
-        with:
-          ffmpeg-version: '6.1.1'
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
