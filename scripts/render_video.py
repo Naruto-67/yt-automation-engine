@@ -11,12 +11,23 @@ import json
 import shutil
 import tempfile
 import subprocess
+import re
 import requests
 from typing import List, Dict, Any, Optional
 
 from engine.logger import StageTimer, PikaStage, logger
 from engine.managers.error_manager import ErrorManager
 from engine.models import SpecOutput, ClipsManifest, WordTimestamp
+
+
+def check_filter_supported(filter_name: str) -> bool:
+    """Checks whether a specific FFmpeg filter is supported by the installed binary."""
+    try:
+        res = subprocess.run(["ffmpeg", "-filters"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10)
+        return bool(re.search(rf"\b{filter_name}\b", res.stdout))
+    except Exception:
+        return False
+
 
 
 def download_cinematic_font() -> str:
@@ -191,27 +202,48 @@ def render_video_ffmpeg(
     concat_filter = f"{concat_inputs}concat=n={len(local_clips)}:v=1:a=0[base_v];"
     filter_chains.append(concat_filter)
 
-    # Watermark overlay (top_right default)
-    branding = channel_cfg.get("branding", {})
-    watermark_text = branding.get("watermark_text", channel_cfg.get("handle", "@BrainBlud"))
-    opacity = branding.get("opacity", 0.40)
-    # Position: top_right safe zone
-    watermark_filter = (
-        f"[base_v]drawtext=text='{watermark_text}':fontcolor=white@{opacity}:fontsize=26:"
-        f"x=w-text_w-80:y=180[branded_v];"
-    )
-    filter_chains.append(watermark_filter)
+    current_v = "base_v"
 
-    # Escape subtitle path for Windows/Unix FFmpeg
-    clean_ass = ass_path.replace("\\", "/").replace(":", "\\:")
-    subtitle_filter = f"[branded_v]subtitles='{clean_ass}'[outv]"
-    filter_chains.append(subtitle_filter)
+    # Watermark overlay (top_right default)
+    if check_filter_supported("drawtext"):
+        branding = channel_cfg.get("branding", {})
+        watermark_text = branding.get("watermark_text", channel_cfg.get("handle", "@BrainBlud"))
+        opacity = branding.get("opacity", 0.40)
+        # Position: top_right safe zone
+        watermark_filter = (
+            f"[{current_v}]drawtext=text='{watermark_text}':fontcolor=white@{opacity}:fontsize=26:"
+            f"x=w-text_w-80:y=180[branded_v];"
+        )
+        filter_chains.append(watermark_filter)
+        current_v = "branded_v"
+    else:
+        print("⚠️ [RENDERER] FFmpeg build lacks 'drawtext' filter — skipping watermark overlay.")
+
+    # Burnt-in subtitles (libass)
+    if check_filter_supported("subtitles") and os.path.exists(ass_path):
+        clean_ass = ass_path.replace("\\", "/").replace(":", "\\:")
+        font_dir = os.path.dirname(os.path.abspath(font_file)).replace("\\", "/").replace(":", "\\:") if (font_file and font_file != "Arial" and os.path.exists(font_file)) else ""
+        fontsdir_arg = f":fontsdir='{font_dir}'" if font_dir else ""
+        subtitle_filter = f"[{current_v}]subtitles='{clean_ass}'{fontsdir_arg}[outv]"
+        filter_chains.append(subtitle_filter)
+    else:
+        if not check_filter_supported("subtitles"):
+            print("⚠️ [RENDERER] FFmpeg build lacks 'subtitles' filter — skipping burnt subtitles.")
+        elif not os.path.exists(ass_path):
+            print(f"⚠️ [RENDERER] Subtitle file '{ass_path}' not found — skipping burnt subtitles.")
+        filter_chains.append(f"[{current_v}]null[outv]")
 
     full_filter_complex = "".join(filter_chains)
 
-    # 4. Audio Inputs (Narration + Ducking)
+    # 4. Audio Inputs (Narration)
     narration_path = spec.audio_path or os.path.join("output", "narration.mp3")
-    audio_inputs = ["-i", narration_path]
+    audio_inputs = []
+    audio_map = []
+    if os.path.exists(narration_path):
+        audio_inputs = ["-i", narration_path]
+        audio_map = ["-map", f"{len(local_clips)}:a", "-c:a", "aac", "-b:a", "192k"]
+    else:
+        print(f"⚠️ [RENDERER] Narration file '{narration_path}' not found — rendering video without external narration.")
 
     # Full FFmpeg Command
     cmd = [
@@ -220,12 +252,10 @@ def render_video_ffmpeg(
         *audio_inputs,
         "-filter_complex", full_filter_complex,
         "-map", "[outv]",
-        "-map", f"{len(local_clips)}:a",
+        *audio_map,
         "-c:v", "libx264",
         "-preset", "fast",
         "-crf", "18",
-        "-c:a", "aac",
-        "-b:a", "192k",
         "-pix_fmt", "yuv420p",
         "-shortest",
         output_video_path

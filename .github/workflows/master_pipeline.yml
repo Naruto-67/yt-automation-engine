@@ -50,7 +50,10 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: spec-artifact
-          path: output/spec.json
+          path: |
+            output/spec.json
+            output/narration.mp3
+          if-no-files-found: warn
           retention-days: 1
 
   clip_generation:
@@ -99,8 +102,10 @@ jobs:
         with:
           name: clips-manifest
           path: output/
-      - name: Setup FFmpeg
-        uses: FedericoCarboni/setup-ffmpeg@v3
+      - name: Install FFmpeg & System Dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg fonts-freefont-ttf
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
