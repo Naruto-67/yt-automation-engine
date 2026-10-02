@@ -20,6 +20,13 @@ class ErrorCategory:
     FATAL = "FATAL"
 
 
+class ErrorSeverity:
+    FATAL_AUTH = "FATAL_AUTH"
+    FATAL_QUOTA = "FATAL_QUOTA"
+    TRANSIENT_RETRY = "TRANSIENT_RETRY"
+    FATAL_GENERIC = "FATAL_GENERIC"
+
+
 class PipelineError(Exception):
     """Base exception for pipeline errors."""
     def __init__(self, message: str, category: str = ErrorCategory.FATAL, original_exception: Optional[Exception] = None):
@@ -44,26 +51,53 @@ class FatalError(PipelineError):
 class ErrorManager:
     """Centralized Error Handling Brain."""
 
-    @staticmethod
-    def classify_exception(exc: Exception) -> str:
+    @classmethod
+    def triage_error(cls, exc: Exception) -> str:
+        """Triages error into severity taxonomy: FATAL_AUTH, FATAL_QUOTA, TRANSIENT_RETRY, FATAL_GENERIC."""
+        msg = str(exc).lower()
+        exc_type = type(exc).__name__.lower()
+
+        # 1. Quota exhaustion errors
+        quota_signals = ["quota", "quotaexceeded", "daily limit", "usage limit"]
+        if any(sig in msg or sig in exc_type for sig in quota_signals):
+            return ErrorSeverity.FATAL_QUOTA
+
+        # 2. Auth errors
+        auth_signals = ["auth", "unauthorized", "401", "invalid_grant", "forbidden"]
+        if any(sig in msg or sig in exc_type for sig in auth_signals):
+            return ErrorSeverity.FATAL_AUTH
+
+        # 3. Transient / Rate limit / Network errors
+        transient_signals = [
+            "429", "ratelimit", "rate limit", "too many requests", "resource exhausted",
+            "500", "502", "503", "504", "bad gateway", "service unavailable",
+            "timeout", "timed out", "connection reset", "connectionreset", "connection refused",
+            "temporary failure", "try again", "retry-after"
+        ]
+        if any(sig in msg or sig in exc_type for sig in transient_signals):
+            return ErrorSeverity.TRANSIENT_RETRY
+
+        return ErrorSeverity.FATAL_GENERIC
+
+    @classmethod
+    def compute_backoff_seconds(cls, attempt: int, base_seconds: float = 2.0) -> float:
+        """Computes predictable exponential backoff with jitter."""
+        import random
+        nominal = float(base_seconds) * (2 ** (max(1, attempt) - 1))
+        max_jitter = min(1.5, nominal * 0.25)
+        jitter = random.uniform(0.0, max_jitter)
+        return round(nominal + jitter, 2)
+
+    @classmethod
+    def classify_exception(cls, exc: Exception) -> str:
         """Categorize an arbitrary exception into RECOVERABLE or FATAL."""
         if isinstance(exc, RecoverableError):
             return ErrorCategory.RECOVERABLE
         if isinstance(exc, FatalError):
             return ErrorCategory.FATAL
 
-        msg = str(exc).lower()
-        exc_type = type(exc).__name__.lower()
-
-        # Rate limits, timeouts, temporary server glitches
-        recoverable_signals = [
-            "429", "rate limit", "too many requests", "resource exhausted",
-            "500", "502", "503", "504", "bad gateway", "service unavailable",
-            "timeout", "timed out", "connection reset", "connection refused",
-            "temporary failure", "try again", "retry-after"
-        ]
-
-        if any(sig in msg or sig in exc_type for sig in recoverable_signals):
+        severity = cls.triage_error(exc)
+        if severity == ErrorSeverity.TRANSIENT_RETRY:
             return ErrorCategory.RECOVERABLE
 
         return ErrorCategory.FATAL

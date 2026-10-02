@@ -64,6 +64,10 @@ class VoiceNormalizer:
         Translates numbers, symbols, and abbreviations into spoken phonetic English.
         Leaves raw text for display captions untouched.
         """
+        # 0. Strip markdown bold / italic formatting
+        text = re.sub(r"\*{1,3}([^*]+)\*{1,3}", r"\1", text)
+        text = text.replace("**", "").replace("*", "")
+
         # 1. Expand currency: e.g. $100 -> one hundred dollars
         def replace_currency(match):
             amount = match.group(1).replace(",", "")
@@ -86,8 +90,14 @@ class VoiceNormalizer:
 
         text = re.sub(r"(\d+)%", replace_percent, text)
 
-        # 3. Expand raw numbers: e.g. 125 -> one hundred and twenty-five
+        # 3. Expand hashtag ranking: #1 -> number 1
+        text = re.sub(r"#(\d+)", r"number \1", text)
+
+        # 4. Expand raw numbers: e.g. 125 -> one hundred and twenty-five
         def replace_numbers(match):
+            start = match.start()
+            if start >= 7 and text[start-7:start].lower() == "number ":
+                return match.group(0)
             num = match.group(0).replace(",", "")
             try:
                 return num2words(int(num))
@@ -96,19 +106,22 @@ class VoiceNormalizer:
 
         text = re.sub(r"\b\d+\b", replace_numbers, text)
 
-        # 4. Expand common symbols and abbreviations
+        # 5. Expand common symbols and abbreviations
         abbreviations = {
-            r"\be\.g\.\b": "for example",
-            r"\bi\.e\.\b": "that is",
-            r"\bvs\.?\b": "versus",
-            r"\bDr\.\b": "Doctor",
-            r"\bMr\.\b": "Mister",
-            r"\bMrs\.\b": "Missus",
+            r"\be\.g\.?(?=\s|$)": "for example",
+            r"\bi\.e\.?(?=\s|$)": "that is",
+            r"\bvs\.?(?=\s|$)": "versus",
+            r"\bDr\.?(?=\s|$)": "Doctor",
+            r"\bMr\.?(?=\s|$)": "Mister",
+            r"\bMrs\.?(?=\s|$)": "Missus",
             r"&": "and",
             r"@": "at",
         }
         for pattern, replacement in abbreviations.items():
             text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+
+        # 6. Normalize extra whitespace
+        text = re.sub(r"\s+", " ", text).strip()
 
         return text
 

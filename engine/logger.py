@@ -116,9 +116,16 @@ class StructuredLogger:
     def success(cls, msg: str): cls._log("SUCCESS", msg, "SUCCESS")
 
     @classmethod
+    def engine(cls, msg: str): cls._log("ENGINE", msg, "INFO")
+
+    @classmethod
     def debug(cls, msg: str):
         if os.environ.get("GHOST_DEBUG", "").lower() in ("true", "1"):
             cls._log("DEBUG", msg, "DEBUG")
+
+    def __getattr__(self, name: str):
+        """Dynamic fallback for arbitrary channel/module tags (e.g. logger.pipeline, logger.quota)."""
+        return lambda msg: self._log(name.upper(), msg, "INFO")
 
 
 logger = StructuredLogger()

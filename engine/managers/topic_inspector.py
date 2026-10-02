@@ -95,18 +95,31 @@ class TopicInspector:
 
         return CURATED_FALLBACK_TOPICS.copy()
 
-    def _fact_check(self, topic: str) -> Dict[str, Any]:
-        """Runs the LLM fact-checking gate to filter out debunked internet myths."""
+    def verify_factuality(self, topic: str) -> Dict[str, Any]:
+        """Runs the LLM fact-checking gate to verify scientific validity."""
         system_prompt = (
             "You are a strict scientific and historical fact-checker for an educational channel.\n"
             "Verify whether this premise is verified, scientifically supported, and logically sound.\n"
             "Reject urban legends, creepypastas, and debunked myths.\n"
-            "Return JSON: {\"verified\": true/false, \"summary\": \"verified explanation\", \"reason\": \"if false\"}"
+            "Return JSON: {\"is_factual\": true/false, \"confidence\": float, \"primary_source\": str, \"red_flags\": list}"
         )
         user_prompt = f"Verify this topic: '{topic}'"
         try:
             return self.llm.generate_json(system_prompt, user_prompt, temperature=0.1)
         except Exception:
-            # If fact-check API call fails, default to rejecting to be safe
-            return {"verified": False, "reason": "Fact check verification service unavailable"}
+            return {
+                "is_factual": False,
+                "confidence": 0.0,
+                "primary_source": "Unknown",
+                "red_flags": ["Fact check verification service unavailable"]
+            }
+
+    def _fact_check(self, topic: str) -> Dict[str, Any]:
+        """Runs the LLM fact-checking gate to filter out debunked internet myths."""
+        result = self.verify_factuality(topic)
+        return {
+            "verified": result.get("is_factual", False),
+            "summary": result.get("primary_source", topic),
+            "reason": ", ".join(result.get("red_flags", [])) or "Failed verification"
+        }
 

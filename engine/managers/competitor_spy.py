@@ -16,6 +16,17 @@ class CompetitorSpy:
     CACHE_DURATION_SECONDS = 86400  # 24 hours
 
     @classmethod
+    def calculate_viral_factor(cls, views: int, age_hours: float, baseline_vph: float) -> float:
+        """
+        Calculates viral outlier factor: (views / age_hours) / baseline_vph.
+        Safely handles zero division.
+        """
+        if age_hours <= 0 or baseline_vph <= 0:
+            return 0.0
+        vph = views / age_hours
+        return round(vph / baseline_vph, 2)
+
+    @classmethod
     def get_surge_topic(cls, competitors: List[str] = None) -> Optional[Dict[str, Any]]:
         """
         Returns a viral outlier topic if detected, or None if cache is fresh or no surge found.

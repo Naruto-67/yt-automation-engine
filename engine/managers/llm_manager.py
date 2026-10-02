@@ -73,6 +73,11 @@ class UniversalGreedyJSONParser:
 class LLMManager:
     """Centralized LLM routing with multi-provider fallbacks."""
 
+    @classmethod
+    def extract_json_payload(cls, raw_text: str) -> Optional[Dict[str, Any]]:
+        """Extracts and repairs JSON payload embedded in raw text or markdown."""
+        return UniversalGreedyJSONParser.extract_json(raw_text)
+
     def __init__(self):
         self.groq_api_key = os.environ.get("GROQ_API_KEY")
         self.gemini_api_key = os.environ.get("GEMINI_API_KEY")
