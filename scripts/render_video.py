@@ -235,15 +235,15 @@ def render_video_ffmpeg(
         if dur <= 0.0:
             dur = 5.0
 
-        # Guarantee exact duration, 30fps, target resolution, yuv420p, SAR 1:1, reset PTS
+        # Scale and crop FIRST to avoid heavy computation on excess pixels
         filter_chains.append(
-            f"[{idx}:v]fps=30,"
+            f"[{idx}:v]scale={target_w}:{target_h}:force_original_aspect_ratio=increase,"
+            f"crop={target_w}:{target_h},"
+            f"setsar=1,"
+            f"fps=30,"
             f"tpad=stop_mode=clone:stop_duration={dur},"
             f"trim=duration={dur},"
             f"setpts=PTS-STARTPTS,"
-            f"scale={target_w}:{target_h}:force_original_aspect_ratio=increase,"
-            f"crop={target_w}:{target_h},"
-            f"setsar=1,"
             f"format=yuv420p[v{idx}];"
         )
 
@@ -294,35 +294,72 @@ def render_video_ffmpeg(
     else:
         print(f"⚠️ [RENDERER] Narration file '{narration_path}' not found — rendering video without external narration.", flush=True)
 
-    # Full FFmpeg Command
+    # Full FFmpeg Command with performance-optimized flags
     cmd = [
         "ffmpeg", "-y",
-        "-nostats",
-        "-loglevel", "warning",
+        "-stats",
+        "-loglevel", "info",
         *inputs,
         *audio_inputs,
         "-filter_complex", full_filter_complex,
         "-map", "[outv]",
         *audio_map,
         "-c:v", "libx264",
-        "-preset", "fast",
-        "-crf", "18",
+        "-preset", "veryfast",
+        "-crf", "22",
+        "-threads", "0",
         "-pix_fmt", "yuv420p",
         "-t", str(total_duration),
         output_video_path
     ]
 
-    print(f"✂️ [RENDERER] Executing master FFmpeg render ({target_w}x{target_h}, duration: {total_duration:.1f}s)...", flush=True)
+    print(f"✂️ [RENDERER] Executing master FFmpeg render ({target_w}x{target_h}, duration: {total_duration:.1f}s, preset: veryfast)...", flush=True)
+    import time
+    start_render = time.time()
+
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+        universal_newlines=True
+    )
+
+    stderr_lines = []
+    last_log_time = time.time()
+
+    # Stream progress lines in real time
+    for line in iter(process.stderr.readline, ""):
+        if not line:
+            break
+        stderr_lines.append(line)
+        if len(stderr_lines) > 200:
+            stderr_lines.pop(0)
+
+        now = time.time()
+        line_clean = line.strip()
+        if "time=" in line_clean or "frame=" in line_clean:
+            if now - last_log_time >= 5.0:
+                print(f"⏱️ [FFMPEG] {line_clean}", flush=True)
+                last_log_time = now
+        elif any(k in line_clean.lower() for k in ("error", "fatal")):
+            print(f"⚠️ [FFMPEG] {line_clean}", flush=True)
+
     try:
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=300)
+        process.wait(timeout=900)
     except subprocess.TimeoutExpired:
-        raise RuntimeError(f"FFmpeg rendering timed out after 300 seconds for topic '{spec.topic}'")
+        process.kill()
+        raise RuntimeError(f"FFmpeg rendering timed out after 900 seconds for topic '{spec.topic}'")
 
-    if result.returncode != 0:
-        raise RuntimeError(f"FFmpeg failed with return code {result.returncode}:\n{result.stderr[-800:]}")
+    if process.returncode != 0:
+        err_msg = "".join(stderr_lines[-30:])
+        raise RuntimeError(f"FFmpeg failed with return code {process.returncode}:\n{err_msg}")
 
+    render_time = round(time.time() - start_render, 1)
     file_size_mb = os.path.getsize(output_video_path) / (1024 * 1024)
-    print(f"🎬 [RENDERER] Successfully rendered '{output_video_path}' ({file_size_mb:.1f} MB)", flush=True)
+    print(f"🎬 [RENDERER] Successfully rendered '{output_video_path}' ({file_size_mb:.1f} MB in {render_time}s)", flush=True)
+
 
 
 def run_editor_stage() -> None:
