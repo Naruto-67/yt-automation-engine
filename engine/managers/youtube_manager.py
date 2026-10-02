@@ -176,12 +176,16 @@ def run_release_stage() -> None:
     yt_mgr = YouTubeManager()
 
     with StageTimer(PikaStage.RELEASE, topic=spec.topic):
-        # 1. One-Shot Upload & Collision Scheduling
-        result = yt_mgr.upload_one_shot_scheduled_video(
-            video_path=video_path,
-            title=spec.seo.title,
-            description=spec.seo.description,
-            tags=spec.seo.tags
+        result = ErrorManager.execute_with_retry(
+            operation=lambda: yt_mgr.upload_one_shot_scheduled_video(
+                video_path=video_path,
+                title=spec.seo.title,
+                description=spec.seo.description,
+                tags=spec.seo.tags
+            ),
+            context_name="YouTube Upload & Schedule",
+            max_retries=3,
+            initial_backoff=5.0
         )
 
         video_id = result.get("video_id")

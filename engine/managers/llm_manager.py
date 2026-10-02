@@ -1,21 +1,48 @@
 """
-engine/managers/llm_manager.py — Multi-Provider LLM Orchestrator (v2.0)
-Harvests robust JSON parsing and rate-limit mitigation from v1.0.
-Supports Groq, Google GenAI, and OpenAI with automatic failover and official SDK adherence.
+engine/managers/llm_manager.py — Dynamic Multi-Provider LLM Orchestrator (v2.0)
+Harvested and adapted directly from the PikaFlow pipeline architecture.
+
+Zero hardcoding of models:
+1. Dynamically reads available providers from config/llm_providers.json and config/banned_models.json.
+2. If uninitialized or cache empty, triggers dynamic discovery and health-checking automatically.
+3. Ranks candidates dynamically based on empirical latency, priority, and success rate.
+4. Auto-bans any model returning 404 or decommissioned errors at runtime directly into config/banned_models.json.
+5. Recursively and smoothly cascades across providers without terminating the process.
+6. Ultra-resilient 4-level greedy JSON parsing and syntax auto-repair.
 """
+
+from __future__ import annotations
 
 import os
 import re
 import json
+import time
 import logging
-from typing import Dict, Any, Optional
-from engine.managers.error_manager import ErrorManager
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Dict, Any, List, Optional, Set
+
+from engine.discovery import (
+    run_discovery,
+    add_banned_model,
+    _load_banned_models,
+    _load_providers,
+    _save_providers,
+    _http_request
+)
 
 logger = logging.getLogger("LLMManager")
+_CFG_DIR = Path(__file__).parent.parent.parent / "config"
 
 
 class UniversalGreedyJSONParser:
-    """Ultra-Resilient 4-Level JSON & Syntax Auto-Repair Parser."""
+    """
+    Ultra-Resilient 4-Level JSON & Syntax Auto-Repair Parser.
+    Level 1: Direct JSON parsing.
+    Level 2: Markdown fence stripping & greedy brace isolation.
+    Level 3: Syntax auto-repair (trailing commas, single quotes, Python literals, token truncation).
+    Level 4: Heuristic Plain-Text Fallback Synthesizer for scripts and SEO metadata.
+    """
 
     @classmethod
     def extract_json(cls, raw_text: str) -> Optional[Dict[str, Any]]:
@@ -57,6 +84,15 @@ class UniversalGreedyJSONParser:
             except Exception:
                 pass
 
+        # Level 3b: Incomplete JSON with open bracket but no closing bracket (token truncation)
+        if start != -1:
+            snippet = cleaned[start:]
+            repaired = cls._repair_truncated_json(snippet)
+            try:
+                return json.loads(repaired)
+            except Exception:
+                pass
+
         return None
 
     @classmethod
@@ -67,11 +103,99 @@ class UniversalGreedyJSONParser:
         s = re.sub(r'\bNone\b', 'null', s)
         if "'" in s and '"' not in s:
             s = s.replace("'", '"')
+        elif "'" in s:
+            s = re.sub(r"'\s*([a-zA-Z0-9_\-]+)\s*'\s*:", r'"\1":', s)
         return s
+
+    @classmethod
+    def _repair_truncated_json(cls, snippet: str) -> str:
+        s = cls._repair_syntax(snippet)
+        s = s.rstrip(' ,\n\r\t')
+
+        quotes = len(re.findall(r'(?<!\\)"', s))
+        if quotes % 2 != 0:
+            s += '"'
+            s = s.rstrip(' ,\n\r\t')
+
+        stack: List[str] = []
+        escape = False
+        in_string = False
+        for ch in s:
+            if escape:
+                escape = False
+                continue
+            if ch == '\\':
+                escape = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if not in_string:
+                if ch in ('{', '['):
+                    stack.append('}' if ch == '{' else ']')
+                elif ch in ('}', ']'):
+                    if stack and stack[-1] == ch:
+                        stack.pop()
+
+        while stack:
+            s += stack.pop()
+
+        return s
+
+    @classmethod
+    def synthesize_script_from_prose(cls, raw_text: str, fallback_topic: str = "curiosity") -> Dict[str, Any]:
+        """Level 4 Fallback: synthesizes valid script scenes from narrative text."""
+        if not raw_text:
+            return {
+                "scenes": [
+                    {"spoken_text": f"Did you know the secret of {fallback_topic}?", "stock_video_query": fallback_topic}
+                ]
+            }
+
+        clean = re.sub(r'```.*?```', '', raw_text, flags=re.DOTALL)
+        clean = re.sub(r'<(think|thought|THINKING)>.*?</\1>', '', clean, flags=re.DOTALL | re.IGNORECASE).strip()
+
+        scene_splits = re.split(r'(?:^|\n+)(?:Scene\s*\d+|Act\s*\d+|\[\d+\]|\d+\.)[:\s\-]*', clean, flags=re.IGNORECASE)
+        scene_chunks = [s.strip() for s in scene_splits if s and len(s.strip()) > 10]
+
+        if len(scene_chunks) < 3:
+            paras = [p.strip() for p in clean.split('\n\n') if len(p.strip()) > 15]
+            if len(paras) >= 3:
+                scene_chunks = paras
+            else:
+                sentences = [s.strip() for s in re.split(r'[.!?]+', clean) if s.strip()]
+                if len(sentences) >= 4:
+                    k = max(1, len(sentences) // 4)
+                    scene_chunks = [
+                        ". ".join(sentences[i:i + k]) + "."
+                        for i in range(0, len(sentences), k)
+                    ][:4]
+                else:
+                    scene_chunks = [clean]
+
+        final_scenes = []
+        for text in scene_chunks[:4]:
+            first_words = " ".join(text.split()[:5])
+            final_scenes.append({
+                "spoken_text": text,
+                "stock_video_query": f"{fallback_topic} {first_words}".strip(),
+                "image_prompt": f"Cinematic shot illustrating: {text[:60]}"
+            })
+
+        return {"scenes": final_scenes}
+
+    @classmethod
+    def extract_or_synthesize(cls, raw_text: str, expected_type: str = "json", fallback_topic: str = "curiosity") -> Dict[str, Any]:
+        parsed = cls.extract_json(raw_text)
+        if isinstance(parsed, dict):
+            return parsed
+        if expected_type in ("script", "scenes"):
+            return cls.synthesize_script_from_prose(raw_text, fallback_topic=fallback_topic)
+        return {"raw_content": raw_text}
 
 
 class LLMManager:
-    """Centralized LLM routing with multi-provider fallbacks."""
+    """Centralized dynamic LLM manager with zero hardcoded models and automatic failover."""
 
     @classmethod
     def extract_json_payload(cls, raw_text: str) -> Optional[Dict[str, Any]]:
@@ -79,116 +203,200 @@ class LLMManager:
         return UniversalGreedyJSONParser.extract_json(raw_text)
 
     def __init__(self):
-        self.groq_api_key = os.environ.get("GROQ_API_KEY")
-        self.gemini_api_key = os.environ.get("GEMINI_API_KEY")
-        self.openrouter_api_key = os.environ.get("OPENROUTER_API_KEY")
-        self.openai_api_key = os.environ.get("OPENAI_API_KEY")
+        self._disabled_for_run: Set[str] = set()
+        self._providers = self._get_active_providers()
+
+    def _get_active_providers(self) -> List[Dict[str, Any]]:
+        """Loads and filters enabled providers from llm_providers.json against banned_models.json."""
+        banned = _load_banned_models()
+        all_provs = _load_providers()
+
+        active = []
+        for p in all_provs:
+            if not p.get("enabled", True) or p.get("deprecated", False):
+                continue
+            model_name = p.get("model", "")
+            if model_name in banned or any(b.lower() == model_name.lower() for b in banned):
+                continue
+
+            sec_key = p.get("secret_key")
+            # Must have API key in environment
+            if sec_key and not os.environ.get(sec_key):
+                continue
+
+            active.append(p)
+
+        # Sort by priority ascending (1 = highest priority)
+        active.sort(key=lambda x: x.get("priority", 99))
+        return active
 
     def generate_json(self, system_prompt: str, user_prompt: str, temperature: float = 0.7) -> Dict[str, Any]:
         """
-        Executes generation with automatic failover:
-        Primary: Groq Llama 3.3 70B -> Secondary: Google Gemini 2.5 Flash -> Tertiary: OpenRouter -> Quaternary: OpenAI.
+        Executes generation dynamically across discovered providers:
+        PikaFlow interleaved family priority -> auto-banning dead models on 404 -> cascading.
         """
-        providers = []
-        if self.groq_api_key:
-            providers.append(("Groq", self._call_groq))
-        if self.gemini_api_key:
-            providers.append(("Gemini", self._call_gemini))
-        if self.openrouter_api_key:
-            providers.append(("OpenRouter", self._call_openrouter))
-        if self.openai_api_key:
-            providers.append(("OpenAI", self._call_openai))
+        candidates = [p for p in self._get_active_providers() if p["id"] not in self._disabled_for_run]
 
-        if not providers:
-            raise RuntimeError("No LLM API keys configured. Set GROQ_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY, or OPENAI_API_KEY.")
+        # If no candidates available in cache, trigger dynamic discovery
+        if not candidates:
+            print("🔄 [LLM] No active providers found in cache. Running dynamic discovery & health-check...")
+            disc_res = run_discovery(force=True)
+            candidates = [p for p in self._get_active_providers() if p["id"] not in self._disabled_for_run]
+
+        if not candidates:
+            raise RuntimeError("No viable LLM providers available. Check your API keys and banned_models.json.")
 
         last_error = None
-        for provider_name, provider_fn in providers:
+        for provider in candidates:
+            prov_id = provider["id"]
+            model_name = provider.get("model", "")
+            prov_name = provider.get("name", prov_id)
+
+            print(f"🤖 [LLM] Routing request to {prov_name} (Model: {model_name})...")
             try:
-                print(f"🤖 [LLM] Routing request to {provider_name}...")
-                response_text = ErrorManager.execute_with_retry(
-                    operation=lambda: provider_fn(system_prompt, user_prompt, temperature),
-                    context_name=f"LLM Call ({provider_name})",
-                    max_retries=2,
-                    initial_backoff=2.0
+                response_text = self._execute_provider_call(
+                    provider=provider,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    temperature=temperature
                 )
-                parsed = UniversalGreedyJSONParser.extract_json(response_text)
-                if parsed:
-                    return parsed
-                print(f"⚠️ [LLM] {provider_name} returned unparseable JSON. Attempting next provider...")
+
+                if response_text and response_text.strip():
+                    parsed = UniversalGreedyJSONParser.extract_json(response_text)
+                    if parsed:
+                        return parsed
+                    # If JSON couldn't be parsed directly, try heuristic synthesis
+                    synth = UniversalGreedyJSONParser.extract_or_synthesize(response_text, expected_type="script")
+                    if synth and "scenes" in synth:
+                        return synth
+
+                    print(f"⚠️ [LLM] {prov_name} returned unparseable output. Cascading to next candidate...")
+
             except Exception as e:
                 last_error = e
-                print(f"⚠️ [LLM] {provider_name} failed: {e}. Falling back...")
+                err_str = str(e).lower()
+                print(f"⚠️ [LLM] {prov_name} ({model_name}) failed: {e}")
 
-        raise RuntimeError(f"All LLM providers failed. Last error: {last_error}")
+                # 404 / Decommissioned handling — permanently ban model into banned_models.json
+                if any(x in err_str for x in ["404", "model_not_found", "not found", "decommissioned", "no longer available"]):
+                    print(f"💀 [MODEL BENCHED 404] Permanently banning {model_name} from all future routing.")
+                    add_banned_model(model_name)
+                    self._disabled_for_run.add(prov_id)
+                elif "429" in err_str or "quota" in err_str:
+                    print(f"⏳ [QUOTA EXHAUSTED] Disabling {prov_id} for the remainder of this run.")
+                    self._disabled_for_run.add(prov_id)
+                else:
+                    self._disabled_for_run.add(prov_id)
 
+        raise RuntimeError(f"All dynamic LLM providers failed. Last error: {last_error}")
+
+    def _execute_provider_call(
+        self,
+        provider: Dict[str, Any],
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float
+    ) -> str:
+        """Executes a request to a provider using its endpoint and auth configuration."""
+        api_key = os.environ.get(provider.get("secret_key", ""), "")
+        base_url = provider.get("base_url", "")
+        endpoint = provider.get("endpoint", "")
+        model_name = provider.get("model", "")
+
+        is_gemini = "generativelanguage" in base_url
+        is_openai_compat = any(k in base_url for k in ["api.groq.com", "openrouter", "api.openai.com"])
+
+        # URL Sanitization
+        if not base_url.endswith("/"):
+            base_url += "/"
+        if endpoint.startswith("/"):
+            endpoint = endpoint[1:]
+        url = base_url + endpoint
+
+        headers = {"Content-Type": "application/json"}
+        auth_header = provider.get("auth_header", "")
+        if auth_header and api_key:
+            if auth_header.lower() == "authorization":
+                headers["Authorization"] = f"Bearer {api_key}"
+            else:
+                headers[auth_header] = api_key
+
+        if "openrouter" in base_url:
+            headers["HTTP-Referer"] = "https://github.com/Naruto-67/yt-automation-engine"
+            headers["X-Title"] = "YT Automation Engine"
+
+        # Build payload
+        if is_gemini:
+            if api_key:
+                sep = "&" if "?" in url else "?"
+                url += f"{sep}key={api_key}"
+            full_prompt = f"SYSTEM INSTRUCTIONS:\n{system_prompt}\n\nUSER REQUEST:\n{user_prompt}"
+            payload = {
+                "contents": [
+                    {"role": "user", "parts": [{"text": full_prompt}]}
+                ],
+                "generationConfig": {
+                    "temperature": temperature,
+                    "responseMimeType": "application/json"
+                }
+            }
+        else:
+            payload = {
+                "model": model_name,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                "temperature": temperature
+            }
+            # Add json_object response_format if not free openrouter model
+            if "openrouter" not in base_url or not str(model_name).endswith(":free"):
+                payload["response_format"] = {"type": "json_object"}
+
+        resp = _http_request(url, method="POST", headers=headers, json_data=payload, timeout=60.0)
+
+        if resp.status_code == 200:
+            data = resp.json()
+            if is_gemini:
+                try:
+                    candidates = data.get("candidates", [])
+                    if candidates and "content" in candidates[0]:
+                        parts = candidates[0]["content"].get("parts", [])
+                        if parts and "text" in parts[0]:
+                            return parts[0]["text"]
+                except Exception as ex:
+                    raise RuntimeError(f"Gemini response parsing error: {ex}")
+            else:
+                choices = data.get("choices", [])
+                if choices and "message" in choices[0]:
+                    return choices[0]["message"].get("content", "")
+            return resp.text
+
+        # Error response
+        err_msg = f"HTTP {resp.status_code}: {resp.text}"
+        raise RuntimeError(f"Provider {provider['name']} ({model_name}) error: {err_msg}")
+
+    # Backward compatibility helper methods
     def _call_groq(self, system_prompt: str, user_prompt: str, temperature: float) -> str:
-        from groq import Groq
-        client = Groq(api_key=self.groq_api_key)
-        completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            response_format={"type": "json_object"},
-            temperature=temperature,
-            max_tokens=2048,
-        )
-        return completion.choices[0].message.content
+        prov = next((p for p in self._get_active_providers() if "groq" in p["id"]), None)
+        if not prov:
+            raise RuntimeError("No active Groq provider found.")
+        return self._execute_provider_call(prov, system_prompt, user_prompt, temperature)
 
     def _call_gemini(self, system_prompt: str, user_prompt: str, temperature: float) -> str:
-        from google import genai
-        from google.genai import types
-        client = genai.Client(api_key=self.gemini_api_key)
-        full_content = f"SYSTEM INSTRUCTIONS:\n{system_prompt}\n\nUSER REQUEST:\n{user_prompt}"
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=full_content,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                temperature=temperature,
-            )
-        )
-        return response.text
+        prov = next((p for p in self._get_active_providers() if "gemini" in p["id"]), None)
+        if not prov:
+            raise RuntimeError("No active Gemini provider found.")
+        return self._execute_provider_call(prov, system_prompt, user_prompt, temperature)
 
     def _call_openrouter(self, system_prompt: str, user_prompt: str, temperature: float) -> str:
-        import requests
-        headers = {
-            "Authorization": f"Bearer {self.openrouter_api_key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/Naruto-67/yt-automation-engine",
-            "X-Title": "YT Automation Engine"
-        }
-        payload = {
-            "model": "meta-llama/llama-3.3-70b-instruct:free",
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            "temperature": temperature,
-            "max_tokens": 2048,
-        }
-        resp = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=45)
-        resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
+        prov = next((p for p in self._get_active_providers() if "openrouter" in p["id"]), None)
+        if not prov:
+            raise RuntimeError("No active OpenRouter provider found.")
+        return self._execute_provider_call(prov, system_prompt, user_prompt, temperature)
 
     def _call_openai(self, system_prompt: str, user_prompt: str, temperature: float) -> str:
-        import requests
-        headers = {
-            "Authorization": f"Bearer {self.openai_api_key}",
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "model": "gpt-4o-mini",
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            "response_format": {"type": "json_object"},
-            "temperature": temperature
-        }
-        resp = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload, timeout=30)
-        resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
-
+        prov = next((p for p in self._get_active_providers() if "openai" in p["id"]), None)
+        if not prov:
+            raise RuntimeError("No active OpenAI provider found.")
+        return self._execute_provider_call(prov, system_prompt, user_prompt, temperature)

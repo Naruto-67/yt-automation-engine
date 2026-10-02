@@ -1,0 +1,93 @@
+{
+  "providers": [
+    {
+      "id": "gemini",
+      "name": "Google Gemini",
+      "model": "gemini-3-flash-preview",
+      "type": "text",
+      "base_url": "https://generativelanguage.googleapis.com/",
+      "endpoint": "v1beta/models/gemini-3-flash-preview:generateContent",
+      "auth_header": "x-goog-api-key",
+      "secret_key": "GEMINI_API_KEY",
+      "quota": {
+        "requests_per_day": 1500,
+        "reset": "daily"
+      },
+      "priority": 1,
+      "enabled": true,
+      "deprecated": false
+    },
+    {
+      "id": "groq",
+      "name": "Groq",
+      "model": "llama-3.3-70b-versatile",
+      "type": "text",
+      "base_url": "https://api.groq.com/",
+      "endpoint": "openai/v1/chat/completions",
+      "auth_header": "Authorization",
+      "secret_key": "GROQ_API_KEY",
+      "quota": {
+        "requests_per_minute": 30,
+        "reset": "per_minute"
+      },
+      "priority": 2,
+      "enabled": true,
+      "deprecated": false
+    },
+    {
+      "id": "openrouter_llama",
+      "name": "OpenRouter (Llama 3.3 70B Free)",
+      "model": "meta-llama/llama-3.3-70b-instruct:free",
+      "type": "text",
+      "base_url": "https://openrouter.ai/",
+      "endpoint": "api/v1/chat/completions",
+      "auth_header": "Authorization",
+      "secret_key": "OPENROUTER_API_KEY",
+      "quota": {
+        "tokens_per_day": 25000,
+        "reset": "daily"
+      },
+      "priority": 3,
+      "enabled": true,
+      "deprecated": false
+    },
+    {
+      "id": "openrouter_qwen",
+      "name": "OpenRouter (Qwen 2.5 72B Free)",
+      "model": "qwen/qwen-2.5-72b-instruct:free",
+      "type": "text",
+      "base_url": "https://openrouter.ai/",
+      "endpoint": "api/v1/chat/completions",
+      "auth_header": "Authorization",
+      "secret_key": "OPENROUTER_API_KEY",
+      "quota": {
+        "tokens_per_day": 25000,
+        "reset": "daily"
+      },
+      "priority": 4,
+      "enabled": true,
+      "deprecated": false
+    },
+    {
+      "id": "openai",
+      "name": "OpenAI (GPT-4o-mini)",
+      "model": "gpt-4o-mini",
+      "type": "text",
+      "base_url": "https://api.openai.com/",
+      "endpoint": "v1/chat/completions",
+      "auth_header": "Authorization",
+      "secret_key": "OPENAI_API_KEY",
+      "quota": {
+        "requests_per_minute": 60,
+        "reset": "per_minute"
+      },
+      "priority": 5,
+      "enabled": true,
+      "deprecated": false
+    }
+  ],
+  "_meta": {
+    "generated_at": "auto-updated by discovery",
+    "schema_version": "1.0"
+  }
+}

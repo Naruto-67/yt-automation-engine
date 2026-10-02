@@ -32,6 +32,7 @@ def run_spec_stage(video_type: str = "short") -> None:
     settings_cfg = load_yaml("config/settings.yaml")
     prompts_cfg = load_yaml("config/prompts.yaml")
     weights = HealthManager.load_dynamic_weights()
+    HealthManager.check_and_sync_models()
 
     # Roll for sub-format (80% core_brainblud, 20% listicle)
     sub_formats = weights.get("sub_formats", {"core_brainblud": 0.8, "listicle": 0.2})

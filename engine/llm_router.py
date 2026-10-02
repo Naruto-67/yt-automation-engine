@@ -355,7 +355,8 @@ class OpenAICompatibleAdapter:
     ENDPOINTS = {
         "groq": "https://api.groq.com/openai/v1/chat/completions",
         "github": "https://models.github.ai/inference/chat/completions",
-        "openrouter": "https://openrouter.ai/api/v1/chat/completions"
+        "openrouter": "https://openrouter.ai/api/v1/chat/completions",
+        "openai": "https://api.openai.com/v1/chat/completions"
     }
 
     def __init__(self, keys: Dict[str, str]):
@@ -461,6 +462,7 @@ class LLMRouter:
         self.groq_key = os.environ.get("GROQ_API_KEY", "").strip()
         self.gh_key = os.environ.get("GH_MODELS_TOKEN", "").strip()
         self.openrouter_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+        self.openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
 
         # Strict isolation: Cloudflare Workers AI is banned from handling text
         self.cf_account = os.environ.get("CF_ACCOUNT_ID", "").strip()
@@ -470,7 +472,8 @@ class LLMRouter:
         self.openai_adapter = OpenAICompatibleAdapter({
             "groq": self.groq_key,
             "github": self.gh_key,
-            "openrouter": self.openrouter_key
+            "openrouter": self.openrouter_key,
+            "openai": self.openai_key
         })
 
         # Run-Scoped isolation set for models that fail hard in the current execution
@@ -486,6 +489,8 @@ class LLMRouter:
             providers.append("github")
         if self.openrouter_key:
             providers.append("openrouter")
+        if self.openai_key:
+            providers.append("openai")
         return providers
 
     def execute_generation(
@@ -598,10 +603,12 @@ class LLMRouter:
                     elif any(x in err_str for x in ["404", "410", "deprecated", "not found"]):
                         self.tracker.record_call_error(entity.entity_id, 404, str(e))
                         self._run_failed_models.add(entity.entity_id)
+                        logger.warn(f"💀 [MODEL BENCHED 404] {entity.entity_id} not available ({e}). Benched to DEPRECATED. Cascading to next candidate...")
                         break
 
                     else:
-                        logger.error(f"⚠️ [DISPATCH ERROR] {entity.entity_id} failed: {e}")
+                        logger.error(f"⚠️ [DISPATCH ERROR] {entity.entity_id} failed: {e}. Cascading...")
+                        self._run_failed_models.add(entity.entity_id)
                         break
 
         logger.error("🛑 [LLM ROUTER] All candidate models exhausted across all active providers.")

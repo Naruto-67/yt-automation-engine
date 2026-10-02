@@ -134,9 +134,9 @@ class ErrorManager:
                     time.sleep(sleep_time)
                     backoff *= backoff_factor
                 else:
-                    # If recoverable exhausted, try fallback if available
-                    if on_fallback and category == ErrorCategory.RECOVERABLE:
-                        print(f"🔄 [FAILOVER] {context_name} exhausted retries. Invoking secondary fallback...")
+                    # If retries exhausted or non-recoverable error encountered, try fallback if available
+                    if on_fallback:
+                        print(f"🔄 [FAILOVER] {context_name} encountered error ({e}). Invoking secondary fallback...")
                         try:
                             return on_fallback()
                         except Exception as fallback_err:
@@ -185,16 +185,23 @@ class ErrorManager:
             return
 
         try:
-            import requests
-            payload = {
+            import json
+            import urllib.request
+            payload = json.dumps({
                 "embeds": [{
                     "title": f"🚨 Pipeline Failure in {stage}",
                     "description": f"```{details[:1000]}```",
                     "color": 15158332, # Red
                     "footer": {"text": "Ghost Engine v2.0 • Error Manager"}
                 }]
-            }
-            requests.post(webhook_url, json=payload, timeout=5)
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                webhook_url,
+                data=payload,
+                headers={"Content-Type": "application/json", "User-Agent": "Ghost-Engine/2.0"},
+                method="POST"
+            )
+            urllib.request.urlopen(req, timeout=5)
         except Exception:
             pass # Avoid cascading error on alert failure
 

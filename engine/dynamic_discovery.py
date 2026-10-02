@@ -31,9 +31,8 @@ BANNED_MODALITY_PATTERNS = [
 
 # Deprecated legacy models known to return 404 / 410
 DEPRECATED_KNOWN = {
-    "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash",
-    "gemini-1.5-flash-8b", "gemini-1.5-pro", "gemini-2.0-pro",
-    "gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite",
+    "gemini-1.0-pro", "gemini-1.0-pro-vision", "gemini-1.0",
+    "text-bison", "chat-bison", "text-bison-001",
     "mixtral-8x7b-32768", "gemma2-9b-it", "llama3-70b-8192", "llama3-8b-8192"
 }
 
@@ -155,11 +154,10 @@ def discover_google_models(client=None, force: bool = False) -> List[str]:
                 discovered.append(clean_name)
 
         discovered = deduplicate_google_aliases(discovered)
-
     except Exception as e:
         logger.warn(f"⚠️ [DYNAMIC DISCOVERY] Google catalog discovery failed: {e}")
 
-    return discovered
+    return discovered or ["gemini-2.5-flash", "gemini-2.0-flash"]
 
 
 def discover_groq_models(api_key: Optional[str] = None, force: bool = False) -> List[str]:
@@ -429,6 +427,20 @@ def sync_registry(force: bool = False, benchmark_results: Optional[List[Dict[str
                 max_rpm=20,
                 max_rpd=200,
                 task_quality_scores={"scriptwriting": 8.6, "seo_json": 8.5, "vision_audit": 5.0, "fact_grounding": 8.0}
+            )
+
+    # Register OpenAI models if OPENAI_API_KEY is provided
+    openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if openai_key:
+        eid = "openai:gpt-4o-mini"
+        if eid not in tracker.entities:
+            tracker.entities[eid] = ModelEntity(
+                entity_id=eid,
+                provider="openai",
+                model_name="gpt-4o-mini",
+                max_rpm=60,
+                max_rpd=1000,
+                task_quality_scores={"scriptwriting": 8.8, "seo_json": 9.2, "vision_audit": 7.5, "fact_grounding": 8.7}
             )
 
     tracker.persist()

@@ -135,6 +135,10 @@ class DynamicQuotaTracker:
         # Default model catalog covering all active free-tier providers
         default_catalog = [
             # Google GenAI Free Tier
+            {"entity_id": "google:gemini-2.5-flash", "provider": "google", "model_name": "gemini-2.5-flash",
+             "max_rpm": 15, "max_rpd": 20, "task_scores": {"scriptwriting": 9.5, "seo_json": 9.2, "vision_audit": 9.0, "fact_grounding": 8.8}},
+            {"entity_id": "google:gemini-2.0-flash", "provider": "google", "model_name": "gemini-2.0-flash",
+             "max_rpm": 15, "max_rpd": 20, "task_scores": {"scriptwriting": 9.2, "seo_json": 9.0, "vision_audit": 8.8, "fact_grounding": 8.5}},
             {"entity_id": "google:gemini-3.8-flash", "provider": "google", "model_name": "gemini-3.8-flash",
              "max_rpm": 15, "max_rpd": 20, "task_scores": {"scriptwriting": 9.5, "seo_json": 9.0, "vision_audit": 9.0, "fact_grounding": 8.5}},
             {"entity_id": "google:gemini-3.6-flash", "provider": "google", "model_name": "gemini-3.6-flash",
@@ -149,6 +153,10 @@ class DynamicQuotaTracker:
              "max_rpm": 30, "max_rpd": 14400, "task_scores": {"scriptwriting": 9.0, "seo_json": 8.6, "vision_audit": 6.0, "fact_grounding": 8.2}},
             {"entity_id": "groq:llama-3.1-8b-instant", "provider": "groq", "model_name": "llama-3.1-8b-instant",
              "max_rpm": 30, "max_rpd": 14400, "task_scores": {"scriptwriting": 7.8, "seo_json": 9.1, "vision_audit": 5.0, "fact_grounding": 8.0}},
+
+            # OpenAI Official API
+            {"entity_id": "openai:gpt-4o-mini", "provider": "openai", "model_name": "gpt-4o-mini",
+             "max_rpm": 60, "max_rpd": 1000, "task_scores": {"scriptwriting": 8.8, "seo_json": 9.2, "vision_audit": 7.5, "fact_grounding": 8.7}},
 
             # GitHub Models Free Tier (Azure AI)
             {"entity_id": "github:gpt-4o-mini", "provider": "github", "model_name": "gpt-4o-mini",

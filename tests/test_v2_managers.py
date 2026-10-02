@@ -168,3 +168,60 @@ def test_llm_manager_json_repair_and_extraction():
     assert len(parsed["scenes"]) == 1
     assert parsed["scenes"][0]["stock_video_query"] == "forest time lapse"
 
+
+def test_llm_manager_404_auto_banning_and_cascade(monkeypatch):
+    """Verifies that when a primary model returns 404, it is auto-banned and cascades to secondary provider."""
+    monkeypatch.setenv("GROQ_API_KEY", "mock_groq_key")
+    monkeypatch.setenv("GEMINI_API_KEY", "mock_gemini_key")
+
+    banned_mock = set()
+    monkeypatch.setattr("engine.managers.llm_manager._load_banned_models", lambda: set(banned_mock))
+    monkeypatch.setattr("engine.managers.llm_manager.add_banned_model", lambda m: banned_mock.add(m))
+
+    manager = LLMManager()
+
+    call_counts = {"primary": 0, "secondary": 0}
+
+    def mock_execute(provider, system_prompt, user_prompt, temperature):
+        prov_id = provider["id"]
+        if "gemini" in prov_id:
+            call_counts["primary"] += 1
+            raise RuntimeError("Error code: 404 - {'error': {'message': 'The model gemini-3-flash-preview does not exist or you do not have access to it.', 'code': 'model_not_found'}}")
+        elif "groq" in prov_id:
+            call_counts["secondary"] += 1
+            return json.dumps({
+                "scenes": [{"spoken_text": "Brain blud dynamic cascade success", "stock_video_query": "neuroscience"}]
+            })
+        raise RuntimeError("Unexpected provider")
+
+    monkeypatch.setattr(manager, "_execute_provider_call", mock_execute)
+
+    result = manager.generate_json(system_prompt="Test sys", user_prompt="Test user")
+
+    # Assert primary was called and failed with 404
+    assert call_counts["primary"] >= 1
+    # Assert cascade happened to secondary
+    assert call_counts["secondary"] >= 1
+    assert "scenes" in result
+    assert result["scenes"][0]["stock_video_query"] == "neuroscience"
+
+    # Verify that the 404 model was benched into banned models
+    assert "gemini-3-flash-preview" in banned_mock
+
+
+def test_discovery_banned_models_filtering():
+    """Verifies that banned models and banned modalities are strictly rejected."""
+    from engine.discovery import is_model_allowed, is_modality_allowed
+
+    # Banned modalities
+    assert is_modality_allowed("whisper-large-v3") is False
+    assert is_modality_allowed("google/veo-2") is False
+    assert is_modality_allowed("tts-voice-actor") is False
+
+    # Banned models
+    banned = {"gemini-2.0-flash", "llama-3.1-70b-versatile"}
+    assert is_model_allowed("gemini-2.0-flash", banned) is False
+    assert is_model_allowed("llama-3.1-70b-versatile", banned) is False
+    assert is_model_allowed("gemini-3-flash-preview", banned) is True
+
+

@@ -27,6 +27,7 @@ jobs:
   init_and_spec:
     name: 🚀 Init & Spec Generation
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -43,7 +44,8 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-        run: python -m engine.managers.pipeline_runner --stage spec --type ${{ inputs.video_type || 'short' }}
+          TEST_MODE: ${{ inputs.test_mode && 'true' || 'false' }}
+        run: python -m engine.managers.pipeline_runner --stage spec --type ${{ inputs.video_type || 'short' }} ${{ inputs.test_mode && '--test-mode' || '' }}
       - name: Upload Spec Artifact
         uses: actions/upload-artifact@v7
         with:
@@ -55,6 +57,7 @@ jobs:
     name: 🎬 Clip Generation
     needs: init_and_spec
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v7
@@ -85,6 +88,7 @@ jobs:
     name: ✂️ Video Editor
     needs: [init_and_spec, clip_generation]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v7
@@ -123,6 +127,7 @@ jobs:
     name: 📦 YouTube Release
     needs: [init_and_spec, video_editor]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v7

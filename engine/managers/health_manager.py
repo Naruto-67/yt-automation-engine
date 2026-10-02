@@ -43,6 +43,21 @@ class HealthManager:
 
         return (len(issues) == 0, issues)
 
+    @classmethod
+    def check_and_sync_models(cls, force: bool = False) -> Dict[str, Any]:
+        """
+        Discovers available models dynamically across configured providers,
+        verifies model catalog reachability, and updates config/llm_providers.json.
+        """
+        try:
+            from engine.discovery import run_discovery
+            result = run_discovery(force=force)
+            print(f"🩺 [HEALTH CHECK] Dynamic model discovery: {result.get('status', 'OK')} ({result.get('active_models_count', 0)} active models)")
+            return result
+        except Exception as e:
+            print(f"⚠️ [HEALTH CHECK] Model discovery sync notice: {e}")
+            return {"status": "ERROR", "error": str(e)}
+
     @staticmethod
     def load_dynamic_weights() -> Dict[str, Any]:
         """Loads adaptive weights and pacing state from memory/dynamic_weights.json."""
