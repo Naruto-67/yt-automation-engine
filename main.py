@@ -34,7 +34,16 @@ def main():
         choices=["short", "long"],
         help="Video profile format: short (9:16) or long (16:9)"
     )
+    parser.add_argument(
+        "--test-mode",
+        action="store_true",
+        help="Run in test mode (bypasses YouTube upload and database updates)"
+    )
     args = parser.parse_args()
+
+    if args.test_mode:
+        os.environ["TEST_MODE"] = "true"
+        print("🧪 [TEST MODE] Activated via CLI flag. Zero YouTube API / Database mutation.")
 
     print_phase_box(1, "Engine Boot & Pre-Flight Checks", f"Stage: {args.stage.upper()} | Type: {args.type.upper()}")
 

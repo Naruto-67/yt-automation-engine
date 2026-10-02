@@ -20,6 +20,11 @@ from engine.models import SpecOutput
 from scripts.discord_notifier import notify_published
 
 
+def is_test_mode() -> bool:
+    """Returns True if TEST_MODE is active via environment variable."""
+    return os.environ.get("TEST_MODE", "false").lower() == "true"
+
+
 class YouTubeManager:
     """Manages YouTube OAuth authentication, collision detection, and one-shot scheduled uploads."""
 
@@ -29,6 +34,9 @@ class YouTubeManager:
         self.refresh_token = os.environ.get("YOUTUBE_REFRESH_TOKEN")
 
     def get_client(self):
+        if is_test_mode():
+            return None
+
         if not all([self.client_id, self.client_secret, self.refresh_token]):
             raise ValueError("Missing YouTube credentials in environment variables.")
 
@@ -54,6 +62,9 @@ class YouTubeManager:
             target_day += timedelta(days=1)
 
         candidate_time = datetime(target_day.year, target_day.month, target_day.day, 18, 0, 0, tzinfo=timezone.utc)
+
+        if is_test_mode() or youtube is None:
+            return candidate_time.strftime("%Y-%m-%dT%H:%M:%SZ")
 
         # 1-Unit Low-Quota Schedule Check: Get uploads playlist ID
         try:
@@ -105,6 +116,15 @@ class YouTubeManager:
         Executes a single-transaction scheduled upload with full SEO.
         Explicitly never updates or touches the video post-upload.
         """
+        if is_test_mode():
+            publish_at_iso = self.calculate_collision_free_publish_time(None)
+            print(f"🧪 [TEST MODE] Bypassing YouTube API upload. Simulated publishAt: {publish_at_iso}")
+            return {
+                "video_id": "test_mode_dummy_video_id",
+                "publish_at": publish_at_iso,
+                "title": title
+            }
+
         youtube = self.get_client()
         publish_at_iso = self.calculate_collision_free_publish_time(youtube)
 

@@ -143,7 +143,12 @@ def main():
     parser = argparse.ArgumentParser(description="Pika Flow Pipeline Runner (v2.0)")
     parser.add_argument("--stage", required=True, choices=["spec", "clips", "editor", "release"], help="Stage to execute")
     parser.add_argument("--type", default="short", choices=["short", "long"], help="Video profile type")
+    parser.add_argument("--test-mode", action="store_true", help="Run in test mode (bypasses YouTube upload and database updates)")
     args = parser.parse_args()
+
+    if args.test_mode:
+        os.environ["TEST_MODE"] = "true"
+        print("🧪 [TEST MODE] Activated via CLI flag. Zero YouTube API / Database mutation.")
 
     try:
         if args.stage == "spec":

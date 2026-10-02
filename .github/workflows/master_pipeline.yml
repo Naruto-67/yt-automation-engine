@@ -13,6 +13,11 @@ on:
         options:
           - short
           - long
+      test_mode:
+        description: 'Dry Run / Test Mode (bypasses YouTube API & preserves quota)'
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: production-pipeline
@@ -140,4 +145,5 @@ jobs:
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-        run: python -m engine.managers.pipeline_runner --stage release
+          TEST_MODE: ${{ inputs.test_mode && 'true' || 'false' }}
+        run: python -m engine.managers.pipeline_runner --stage release ${{ inputs.test_mode && '--test-mode' || '' }}
