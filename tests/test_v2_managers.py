@@ -167,3 +167,4 @@ def test_llm_manager_json_repair_and_extraction():
     assert "scenes" in parsed
     assert len(parsed["scenes"]) == 1
     assert parsed["scenes"][0]["stock_video_query"] == "forest time lapse"
+

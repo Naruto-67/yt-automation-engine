@@ -1,74 +1,71 @@
-# main.py
+# main.py — Entrypoint for Autonomous YouTube Engine (v2.0)
 import os
 import sys
-import warnings
+import argparse
 import traceback
 
-# ── Suppress known harmless deprecation warnings from upstream dependencies ──
-# torch.nn.utils.weight_norm is deprecated inside Kokoro's model — not fixable
-# from our side without patching Kokoro source.
-warnings.filterwarnings(
-    "ignore",
-    message=".*weight_norm.*deprecated.*",
-    category=FutureWarning,
-    module="torch",
-)
-# Kokoro LSTM uses dropout=0.2 with num_layers=1 — harmless, upstream issue.
-warnings.filterwarnings(
-    "ignore",
-    message=".*dropout option adds dropout.*",
-    category=UserWarning,
-    module="torch",
-)
-from engine.orchestrator import Orchestrator
-from scripts.discord_notifier import notify_summary, notify_error
-from scripts.quota_manager import quota_manager
 from engine.logger import logger, print_phase_box
-from engine.__version__ import __version__
-
+from engine.managers.error_manager import ErrorManager
+from engine.managers.health_manager import HealthManager
 
 
 def main():
-    # ─── POINT 3: SYSTEM KILL SWITCH ──────────────────────────────────────────
-    # Reads from GitHub Repo Variables (GHOST_ENGINE_ENABLED)
-    _SYSTEM_ENABLED = os.environ.get("GHOST_ENGINE_ENABLED", "true").strip().lower()
-    _EVENT_NAME = os.environ.get("GITHUB_EVENT_NAME", "unknown")
-    
-    if _SYSTEM_ENABLED == "false":
-        msg = "🔴 [KILL SWITCH] GHOST_ENGINE_ENABLED=false. System halted by operator."
-        print(msg)
-        sys.exit(0)
-    elif _SYSTEM_ENABLED == "test":
-        if _EVENT_NAME == "schedule":
-            msg = "🔴 [TEST MODE] Scheduled cron run detected while in Test Mode. Halting automatically to prevent unintended runs."
-            print(msg)
-            sys.exit(0)
-        else:
-            os.environ["TEST_MODE"] = "true"
-            logger.engine("🧪 Test Mode active. Manual trigger detected.")
-    elif os.environ.get("TEST_MODE", "").strip().lower() == "true":
-        os.environ["TEST_MODE"] = "true"
-        logger.engine("🧪 Test Mode active (explicit TEST_MODE=true).")
+    # ── POINT 1: KILL SWITCH & RUNTIME MODE ───────────────────────────────────
+    _system_enabled = os.environ.get("GHOST_ENGINE_ENABLED", "true").strip().lower()
+    _event_name = os.environ.get("GITHUB_EVENT_NAME", "unknown")
 
-    print_phase_box(1, "Environment & Engine Boot", f"V{__version__} Multi-Channel Production Pipeline")
+    if _system_enabled == "false":
+        print("🔴 [KILL SWITCH] GHOST_ENGINE_ENABLED=false. System halted by operator.")
+        sys.exit(0)
+    elif _system_enabled == "test" and _event_name == "schedule":
+        print("🔴 [TEST MODE] Scheduled cron run detected while in Test Mode. Halting automatically.")
+        sys.exit(0)
+
+    parser = argparse.ArgumentParser(description="Autonomous YouTube Engine (v2.0)")
+    parser.add_argument(
+        "--stage",
+        default="all",
+        choices=["all", "spec", "clips", "editor", "release"],
+        help="Pipeline stage to execute (default: all)"
+    )
+    parser.add_argument(
+        "--type",
+        default="short",
+        choices=["short", "long"],
+        help="Video profile format: short (9:16) or long (16:9)"
+    )
+    args = parser.parse_args()
+
+    print_phase_box(1, "Engine Boot & Pre-Flight Checks", f"Stage: {args.stage.upper()} | Type: {args.type.upper()}")
+
+    # Preflight Environment Checks
+    ok, issues = HealthManager.run_preflight_checks()
+    if not ok and os.environ.get("TEST_MODE", "false").lower() != "true":
+        logger.warning(f"⚠️ Pre-flight warnings detected: {issues}")
 
     try:
-        logger.engine(f"☀️ System Wake. V{__version__} Multi-Channel Orchestrator Booting...")
-        
-        # Initialize and Run
-        orchestrator = Orchestrator()
-        orchestrator.run_pipeline()
-        
-        logger.success("🌙 Pipeline Cycle Finished Successfully.")
-        
+        if args.stage in ("all", "spec"):
+            from engine.managers.pipeline_runner import run_spec_stage
+            run_spec_stage(video_type=args.type)
+
+        if args.stage in ("all", "clips"):
+            from engine.managers.stock_video_manager import run_clips_stage
+            run_clips_stage()
+
+        if args.stage in ("all", "editor"):
+            from scripts.render_video import run_editor_stage
+            run_editor_stage()
+
+        if args.stage in ("all", "release"):
+            from engine.managers.youtube_manager import run_release_stage
+            run_release_stage()
+
+        logger.success(f"🌙 Pipeline Stage '{args.stage}' Completed Successfully.")
+
     except Exception as e:
-        # POINT 9: Fatal Diagnosis
-        tb = traceback.format_exc()
-        logger.error(f"FATAL SYSTEM CRASH: {e}")
-        
-        # Log to persistent error file and notify Discord
-        quota_manager.diagnose_fatal_error("System Core (main.py)", e)
+        ErrorManager.handle_fatal_error(e, context=f"Pipeline Stage '{args.stage}'")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
