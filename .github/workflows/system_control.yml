@@ -1,0 +1,89 @@
+name: System Control (Kill Switch & Modes)
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Set Engine Operating Mode'
+        required: true
+        type: choice
+        options:
+          - enable
+          - disable
+          - test
+      reason:
+        description: 'Operator Note (Logged in Discord)'
+        required: false
+        default: 'Manual Operator Toggle'
+
+permissions:
+  actions: write
+
+jobs:
+  toggle:
+    name: 🎛️ Toggle Operating Mode
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update System Mode
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          ACTION: ${{ github.event.inputs.action }}
+          REASON: ${{ github.event.inputs.reason }}
+        run: |
+          REPO="${{ github.repository }}"
+
+          if [ "$ACTION" = "disable" ]; then
+            NEW_VALUE="false"
+            EMOJI="🔴"
+            LABEL="HALTED / DISABLED"
+            COLOR=15158332
+          elif [ "$ACTION" = "test" ]; then
+            NEW_VALUE="test"
+            EMOJI="🧪"
+            LABEL="TEST MODE ONLY"
+            COLOR=15844367
+          else
+            NEW_VALUE="true"
+            EMOJI="🟢"
+            LABEL="ACTIVE / RESUMED"
+            COLOR=3066993
+          fi
+
+          echo "Setting GHOST_ENGINE_ENABLED=$NEW_VALUE..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X PATCH \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$REPO/actions/variables/GHOST_ENGINE_ENABLED" \
+            -d "{\"name\":\"GHOST_ENGINE_ENABLED\",\"value\":\"$NEW_VALUE\"}")
+
+          if [ "$STATUS" = "404" ]; then
+            echo "Variable not found — creating GHOST_ENGINE_ENABLED..."
+            curl -s -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/$REPO/actions/variables" \
+              -d "{\"name\":\"GHOST_ENGINE_ENABLED\",\"value\":\"$NEW_VALUE\"}"
+          fi
+
+          echo "✅ GHOST_ENGINE_ENABLED set to: $NEW_VALUE"
+
+          if [ -n "$DISCORD_WEBHOOK" ]; then
+            curl -s -X POST "$DISCORD_WEBHOOK" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"embeds\": [{
+                  \"title\": \"$EMOJI Engine Mode Changed: $LABEL\",
+                  \"color\": $COLOR,
+                  \"fields\": [
+                    {\"name\": \"⚙️ Mode\", \"value\": \"\`GHOST_ENGINE_ENABLED = $NEW_VALUE\`\", \"inline\": true},
+                    {\"name\": \"📝 Reason\", \"value\": \"$REASON\", \"inline\": true},
+                    {\"name\": \"👤 Operator\", \"value\": \"${{ github.actor }}\", \"inline\": true}
+                  ],
+                  \"footer\": {\"text\": \"Ghost Engine v2.0 • System Control\"}
+                }]
+              }"
+          fi

@@ -91,30 +91,56 @@ Stores self-learning state (format probability ratios and cut intervals) autonom
 
 ---
 
-## 🔐 Required GitHub Secrets
+## 🔐 Required GitHub Secrets & Keys
 
 Set these in your repository under **Settings ➔ Secrets and variables ➔ Actions**:
 
-| Secret Name | Description |
-|---|---|
-| `YOUTUBE_CLIENT_ID` | Google Cloud OAuth 2.0 Client ID |
-| `YOUTUBE_CLIENT_SECRET` | Google Cloud OAuth 2.0 Client Secret |
-| `YOUTUBE_REFRESH_TOKEN` | Google Cloud OAuth 2.0 Refresh Token |
-| `PEXELS_API_KEY` | Pexels API Key for stock videos |
-| `PIXABAY_API_KEY` | Pixabay API Key for stock videos |
-| `GROQ_API_KEY` | Primary LLM Provider (Llama 3.3 70B) |
-| `GEMINI_API_KEY` | Secondary LLM Provider (Gemini 2.5 Flash) |
-| `OPENAI_API_KEY` | Tertiary LLM Provider (GPT-4o-mini, optional) |
-| `DISCORD_WEBHOOK` | Webhook URL for Pika Flow real-time stage cards |
+| Secret Name | Status | Description |
+|---|---|---|
+| `YOUTUBE_CLIENT_ID` | **Required** | Google Cloud OAuth 2.0 Client ID |
+| `YOUTUBE_CLIENT_SECRET` | **Required** | Google Cloud OAuth 2.0 Client Secret |
+| `YOUTUBE_REFRESH_TOKEN` | **Required** | Google Cloud OAuth 2.0 Refresh Token |
+| `PEXELS_API_KEY` | **Required** | Pexels API Key for HD stock videos |
+| `PIXABAY_API_KEY` | **Required** | Pixabay API Key for HD stock videos |
+| `GROQ_API_KEY` | *LLM Option 1* | Primary LLM Provider (Llama 3.3 70B, free) |
+| `GEMINI_API_KEY` | *LLM Option 2* | Secondary LLM Provider (Gemini 2.5 Flash, free tier) |
+| `OPENROUTER_API_KEY` | *LLM Option 3* | Free community models (DeepSeek R1, Llama 3.3, Qwen) |
+| `OPENAI_API_KEY` | *LLM Option 4* | Optional fallback (GPT-4o-mini) |
+| `DISCORD_WEBHOOK` | **Recommended** | Webhook URL for Pika Flow real-time stage cards |
+
+> [!NOTE]
+> * **LLM Resilience**: You do **not** need all LLM keys. The engine only requires **at least one** active key (`GROQ_API_KEY`, `GEMINI_API_KEY`, or `OPENROUTER_API_KEY`). It automatically cascades across whichever keys you have configured!
+> * **GitHub Token (`GITHUB_TOKEN`)**: You do **not** need to set up `GITHUB_TOKEN` manually. GitHub Actions automatically creates, refreshes, and provisions it inside every workflow run with runner permissions.
+
+---
+
+## 🎛️ System Control: Enable, Disable & Test Mode
+
+You have three convenient ways to control the engine without modifying any code:
+
+### 1. One-Click UI Buttons (Actions Tab)
+Go to **Actions ➔ System Control (Kill Switch & Modes) ➔ Run workflow**:
+* **`enable`**: Normal autonomous operation.
+* **`disable`**: Immediate global kill switch (halts all production cron jobs).
+* **`test`**: Safe test mode (automatically suppresses scheduled uploads to protect quota).
+
+### 2. Manual Dry-Run in Production Pipeline
+Go to **Actions ➔ Video Production Pipeline (v2.0) ➔ Run workflow**:
+* Check **"Dry Run / Test Mode"** before clicking **Run workflow**.
+* Executes the complete pipeline, generates footage, audio, and subtitles, but skips YouTube API upload and database writes.
+
+### 3. Repository Variable
+Go to **Settings ➔ Secrets and variables ➔ Actions ➔ Variables**:
+* Variable `GHOST_ENGINE_ENABLED` = `true` | `false` | `test`
 
 ---
 
 ## 🚀 Triggering Production
 
-### Automated Daily Cron
-The pipeline triggers automatically every morning at **08:00 UTC** via GitHub Actions.
+### Automated Daily Schedule
+The pipeline triggers automatically every morning at **08:00 UTC** via GitHub Actions cron.
 
 ### Manual Dispatch
 1. Go to the **Actions** tab in your GitHub repository.
 2. Select **Video Production Pipeline (v2.0)** on the left sidebar.
-3. Click **Run workflow**, choose your video type (`short` or `long`), and confirm.
+3. Click **Run workflow**, choose your video type (`short` or `long`), toggle test mode if desired, and confirm.

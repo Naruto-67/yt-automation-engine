@@ -81,23 +81,26 @@ class LLMManager:
     def __init__(self):
         self.groq_api_key = os.environ.get("GROQ_API_KEY")
         self.gemini_api_key = os.environ.get("GEMINI_API_KEY")
+        self.openrouter_api_key = os.environ.get("OPENROUTER_API_KEY")
         self.openai_api_key = os.environ.get("OPENAI_API_KEY")
 
     def generate_json(self, system_prompt: str, user_prompt: str, temperature: float = 0.7) -> Dict[str, Any]:
         """
         Executes generation with automatic failover:
-        Primary: Groq Llama 3.3 70B -> Secondary: Google Gemini 2.5 Flash -> Tertiary: OpenAI.
+        Primary: Groq Llama 3.3 70B -> Secondary: Google Gemini 2.5 Flash -> Tertiary: OpenRouter -> Quaternary: OpenAI.
         """
         providers = []
         if self.groq_api_key:
             providers.append(("Groq", self._call_groq))
         if self.gemini_api_key:
             providers.append(("Gemini", self._call_gemini))
+        if self.openrouter_api_key:
+            providers.append(("OpenRouter", self._call_openrouter))
         if self.openai_api_key:
             providers.append(("OpenAI", self._call_openai))
 
         if not providers:
-            raise RuntimeError("No LLM API keys configured. Set GROQ_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY.")
+            raise RuntimeError("No LLM API keys configured. Set GROQ_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY, or OPENAI_API_KEY.")
 
         last_error = None
         for provider_name, provider_fn in providers:
@@ -148,6 +151,27 @@ class LLMManager:
             )
         )
         return response.text
+
+    def _call_openrouter(self, system_prompt: str, user_prompt: str, temperature: float) -> str:
+        import requests
+        headers = {
+            "Authorization": f"Bearer {self.openrouter_api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com/Naruto-67/yt-automation-engine",
+            "X-Title": "YT Automation Engine"
+        }
+        payload = {
+            "model": "meta-llama/llama-3.3-70b-instruct:free",
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            "temperature": temperature,
+            "max_tokens": 2048,
+        }
+        resp = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=45)
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"]
 
     def _call_openai(self, system_prompt: str, user_prompt: str, temperature: float) -> str:
         import requests
