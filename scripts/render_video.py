@@ -22,6 +22,7 @@ from typing import List, Dict, Any, Optional
 from engine.logger import StageTimer, PikaStage, logger
 from engine.managers.error_manager import ErrorManager
 from engine.models import SpecOutput, ClipsManifest, WordTimestamp
+from engine.managers.music_manager import MusicManager
 
 
 def check_filter_supported(filter_name: str) -> bool:
@@ -253,7 +254,7 @@ def render_video_ffmpeg(
     caption_cfg = settings_cfg.get("captions", {})
     if is_short:
         sub_font_size = caption_cfg.get("font_size", 88)
-        sub_chunk_size = caption_cfg.get("max_words_per_chunk", 2)
+        sub_chunk_size = caption_cfg.get("max_words_per_chunk", 1)
         sub_outline_width = caption_cfg.get("outline_width", 6)
         sub_uppercase = caption_cfg.get("uppercase", True)
         sub_margin_v = int(target_h * 0.44)
@@ -427,19 +428,52 @@ def render_video_ffmpeg(
 
     vf_arg = ["-vf", ",".join(vf_filters)] if vf_filters else []
 
-    # Audio mapping
+    # Audio mastering and background Lo-Fi music mixing
+    audio_cfg = settings_cfg.get("audio_mastering", {})
+    target_lufs = audio_cfg.get("target_lufs", -14.0)
+    target_lra = audio_cfg.get("loudness_range", 7.0)
+    target_tp = audio_cfg.get("true_peak", -1.5)
+    voice_gain = audio_cfg.get("voice_gain", 1.5)
+
+    music_cfg = settings_cfg.get("music", {})
+    bg_vol = music_cfg.get("volume", 0.08)
+
+    bg_music_path = MusicManager.get_or_create_lofi_track(duration=total_duration, mood="lofi_chill")
+
     audio_inputs = []
     audio_mapping = []
+
     if os.path.exists(narration_path) and os.path.getsize(narration_path) > 1000:
         audio_inputs = ["-i", narration_path]
-        audio_mapping = [
-            "-map", "0:v",
-            "-map", "1:a",
-            "-c:a", "aac",
-            "-b:a", "192k",
-            "-ar", "44100",
-            "-shortest"
-        ]
+        if bg_music_path and os.path.exists(bg_music_path) and os.path.getsize(bg_music_path) > 4096:
+            audio_inputs.extend(["-stream_loop", "-1", "-i", bg_music_path])
+            filter_complex = (
+                f"[1:a]loudnorm=I={target_lufs}:LRA={target_lra}:TP={target_tp},volume={voice_gain}[voice];"
+                f"[2:a]volume={bg_vol}[bg];"
+                f"[voice][bg]amix=inputs=2:duration=first:dropout_transition=2[aout]"
+            )
+            audio_mapping = [
+                "-filter_complex", filter_complex,
+                "-map", "0:v",
+                "-map", "[aout]",
+                "-c:a", "aac",
+                "-b:a", "192k",
+                "-ar", "44100",
+                "-shortest"
+            ]
+            print(f"🎵 [RENDERER] Mixing mastered narration (target {target_lufs} LUFS) with Lo-Fi background music ({os.path.basename(bg_music_path)} @ vol={bg_vol})...", flush=True)
+        else:
+            filter_complex = f"[1:a]loudnorm=I={target_lufs}:LRA={target_lra}:TP={target_tp},volume={voice_gain}[aout]"
+            audio_mapping = [
+                "-filter_complex", filter_complex,
+                "-map", "0:v",
+                "-map", "[aout]",
+                "-c:a", "aac",
+                "-b:a", "192k",
+                "-ar", "44100",
+                "-shortest"
+            ]
+            print(f"🎙️ [RENDERER] Mastering narration to broadcast loudness ({target_lufs} LUFS)...", flush=True)
     else:
         print(f"⚠️ [RENDERER] Narration file '{narration_path}' not found — rendering without audio.", flush=True)
         audio_mapping = ["-map", "0:v"]

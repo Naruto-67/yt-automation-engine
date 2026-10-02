@@ -7,6 +7,8 @@ requests>=2.34.2
 tenacity>=8.5.0
 
 # Speech, Media & Schemas
+kokoro>=0.9.4
+soundfile>=0.12.1
 edge-tts>=7.0.0
 num2words>=0.5.13
 pydantic>=2.10.0

@@ -2,12 +2,12 @@
 channel:
   name: "TOPATO"
   handle: "@metopato"
-  niche: "psychology_and_facts"
+  niche: "shower_thoughts"
   language: "en-US"
   voice:
     provider: "kokoro"
-    voice_id: "am_michael" # Flagship Grade A Kokoro American Male voice (also am_fenrir, am_adam)
-    fallback_voice_id: "en-US-ChristopherNeural"
+    voice_id: "am_adam" # Flagship Resonant Baritone Kokoro American Male voice (also am_fenrir, am_michael)
+    fallback_voice_id: "en-US-GuyNeural" # Deep, resonant, warm American male baritone
   branding:
     enabled: true
     watermark_text: "@metopato"

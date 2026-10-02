@@ -51,6 +51,12 @@ music:
   fade_in_seconds: 1.0
   fade_out_seconds: 1.5
 
+audio_mastering:
+  target_lufs: -14.0
+  loudness_range: 7.0
+  true_peak: -1.5
+  voice_gain: 1.5
+
 # ─── CAPTION STYLING & HIGH-RETENTION TYPOGRAPHY ──────────────────────────────
 captions:
   font_name: "Anton"
@@ -62,7 +68,7 @@ captions:
   outline_width: 6
   outline_width_long: 3        # Refined outline for long-form
   shadow_depth: 2
-  max_words_per_chunk: 2
+  max_words_per_chunk: 1       # 1-word kinetic flash for Shorts (BrainBlud style)
   max_words_per_chunk_long: 6  # Natural multi-word conversational flow for long-form
   uppercase: true
   uppercase_long: false        # Standard sentence casing for long-form documentary

@@ -104,19 +104,52 @@ def test_voice_normalizer_kokoro_voice_detection_and_fallback_mapping():
     assert VoiceNormalizer.is_kokoro_voice("en-US-ChristopherNeural") is False
 
     assert VoiceNormalizer.KOKORO_TO_EDGE_VOICE_MAP["af_heart"] == "en-US-JennyNeural"
-    assert VoiceNormalizer.KOKORO_TO_EDGE_VOICE_MAP["am_michael"] == "en-US-ChristopherNeural"
-    assert VoiceNormalizer.KOKORO_TO_EDGE_VOICE_MAP["hf_alpha"] == "hi-IN-SwaraNeural"
+    assert VoiceNormalizer.KOKORO_TO_EDGE_VOICE_MAP["am_michael"] == "en-US-GuyNeural"
+    assert VoiceNormalizer.KOKORO_TO_EDGE_VOICE_MAP["am_adam"] == "en-US-GuyNeural"
+    assert VoiceNormalizer.KOKORO_TO_EDGE_VOICE_MAP["hf_alpha"] == "hi-IN-MadhurNeural"
 
 
 def test_voice_normalizer_enforce_male_voice():
     """Verifies that female voice requests are strictly remapped to male voices."""
-    assert VoiceNormalizer.enforce_male_voice("af_heart") == "am_michael"
+    assert VoiceNormalizer.enforce_male_voice("af_heart") == "am_adam"
     assert VoiceNormalizer.enforce_male_voice("af_bella") == "am_fenrir"
     assert VoiceNormalizer.enforce_male_voice("bf_emma") == "bm_george"
-    assert VoiceNormalizer.enforce_male_voice("en-US-JennyNeural") == "en-US-ChristopherNeural"
+    assert VoiceNormalizer.enforce_male_voice("en-US-JennyNeural") == "en-US-GuyNeural"
     assert VoiceNormalizer.enforce_male_voice("en-US-AvaNeural") == "en-US-GuyNeural"
-    assert VoiceNormalizer.enforce_male_voice("am_michael") == "am_michael"
-    assert VoiceNormalizer.enforce_male_voice("en-US-ChristopherNeural") == "en-US-ChristopherNeural"
+    assert VoiceNormalizer.enforce_male_voice("am_adam") == "am_adam"
+    assert VoiceNormalizer.enforce_male_voice("en-US-GuyNeural") == "en-US-GuyNeural"
+
+
+def test_music_manager_procedural_lofi_synthesis(tmp_path):
+    """Verifies that MusicManager can synthesize high-fidelity procedural Lo-Fi tracks."""
+    from engine.managers.music_manager import MusicManager
+    out_file = str(tmp_path / "test_lofi.wav")
+    path = MusicManager.synthesize_procedural_lofi(output_path=out_file, duration=2.0, mood="lofi_chill")
+    assert path is not None
+    assert os.path.exists(path)
+    assert os.path.getsize(path) > 10000
+
+
+def test_stock_video_manager_deduplication(tmp_path, monkeypatch):
+    """Verifies that StockVideoManager avoids duplicate clips within a video and across past runs."""
+    from engine.managers.stock_video_manager import StockVideoManager, SHORTS_ASMR_TAXONOMY
+    
+    # Use temporary registry file
+    reg_file = str(tmp_path / "used_clips.json")
+    monkeypatch.setattr(StockVideoManager, "REGISTRY_FILE", reg_file)
+
+    mgr = StockVideoManager()
+    
+    # 1. Verify taxonomy is loaded with rich ASMR categories
+    assert len(SHORTS_ASMR_TAXONOMY) >= 10
+    assert any("soap" in q for q in SHORTS_ASMR_TAXONOMY)
+    assert any("carpet" in q for q in SHORTS_ASMR_TAXONOMY)
+
+    # 2. Record clip usage and verify cooldown check
+    mgr.record_clip_usage("test_vid_123", "pexels", "soap carving")
+    assert mgr.is_clip_recent("test_vid_123", cooldown_days=30) is True
+    assert mgr.is_clip_recent("test_vid_999", cooldown_days=30) is False
+
 
 
 # ─── 3. ERROR MANAGER TESTS ──────────────────────────────────────────────────

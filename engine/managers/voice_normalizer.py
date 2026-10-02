@@ -182,71 +182,72 @@ class VoiceNormalizer:
         "af_sky": "en-US-JennyNeural",
         "af_jessica": "en-US-JennyNeural",
         "af_river": "en-US-JennyNeural",
-        "am_michael": "en-US-ChristopherNeural",
+        "am_michael": "en-US-GuyNeural",
         "am_fenrir": "en-US-GuyNeural",
+        "am_adam": "en-US-GuyNeural",
         "am_puck": "en-US-EricNeural",
-        "am_echo": "en-US-ChristopherNeural",
+        "am_echo": "en-US-GuyNeural",
         "am_eric": "en-US-EricNeural",
-        "am_liam": "en-US-ChristopherNeural",
+        "am_liam": "en-US-GuyNeural",
         "am_onyx": "en-US-GuyNeural",
-        "bf_emma": "en-GB-SoniaNeural",
-        "bf_isabella": "en-GB-MaisieNeural",
+        "bf_emma": "en-GB-RyanNeural",
+        "bf_isabella": "en-GB-ThomasNeural",
         "bm_george": "en-GB-RyanNeural",
         "bm_fable": "en-GB-ThomasNeural",
-        "hf_alpha": "hi-IN-SwaraNeural",
-        "hf_beta": "hi-IN-SwaraNeural",
+        "hf_alpha": "hi-IN-MadhurNeural",
+        "hf_beta": "hi-IN-MadhurNeural",
         "hm_omega": "hi-IN-MadhurNeural",
         "hm_psi": "hi-IN-MadhurNeural",
-        "ff_siwis": "fr-FR-DeniseNeural",
-        "ef_dora": "es-ES-ElviraNeural",
+        "ff_siwis": "fr-FR-HenriNeural",
+        "ef_dora": "es-ES-AlvaroNeural",
         "em_alex": "es-ES-AlvaroNeural",
-        "if_sara": "it-IT-ElsaNeural",
+        "if_sara": "it-IT-DiegoNeural",
         "im_nicola": "it-IT-DiegoNeural",
-        "pf_dora": "pt-BR-FranciscaNeural",
+        "pf_dora": "pt-BR-AntonioNeural",
         "pm_alex": "pt-BR-AntonioNeural",
-        "jf_alpha": "ja-JP-NanamiNeural",
-        "zf_xiaobei": "zh-CN-XiaoxiaoNeural",
+        "jf_alpha": "ja-JP-KeitaNeural",
+        "zf_xiaobei": "zh-CN-YunxiNeural",
         "zm_yunjian": "zh-CN-YunxiNeural",
     }
 
     FEMALE_KOKORO_TO_MALE_MAP = {
-        "af_heart": "am_michael",
+        "af_heart": "am_adam",
         "af_bella": "am_fenrir",
-        "af_nicole": "am_michael",
+        "af_nicole": "am_adam",
         "af_sarah": "am_puck",
-        "af_aoede": "am_michael",
-        "af_kore": "am_michael",
-        "af_alloy": "am_michael",
+        "af_aoede": "am_adam",
+        "af_kore": "am_adam",
+        "af_alloy": "am_adam",
         "af_nova": "am_fenrir",
-        "af_sky": "am_michael",
-        "af_jessica": "am_michael",
-        "af_river": "am_michael",
+        "af_sky": "am_adam",
+        "af_jessica": "am_adam",
+        "af_river": "am_adam",
         "bf_emma": "bm_george",
         "bf_isabella": "bm_fable",
         "hf_alpha": "hm_omega",
         "hf_beta": "hm_psi",
-        "ff_siwis": "am_michael",
+        "ff_siwis": "am_adam",
         "ef_dora": "em_alex",
         "if_sara": "im_nicola",
         "pf_dora": "pm_alex",
-        "jf_alpha": "am_michael",
+        "jf_alpha": "am_adam",
         "zf_xiaobei": "zm_yunjian",
     }
 
     FEMALE_EDGE_TO_MALE_MAP = {
-        "en-US-JennyNeural": "en-US-ChristopherNeural",
+        "en-US-JennyNeural": "en-US-GuyNeural",
         "en-US-AvaNeural": "en-US-GuyNeural",
-        "en-US-AnaNeural": "en-US-EricNeural",
-        "en-US-MichelleNeural": "en-US-ChristopherNeural",
+        "en-US-AnaNeural": "en-US-GuyNeural",
+        "en-US-MichelleNeural": "en-US-GuyNeural",
         "en-US-AriaNeural": "en-US-GuyNeural",
         "en-GB-SoniaNeural": "en-GB-RyanNeural",
         "en-GB-MaisieNeural": "en-GB-ThomasNeural",
         "hi-IN-SwaraNeural": "hi-IN-MadhurNeural",
-        "fr-FR-DeniseNeural": "en-US-ChristopherNeural",
+        "fr-FR-DeniseNeural": "fr-FR-HenriNeural",
         "es-ES-ElviraNeural": "es-ES-AlvaroNeural",
         "it-IT-ElsaNeural": "it-IT-DiegoNeural",
         "pt-BR-FranciscaNeural": "pt-BR-AntonioNeural",
-        "ja-JP-NanamiNeural": "en-US-ChristopherNeural",
+        "ja-JP-NanamiNeural": "ja-JP-KeitaNeural",
         "zh-CN-XiaoxiaoNeural": "zh-CN-YunxiNeural",
     }
 
@@ -257,7 +258,7 @@ class VoiceNormalizer:
         Remaps any requested female voice IDs to their premier male counterpart.
         """
         if not voice:
-            return "am_michael"
+            return "am_adam"
 
         v = voice.strip()
         # Direct Kokoro female mapping
@@ -270,7 +271,7 @@ class VoiceNormalizer:
 
         # Pattern check for Kokoro female voices (e.g. af_*, bf_*, etc.)
         if len(v) >= 2 and v[1] == "f" and "_" in v:
-            return "am_michael"
+            return "am_adam"
 
         # Edge-TTS general female heuristic check
         female_edge_keywords = [
@@ -278,7 +279,7 @@ class VoiceNormalizer:
             "swara", "denise", "elvira", "elsa", "francisca", "nanami", "xiaoxiao"
         ]
         if any(kw in v.lower() for kw in female_edge_keywords):
-            return "en-US-ChristopherNeural"
+            return "en-US-GuyNeural"
 
         return v
 
@@ -496,7 +497,7 @@ class VoiceNormalizer:
         if should_try_kokoro:
             try:
                 import kokoro  # noqa: F401
-                kokoro_voice = voice if cls.is_kokoro_voice(voice) else "am_michael"
+                kokoro_voice = voice if cls.is_kokoro_voice(voice) else "am_adam"
                 kokoro_voice = cls.enforce_male_voice(kokoro_voice)
                 return cls._synthesize_kokoro(
                     phonetic_text=phonetic_text,
@@ -513,7 +514,7 @@ class VoiceNormalizer:
         elif voice and ("Neural" in voice or voice.startswith("en-")):
             edge_voice = voice
         else:
-            edge_voice = "en-US-ChristopherNeural"
+            edge_voice = "en-US-GuyNeural"
 
         edge_voice = cls.enforce_male_voice(edge_voice)
 
