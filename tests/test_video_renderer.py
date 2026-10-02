@@ -76,8 +76,8 @@ def test_render_video_ffmpeg_segmented_pipeline(tmp_path, monkeypatch):
         sub_format="core_brainblud",
         seo=SEOMetadata(title="Brain #shorts", description="Brain facts", tags=["brain"]),
         scenes=[
-            SceneSpec(scene_id=1, spoken_text="Scene one", phonetic_text="Scene one", duration_seconds=3.0, word_timestamps=[]),
-            SceneSpec(scene_id=2, spoken_text="Scene two", phonetic_text="Scene two", duration_seconds=4.0, word_timestamps=[]),
+            SceneSpec(scene_id=1, spoken_text="Scene one", phonetic_text="Scene one", stock_video_query="brain query", duration_seconds=3.0, word_timestamps=[]),
+            SceneSpec(scene_id=2, spoken_text="Scene two", phonetic_text="Scene two", stock_video_query="brain query", duration_seconds=4.0, word_timestamps=[]),
         ],
         total_duration_seconds=7.0,
         audio_path=audio_path
@@ -86,8 +86,8 @@ def test_render_video_ffmpeg_segmented_pipeline(tmp_path, monkeypatch):
     clips_manifest = ClipsManifest(
         topic="Brain Power",
         clips=[
-            ClipItem(scene_id=1, download_url="http://mock.url/1.mp4", provider="pexels", video_id="101"),
-            ClipItem(scene_id=2, download_url="http://mock.url/2.mp4", provider="pixabay", video_id="102"),
+            ClipItem(scene_id=1, query="brain query", download_url="http://mock.url/1.mp4", provider="pexels", video_id="101"),
+            ClipItem(scene_id=2, query="brain query", download_url="http://mock.url/2.mp4", provider="pixabay", video_id="102"),
         ]
     )
 

@@ -24,7 +24,7 @@ class SceneSpec(BaseModel):
     scene_id: int
     spoken_text: str = Field(..., description="Display text used for on-screen captions")
     phonetic_text: str = Field(..., description="Sanitized phonetic text fed into TTS")
-    stock_video_query: str = Field(..., description="Semantic search query for stock video APIs")
+    stock_video_query: str = Field(default="abstract background", description="Semantic search query for stock video APIs")
     duration_seconds: float = Field(default=0.0, description="Measured duration of audio in seconds")
     word_timestamps: List[WordTimestamp] = Field(default_factory=list, description="Word-by-word timing")
 
@@ -51,7 +51,7 @@ class SpecOutput(BaseModel):
 class ClipItem(BaseModel):
     """Stock video clip match from Pexels or Pixabay."""
     scene_id: int
-    query: str
+    query: str = Field(default="", description="Search query used to locate clip")
     video_id: str
     download_url: str
     provider: str = Field(..., description="'pexels' or 'pixabay'")
