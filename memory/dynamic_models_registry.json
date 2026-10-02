@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-10-02T12:56:34.411837+00:00",
+  "updated_at": "2026-10-02T15:20:38.245555+00:00",
   "provider_reset_dates": {
     "google": "2026-10-02",
     "groq": "2026-10-02",
@@ -170,7 +170,7 @@
       "consumed_today": 14386,
       "last_call_timestamp": 0.0,
       "status": "ACTIVE",
-      "reset_epoch": 1790945796.9118352,
+      "reset_epoch": 1790954440.7455509,
       "average_latency": 0.8,
       "cooldown_until": 0.0,
       "supports_thinking": false,

@@ -255,3 +255,60 @@ def test_discovery_banned_models_filtering():
     assert is_model_allowed("gemini-3-flash-preview", banned) is True
 
 
+def test_pipeline_runner_run_spec_stage(monkeypatch, tmp_path):
+    """Verifies run_spec_stage runs end-to-end for short and long formats without NameError or crash."""
+    from engine.managers.pipeline_runner import run_spec_stage
+    from engine.models import SpecOutput
+
+    # Mock health checks and sync
+    monkeypatch.setattr("engine.managers.health_manager.HealthManager.check_and_sync_models", lambda **kw: {})
+    monkeypatch.setattr("engine.managers.competitor_spy.CompetitorSpy.get_surge_topic", lambda *a: None)
+    monkeypatch.setattr("engine.managers.topic_inspector.TopicInspector.discover_verified_topic", lambda self, niche: {
+        "topic": "The Baader-Meinhof Phenomenon",
+        "verified_summary": "Frequency illusion",
+        "source": "verified_trend"
+    })
+
+    # Mock LLM generation
+    mock_script_response = {
+        "thought_process": {"hook": "intriguing", "loop": "circular"},
+        "title": "Why You See Everything Everywhere",
+        "scenes": [
+            {"scene_id": 1, "spoken_text": "This is why you suddenly notice things everywhere.", "stock_video_query": "subway train motion"},
+            {"scene_id": 2, "spoken_text": "Your brain filters out background data.", "stock_video_query": "crowd walking"},
+        ]
+    }
+    mock_seo_response = {
+        "title": "Frequency Illusion #shorts",
+        "description": "Why you see things everywhere. #shorts",
+        "tags": ["psychology", "facts", "shorts"]
+    }
+
+    def mock_generate_json(self, sys_p, usr_p, temperature=0.7):
+        if "SEO Director" in sys_p:
+            return mock_seo_response
+        return mock_script_response
+
+    monkeypatch.setattr("engine.managers.llm_manager.LLMManager.generate_json", mock_generate_json)
+    monkeypatch.setattr("engine.managers.voice_normalizer.VoiceNormalizer.synthesize_sync", lambda **kw: (10.0, []))
+
+    # Test short stage
+    run_spec_stage(video_type="short")
+    assert os.path.exists("output/spec.json")
+
+    with open("output/spec.json", "r", encoding="utf-8") as f:
+        spec = SpecOutput.model_validate_json(f.read())
+    assert spec.video_type == "short"
+    assert len(spec.scenes) == 2
+
+    # Test long stage
+    run_spec_stage(video_type="long")
+    assert os.path.exists("output/spec.json")
+
+    with open("output/spec.json", "r", encoding="utf-8") as f:
+        spec_long = SpecOutput.model_validate_json(f.read())
+    assert spec_long.video_type == "long"
+    assert spec_long.sub_format == "documentary_essay"
+
+
+

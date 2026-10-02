@@ -34,6 +34,9 @@ def run_spec_stage(video_type: str = "short") -> None:
     weights = HealthManager.load_dynamic_weights()
     HealthManager.check_and_sync_models()
 
+    llm = LLMManager()
+    inspector = TopicInspector(llm_manager=llm)
+
     target_duration = settings_cfg.get("video_profiles", {}).get(video_type, {}).get("target_duration", 600 if video_type == "long" else 55)
 
     if video_type == "long":
@@ -173,7 +176,10 @@ def run_spec_stage(video_type: str = "short") -> None:
         os.makedirs("output", exist_ok=True)
         spec_path = os.path.join("output", "spec.json")
         with open(spec_path, "w", encoding="utf-8") as f:
-            f.write(spec.model_dump_json(indent=2))
+            if hasattr(spec, "model_dump_json"):
+                f.write(spec.model_dump_json(indent=2))
+            else:
+                f.write(json.dumps(spec.model_dump() if hasattr(spec, "model_dump") else spec.dict(), indent=2))
 
         print(f"📦 [SPEC] Saved spec artifact to '{spec_path}' ({len(scenes_spec)} scenes, {total_duration:.1f}s)")
 

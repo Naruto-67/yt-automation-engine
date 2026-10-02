@@ -25,10 +25,28 @@ except ImportError:
                         setattr(self, k, val)
 
         def dict(self):
-            return {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
+            res = {}
+            for k, v in self.__dict__.items():
+                if not k.startswith("_"):
+                    if isinstance(v, list):
+                        res[k] = [item.dict() if hasattr(item, "dict") else item for item in v]
+                    elif hasattr(v, "dict"):
+                        res[k] = v.dict()
+                    else:
+                        res[k] = v
+            return res
 
         def model_dump(self):
             return self.dict()
+
+        def model_dump_json(self, indent=None):
+            import json
+            return json.dumps(self.dict(), indent=indent)
+
+        @classmethod
+        def model_validate_json(cls, json_str):
+            import json
+            return cls(**json.loads(json_str))
 
     def MockField(default=None, default_factory=None, **kwargs):
         if default_factory is not None:
