@@ -1,12 +1,10 @@
 generation_chains:
   script:
-    - "gemini"
     - "groq"
+    - "gemini"
+    - "openai"
   voice:
-    - "kokoro"
-    - "groq_orpheus"
+    - "edge_tts"
   visuals:
-    - "cloudflare_flux"
-    - "huggingface_cascade"
     - "pexels"
-    - "offline_gradient"
+    - "pixabay"

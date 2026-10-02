@@ -30,9 +30,16 @@ competitors:
 
 # ─── API LIMITS & HEALTH ─────────────────────────────────────────────────────
 api_limits:
-  gemini_rpd: 50
-  groq_tpm: 6000
-  youtube_points: 9200 # Daily safe ceiling (out of 10,000)
+  youtube: 9200           # Daily safe ceiling (out of 10,000 points)
+  gemini: 38              # Daily requests per day ceiling
+  groq_tpm: 6000          # Tokens per minute rate limit
+  pexels: 20000           # Monthly stock video clip requests
+  pixabay: 5000           # Hourly stock video search requests
+  cloudflare: 90          # Legacy fallback
+  huggingface: 45         # Legacy fallback
+  # Extended aliases
+  youtube_points: 9200
+  gemini_rpd: 38
   pexels_per_month: 20000
   pixabay_per_hour: 5000
 

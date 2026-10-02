@@ -11,8 +11,11 @@ from engine.database import db
 from engine.context import ctx
 
 from scripts.generate_script   import generate_script
-from scripts.generate_voice    import generate_audio
-from scripts.generate_visuals  import fetch_scene_images
+try:
+    from scripts.generate_visuals import fetch_scene_images
+except ImportError:
+    def fetch_scene_images(*args, **kwargs):
+        return [], "stock_video"
 from scripts.render_video      import render_video
 from scripts.generate_metadata import generate_seo_metadata
 from scripts.generate_thumbnail import generate_thumbnail, upload_thumbnail

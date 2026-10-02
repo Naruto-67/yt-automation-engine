@@ -37,8 +37,10 @@ def test_quota_manager_initialization(mock_get_quota, mock_get_settings, mock_se
     assert qm.LIMITS["gemini"] == 38
     assert qm.LIMITS["youtube"] == 9200
 
+@patch('scripts.quota_manager.config_manager.get_settings')
 @patch('scripts.quota_manager.MasterQuotaManager._get_active_state')
-def test_is_provider_exhausted(mock_active_state):
+def test_is_provider_exhausted(mock_active_state, mock_get_settings, mock_settings):
+    mock_get_settings.return_value = mock_settings
     qm = MasterQuotaManager()
     
     mock_active_state.return_value = {"gemini_calls": 38, "cf_images": 50, "hf_images": 10}
@@ -49,8 +51,10 @@ def test_is_provider_exhausted(mock_active_state):
     assert qm.is_provider_exhausted("huggingface") is True
 
 @patch('scripts.quota_manager.TEST_MODE', False)
+@patch('scripts.quota_manager.config_manager.get_settings')
 @patch('scripts.quota_manager.MasterQuotaManager._get_active_state')
-def test_can_afford_youtube_transaction(mock_active_state):
+def test_can_afford_youtube_transaction(mock_active_state, mock_get_settings, mock_settings):
+    mock_get_settings.return_value = mock_settings
     qm = MasterQuotaManager()
     
     mock_active_state.return_value = {"youtube_points": 8000}

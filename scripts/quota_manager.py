@@ -118,12 +118,47 @@ class CostTracker:
 
 
 class MasterQuotaManager:
+    DEFAULT_LIMITS = {
+        "youtube": 9200,
+        "youtube_points": 9200,
+        "gemini": 38,
+        "gemini_rpd": 38,
+        "groq_tpm": 6000,
+        "pexels": 20000,
+        "pexels_per_month": 20000,
+        "pixabay": 5000,
+        "pixabay_per_hour": 5000,
+        "cloudflare": 90,
+        "huggingface": 45,
+    }
+
     def __init__(self):
         self.root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         settings = config_manager.get_settings()
-        self.LIMITS = settings.get("api_limits", {
-            "gemini": 38, "cloudflare": 90, "huggingface": 45, "youtube": 9200
-        })
+        loaded = settings.get("api_limits", {})
+        self.LIMITS = {**self.DEFAULT_LIMITS, **loaded}
+
+        # Normalize and synchronize key aliases
+        if "youtube" in loaded and "youtube_points" not in loaded:
+            self.LIMITS["youtube_points"] = loaded["youtube"]
+        elif "youtube_points" in loaded and "youtube" not in loaded:
+            self.LIMITS["youtube"] = loaded["youtube_points"]
+
+        if "gemini" in loaded and "gemini_rpd" not in loaded:
+            self.LIMITS["gemini_rpd"] = loaded["gemini"]
+        elif "gemini_rpd" in loaded and "gemini" not in loaded:
+            self.LIMITS["gemini"] = loaded["gemini_rpd"]
+
+        if "pexels" in loaded and "pexels_per_month" not in loaded:
+            self.LIMITS["pexels_per_month"] = loaded["pexels"]
+        elif "pexels_per_month" in loaded and "pexels" not in loaded:
+            self.LIMITS["pexels"] = loaded["pexels_per_month"]
+
+        if "pixabay" in loaded and "pixabay_per_hour" not in loaded:
+            self.LIMITS["pixabay_per_hour"] = loaded["pixabay"]
+        elif "pixabay_per_hour" in loaded and "pixabay" not in loaded:
+            self.LIMITS["pixabay"] = loaded["pixabay_per_hour"]
+
         self.cost_tracker = CostTracker()
 
     def _today_utc(self) -> str: return datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -166,14 +201,21 @@ class MasterQuotaManager:
 
     def can_afford_youtube(self, cost: int) -> bool:
         if TEST_MODE: return True
-        return (self._get_active_state().get("youtube_points", 0) + cost) <= self.LIMITS["youtube"]
+        yt_limit = self.LIMITS.get("youtube", self.DEFAULT_LIMITS["youtube"])
+        return (self._get_active_state().get("youtube_points", 0) + cost) <= yt_limit
 
     def is_provider_exhausted(self, provider: str) -> bool:
         state = self._get_active_state()
-        col_limit_map = {"cloudflare": ("cf_images", "cloudflare"), "huggingface": ("hf_images", "huggingface"), "gemini": ("gemini_calls", "gemini")}
+        col_limit_map = {
+            "cloudflare": ("cf_images", "cloudflare"),
+            "huggingface": ("hf_images", "huggingface"),
+            "gemini": ("gemini_calls", "gemini"),
+            "youtube": ("youtube_points", "youtube")
+        }
         if provider not in col_limit_map: return False
         col, key = col_limit_map[provider]
-        return state.get(col, 0) >= self.LIMITS.get(key, 9999)
+        limit = self.LIMITS.get(key, self.DEFAULT_LIMITS.get(key, 9999))
+        return state.get(col, 0) >= limit
 
     def generate_text(self, prompt: str, task_type: str = "creative", system_prompt: str = None) -> tuple:
         """

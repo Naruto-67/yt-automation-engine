@@ -50,9 +50,10 @@ class GhostGuardian:
 
     def get_run_forecast(self):
         state  = quota_manager._get_active_state()
-        yt_rem = quota_manager.LIMITS["youtube"] - state.get("youtube_points", 0)
+        yt_limit = quota_manager.LIMITS.get("youtube", 9200)
+        yt_rem = yt_limit - state.get("youtube_points", 0)
 
-        limit_yt = yt_rem // self.COST_PER_VIDEO["youtube_points"]
+        limit_yt = yt_rem // self.COST_PER_VIDEO.get("youtube_points", 1600)
 
         logger.engine(f"🔮 FORECAST: System can support ~{limit_yt} more videos today based on YouTube quota.")
         return int(limit_yt)
@@ -75,7 +76,7 @@ class GhostGuardian:
 
         # ── Cloudflare quota monitoring (unchanged) ───────────────────────────
         cf_usage = state.get("cf_images", 0)
-        cf_limit = quota_manager.LIMITS.get("cloudflare", 95)
+        cf_limit = quota_manager.LIMITS.get("cloudflare", 90)
 
         if cf_usage > (cf_limit * 0.8) and cf_usage < (cf_limit * self.SAFE_MODE_THRESHOLD):
             notify_quota_warning("Cloudflare", cf_usage, cf_limit)
