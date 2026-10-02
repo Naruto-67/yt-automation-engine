@@ -6,6 +6,8 @@ Converts raw scripts to spoken phonetic text and extracts millisecond word bound
 import os
 import re
 import asyncio
+from typing import List, Tuple
+
 def _int_to_words(n: int) -> str:
     """Zero-dependency pure Python number to words converter for numbers up to billions."""
     if n == 0:
