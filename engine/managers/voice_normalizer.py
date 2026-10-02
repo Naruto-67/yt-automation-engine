@@ -209,6 +209,79 @@ class VoiceNormalizer:
         "zm_yunjian": "zh-CN-YunxiNeural",
     }
 
+    FEMALE_KOKORO_TO_MALE_MAP = {
+        "af_heart": "am_michael",
+        "af_bella": "am_fenrir",
+        "af_nicole": "am_michael",
+        "af_sarah": "am_puck",
+        "af_aoede": "am_michael",
+        "af_kore": "am_michael",
+        "af_alloy": "am_michael",
+        "af_nova": "am_fenrir",
+        "af_sky": "am_michael",
+        "af_jessica": "am_michael",
+        "af_river": "am_michael",
+        "bf_emma": "bm_george",
+        "bf_isabella": "bm_fable",
+        "hf_alpha": "hm_omega",
+        "hf_beta": "hm_psi",
+        "ff_siwis": "am_michael",
+        "ef_dora": "em_alex",
+        "if_sara": "im_nicola",
+        "pf_dora": "pm_alex",
+        "jf_alpha": "am_michael",
+        "zf_xiaobei": "zm_yunjian",
+    }
+
+    FEMALE_EDGE_TO_MALE_MAP = {
+        "en-US-JennyNeural": "en-US-ChristopherNeural",
+        "en-US-AvaNeural": "en-US-GuyNeural",
+        "en-US-AnaNeural": "en-US-EricNeural",
+        "en-US-MichelleNeural": "en-US-ChristopherNeural",
+        "en-US-AriaNeural": "en-US-GuyNeural",
+        "en-GB-SoniaNeural": "en-GB-RyanNeural",
+        "en-GB-MaisieNeural": "en-GB-ThomasNeural",
+        "hi-IN-SwaraNeural": "hi-IN-MadhurNeural",
+        "fr-FR-DeniseNeural": "en-US-ChristopherNeural",
+        "es-ES-ElviraNeural": "es-ES-AlvaroNeural",
+        "it-IT-ElsaNeural": "it-IT-DiegoNeural",
+        "pt-BR-FranciscaNeural": "pt-BR-AntonioNeural",
+        "ja-JP-NanamiNeural": "en-US-ChristopherNeural",
+        "zh-CN-XiaoxiaoNeural": "zh-CN-YunxiNeural",
+    }
+
+    @classmethod
+    def enforce_male_voice(cls, voice: str) -> str:
+        """
+        Enforces male-only voices across all speech synthesis tiers.
+        Remaps any requested female voice IDs to their premier male counterpart.
+        """
+        if not voice:
+            return "am_michael"
+
+        v = voice.strip()
+        # Direct Kokoro female mapping
+        if v in cls.FEMALE_KOKORO_TO_MALE_MAP:
+            return cls.FEMALE_KOKORO_TO_MALE_MAP[v]
+
+        # Direct Edge-TTS female mapping
+        if v in cls.FEMALE_EDGE_TO_MALE_MAP:
+            return cls.FEMALE_EDGE_TO_MALE_MAP[v]
+
+        # Pattern check for Kokoro female voices (e.g. af_*, bf_*, etc.)
+        if len(v) >= 2 and v[1] == "f" and "_" in v:
+            return "am_michael"
+
+        # Edge-TTS general female heuristic check
+        female_edge_keywords = [
+            "jenny", "ava", "ana", "michelle", "aria", "sonia", "maisie",
+            "swara", "denise", "elvira", "elsa", "francisca", "nanami", "xiaoxiao"
+        ]
+        if any(kw in v.lower() for kw in female_edge_keywords):
+            return "en-US-ChristopherNeural"
+
+        return v
+
     @classmethod
     def detect_lang_code(cls, voice: str) -> str:
         """Infers Kokoro language code ('a', 'b', 'h', 'f', 'e', 'i', 'p', 'j', 'z') from voice name."""
@@ -237,7 +310,7 @@ class VoiceNormalizer:
         cls,
         phonetic_text: str,
         output_audio_path: str,
-        voice: str = "af_heart",
+        voice: str = "am_michael",
         speed: float = 1.0,
     ) -> Tuple[float, List[WordTimestamp]]:
         """
@@ -408,19 +481,23 @@ class VoiceNormalizer:
         cls,
         phonetic_text: str,
         output_audio_path: str,
-        voice: str = "af_heart",
+        voice: str = "am_michael",
         speed: float = 1.0,
         prefer_provider: Optional[str] = None
     ) -> Tuple[float, List[WordTimestamp]]:
         """
         Synthesizes speech using Kokoro TTS (Primary) with automatic Edge-TTS fallback.
+        Strictly enforces male-only voices across all providers.
         """
+        voice = cls.enforce_male_voice(voice)
+
         # 1. Primary Engine: Kokoro TTS
         should_try_kokoro = (prefer_provider != "edge-tts")
         if should_try_kokoro:
             try:
                 import kokoro  # noqa: F401
-                kokoro_voice = voice if cls.is_kokoro_voice(voice) else "af_heart"
+                kokoro_voice = voice if cls.is_kokoro_voice(voice) else "am_michael"
+                kokoro_voice = cls.enforce_male_voice(kokoro_voice)
                 return cls._synthesize_kokoro(
                     phonetic_text=phonetic_text,
                     output_audio_path=output_audio_path,
@@ -438,6 +515,8 @@ class VoiceNormalizer:
         else:
             edge_voice = "en-US-ChristopherNeural"
 
+        edge_voice = cls.enforce_male_voice(edge_voice)
+
         print(f"🎙️ [EDGE-TTS] Synthesizing speech with fallback voice '{edge_voice}'...", flush=True)
         return await cls._synthesize_edge_tts(
             phonetic_text=phonetic_text,
@@ -450,7 +529,7 @@ class VoiceNormalizer:
         cls,
         phonetic_text: str,
         output_audio_path: str,
-        voice: str = "af_heart",
+        voice: str = "am_michael",
         speed: float = 1.0,
         prefer_provider: Optional[str] = None
     ) -> Tuple[float, List[WordTimestamp]]:

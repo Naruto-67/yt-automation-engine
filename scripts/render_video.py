@@ -70,12 +70,19 @@ def generate_ass_subtitles(
     font_size: int = 72,
     active_color: str = "&H0000FFFF",   # Yellow in ASS format
     inactive_color: str = "&H00FFFFFF", # White
+    outline_color: str = "&H00000000",  # Solid Black
+    outline_width: int = 6,
+    shadow_depth: int = 2,
+    chunk_size: int = 2,
+    uppercase: bool = False,
+    margin_v: Optional[int] = None,
 ) -> None:
     """
     Builds a word-by-word micro-chunked ASS subtitle file.
-    Only 1-3 words on screen at a time, with the currently spoken word highlighted.
+    Only 1-2 words on screen at a time for shorts, or conversational phrasing for long-form.
     """
-    margin_v = int(height * 0.45) if height > width else int(height * 0.20)
+    if margin_v is None:
+        margin_v = int(height * 0.44) if height > width else int(height * 0.12)
 
     header = f"""[Script Info]
 ScriptType: v4.00+
@@ -85,7 +92,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{font_name},{font_size},{inactive_color},&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,4,2,2,40,40,{margin_v},1
+Style: Default,{font_name},{font_size},{inactive_color},&H000000FF,{outline_color},&H80000000,-1,0,0,0,100,100,0,0,1,{outline_width},{shadow_depth},2,40,40,{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -114,14 +121,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             sc_dur = scene.duration_seconds if (scene.duration_seconds and scene.duration_seconds > 0.0) else 5.0
             start_ts = format_ts(current_time)
             end_ts = format_ts(current_time + sc_dur)
-            text = scene.spoken_text.replace("\n", " ")
+            raw_text = scene.spoken_text.upper() if uppercase else scene.spoken_text
+            text = raw_text.replace("\n", " ")
             events.append(f"Dialogue: 0,{start_ts},{end_ts},Default,,0,0,0,,{text}")
             current_time += sc_dur
     else:
-        # Chunk words into groups of 3
-        chunk_size = 3
-        for i in range(0, len(all_words), chunk_size):
-            chunk = all_words[i:i + chunk_size]
+        # Chunk words into groups of chunk_size (default 2)
+        step_size = max(1, int(chunk_size))
+        for i in range(0, len(all_words), step_size):
+            chunk = all_words[i:i + step_size]
             chunk_end = chunk[-1].end
 
             # Create an event for each active word inside this chunk
@@ -136,10 +144,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
                 formatted_words = []
                 for idx, w in enumerate(chunk):
+                    word_str = w.word.upper() if uppercase else w.word
                     if idx == active_idx:
-                        formatted_words.append(f"{{\\c{active_color}}}{w.word}{{\\c{inactive_color}}}")
+                        formatted_words.append(f"{{\\c{active_color}}}{word_str}{{\\c{inactive_color}}}")
                     else:
-                        formatted_words.append(w.word)
+                        formatted_words.append(word_str)
 
                 chunk_text = " ".join(formatted_words)
                 events.append(f"Dialogue: 0,{w_start},{w_end},Default,,0,0,0,,{chunk_text}")
@@ -242,15 +251,35 @@ def render_video_ffmpeg(
     # 3. Build Subtitles (ASS)
     ass_path = os.path.join("output", "captions.ass")
     caption_cfg = settings_cfg.get("captions", {})
+    if is_short:
+        sub_font_size = caption_cfg.get("font_size", 88)
+        sub_chunk_size = caption_cfg.get("max_words_per_chunk", 2)
+        sub_outline_width = caption_cfg.get("outline_width", 6)
+        sub_uppercase = caption_cfg.get("uppercase", True)
+        sub_margin_v = int(target_h * 0.44)
+    else:
+        # Long-form 16:9 documentary styling: lower-third, elegant sizing, conversational flow
+        sub_font_size = caption_cfg.get("font_size_long", 44)
+        sub_chunk_size = caption_cfg.get("max_words_per_chunk_long", 6)
+        sub_outline_width = caption_cfg.get("outline_width_long", 3)
+        sub_uppercase = caption_cfg.get("uppercase_long", False)
+        sub_margin_v = int(target_h * 0.12)
+
     generate_ass_subtitles(
         scenes=spec.scenes,
         output_ass_path=ass_path,
         width=target_w,
         height=target_h,
         font_name=font_name,
-        font_size=caption_cfg.get("font_size", 72),
+        font_size=sub_font_size,
         active_color=caption_cfg.get("active_color", "&H0000FFFF"),
-        inactive_color=caption_cfg.get("inactive_color", "&H00FFFFFF")
+        inactive_color=caption_cfg.get("inactive_color", "&H00FFFFFF"),
+        outline_color=caption_cfg.get("outline_color", "&H00000000"),
+        outline_width=sub_outline_width,
+        shadow_depth=caption_cfg.get("shadow_depth", 2),
+        chunk_size=sub_chunk_size,
+        uppercase=sub_uppercase,
+        margin_v=sub_margin_v,
     )
 
     # 4. Prepare Segment Timeline & Workspace
@@ -352,11 +381,34 @@ def render_video_ffmpeg(
     # Watermark overlay
     if check_filter_supported("drawtext"):
         branding = channel_cfg.get("branding", {})
-        watermark_text = branding.get("watermark_text", channel_cfg.get("handle", "@BrainBlud"))
-        opacity = branding.get("opacity", 0.40)
+        watermark_text = branding.get("watermark_text", channel_cfg.get("handle", "@metopato"))
+        opacity = branding.get("opacity", 0.35)
+        font_size = branding.get("font_size", 26)
+        position = branding.get("position", "lower_center")
         clean_wm = watermark_text.replace(":", "\\:").replace("'", "\\'")
+
+        if position == "lower_center":
+            if is_short:
+                pos_x = "(w-text_w)/2"
+                pos_y = "h*0.62"
+            else:
+                pos_x = "w-text_w-80"
+                pos_y = "h-text_h-80"
+        elif position == "top_right":
+            pos_x = "w-text_w-80"
+            pos_y = "80" if not is_short else "180"
+        elif position == "top_left":
+            pos_x = "80"
+            pos_y = "80" if not is_short else "180"
+        elif position == "bottom_right":
+            pos_x = "w-text_w-80"
+            pos_y = "h-text_h-80" if not is_short else "h-text_h-120"
+        else:
+            pos_x = "(w-text_w)/2" if is_short else "w-text_w-80"
+            pos_y = "h*0.62" if is_short else "h-text_h-80"
+
         vf_filters.append(
-            f"drawtext=text='{clean_wm}':fontcolor=white@{opacity}:fontsize=26:x=w-text_w-80:y=180"
+            f"drawtext=text='{clean_wm}':fontcolor=white@{opacity}:fontsize={font_size}:x={pos_x}:y={pos_y}"
         )
     else:
         print("⚠️ [RENDERER] FFmpeg build lacks 'drawtext' filter — skipping watermark overlay.", flush=True)

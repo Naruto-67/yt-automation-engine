@@ -13,7 +13,7 @@ video_profiles:
     resolution: "1080x1920"
     target_duration: 55
     cut_interval_seconds: 3.5
-    visual_strategy: "abstract_retention" # Fetches high-motion satisfying/looping stock
+    visual_strategy: "asmr_retention" # High-motion satisfying ASMR/kinetic stock
     fps: 60
   long:
     aspect_ratio: "16:9"
@@ -54,13 +54,18 @@ music:
 # ─── CAPTION STYLING & HIGH-RETENTION TYPOGRAPHY ──────────────────────────────
 captions:
   font_name: "Anton"
-  font_size: 72
+  font_size: 88
+  font_size_long: 44           # Lower-third documentary sizing for 16:9 widescreen
   active_color: "&H0000FFFF" # Cyberpunk Yellow in ASS (&HAABBGGRR)
   inactive_color: "&H00FFFFFF" # Crisp white
   outline_color: "&H00000000" # Black outline
-  outline_width: 4
+  outline_width: 6
+  outline_width_long: 3        # Refined outline for long-form
   shadow_depth: 2
-  max_words_per_chunk: 3
+  max_words_per_chunk: 2
+  max_words_per_chunk_long: 6  # Natural multi-word conversational flow for long-form
+  uppercase: true
+  uppercase_long: false        # Standard sentence casing for long-form documentary
 
 # ─── DISCORD NOTIFICATIONS ───────────────────────────────────────────────────
 notifications:

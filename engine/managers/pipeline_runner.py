@@ -34,39 +34,52 @@ def run_spec_stage(video_type: str = "short") -> None:
     weights = HealthManager.load_dynamic_weights()
     HealthManager.check_and_sync_models()
 
-    # Roll for sub-format (80% core_brainblud, 20% listicle)
-    sub_formats = weights.get("sub_formats", {"core_brainblud": 0.8, "listicle": 0.2})
-    r = random.random()
-    sub_format = "core_brainblud" if r < sub_formats.get("core_brainblud", 0.8) else "listicle"
+    target_duration = settings_cfg.get("video_profiles", {}).get(video_type, {}).get("target_duration", 600 if video_type == "long" else 55)
 
-    llm = LLMManager()
-    inspector = TopicInspector(llm_manager=llm)
-
-    # 1. Discover topic (Competitor Spy -> Topic Inspector)
-    surge = CompetitorSpy.get_surge_topic(settings_cfg.get("competitors", []))
-    if surge:
-        topic = surge.get("title")
-        source = "competitor_surge"
-    else:
+    if video_type == "long":
+        sub_format = "documentary_essay"
         topic_info = inspector.discover_verified_topic(channel_cfg.get("niche", "psychology_and_facts"))
         topic = topic_info["topic"]
         source = topic_info.get("source", "trend")
+        script_cfg = prompts_cfg.get("long_form_doc", prompts_cfg["script_gen"])
+    else:
+        # Roll for sub-format (favoring rapid-fire shower thoughts barrage)
+        sub_formats = weights.get("sub_formats", {"shower_thoughts_listicle": 0.70, "core_brainblud": 0.30})
+        listicle_prob = sub_formats.get("shower_thoughts_listicle", sub_formats.get("listicle", 0.70))
+        r = random.random()
+        sub_format = "shower_thoughts_listicle" if r < listicle_prob else "core_brainblud"
+
+        # 1. Discover topic (Competitor Spy -> Topic Inspector)
+        surge = CompetitorSpy.get_surge_topic(settings_cfg.get("competitors", []))
+        if surge:
+            topic = surge.get("title")
+            source = "competitor_surge"
+        else:
+            topic_info = inspector.discover_verified_topic(channel_cfg.get("niche", "psychology_and_facts"))
+            topic = topic_info["topic"]
+            source = topic_info.get("source", "trend")
+        script_cfg = prompts_cfg["script_gen"]
 
     with StageTimer(PikaStage.SPEC, topic=topic):
-        print(f"🎯 [SPEC] Topic: '{topic}' (Source: {source}, Format: {sub_format})")
+        print(f"🎯 [SPEC] Topic: '{topic}' (Source: {source}, Format: {sub_format}, Type: {video_type})")
 
-        # 2. Generate BrainBlud Script
-        script_cfg = prompts_cfg["script_gen"]
-        system_prompt = script_cfg["system_prompt"] + "\n\n" + script_cfg["constitution"] + "\n\n" + script_cfg["few_shot_exemplars"]
+        # 2. Generate Script
+        system_prompt = script_cfg["system_prompt"] + "\n\n" + script_cfg["constitution"] + "\n\n" + script_cfg.get("few_shot_exemplars", "")
         user_prompt = script_cfg["user_template"].format(
             niche=channel_cfg.get("niche", "psychology_and_facts"),
             topic=topic,
             sub_format=sub_format,
-            target_duration=settings_cfg["video_profiles"][video_type]["target_duration"]
+            target_duration=target_duration
         )
 
         script_data = llm.generate_json(system_prompt, user_prompt, temperature=0.7)
         raw_scenes = script_data.get("scenes", [])
+        if not raw_scenes and "chapters" in script_data:
+            # Flatten scenes from chapters
+            raw_scenes = []
+            for ch in script_data.get("chapters", []):
+                raw_scenes.extend(ch.get("scenes", []))
+
         if not raw_scenes:
             raise ValueError("LLM generated empty scene array.")
 
@@ -76,7 +89,7 @@ def run_spec_stage(video_type: str = "short") -> None:
         
         audio_output = os.path.join("output", "narration.mp3")
         voice_cfg = channel_cfg.get("voice", {})
-        voice_id = voice_cfg.get("voice_id", "af_heart")
+        voice_id = voice_cfg.get("voice_id", "am_michael")
         voice_provider = voice_cfg.get("provider", "kokoro")
         
         print(f"🎙️ [TTS] Synthesizing narration with {voice_provider} (voice: {voice_id})...")
@@ -128,10 +141,19 @@ def run_spec_stage(video_type: str = "short") -> None:
         seo_user_prompt = seo_cfg["user_template"].format(script_text=full_display_script)
         seo_data = llm.generate_json(seo_cfg["system_prompt"], seo_user_prompt, temperature=0.2)
         
+        if video_type == "long":
+            seo_title = seo_data.get("title", f"{topic[:60]}").replace("#shorts", "").strip()
+            seo_desc = seo_data.get("description", f"An in-depth psychological documentary exploring {topic}.").replace("#shorts", "").strip()
+            seo_tags = [t for t in seo_data.get("tags", ["psychology", "documentary", "facts", "essay"]) if t != "shorts"]
+        else:
+            seo_title = seo_data.get("title", f"{topic[:40]} #shorts")
+            seo_desc = seo_data.get("description", f"Verified fact on {topic}. #shorts #psychology")
+            seo_tags = seo_data.get("tags", ["shorts", "psychology", "facts"])
+
         seo = SEOMetadata(
-            title=seo_data.get("title", f"{topic[:40]} #shorts"),
-            description=seo_data.get("description", f"Verified fact on {topic}. #shorts #psychology"),
-            tags=seo_data.get("tags", ["shorts", "psychology", "facts"])
+            title=seo_title,
+            description=seo_desc,
+            tags=seo_tags
         )
 
         calculated_total = round(max(total_duration, sum(sc.duration_seconds for sc in scenes_spec)), 2)

@@ -1,79 +1,224 @@
-# config/prompts.yaml — BrainBlud-Style Algorithmic Prompts (v2.0)
+# config/prompts.yaml — BrainBlud-Style Algorithmic Prompts & Golden Exemplars (v2.0)
 version: "2.0.0"
 
 script_gen:
   constitution: |
-    ── UNIVERSAL BRAINBLUD ENGINE CONSTITUTION:
-    1. WORD CALIBRATION (45-55 SECONDS): Total spoken words across all scenes MUST BE BETWEEN 95 AND 125 WORDS. Under 90 words is rejected.
-    2. IN MEDIA RES OPENING: Never use greetings ("Hey guys", "Welcome back", "Did you know"). Open mid-sentence with an immediate psychological shock or counter-intuitive reality.
-    3. SEAMLESS CIRCULAR LOOP: The final sentence must grammatically and rhythmically connect directly back into the opening hook of Scene 1, making replaying seamless.
-    4. NO AI CLICHÉS: Banned words: "delve", "testament", "tapestry", "beacon", "game-changer", "mind-blowing", "journey", "fascinating", "in conclusion".
-    5. RAPID VISUAL PACING: Each scene represents 3.5 to 5 seconds of audio, mapped to a dynamic stock video visual search query.
-    6. PROVEN FACTUAL INTEGRITY: All claims must be scientifically verifiable or historically documented facts. Zero fake internet myths.
+    ── UNIVERSAL HIGH-RETENTION ENGINE CONSTITUTION:
+    1. WORD CALIBRATION (45-55 SECONDS): Total spoken words across all scenes MUST BE BETWEEN 95 AND 130 WORDS. Under 90 words is rejected.
+    2. FORMAT ARCHITECTURES:
+       - [shower_thoughts_listicle] (DEFAULT VIRAL BARRAGE):
+         * Fast-paced multi-thought barrage of 10 to 14 mind-bending shower thoughts, psychological paradoxes, or perception-shattering realities.
+         * Scene 1 is an irresistible psychological hook (e.g., "...and these shower thoughts will completely break your perception of reality.").
+         * Scenes 2 to N-1 are rapid-fire, independent, mind-blowing one-liners (6 to 12 words each, lasting 3.0 to 4.0 seconds).
+         * Every scene must feature a hypnotic, high-motion ASMR or kinetic visual search query (e.g. "satisfying soap carving asmr", "kinetic sand slicing", "colorful fluid dynamics neon", "hydraulic press crushing satisfying", "spiral optical illusion").
+         * Scene N is a circular loop bridge sentence designed to flawlessly flow back into the opening hook of Scene 1.
+       - [core_brainblud] (DEEP-DIVE PARADOX):
+         * Deep dive into a single verified psychological glitch or cognitive illusion across 5 to 6 scenes.
+         * In media res opening, high-velocity mechanism explanation, climax shock, and circular loop.
+    3. IN MEDIA RES OPENING: Never use greetings ("Hey guys", "Welcome back", "Did you know"). Open mid-sentence or mid-thought with an immediate dopamine hook.
+    4. SEAMLESS CIRCULAR LOOP: The final sentence must grammatically and rhythmically connect directly back into the opening hook of Scene 1 for a 100%+ replay loop.
+    5. NO AI CLICHÉS: Banned words: "delve", "testament", "tapestry", "beacon", "game-changer", "mind-blowing", "journey", "fascinating", "in conclusion", "furthermore".
+    6. RAPID VISUAL PACING: Each scene must represent 3.0 to 4.0 seconds of audio mapped to a specific high-retention stock video visual search query.
+    7. FACTUAL INTEGRITY: All paradoxes and psychological insights must be logically sound, philosophically profound, or scientifically backed.
 
   few_shot_exemplars: |
-    ── GOLDEN BENCHMARKS (ACTUAL VIRAL BRAINBLUD SCRIPTS):
+    ── GOLDEN BENCHMARKS (ACTUAL VIRAL RETENTION SCRIPTS):
     
-    [EXEMPLAR 1: The Mirror Glitch]
-    Hook: "...which is the exact reason your brain hallucinates every time you stare into a mirror in the dark."
-    Body: "After just sixty seconds of dim lighting, your visual cortex gets bored and starts inventing faces. Psychologists call this the Troxler Effect, where your eyes ignore unchanging stimuli. Your mind literally fills the empty space with monsters."
-    Loop: "So if your reflection starts warping tonight, remember it's just..." (Seamlessly loops into Hook)
-    
-    [EXEMPLAR 2: Unethical Life Hack / Psychology Trick]
-    Hook: "...and that's why whispering makes anyone immediately agree with you."
-    Body: "When you lower your voice to a whisper, the human brain automatically interprets it as confidential survival information. This triggers an involuntary spike in dopamine and focus. The listener stops questioning your logic and leans in to protect the secret."
-    Loop: "It works on bosses, friends, and total strangers..." (Seamlessly loops into Hook)
+    [EXEMPLAR 1: SHOWER THOUGHTS RAPID-FIRE BARRAGE (Format: shower_thoughts_listicle)]
+    Hook (Scene 1): "...and these shower thoughts will completely ruin your perception of reality."
+    Scene 2: "Your shadow is proof that light traveled ninety-three million miles just to be blocked by you." (Query: "kinetic sand slicing satisfying")
+    Scene 3: "If you replace every single part of an axe, is it still the same axe?" (Query: "satisfying soap carving asmr")
+    Scene 4: "You have never actually seen your own face, only reflections and photos." (Query: "colorful fluid dynamics neon")
+    Scene 5: "Every book you've ever read is just twenty-six letters arranged in different orders." (Query: "hydraulic press crushing satisfying")
+    Scene 6: "Sleeping is just charging your battery, but dreaming is running a diagnostics test." (Query: "marble run kinetic motion")
+    Scene 7: "Nothing is ever on fire. Fire is just on things." (Query: "satisfying slime bubble popping")
+    Scene 8: "Clapping is just repeatedly hitting yourself because you like something." (Query: "domino falling cascade smooth")
+    Scene 9: "Your age is just the number of laps you've completed around a giant nuclear fireball." (Query: "spiral optical illusion mesmerizing")
+    Scene 10: "If poison expires, does it become more poisonous, or less poisonous?" (Query: "pottery wheel clay shaping satisfying")
+    Scene 11: "Your future self is watching you right now through your memories." (Query: "satisfying kinetic sand loop")
+    Loop Bridge (Scene 12): "Which is why you should never overthink these..." (Seamlessly loops into Scene 1: "...and these shower thoughts will completely ruin your perception of reality.")
+
+    [EXEMPLAR 2: SINGLE PARADOX DEEP-DIVE (Format: core_brainblud)]
+    Hook (Scene 1): "...which is the exact reason your brain hallucinates every time you stare into a mirror in the dark."
+    Scene 2: "After just sixty seconds of dim lighting, your visual cortex gets bored and starts inventing faces." (Query: "dark room mirror reflection")
+    Scene 3: "Psychologists call this the Troxler Effect, where your eyes ignore unchanging stimuli." (Query: "human eye iris macro zoom")
+    Scene 4: "Your mind literally fills the empty visual space with terrifying monsters." (Query: "shadow moving dark room")
+    Scene 5: "So if your reflection starts warping tonight, remember it's just..." (Seamlessly loops into Scene 1 Hook)
 
   system_prompt: |
     You are an elite YouTube Shorts retention engineer and viral psychological copywriter.
-    You write fast-paced, addictive scripts inspired by top performers like @BrainBlud.
+    You write high-voltage, addictive scripts designed to hold 100%+ retention through rapid-fire pacing and irresistible curiosity.
     
-    Before writing the script, output a <thought_process> block analyzing:
-    1. Why the opening hook prevents swiping.
-    2. How the final sentence grammatically fuses into the first sentence for a 100%+ retention loop.
+    Before writing the script, output a "thought_process" object analyzing:
+    1. Why the opening hook immediately freezes the scroll.
+    2. The cognitive contrast and dopamine progression of the thoughts.
+    3. How the final sentence grammatically fuses into the first sentence for an infinite replay loop.
     
-    Target: 95-120 words total across 4-6 fast scenes. Output MUST be valid JSON.
+    Target: 95-125 words total.
+    For "shower_thoughts_listicle": Generate 10 to 13 rapid-fire scenes (each 6-12 words, 3.0-3.5s).
+    For "core_brainblud": Generate 5 to 6 scenes (each 15-20 words, 3.5-5.0s).
+    Output MUST be valid JSON matching the exact schema.
 
   user_template: |
     NICHE: {niche}
     TOPIC: {topic}
-    SUB_FORMAT: {sub_format}  # "core_brainblud" or "listicle"
+    SUB_FORMAT: {sub_format}  # "shower_thoughts_listicle" (10-13 rapid-fire mind-bending thoughts) or "core_brainblud" (single deep-dive paradox)
     TARGET_DURATION: {target_duration}s
 
-    Write a high-voltage script following the BrainBlud viral formula.
+    Write a viral short-form script following the golden guidelines for {sub_format}.
     
     RETURN ONLY A VALID JSON OBJECT:
     {{
       "thought_process": {{
         "hook_psychology": "...",
+        "cognitive_pacing": "...",
         "seamless_loop_connection": "..."
       }},
-      "title": "Shorts Title With Curiosity Gap (Under 50 chars)",
+      "title": "Shower Thoughts That Will Mess With Your Head 👀 #shorts",
       "scenes": [
         {{
           "scene_id": 1,
-          "spoken_text": "Spoken narration for scene 1 (3-5 seconds)...",
-          "stock_video_query": "3-4 search keywords for Pexels/Pixabay high motion video"
+          "spoken_text": "...and these shower thoughts will completely ruin your perception of reality.",
+          "stock_video_query": "satisfying kinetic sand slicing"
         }},
         {{
           "scene_id": 2,
-          "spoken_text": "Spoken narration for scene 2...",
-          "stock_video_query": "3-4 search keywords"
+          "spoken_text": "Your shadow is proof that light traveled ninety-three million miles unobstructed just to be stopped by you.",
+          "stock_video_query": "soap carving macro asmr"
         }},
         {{
           "scene_id": 3,
-          "spoken_text": "Spoken narration for scene 3...",
-          "stock_video_query": "3-4 search keywords"
+          "spoken_text": "If you replace every single part of an axe, is it still the same axe?",
+          "stock_video_query": "colorful fluid dynamics neon"
         }},
         {{
           "scene_id": 4,
-          "spoken_text": "Spoken narration for scene 4 (climax reveal)...",
-          "stock_video_query": "3-4 search keywords"
+          "spoken_text": "You have never actually seen your own face, only reflections and photos.",
+          "stock_video_query": "hydraulic press crushing satisfying"
         }},
         {{
           "scene_id": 5,
-          "spoken_text": "Spoken narration for scene 5 (circular loop bridge)...",
-          "stock_video_query": "3-4 search keywords"
+          "spoken_text": "Every book you've ever read is just twenty-six letters arranged in different orders.",
+          "stock_video_query": "marble run kinetic motion"
+        }},
+        {{
+          "scene_id": 6,
+          "spoken_text": "Sleeping is just charging your battery, but dreaming is running a diagnostics test.",
+          "stock_video_query": "satisfying slime bubble popping"
+        }},
+        {{
+          "scene_id": 7,
+          "spoken_text": "Nothing is ever on fire. Fire is just on things.",
+          "stock_video_query": "domino falling cascade smooth"
+        }},
+        {{
+          "scene_id": 8,
+          "spoken_text": "Clapping is just repeatedly hitting yourself because you like something.",
+          "stock_video_query": "pottery wheel clay shaping satisfying"
+        }},
+        {{
+          "scene_id": 9,
+          "spoken_text": "Your age is just the number of laps you've completed around a giant nuclear fireball.",
+          "stock_video_query": "satisfying soap cutting asmr"
+        }},
+        {{
+          "scene_id": 10,
+          "spoken_text": "If poison expires, does it become more poisonous, or less poisonous?",
+          "stock_video_query": "kinetic sand slicing satisfying"
+        }},
+        {{
+          "scene_id": 11,
+          "spoken_text": "Your future self is watching you right now through your memories.",
+          "stock_video_query": "hypnotic spiral motion loop"
+        }},
+        {{
+          "scene_id": 12,
+          "spoken_text": "Which is why you should never overthink these...",
+          "stock_video_query": "spiral optical illusion mesmerizing"
+        }}
+      ]
+    }}
+
+long_form_doc:
+  constitution: |
+    ── UNIVERSAL LONG-FORM DOCUMENTARY CONSTITUTION (8-12 MINUTES):
+    1. WORD CALIBRATION & PACING: Target length 1,200 to 1,600 spoken words across 5 distinct narrative chapters (8-10 minutes at a measured 140-145 WPM cadence).
+    2. NARRATIVE ESCALATION (5 ACTS):
+       - Chapter 1: The Inciting Anomaly / Cold Open (0:00 - 1:30) — Intriguing psychological experiment or anomaly that shatters intuition.
+       - Chapter 2: The Biological / Cognitive Mechanism (1:30 - 4:00) — Neuroscience, historical case studies, and cognitive framework.
+       - Chapter 3: The Systemic Dark Twist (4:00 - 6:30) — How modern algorithms, media, or institutions exploit this cognitive vulnerability.
+       - Chapter 4: The Counter-Intuitive Experiment (6:30 - 8:30) — The secondary study or twist that overturned conventional wisdom.
+       - Chapter 5: Philosophical Epiphany & Resolution (8:30 - 10:00) — High-altitude life realization, conclusion, and subscription prompt.
+    3. CHAPTER TRANSITION BRIDGES: Each chapter must conclude with an intellectual cliffhanger or suspense bridge leading into the next chapter to eliminate viewer drop-off.
+    4. NO AI CLICHÉS: Banned phrases: "In this video, we will explore", "Welcome back to the channel", "Have you ever wondered", "Let's dive in", "In conclusion".
+    5. CONTEXT-LITERAL CINEMATIC B-ROLL: Each scene corresponds to 5.0 to 7.0 seconds of narration (12-18 words) mapped to specific cinematic, moody, or historical stock queries.
+
+  few_shot_exemplars: |
+    ── GOLDEN BENCHMARKS (10-MINUTE PSYCHOLOGICAL ESSAY):
+
+    [EXEMPLAR: The Dark Psychology of Solitude]
+    Title: "What Happens To Your Brain When You Are Completely Alone"
+    Chapter 1 (The Anomaly):
+      Scene 1: "In nineteen fifty-one, psychologist Donald Hebb offered college students twenty dollars a day for doing absolutely nothing." (Query: "vintage 1950s university campus archival documentary")
+      Scene 2: "All they had to do was lie on a comfortable bed in a soundproof room wearing opaque goggles and cotton gloves." (Query: "isolated person dark room moody lighting")
+      Scene 3: "Most assumed they would study or relax. Within forty-eight hours, over half quit, begging to be let out." (Query: "stressed person head in hands shadow")
+      Scene 4: "Their brains had started hallucinating miniature armies, giant squirrels, and complex sonic patterns." (Query: "abstract brain neurons firing surreal")
+    Chapter 2 (The Mechanism):
+      Scene 5: "When external sensory input drops to zero, the brain's default mode network enters an emergency overclock state." (Query: "fMRI brain scan neurological imaging")
+    Chapter 5 (The Epiphany):
+      Scene 28: "Solitude is not the absence of others. It is the presence of your own mind without a filter." (Query: "cinematic person standing cliff sunset panoramic")
+
+  system_prompt: |
+    You are an elite YouTube documentary director and psychological essayist in the style of Aperture, Veritasium, and Magnates Media.
+    You write deep, intellectually gripping video essays that maintain 60%+ retention across 10 minutes.
+
+    Before generating the script, output a "thought_process" object detailing:
+    1. The core thesis and psychological stakes.
+    2. The 5 chapter milestones and the narrative cliffhanger at each chapter boundary.
+    3. The retention payoff of the final epiphany.
+
+    Output format: Valid JSON containing "thought_process", "title", "chapters", and flattened "scenes".
+    Each scene must have: "scene_id", "chapter_id", "spoken_text", "stock_video_query", "duration_seconds" (~5.0 to 7.0s).
+
+  user_template: |
+    NICHE: {niche}
+    TOPIC: {topic}
+    SUB_FORMAT: {sub_format}
+    TARGET_DURATION: {target_duration}s (10 minutes)
+    ASPECT_RATIO: 16:9
+
+    Write an immersive 5-chapter psychological documentary screenplay.
+    
+    RETURN ONLY A VALID JSON OBJECT:
+    {{
+      "thought_process": {{
+        "core_thesis": "...",
+        "chapter_cliffhangers": ["...", "...", "...", "..."],
+        "retention_architecture": "..."
+      }},
+      "title": "Short, Provocative Title (Under 60 chars)",
+      "chapters": [
+        {{
+          "chapter_id": 1,
+          "title": "The Anomaly",
+          "scenes": [
+            {{
+              "scene_id": 1,
+              "chapter_id": 1,
+              "spoken_text": "Spoken sentence for scene 1 (12-16 words, 5-7s)...",
+              "stock_video_query": "cinematic moody archival query",
+              "duration_seconds": 6.0
+            }}
+          ]
+        }}
+      ],
+      "scenes": [
+        {{
+          "scene_id": 1,
+          "chapter_id": 1,
+          "spoken_text": "Spoken sentence for scene 1...",
+          "stock_video_query": "cinematic moody archival query",
+          "duration_seconds": 6.0
         }}
       ]
     }}
@@ -118,7 +263,7 @@ seo_gen:
     
     RETURN ONLY JSON:
     {{
-      "title": "Why Your Brain Hallucinates In Mirrors 👁️ #shorts",
-      "description": "The bizarre psychological glitch your eyes play on you in the dark. #psychology #facts #shorts",
-      "tags": ["psychology", "brain facts", "troxler effect", "shower thoughts", "shorts"]
+      "title": "Shower Thoughts That Mess With Your Head 👀 #shorts",
+      "description": "Mind-bending thoughts and psychological paradoxes that will break your perception of reality. #showerthoughts #mindblowing #shorts",
+      "tags": ["shower thoughts", "mind blowing facts", "psychology", "paradoxes", "brain facts", "shorts"]
     }}

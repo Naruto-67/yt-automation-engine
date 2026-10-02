@@ -1,18 +1,18 @@
 # config/channel_config.yaml — Single Channel Configuration (v2.0)
 channel:
-  name: "BrainBlud"
-  handle: "@BrainBlud"
+  name: "TOPATO"
+  handle: "@metopato"
   niche: "psychology_and_facts"
   language: "en-US"
   voice:
     provider: "kokoro"
-    voice_id: "af_heart" # Flagship Grade A Kokoro voice (or af_bella, am_fenrir)
+    voice_id: "am_michael" # Flagship Grade A Kokoro American Male voice (also am_fenrir, am_adam)
     fallback_voice_id: "en-US-ChristopherNeural"
   branding:
     enabled: true
-    watermark_text: "@BrainBlud"
-    opacity: 0.40 # Subtle transparency (40%)
-    position: "top_right" # Options: "top_right", "top_center", "above_title"
+    watermark_text: "@metopato"
+    opacity: 0.35 # Subtle, elegant branding transparency (35%)
+    position: "lower_center" # Lower-center sweet spot below captions
     font_size: 26
     font_family: "Montserrat-SemiBold"
   upload_defaults:

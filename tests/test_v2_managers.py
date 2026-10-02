@@ -108,6 +108,17 @@ def test_voice_normalizer_kokoro_voice_detection_and_fallback_mapping():
     assert VoiceNormalizer.KOKORO_TO_EDGE_VOICE_MAP["hf_alpha"] == "hi-IN-SwaraNeural"
 
 
+def test_voice_normalizer_enforce_male_voice():
+    """Verifies that female voice requests are strictly remapped to male voices."""
+    assert VoiceNormalizer.enforce_male_voice("af_heart") == "am_michael"
+    assert VoiceNormalizer.enforce_male_voice("af_bella") == "am_fenrir"
+    assert VoiceNormalizer.enforce_male_voice("bf_emma") == "bm_george"
+    assert VoiceNormalizer.enforce_male_voice("en-US-JennyNeural") == "en-US-ChristopherNeural"
+    assert VoiceNormalizer.enforce_male_voice("en-US-AvaNeural") == "en-US-GuyNeural"
+    assert VoiceNormalizer.enforce_male_voice("am_michael") == "am_michael"
+    assert VoiceNormalizer.enforce_male_voice("en-US-ChristopherNeural") == "en-US-ChristopherNeural"
+
+
 # ─── 3. ERROR MANAGER TESTS ──────────────────────────────────────────────────
 
 def test_error_manager_triage_categories():

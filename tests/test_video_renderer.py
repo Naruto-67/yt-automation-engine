@@ -156,3 +156,87 @@ def test_render_video_ffmpeg_segmented_pipeline(tmp_path, monkeypatch):
     assert "-c:a" in final_cmd and final_cmd[final_cmd.index("-c:a") + 1] == "aac"
     assert output_video in final_cmd
 
+
+def test_render_video_ffmpeg_long_form(tmp_path, monkeypatch):
+    """Verifies that 16:9 long-form video assembly scales to 1920x1080 with lower-third subtitles."""
+    output_video = str(tmp_path / "long_render.mp4")
+    raw_clip_1 = str(tmp_path / "clip_1.mp4")
+    audio_path = str(tmp_path / "narration.mp3")
+
+    with open(raw_clip_1, "wb") as f:
+        f.write(b"0" * 200000)
+    with open(audio_path, "wb") as f:
+        f.write(b"0" * 5000)
+
+    spec = SpecOutput(
+        topic="Solitude and Brain",
+        video_type="long",
+        sub_format="documentary_essay",
+        seo=SEOMetadata(title="Psychology of Solitude", description="Deep dive", tags=["psychology"]),
+        scenes=[
+            SceneSpec(scene_id=1, spoken_text="In nineteen fifty-one, students were paid twenty dollars.", phonetic_text="In nineteen fifty-one, students were paid twenty dollars.", stock_video_query="vintage library", duration_seconds=6.0, word_timestamps=[]),
+        ],
+        total_duration_seconds=6.0,
+        audio_path=audio_path
+    )
+
+    clips_manifest = ClipsManifest(
+        topic="Solitude and Brain",
+        video_type="long",
+        clips=[
+            ClipItem(scene_id=1, query="vintage library", download_url="http://mock.url/1.mp4", provider="pexels", video_id="201", width=1920, height=1080),
+        ]
+    )
+
+    channel_cfg = {
+        "handle": "@metopato",
+        "branding": {"watermark_text": "@metopato", "opacity": 0.35, "position": "lower_center"}
+    }
+    settings_cfg = {
+        "video_profiles": {
+            "long": {"preset": "fast", "fps": 30}
+        },
+        "captions": {
+            "font_size_long": 44,
+            "max_words_per_chunk_long": 6,
+            "outline_width_long": 3,
+            "uppercase_long": False
+        }
+    }
+
+    monkeypatch.setattr("scripts.render_video.download_clip", lambda url, dest, prov, vid: dest)
+    monkeypatch.setattr("scripts.render_video.download_cinematic_font", lambda: "Arial")
+    monkeypatch.setattr("scripts.render_video.check_filter_supported", lambda f: True)
+
+    executed_cmds = []
+
+    def mock_subprocess_run(cmd, *args, **kwargs):
+        executed_cmds.append(cmd)
+        target = cmd[-1]
+        with open(target, "wb") as f:
+            f.write(b"0" * 1000)
+        return MagicMock(returncode=0, stderr="")
+
+    monkeypatch.setattr("subprocess.run", mock_subprocess_run)
+
+    render_video_ffmpeg(
+        spec=spec,
+        clips_manifest=clips_manifest,
+        output_video_path=output_video,
+        channel_cfg=channel_cfg,
+        settings_cfg=settings_cfg
+    )
+
+    # 1. Step 1: verify 1920x1080 resolution normalization
+    seg_cmd = executed_cmds[0]
+    assert "scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080" in seg_cmd[seg_cmd.index("-vf") + 1]
+
+    # 2. Step 3: verify 16:9 branding positioning
+    final_cmd = executed_cmds[2]
+    vf_str = final_cmd[final_cmd.index("-vf") + 1]
+    assert "drawtext" in vf_str
+    assert "subtitles" in vf_str
+    assert "w-text_w-80" in vf_str
+    assert "h-text_h-80" in vf_str
+
+
