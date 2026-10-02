@@ -187,17 +187,28 @@ def render_video_ffmpeg(
 
     # 3. Calculate Target Total Duration (Safeguard against 0.0s)
     narration_path = spec.audio_path or os.path.join("output", "narration.mp3")
+    if not os.path.exists(narration_path) and os.path.exists(os.path.join("output", "narration.wav")):
+        narration_path = os.path.join("output", "narration.wav")
+
     total_duration = spec.total_duration_seconds or sum(s.duration_seconds for s in spec.scenes)
     if not total_duration or total_duration <= 0.0:
         # Measure narration audio file if present
-        try:
-            from mutagen.mp3 import MP3
-            if os.path.exists(narration_path):
-                audio = MP3(narration_path)
-                if audio.info and audio.info.length > 0:
-                    total_duration = round(float(audio.info.length), 2)
-        except Exception:
-            pass
+        if os.path.exists(narration_path):
+            try:
+                if narration_path.endswith(".wav"):
+                    import wave
+                    with wave.open(narration_path, "rb") as wf:
+                        frames = wf.getnframes()
+                        rate = wf.getframerate()
+                        if rate > 0:
+                            total_duration = round(frames / float(rate), 2)
+                else:
+                    from mutagen.mp3 import MP3
+                    audio = MP3(narration_path)
+                    if audio.info and audio.info.length > 0:
+                        total_duration = round(float(audio.info.length), 2)
+            except Exception:
+                pass
 
     if not total_duration or total_duration <= 0.0:
         if os.path.exists(narration_path):

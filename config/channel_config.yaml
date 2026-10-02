@@ -5,8 +5,9 @@ channel:
   niche: "psychology_and_facts"
   language: "en-US"
   voice:
-    provider: "edge-tts"
-    voice_id: "en-US-ChristopherNeural"
+    provider: "kokoro"
+    voice_id: "af_heart" # Flagship Grade A Kokoro voice (or af_bella, am_fenrir)
+    fallback_voice_id: "en-US-ChristopherNeural"
   branding:
     enabled: true
     watermark_text: "@BrainBlud"

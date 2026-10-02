@@ -34,11 +34,22 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+      - name: Install System Audio & TTS Dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq espeak-ng libsndfile1 ffmpeg > /dev/null 2>&1
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
           cache: 'pip'
           cache-dependency-path: requirements/spec.txt
+      - name: Cache Hugging Face Kokoro Models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface/hub
+          key: kokoro-hf-models-v1
+          restore-keys: |
+            kokoro-hf-models-
       - name: Install Stage Dependencies
         run: pip install -r requirements/spec.txt
       - name: Run Spec Generation
@@ -57,6 +68,7 @@ jobs:
           path: |
             output/spec.json
             output/narration.mp3
+            output/narration.wav
           if-no-files-found: warn
           retention-days: 1
 

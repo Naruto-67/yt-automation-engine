@@ -89,6 +89,25 @@ def test_voice_normalizer_clean_spoken_flow():
     assert "number 1" in normalized.lower()
 
 
+def test_voice_normalizer_kokoro_voice_detection_and_fallback_mapping():
+    """Verifies Kokoro language detection, voice identification, and Edge-TTS mapping."""
+    assert VoiceNormalizer.detect_lang_code("af_heart") == "a"
+    assert VoiceNormalizer.detect_lang_code("bf_emma") == "b"
+    assert VoiceNormalizer.detect_lang_code("hf_alpha") == "h"
+    assert VoiceNormalizer.detect_lang_code("ff_siwis") == "f"
+    assert VoiceNormalizer.detect_lang_code("af_heart+af_bella") == "a"
+    assert VoiceNormalizer.detect_lang_code("unknown") == "a"
+
+    assert VoiceNormalizer.is_kokoro_voice("af_heart") is True
+    assert VoiceNormalizer.is_kokoro_voice("af_bella") is True
+    assert VoiceNormalizer.is_kokoro_voice("am_fenrir") is True
+    assert VoiceNormalizer.is_kokoro_voice("en-US-ChristopherNeural") is False
+
+    assert VoiceNormalizer.KOKORO_TO_EDGE_VOICE_MAP["af_heart"] == "en-US-JennyNeural"
+    assert VoiceNormalizer.KOKORO_TO_EDGE_VOICE_MAP["am_michael"] == "en-US-ChristopherNeural"
+    assert VoiceNormalizer.KOKORO_TO_EDGE_VOICE_MAP["hf_alpha"] == "hi-IN-SwaraNeural"
+
+
 # ─── 3. ERROR MANAGER TESTS ──────────────────────────────────────────────────
 
 def test_error_manager_triage_categories():

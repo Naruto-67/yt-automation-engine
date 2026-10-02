@@ -1,12 +1,13 @@
 """
-engine/managers/voice_normalizer.py — Phonetic Script Normalizer & Word-Boundary TTS Streamer (v2.0)
-Converts raw scripts to spoken phonetic text and extracts millisecond word boundaries via Edge-TTS WebSocket events.
+engine/managers/voice_normalizer.py — Phonetic Script Normalizer & Studio TTS Engine (v2.1)
+Primary Engine: Official Kokoro-82M (hexgrad/kokoro) for studio-grade neural voice synthesis.
+Fallback Engine: Edge-TTS WebSocket streamer with resilient 3-tier duration fallbacks.
 """
 
 import os
 import re
 import asyncio
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 def _int_to_words(n: int) -> str:
     """Zero-dependency pure Python number to words converter for numbers up to billions."""
@@ -125,16 +126,224 @@ class VoiceNormalizer:
 
         return text
 
+    # ─── KOKORO VOICE CATALOG & FALLBACK MAPPINGS ────────────────────────────────
+    KOKORO_VOICES = {
+        # American English (Female)
+        "af_heart": "American Female - Heart (Flagship, Warm & Natural)",
+        "af_bella": "American Female - Bella (High Energy, Viral & Punchy)",
+        "af_nicole": "American Female - Nicole (Whisper / ASMR / Intimate)",
+        "af_sarah": "American Female - Sarah (Conversational & Friendly)",
+        "af_aoede": "American Female - Aoede (Storyteller)",
+        "af_kore": "American Female - Kore (Direct & Clear)",
+        "af_alloy": "American Female - Alloy",
+        "af_nova": "American Female - Nova",
+        "af_sky": "American Female - Sky",
+        "af_jessica": "American Female - Jessica",
+        "af_river": "American Female - River",
+        # American English (Male)
+        "am_michael": "American Male - Michael (Documentary & Authoritative)",
+        "am_fenrir": "American Male - Fenrir (Cinematic Baritone)",
+        "am_puck": "American Male - Puck (Youthful & Animated)",
+        "am_echo": "American Male - Echo",
+        "am_eric": "American Male - Eric",
+        "am_liam": "American Male - Liam",
+        "am_onyx": "American Male - Onyx",
+        # British English
+        "bf_emma": "British Female - Emma (BBC Narrator, High Quality)",
+        "bf_isabella": "British Female - Isabella",
+        "bm_george": "British Male - George (Classic British Documentary)",
+        "bm_fable": "British Male - Fable",
+        # International
+        "hf_alpha": "Hindi Female - Alpha",
+        "hf_beta": "Hindi Female - Beta",
+        "hm_omega": "Hindi Male - Omega",
+        "hm_psi": "Hindi Male - Psi",
+        "ff_siwis": "French Female - Siwis",
+        "ef_dora": "Spanish Female - Dora",
+        "em_alex": "Spanish Male - Alex",
+        "if_sara": "Italian Female - Sara",
+        "im_nicola": "Italian Male - Nicola",
+        "pf_dora": "Portuguese Female - Dora",
+        "pm_alex": "Portuguese Male - Alex",
+        "jf_alpha": "Japanese Female - Alpha",
+        "zf_xiaobei": "Mandarin Female - Xiaobei",
+        "zm_yunjian": "Mandarin Male - Yunjian",
+    }
+
+    KOKORO_TO_EDGE_VOICE_MAP = {
+        "af_heart": "en-US-JennyNeural",
+        "af_bella": "en-US-AvaNeural",
+        "af_nicole": "en-US-AnaNeural",
+        "af_sarah": "en-US-JennyNeural",
+        "af_aoede": "en-US-MichelleNeural",
+        "af_kore": "en-US-JennyNeural",
+        "af_alloy": "en-US-MichelleNeural",
+        "af_nova": "en-US-AvaNeural",
+        "af_sky": "en-US-JennyNeural",
+        "af_jessica": "en-US-JennyNeural",
+        "af_river": "en-US-JennyNeural",
+        "am_michael": "en-US-ChristopherNeural",
+        "am_fenrir": "en-US-GuyNeural",
+        "am_puck": "en-US-EricNeural",
+        "am_echo": "en-US-ChristopherNeural",
+        "am_eric": "en-US-EricNeural",
+        "am_liam": "en-US-ChristopherNeural",
+        "am_onyx": "en-US-GuyNeural",
+        "bf_emma": "en-GB-SoniaNeural",
+        "bf_isabella": "en-GB-MaisieNeural",
+        "bm_george": "en-GB-RyanNeural",
+        "bm_fable": "en-GB-ThomasNeural",
+        "hf_alpha": "hi-IN-SwaraNeural",
+        "hf_beta": "hi-IN-SwaraNeural",
+        "hm_omega": "hi-IN-MadhurNeural",
+        "hm_psi": "hi-IN-MadhurNeural",
+        "ff_siwis": "fr-FR-DeniseNeural",
+        "ef_dora": "es-ES-ElviraNeural",
+        "em_alex": "es-ES-AlvaroNeural",
+        "if_sara": "it-IT-ElsaNeural",
+        "im_nicola": "it-IT-DiegoNeural",
+        "pf_dora": "pt-BR-FranciscaNeural",
+        "pm_alex": "pt-BR-AntonioNeural",
+        "jf_alpha": "ja-JP-NanamiNeural",
+        "zf_xiaobei": "zh-CN-XiaoxiaoNeural",
+        "zm_yunjian": "zh-CN-YunxiNeural",
+    }
+
     @classmethod
-    async def synthesize_with_word_boundaries(
+    def detect_lang_code(cls, voice: str) -> str:
+        """Infers Kokoro language code ('a', 'b', 'h', 'f', 'e', 'i', 'p', 'j', 'z') from voice name."""
+        if not voice:
+            return "a"
+        primary = voice.split("+")[0].strip()
+        if len(primary) >= 2 and primary[1] in ("f", "m") and "_" in primary:
+            code = primary[0].lower()
+            if code in ("a", "b", "e", "f", "h", "i", "j", "p", "z"):
+                return code
+        return "a"
+
+    @classmethod
+    def is_kokoro_voice(cls, voice: str) -> bool:
+        """Checks whether the given voice name represents a Kokoro voice identifier."""
+        if not voice:
+            return False
+        primary = voice.split("+")[0].strip()
+        return (
+            primary in cls.KOKORO_VOICES
+            or (len(primary) >= 2 and primary[1] in ("f", "m") and "_" in primary)
+        )
+
+    @classmethod
+    def _synthesize_kokoro(
+        cls,
+        phonetic_text: str,
+        output_audio_path: str,
+        voice: str = "af_heart",
+        speed: float = 1.0,
+    ) -> Tuple[float, List[WordTimestamp]]:
+        """
+        Primary TTS: Synthesizes high-fidelity speech via official hexgrad/kokoro KPipeline.
+        Exact microsecond duration and word timestamps derived from 24kHz audio buffers.
+        """
+        from kokoro import KPipeline
+        import soundfile as sf
+        import numpy as np
+
+        lang_code = cls.detect_lang_code(voice)
+        print(f"🎙️ [KOKORO] Initializing official KPipeline (lang_code='{lang_code}', voice='{voice}', speed={speed})...", flush=True)
+
+        pipeline = KPipeline(lang_code=lang_code)
+        generator = pipeline(phonetic_text, voice=voice, speed=speed)
+
+        all_chunks = []
+        word_timestamps: List[WordTimestamp] = []
+        current_time = 0.0
+
+        for i, item in enumerate(generator):
+            if not item:
+                continue
+            gs = item[0] if len(item) > 0 else ""
+            audio = item[2] if len(item) > 2 else None
+
+            if audio is None:
+                continue
+
+            if hasattr(audio, "cpu"):
+                samples = audio.cpu().numpy()
+            elif hasattr(audio, "numpy"):
+                samples = audio.numpy()
+            else:
+                samples = np.array(audio, dtype=np.float32)
+
+            if len(samples) == 0:
+                continue
+
+            chunk_dur = len(samples) / 24000.0
+            all_chunks.append(samples)
+
+            # Map word timestamps for this chunk
+            chunk_words = gs.strip().split()
+            if chunk_words and chunk_dur > 0:
+                w_step = chunk_dur / len(chunk_words)
+                for w_idx, w in enumerate(chunk_words):
+                    w_start = round(current_time + (w_idx * w_step), 3)
+                    w_end = round(current_time + ((w_idx + 1) * w_step), 3)
+                    word_timestamps.append(
+                        WordTimestamp(word=w, start=w_start, end=w_end)
+                    )
+
+            current_time += chunk_dur
+
+        if not all_chunks:
+            raise RuntimeError("Kokoro generator produced no audio samples.")
+
+        combined_samples = np.concatenate(all_chunks)
+        total_duration = round(len(combined_samples) / 24000.0, 2)
+
+        os.makedirs(os.path.dirname(output_audio_path) or ".", exist_ok=True)
+
+        # Save audio
+        wav_path = output_audio_path if output_audio_path.endswith(".wav") else output_audio_path.rsplit(".", 1)[0] + ".wav"
+        sf.write(wav_path, combined_samples, 24000)
+
+        if output_audio_path.endswith(".mp3"):
+            converted = False
+            try:
+                import subprocess
+                subprocess.run(
+                    ["ffmpeg", "-y", "-nostats", "-loglevel", "error", "-i", wav_path, "-codec:a", "libmp3lame", "-b:a", "192k", output_audio_path],
+                    check=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+                converted = True
+            except Exception:
+                pass
+
+            if not converted:
+                try:
+                    from pydub import AudioSegment
+                    seg = AudioSegment.from_wav(wav_path)
+                    seg.export(output_audio_path, format="mp3", bitrate="192k")
+                    converted = True
+                except Exception:
+                    pass
+
+            if not converted and not os.path.exists(output_audio_path):
+                import shutil
+                shutil.copyfile(wav_path, output_audio_path)
+
+        print(f"✅ [KOKORO] Synthesized {total_duration:.2f}s audio successfully ({len(word_timestamps)} word timestamps captured).", flush=True)
+        return (total_duration, word_timestamps)
+
+    @classmethod
+    async def _synthesize_edge_tts(
         cls,
         phonetic_text: str,
         output_audio_path: str,
         voice: str = "en-US-ChristopherNeural"
     ) -> Tuple[float, List[WordTimestamp]]:
         """
-        Generates MP3 audio using Edge-TTS and streams WordBoundary events.
-        Edge-TTS offset and duration are measured in 100ns ticks (1 second = 10,000,000 ticks).
+        Fallback TTS: Generates MP3 audio using Edge-TTS WebSocket stream.
         """
         import edge_tts
 
@@ -147,7 +356,6 @@ class VoiceNormalizer:
                 if chunk["type"] == "audio":
                     audio_file.write(chunk["data"])
                 elif chunk["type"] == "WordBoundary":
-                    # Offset and duration are in 100ns units
                     start_sec = chunk["offset"] / 10_000_000.0
                     duration_sec = chunk["duration"] / 10_000_000.0
                     word = chunk["text"]
@@ -155,11 +363,10 @@ class VoiceNormalizer:
                         WordTimestamp(word=word, start=start_sec, end=start_sec + duration_sec)
                     )
 
-        # Measure audio duration
+        # Multi-tier duration check
         duration = word_timestamps[-1].end if word_timestamps else 0.0
 
         if duration <= 0.0:
-            # Fallback 1: Measure via mutagen if available
             try:
                 from mutagen.mp3 import MP3
                 audio = MP3(output_audio_path)
@@ -169,7 +376,6 @@ class VoiceNormalizer:
                 pass
 
         if duration <= 0.0:
-            # Fallback 2: Estimate from file size (Edge-TTS default 48kbps mono is ~6,000 bytes/sec)
             try:
                 if os.path.exists(output_audio_path):
                     file_size = os.path.getsize(output_audio_path)
@@ -179,11 +385,9 @@ class VoiceNormalizer:
                 pass
 
         if duration <= 0.0:
-            # Fallback 3: Estimate from spoken word count (avg 150 words/minute = 2.5 words/sec)
             words_count = len(phonetic_text.split())
             duration = max(15.0, round(words_count / 2.5, 2))
 
-        # If word_timestamps was omitted by Edge-TTS, synthesize evenly distributed word timings
         if not word_timestamps and duration > 0.0:
             words = phonetic_text.split()
             if words:
@@ -200,11 +404,61 @@ class VoiceNormalizer:
         return (duration, word_timestamps)
 
     @classmethod
+    async def synthesize_with_word_boundaries(
+        cls,
+        phonetic_text: str,
+        output_audio_path: str,
+        voice: str = "af_heart",
+        speed: float = 1.0,
+        prefer_provider: Optional[str] = None
+    ) -> Tuple[float, List[WordTimestamp]]:
+        """
+        Synthesizes speech using Kokoro TTS (Primary) with automatic Edge-TTS fallback.
+        """
+        # 1. Primary Engine: Kokoro TTS
+        should_try_kokoro = (prefer_provider != "edge-tts")
+        if should_try_kokoro:
+            try:
+                import kokoro  # noqa: F401
+                kokoro_voice = voice if cls.is_kokoro_voice(voice) else "af_heart"
+                return cls._synthesize_kokoro(
+                    phonetic_text=phonetic_text,
+                    output_audio_path=output_audio_path,
+                    voice=kokoro_voice,
+                    speed=speed
+                )
+            except Exception as e:
+                print(f"⚠️ [TTS] Kokoro unavailable or failed ({e}) — falling back to Edge-TTS.", flush=True)
+
+        # 2. Fallback Engine: Edge-TTS
+        if voice in cls.KOKORO_TO_EDGE_VOICE_MAP:
+            edge_voice = cls.KOKORO_TO_EDGE_VOICE_MAP[voice]
+        elif voice and ("Neural" in voice or voice.startswith("en-")):
+            edge_voice = voice
+        else:
+            edge_voice = "en-US-ChristopherNeural"
+
+        print(f"🎙️ [EDGE-TTS] Synthesizing speech with fallback voice '{edge_voice}'...", flush=True)
+        return await cls._synthesize_edge_tts(
+            phonetic_text=phonetic_text,
+            output_audio_path=output_audio_path,
+            voice=edge_voice
+        )
+
+    @classmethod
     def synthesize_sync(
-        cls, phonetic_text: str, output_audio_path: str, voice: str = "en-US-ChristopherNeural"
+        cls,
+        phonetic_text: str,
+        output_audio_path: str,
+        voice: str = "af_heart",
+        speed: float = 1.0,
+        prefer_provider: Optional[str] = None
     ) -> Tuple[float, List[WordTimestamp]]:
         """Synchronous wrapper for synthesize_with_word_boundaries."""
         return asyncio.run(
-            cls.synthesize_with_word_boundaries(phonetic_text, output_audio_path, voice)
+            cls.synthesize_with_word_boundaries(
+                phonetic_text, output_audio_path, voice=voice, speed=speed, prefer_provider=prefer_provider
+            )
         )
+
 

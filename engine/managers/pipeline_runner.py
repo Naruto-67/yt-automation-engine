@@ -75,11 +75,16 @@ def run_spec_stage(video_type: str = "short") -> None:
         full_phonetic_script = VoiceNormalizer.normalize_text(full_display_script)
         
         audio_output = os.path.join("output", "narration.mp3")
-        voice_id = channel_cfg.get("voice", {}).get("voice_id", "en-US-ChristopherNeural")
+        voice_cfg = channel_cfg.get("voice", {})
+        voice_id = voice_cfg.get("voice_id", "af_heart")
+        voice_provider = voice_cfg.get("provider", "kokoro")
         
-        print(f"🎙️ [TTS] Synthesizing narration with {voice_id} & capturing word boundaries...")
+        print(f"🎙️ [TTS] Synthesizing narration with {voice_provider} (voice: {voice_id})...")
         total_duration, word_timestamps = VoiceNormalizer.synthesize_sync(
-            full_phonetic_script, audio_output, voice=voice_id
+            phonetic_text=full_phonetic_script,
+            output_audio_path=audio_output,
+            voice=voice_id,
+            prefer_provider=voice_provider
         )
 
         if total_duration <= 0.0:
