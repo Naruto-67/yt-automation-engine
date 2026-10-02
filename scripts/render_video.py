@@ -176,6 +176,7 @@ def render_video_ffmpeg(
     local_clips = []
     for idx, clip_item in enumerate(clips_manifest.clips):
         clip_dest = os.path.join("output", "raw_clips", f"clip_{idx + 1}.mp4")
+        print(f"📥 [RENDERER] Downloading clip {idx + 1}/{len(clips_manifest.clips)} ({clip_item.provider})...", flush=True)
         downloaded = download_clip(clip_item.download_url, clip_dest, clip_item.provider, clip_item.video_id)
         local_clips.append(downloaded)
 
@@ -184,17 +185,25 @@ def render_video_ffmpeg(
     generate_ass_subtitles(spec.scenes, ass_path, width=target_w, height=target_h)
 
     # 3. Build FFmpeg Filter Complex
-    # Prepare individual scaled and cropped clips
+    # Prepare individual scaled, cropped, framerate-normalized, trimmed clips
     inputs = []
     filter_chains = []
 
     for idx, (clip_path, scene) in enumerate(zip(local_clips, spec.scenes)):
-        # -stream_loop -1 -t {duration} -i {clip_path}
-        inputs.extend(["-stream_loop", "-1", "-t", str(scene.duration_seconds), "-i", clip_path])
-        # scale & center crop
+        # Pass input clip directly without stream_loop
+        inputs.extend(["-i", clip_path])
+        dur = scene.duration_seconds
+
+        # Guarantee exact duration, 30fps, target resolution, yuv420p, SAR 1:1, reset PTS
         filter_chains.append(
-            f"[{idx}:v]scale={target_w}:{target_h}:force_original_aspect_ratio=increase,"
-            f"crop={target_w}:{target_h},setsar=1[v{idx}];"
+            f"[{idx}:v]fps=30,"
+            f"tpad=stop_mode=clone:stop_duration={dur},"
+            f"trim=duration={dur},"
+            f"setpts=PTS-STARTPTS,"
+            f"scale={target_w}:{target_h}:force_original_aspect_ratio=increase,"
+            f"crop={target_w}:{target_h},"
+            f"setsar=1,"
+            f"format=yuv420p[v{idx}];"
         )
 
     # Concat clips
@@ -217,7 +226,7 @@ def render_video_ffmpeg(
         filter_chains.append(watermark_filter)
         current_v = "branded_v"
     else:
-        print("⚠️ [RENDERER] FFmpeg build lacks 'drawtext' filter — skipping watermark overlay.")
+        print("⚠️ [RENDERER] FFmpeg build lacks 'drawtext' filter — skipping watermark overlay.", flush=True)
 
     # Burnt-in subtitles (libass)
     if check_filter_supported("subtitles") and os.path.exists(ass_path):
@@ -228,9 +237,9 @@ def render_video_ffmpeg(
         filter_chains.append(subtitle_filter)
     else:
         if not check_filter_supported("subtitles"):
-            print("⚠️ [RENDERER] FFmpeg build lacks 'subtitles' filter — skipping burnt subtitles.")
+            print("⚠️ [RENDERER] FFmpeg build lacks 'subtitles' filter — skipping burnt subtitles.", flush=True)
         elif not os.path.exists(ass_path):
-            print(f"⚠️ [RENDERER] Subtitle file '{ass_path}' not found — skipping burnt subtitles.")
+            print(f"⚠️ [RENDERER] Subtitle file '{ass_path}' not found — skipping burnt subtitles.", flush=True)
         filter_chains.append(f"[{current_v}]null[outv]")
 
     full_filter_complex = "".join(filter_chains)
@@ -243,11 +252,15 @@ def render_video_ffmpeg(
         audio_inputs = ["-i", narration_path]
         audio_map = ["-map", f"{len(local_clips)}:a", "-c:a", "aac", "-b:a", "192k"]
     else:
-        print(f"⚠️ [RENDERER] Narration file '{narration_path}' not found — rendering video without external narration.")
+        print(f"⚠️ [RENDERER] Narration file '{narration_path}' not found — rendering video without external narration.", flush=True)
+
+    total_duration = spec.total_duration_seconds or sum(s.duration_seconds for s in spec.scenes)
 
     # Full FFmpeg Command
     cmd = [
         "ffmpeg", "-y",
+        "-nostats",
+        "-loglevel", "warning",
         *inputs,
         *audio_inputs,
         "-filter_complex", full_filter_complex,
@@ -257,17 +270,21 @@ def render_video_ffmpeg(
         "-preset", "fast",
         "-crf", "18",
         "-pix_fmt", "yuv420p",
-        "-shortest",
+        "-t", str(total_duration),
         output_video_path
     ]
 
-    print(f"✂️ [RENDERER] Executing master FFmpeg render ({target_w}x{target_h})...")
-    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    print(f"✂️ [RENDERER] Executing master FFmpeg render ({target_w}x{target_h}, duration: {total_duration:.1f}s)...", flush=True)
+    try:
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=300)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"FFmpeg rendering timed out after 300 seconds for topic '{spec.topic}'")
+
     if result.returncode != 0:
         raise RuntimeError(f"FFmpeg failed with return code {result.returncode}:\n{result.stderr[-800:]}")
 
     file_size_mb = os.path.getsize(output_video_path) / (1024 * 1024)
-    print(f"🎬 [RENDERER] Successfully rendered '{output_video_path}' ({file_size_mb:.1f} MB)")
+    print(f"🎬 [RENDERER] Successfully rendered '{output_video_path}' ({file_size_mb:.1f} MB)", flush=True)
 
 
 def run_editor_stage() -> None:

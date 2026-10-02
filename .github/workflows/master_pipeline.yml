@@ -23,6 +23,10 @@ concurrency:
   group: production-pipeline
   cancel-in-progress: false
 
+env:
+  PYTHONUNBUFFERED: "1"
+
+
 jobs:
   init_and_spec:
     name: 🚀 Init & Spec Generation
