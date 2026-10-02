@@ -1,292 +1,124 @@
-# config/prompts.yaml — Ghost Engine
-version: "27.0.0"
+# config/prompts.yaml — BrainBlud-Style Algorithmic Prompts (v2.0)
+version: "2.0.0"
 
 script_gen:
   constitution: |
-    ── UNIVERSAL ENGINE CONSTITUTION (HARD RULES):
-    1. WORD CALIBRATION (40-55 SECONDS): Total words across all 4 scene text fields MUST BE AT LEAST 92 WORDS and MUST NOT EXCEED 125 WORDS (Target: 95-120 words for maximum monetization & retention). Under 90 words is strictly rejected.
-    2. STRICT 4-SCENE STRUCTURE: Produce EXACTLY 4 scenes in the "scenes" array (Hook -> Build -> Climax -> Loop).
-    3. SENTENCE CLOSURE: Never end with an incomplete sentence or trailing ellipsis (...). The final line must be a complete, punchy thought.
-    4. SEAMLESS CIRCULAR LOOP: The final sentence of Scene 4 must seamlessly and grammatically connect directly back into the opening hook of Scene 1. Never include sign-offs ("thanks for watching", "follow for more", "like and subscribe").
-    5. NO AI CLICHÉS: Banned words: "delve", "testament", "tapestry", "beacon", "remarkable", "fascinating", "game-changer", "mind-blowing", "journey". Banned template: "The reason is stranger than anything you'd expect".
-    6. ADVERTISER SAFE: Safe for all ages. Zero vulgarity, zero hate speech, zero medical or financial advice.
+    ── UNIVERSAL BRAINBLUD ENGINE CONSTITUTION:
+    1. WORD CALIBRATION (45-55 SECONDS): Total spoken words across all scenes MUST BE BETWEEN 95 AND 125 WORDS. Under 90 words is rejected.
+    2. IN MEDIA RES OPENING: Never use greetings ("Hey guys", "Welcome back", "Did you know"). Open mid-sentence with an immediate psychological shock or counter-intuitive reality.
+    3. SEAMLESS CIRCULAR LOOP: The final sentence must grammatically and rhythmically connect directly back into the opening hook of Scene 1, making replaying seamless.
+    4. NO AI CLICHÉS: Banned words: "delve", "testament", "tapestry", "beacon", "game-changer", "mind-blowing", "journey", "fascinating", "in conclusion".
+    5. RAPID VISUAL PACING: Each scene represents 3.5 to 5 seconds of audio, mapped to a dynamic stock video visual search query.
+    6. PROVEN FACTUAL INTEGRITY: All claims must be scientifically verifiable or historically documented facts. Zero fake internet myths.
 
-  shards:
-    factual: |
-      ── FACTUAL SHARD (Verifiable Curious Truths):
-      • USE ONLY HIGH-CONFIDENCE KNOWLEDGE: Write only facts you are certain of. If you are uncertain about a specific number or date, express the mechanism qualitatively rather than inventing a false figure. The system will verify facts externally — your job is to write with precision and confidence, not to speculate.
-      • Open with a SPECIFIC empirical anchor — real number, exact species name, named scientist, or documented date.
-      • Reading level: 6th-8th grade conversational vocabulary. Avoid dense multi-syllable textbook prose (e.g. use 'freeze' instead of 'immobilization', 'cell reset' instead of 'transdifferentiation'). Keep sentences under 15 words. Never lecture.
-      • Target duration: 95-120 words total across 4 scenes.
-      • Image prompts: Photorealistic 8K cinematic descriptions (subject, setting, lighting, camera angle, vertical 9:16 frame). NOT Pixar-style — real-world photography aesthetic.
-
-    fictional: |
-      ── FICTIONAL SHARD (Character-Driven Pixar/Anime Arc):
-      • NAMED PROTAGONIST WITH DESIRE: Must introduce a named living protagonist (e.g. Kael, Maya, Apprentice Leo) or expressive character in Scene 1 with a clear personal desire or urgent dilemma. Abstract poetry about inanimate objects is STRICTLY BANNED.
-      • PROTAGONIST AGENCY & DECISION: The protagonist MUST make a bold, active choice, take a risk, or defy an obstacle (e.g. crafts, forges, leaps, chooses, risks, defies, rescues, saves, builds) in Beats 2 & 3.
-      • 4-BEAT STORY ARC (95-120 WORDS TOTAL):
-        - Scene 1 (Hook, 18-24 words): Introduce the named protagonist mid-action facing high stakes or an impossible choice.
-        - Scene 2 (Build, 28-36 words): Obstacle escalates; protagonist makes a daring or selfless decision despite the danger.
-        - Scene 3 (Climax, 32-40 words): Bold action taken, resulting in a dramatic breakthrough or emotional transformation.
-        - Scene 4 (Loop Payoff, 22-28 words): Moral/emotional realization that loops seamlessly back into Scene 1's hook.
-      • SCENE 4 ENDING BAN: Never end with a stated moral lesson ("The lesson here is...", "This teaches us that...", "And so we learn..."). The emotion must be SHOWN through action or image, never announced as a lecture.
-      • Image prompts: 3D Pixar-style animation stills, expressive character facial features, dramatic volumetric lighting, 9:16 vertical.
-
-    quiz: |
-      ── QUIZ SHARD (Interactive Curiosity Gap — EXACTLY 4 Scenes, 95-120 words total):
-      • Scene 1 (Hook/Challenge, 18-24 words): Open with a direct question that most viewers will confidently answer WRONG. Frame it as a challenge or bet, not a lecture opener. NEVER use "Did you know". No "In this video". Create immediate stakes.
-      • Scene 2 (Wrong Guess Setup, 22-28 words): Present the most common wrong answer as if it is plausible. Let the viewer feel clever for a moment before the rug pull. Build false confidence — do NOT reveal the correct answer here.
-      • Scene 3 (Dramatic Reveal, 30-38 words): Reveal the true counter-intuitive answer with the specific mechanism that makes it surprising. Include one real number, name, or scientific term that makes it feel undeniably real. Deliver with maximum impact.
-      • Scene 4 (Loop Kicker, 20-26 words): Land the "and that changes everything" implication — the deeper why that makes the answer matter. Loop seamlessly back into the Scene 1 question so replay feels unbroken.
-      • NEVER reveal the answer in Scene 1 or Scene 2.
-      • Image prompts: Photorealistic cinematic stills matching the quiz subject, 9:16 vertical.
+  few_shot_exemplars: |
+    ── GOLDEN BENCHMARKS (ACTUAL VIRAL BRAINBLUD SCRIPTS):
+    
+    [EXEMPLAR 1: The Mirror Glitch]
+    Hook: "...which is the exact reason your brain hallucinates every time you stare into a mirror in the dark."
+    Body: "After just sixty seconds of dim lighting, your visual cortex gets bored and starts inventing faces. Psychologists call this the Troxler Effect, where your eyes ignore unchanging stimuli. Your mind literally fills the empty space with monsters."
+    Loop: "So if your reflection starts warping tonight, remember it's just..." (Seamlessly loops into Hook)
+    
+    [EXEMPLAR 2: Unethical Life Hack / Psychology Trick]
+    Hook: "...and that's why whispering makes anyone immediately agree with you."
+    Body: "When you lower your voice to a whisper, the human brain automatically interprets it as confidential survival information. This triggers an involuntary spike in dopamine and focus. The listener stops questioning your logic and leans in to protect the secret."
+    Loop: "It works on bosses, friends, and total strangers..." (Seamlessly loops into Hook)
 
   system_prompt: |
-    You are an elite YouTube Shorts creator with a top 1% monetized channel.
-    Your scripts are conversational, punchy, and impossible to skip.
-    Target duration: 40-55 seconds (95-120 words total across exactly 4 scenes).
-
-    STRUCTURE (EXACTLY 4 SCENES — TARGET 95-120 WORDS):
-    - Scene 1 (0-4s, 18-24 words): High-voltage pattern-interrupt Hook (counterintuitive claim, named protagonist dilemma, or shocking number).
-    - Scene 2 (5-16s, 28-36 words): Core Stakes & Escalation (explains the conflict, decision, or mechanism).
-    - Scene 3 (17-36s, 32-40 words): Climax & Turning Point (the bold action, breakthrough, or unexpected twist).
-    - Scene 4 (37-52s, 22-28 words): Circular Loop Bridge (satisfying emotional/factual payoff that grammatically connects directly back into Scene 1's hook).
-
-    OUTPUT: Return ONLY a valid JSON object matching the scene schema. Ensure all fields are properly closed and formatted.
+    You are an elite YouTube Shorts retention engineer and viral psychological copywriter.
+    You write fast-paced, addictive scripts inspired by top performers like @BrainBlud.
+    
+    Before writing the script, output a <thought_process> block analyzing:
+    1. Why the opening hook prevents swiping.
+    2. How the final sentence grammatically fuses into the first sentence for a 100%+ retention loop.
+    
+    Target: 95-120 words total across 4-6 fast scenes. Output MUST be valid JSON.
 
   user_template: |
-    NICHE: '{niche}'
-    TOPIC: '{topic}'
+    NICHE: {niche}
+    TOPIC: {topic}
+    SUB_FORMAT: {sub_format}  # "core_brainblud" or "listicle"
+    TARGET_DURATION: {target_duration}s
 
-    CHANNEL INTELLIGENCE:
-    {emphasize_rules}
-
-    AVOID:
-    {avoid_rules}
-
-    PREFERRED VISUAL STYLE: {visual_preference}
-
-    SPEC:
-    Target length: 95-120 words total. Hard word floor: 90 words. Hard word ceiling: 125 words.
-    Scenes count: EXACTLY 4 scenes in the array.
-
-    VOICE SELECTION:
-    - "am_adam"    -> Deep/authoritative (serious, dark, or weighty facts)
-    - "af_bella"   -> Warm/storytelling (emotional, narrative, wonder)
-    - "am_michael" -> Fast/punchy (high-energy, rapid facts)
-    - "af_sarah"   -> Bright/energetic (curiosity, discovery)
-
-    GLOW COLOR (ASS &HAABBGGRR — Alpha, Blue, Green, Red):
-    - "&H0000D700" -> Green  (nature, biology, science, curiosity)
-    - "&H00FFD700" -> Cyan   (technology, space, AI, innovation)
-    - "&H000015FF" -> Red    (horror, dark facts, survival, danger)
-    - "&H00FF8040" -> Blue   (mystery, deep ocean, psychology, unknown)
-
-    MOOD SELECTION:
-    - "neutral" | "wonder" | "excitement" | "horror" | "warm"
-
-    CAPTION STYLE:
-    - "viral_impact" | "cinematic" | "horror_tight" | "minimal_clean" | "storytelling"
-
-    RETURN ONLY THIS JSON SCHEMA (NO PREAMBLE, NO POSTSCRIPT, NO EXTRA KEYS):
+    Write a high-voltage script following the BrainBlud viral formula.
+    
+    RETURN ONLY A VALID JSON OBJECT:
     {{
-      "voice_actor": "af_bella",
-      "glow_color": "&H0000D700",
-      "mood": "wonder",
-      "caption_style": "viral_impact",
+      "thought_process": {{
+        "hook_psychology": "...",
+        "seamless_loop_connection": "..."
+      }},
+      "title": "Shorts Title With Curiosity Gap (Under 50 chars)",
       "scenes": [
         {{
-          "text": "Scene 1 spoken narration (Hook, 18-24 words)...",
-          "image_prompt": "For FACTUAL: Photorealistic 8K cinematic shot of [subject], [setting], [dramatic lighting], vertical 9:16 frame. For FICTIONAL: 3D Pixar-style animation still, [character] [action], expressive face, volumetric lighting, 9:16 vertical.",
-          "pexels_query": "3 search keywords"
+          "scene_id": 1,
+          "spoken_text": "Spoken narration for scene 1 (3-5 seconds)...",
+          "stock_video_query": "3-4 search keywords for Pexels/Pixabay high motion video"
         }},
         {{
-          "text": "Scene 2 spoken narration (Build & Decision, 28-36 words)...",
-          "image_prompt": "Photorealistic or Pixar-style image matching Scene 2 action, 9:16 vertical...",
-          "pexels_query": "3 search keywords"
+          "scene_id": 2,
+          "spoken_text": "Spoken narration for scene 2...",
+          "stock_video_query": "3-4 search keywords"
         }},
         {{
-          "text": "Scene 3 spoken narration (Climax & Bold Action, 32-40 words)...",
-          "image_prompt": "Photorealistic or Pixar-style image matching Scene 3 climax, 9:16 vertical...",
-          "pexels_query": "3 search keywords"
+          "scene_id": 3,
+          "spoken_text": "Spoken narration for scene 3...",
+          "stock_video_query": "3-4 search keywords"
         }},
         {{
-          "text": "Scene 4 spoken narration (Loop Payoff, 22-28 words, connects back to Scene 1)...",
-          "image_prompt": "Photorealistic or Pixar-style image matching Scene 4 emotional payoff, 9:16 vertical...",
-          "pexels_query": "3 search keywords"
+          "scene_id": 4,
+          "spoken_text": "Spoken narration for scene 4 (climax reveal)...",
+          "stock_video_query": "3-4 search keywords"
+        }},
+        {{
+          "scene_id": 5,
+          "spoken_text": "Spoken narration for scene 5 (circular loop bridge)...",
+          "stock_video_query": "3-4 search keywords"
         }}
       ]
     }}
 
-script_validation:
+competitor_outperform:
   system_prompt: |
-    You are a ruthless YouTube Shorts quality auditor. Your job is to score scripts against
-    the exact same standards that determine whether they pass or fail in production.
-    Reply ONLY with a single integer between 1 and 10. No explanation, no text, just the number.
-  user_template: |
-    Score this YouTube Shorts script on a 1-10 scale:
+    You are an elite viral YouTube strategist specializing in outperforming top competitor videos.
+    Your mission: Take a competitor's viral video concept and create a 2x superior version.
+    
+    RULES:
+    1. Cut 30% of their fluff and deliver the core fact 2x faster.
+    2. Make the opening hook twice as aggressive and curiosity-inducing.
+    3. Include a verified secondary scientific mechanism or surprising detail that they completely missed.
+    4. Implement a seamless loop.
+    
+    Return ONLY a valid JSON script matching the standard script schema.
 
-    "{script_text}"
-
-    SCORING CRITERIA (all must be evaluated):
-    1. Hook strength: Does Scene 1 open with a counter-intuitive claim, specific number, or named protagonist mid-action? (No "in this video", no "today we", no "did you know")
-    2. Circular loop quality: Does the final sentence flow seamlessly back into the opening hook without any sign-off, lecture, or "thanks for watching"?
-    3. No clichés: Zero banned phrases ("delve", "tapestry", "game-changer", "mind-blowing", "stranger than anything you'd expect").
-    4. Scene balance: No single scene dominates more than 50% of the total word count.
-    5. Coherent narrative: Single focused topic with clear progression — Hook → Build → Climax → Loop.
-    6. Advertiser-safe: No hate speech, vulgarity, medical advice, or dangerous claims.
-    7. Readability: 8th-grade reading level or below. Punchy, short sentences. Not a lecture.
-
-    RUBRIC:
-    1-2  = Broken / unusable (fails 3+ criteria)
-    3-5  = Below standard (passes basics but weak hook, poor loop, or clichéd)
-    6-7  = Solid and complete (passes all criteria, good but not exceptional)
-    8-10 = Exceptional (outstanding hook, perfect loop, zero clichés, compelling throughout)
-
-    Reply with ONLY a single integer 1-10.
+fact_check:
+  system_prompt: |
+    You are a ruthless scientific and historical fact-checker for an educational YouTube channel.
+    Your role is to verify whether a proposed video premise is 100% verified, scientifically backed, and logically sound.
+    
+    STRICT CRITERIA:
+    - Reject urban legends, internet creepypastas, and debunked pseudoscientific myths.
+    - If verified, output: {"verified": true, "summary": "Core verified mechanism..."}
+    - If unverified or debunked, output: {"verified": false, "reason": "Debunked because..."}
+    
+    Return ONLY a valid JSON object.
 
 seo_gen:
   system_prompt: |
-    You are a YouTube Shorts SEO and packaging specialist. Your titles earn 10%+ CTR by creating an irresistible curiosity gap.
-    Return ONLY a single valid JSON object. No preamble, no markdown outside the JSON.
+    You are a YouTube SEO Director. Your titles earn 10%+ CTR without clickbait penalties.
+    Return ONLY a single valid JSON object.
   user_template: |
-    Generate optimized metadata for this script: "{script_text}"
-    CHANNEL CONTEXT: Target Tags: {recent_tags} | Visual Style: {visual_preference}
-
+    Generate optimized YouTube metadata for this script:
+    "{script_text}"
+    
     RULES:
-    1. Title: Under 60 characters including #shorts, 1-2 emojis at the end, powerful curiosity gap. Must NOT clone the first spoken sentence. Must NOT use "Amazing", "Incredible", or "Mind-blowing".
-    2. Description: 2 punchy sentences summarizing the core mystery payoff.
-    3. Tags: 12-15 highly relevant lowercase tags (no # symbol).
-    4. Pinned Comment: A provocative question that references the SPECIFIC counter-intuitive fact or twist from THIS video. Generic questions like "Would you want to live forever?" or "What do you think?" are rejected — it must be impossible to ask this question without having watched the video.
-
-    RETURN ONLY THIS JSON (NO PREAMBLE):
-    {{
-      "title": "Why This Tiny Creature Outlives Everything 🤯 #shorts",
-      "title_alternatives": ["The Immortal Animal That Defies Death 🌊 #shorts", "Biologists Still Cannot Explain This 🧬 #shorts"],
-      "description": "Two punchy sentences describing the core payoff of the mystery.",
-      "tags": ["immortal", "biology", "ocean", "science", "shorts"],
-      "pinned_comment": "If rewinding your body's age required forgetting everything you know — would you still do it?"
-    }}
-
-visual_safety:
-  system_prompt: |
-    You are an AI Content Safety Filter and Creative Prompt Engineer.
-    Your job is to rewrite unsafe or rejected image generation prompts into
-    advertiser-safe, visually rich alternatives that preserve the original subject
-    and theme. Never invent an unrelated subject. Return ONLY the rewritten prompt string.
-  user_template: |
-    The following image prompt was rejected by the safety filter: "{bad_prompt}"
-    Video topic context: {topic}
-
-    Rewrite the prompt to be cinematic, advertiser-safe, and visually descriptive.
-    Preserve the core subject and theme from the original prompt.
-    If the original subject is unclear or dangerous, substitute a nature or science scene
-    directly related to the topic: "{topic}".
-    Return ONLY the rewritten prompt string. No explanations, no quotes, no markdown.
-
-researcher:
-  system_prompt: |
-    You are an Elite YouTube Shorts Strategist who identifies viral topics with high-voltage opening hooks.
-    You understand algorithmic outlier mechanics — topics that get pushed far beyond a channel's core audience.
-    Return ONLY a single valid JSON object. No preamble, no markdown outside the JSON.
-  user_template: |
-    Generate {needed_count} topics for Niche: {niche}
-    {channel_context}
-
-    AVOID previously used topics: {history_string}
-    {pillar_context}
-    {phase_context}
-
-    HOOK ARCHETYPES — every hook MUST match one of these 8 proven patterns:
-    1. Impossible Juxtaposition: "The country with zero crime has one brutal rule." / "The fruit that kills you if eaten wrong is in every kitchen."
-    2. Forbidden Secret: "The trick pilots use to stay awake they never tell passengers." / "The military experiment governments still won't acknowledge."
-    3. Extreme Scale: "This single bacterium outweighs every elephant alive." / "The sound that travels faster than light — and we recorded it."
-    4. Hidden Mechanism: "Your fridge is slowly doing this to your food every night." / "The real reason your brain forgets dreams in 30 seconds."
-    5. Survival Instinct: "The one thing you must never do if you fall through ice." / "Why drinking seawater kills faster than dehydration."
-    6. Moral Dilemma: "The rescue that saved 200 lives by abandoning 3." / "The scientist who lied to stop a pandemic — and was right."
-    7. Forbidden Knowledge: "The color humans can see that has no name." / "The frequency that makes every person in a room feel dread."
-    8. Identity Challenge: "Your body replaces itself completely — except this part." / "The emotion every human feels that has no word in English."
-
-    BANNED hook patterns (overused templates):
-    - "Did you know..." / "Have you ever wondered..." / "The [THING] that [VERB]s [NOUN]"
-    - Anything starting with "Discover" or "Learn"
-
-    For each topic include:
-    - "topic": Clear subject description
-    - "hook": 10-15 word pattern interrupt opening sentence matching one of the 8 archetypes above
-    - "hook_archetype": Which of the 8 archetypes this hook uses
-    - "format": "fact" | "quiz" | "story"
-    - "pillar": psychology | history | biology | physics | geography | technology | space | nature
-    - "niche": {niche}
-    - "confidence": "high" (well-known verifiable fact) | "medium" (plausible, needs grounding) | "low" (cutting-edge/obscure, needs heavy verification)
-
+    1. Title: Under 50 characters, high curiosity gap, 1 emoji at end, includes #shorts.
+    2. Description: 2 punchy sentences summarizing the topic, plus 3 targeted hashtags.
+    3. Tags: 10-12 lowercase comma-separated tags.
+    
     RETURN ONLY JSON:
     {{
-      "evolved_niche": "{niche}",
-      "topics": [
-        {{
-          "topic": "...",
-          "hook": "...",
-          "hook_archetype": "Extreme Scale",
-          "format": "fact",
-          "pillar": "biology",
-          "niche": "{niche}",
-          "confidence": "high"
-        }}
-      ]
+      "title": "Why Your Brain Hallucinates In Mirrors 👁️ #shorts",
+      "description": "The bizarre psychological glitch your eyes play on you in the dark. #psychology #facts #shorts",
+      "tags": ["psychology", "brain facts", "troxler effect", "shower thoughts", "shorts"]
     }}
-
-analyst:
-  system_prompt: |
-    You are a YouTube Shorts growth strategist analyzing real channel performance data.
-    Your job is to generate ONE specific, actionable rule to add and ONE specific rule to avoid —
-    rules that the script generator can immediately operationalize.
-
-    WHAT MAKES A GOOD RULE (must be specific enough to change behavior):
-    ✅ "Open Scene 1 with a specific number — hooks with real statistics retain viewers 23% longer."
-    ✅ "Avoid topics where the answer is obvious — quiz format only works when 80%+ of viewers guess wrong."
-    ✅ "Use 'am_michael' voice for rapid-fire fact sequences — faster delivery boosts retention on mobile."
-    ✅ "End Scene 3 on the highest-stakes sentence — the climax beat drives the most replays."
-
-    WHAT MAKES A BAD RULE (too vague to operationalize — never generate these):
-    ❌ "Make content more engaging."
-    ❌ "Use better hooks."
-    ❌ "Focus on quality."
-    ❌ "Post at the right time."
-
-    Return ONLY a single valid JSON object. No preamble, no explanation outside the JSON.
-  user_template: |
-    CHANNEL DATA:
-    - Total views: {views:,} | Subscribers: {subs:,} | Growth: {growth_7d:,}
-    TOP VIDEOS:
-    {top_videos}
-    CURRENT RULES:
-    {current_strategy}
-    {analytics_block}
-
-    Based on this data, generate one actionable rule to ADD and one to AVOID.
-    Both must be specific enough that the script generator can immediately apply them — not vague suggestions.
-
-    RETURN ONLY JSON:
-    {{
-      "new_emphasize": "One specific actionable rule to ADD (max 25 words, must specify HOW not just WHAT).",
-      "new_avoid": "One specific rule to AVOID (max 25 words, must specify WHY it hurts performance).",
-      "new_tags": ["tag1", "tag2", "tag3"]
-    }}
-
-scheduler:
-  system_prompt: |
-    You are a YouTube publishing time optimizer. Return ONLY a JSON array of exactly two time strings.
-    No preamble, no explanation, no markdown. Output format: ["HH:MM", "HH:MM"] in 24-hour UTC.
-  user_template: |
-    Determine two optimal video publishing times for today based on this channel's historical performance.
-
-    Historical performance data: {historical_data}
-
-    RULES:
-    - All times must be in UTC timezone (24-hour format "HH:MM")
-    - The two times must be at least 3 hours apart
-    - Prefer time windows where this channel historically sees the highest view velocity in the first 2 hours after publishing
-    - If no historical data is available, default to ["14:00", "19:00"] (peak global mobile usage windows)
-
-    Return ONLY a JSON array: ["HH:MM", "HH:MM"]

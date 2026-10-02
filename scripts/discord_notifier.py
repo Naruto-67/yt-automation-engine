@@ -482,3 +482,30 @@ def notify_stage_progress(stage_name: str, details: dict = None, channel_name: s
         footer_extra=f"Stage: {stage_name}",
         mention=_MENTION_NONE,
     )
+
+
+def notify_pika_stage_progress(stage_name: str, status: str, duration_str: str = "", topic: str = None):
+    """
+    Pika Flow real-time stage card notifier.
+    status: "IN_PROGRESS" | "COMPLETED" | "FAILED"
+    """
+    status_map = {
+        "IN_PROGRESS": (_COLOR["yellow"], "⏳ In Progress"),
+        "COMPLETED":   (_COLOR["green"],  "✅ Completed"),
+        "FAILED":      (_COLOR["red"],    "❌ Failed"),
+    }
+    color, status_text = status_map.get(status, (_COLOR["blue"], status))
+    title = f"{stage_name} — {status_text}"
+    if duration_str and status != "IN_PROGRESS":
+        title += f" [{duration_str}]"
+
+    desc = f"**Topic:** {topic}" if topic else "Processing pipeline..."
+
+    _send_embed(
+        title=title,
+        description=desc,
+        color=color,
+        footer_extra="Ghost Engine v2.0 • Pika Flow",
+        mention=_MENTION_NONE if status != "FAILED" else _MENTION_HERE,
+    )
+

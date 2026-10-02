@@ -1,123 +1,120 @@
-# 👻 Ghost Engine: The Ultimate Guide
+# 🚀 yt-automation-engine (v2.0)
 
-**Ghost Engine** is a multi-channel, fully-automated YouTube Shorts production engine. It operates entirely autonomously, researching trending niches, writing scripts, generating neural narration, creating AI visuals, rendering cinematic video with animated captions, and scheduling to YouTube — all running through GitHub Actions on 100% free-tier APIs.
-
----
-
-## 🛠️ System Architecture & Workflow
-
-The pipeline runs silently in the background via GitHub Actions (`01_daily_pipeline.yml`). When activated, it executes the following modules sequentially:
-
-1. **🧠 Ideation & Research (`dynamic_researcher.py`)**
-   - Fetches historical data from your channel using the YouTube API.
-   - Injects the **Top 5 US Google Trends** dynamically to bridge educational facts with pop-culture for maximum virality.
-   - Analyzes competitor performance and generates 5 highly optimized video concepts using **Google Gemini (Flash)**.
-   - Outputs factual insights or character-driven story loglines based on the channel type.
-
-2. **📜 Scriptwriting & Self-Learning Engine (`generate_script.py` / `self_learning.py`)**
-   - **Calibrated Duration Floor & Ceiling**: Strict **85-word floor** and **125-word ceiling** (~40–55s duration at 143 WPM Kokoro pace), perfectly matching YouTube Shorts monetization and retention sweet spot.
-   - **Continuous Self-Learning Memory**: Queries `engine/self_learning.py` (`memory/success_patterns.json`) to dynamically inject empirical golden winning trajectories directly into prompt context.
-    - **Real-Time Fact Grounding & Anti-Hallucination Gate (`engine/fact_grounding.py`)**: Harnesses Google Search Grounding with Gemini Flash, Wikipedia REST API, and DuckDuckGo to extract verified empirical mechanisms and numbers, enforcing 100% verified facts for Topato (`CH_02`).
-    - **Circular Script Seamless Loop Engine (2026 Playbook) (`engine/loop_engine.py`)**: Synthesizes grammatical bridges connecting ending scenes into opening hooks, eliminating sign-offs and pushing Average Percentage Viewed (APV) > 100%.
-    - **Living Character Arc Gate (`CH_01` AnimeRise)**: Mandates living character protagonists (apprentice, inventor, scout) with clear dilemmas, decisions, and earned resolutions. Inanimate object poetry ("a leaf fell") is strictly banned.
-    - **Empirical Science & History Gate (`CH_02` Topato)**: Mandates 100% verified facts with concrete cellular/mechanical processes, dates, and numbers. Formulaic clichés (*"The reason is stranger than anything you'd expect"*) are deterministically blocked.
-    - **Deterministic Closure Gate**: Strictly intercepts and rejects dangling sentences ("It was...", trailing ellipses, unfinished clauses).
-
-3. **🎙️ Voiceover Synthesis & C/C++ Acceleration (`generate_voice.py`)**
-   - Primary: **Kokoro-82M** (Local Neural CPU TTS) with emotion preprocessing and OpenMP/ONNX multithreading (`OMP_NUM_THREADS=4`).
-   - Fallback 1: **EdgeTTS** (Microsoft Azure Neural Voices).
-   - Fallback 2: **Groq Orpheus** native emotion TTS.
-   - **ASR & SIMD Vectorization**: Faster-Whisper accelerated with CTranslate2 pure C++ INT8 quantization and AVX2 multithreading.
-   - **Prosody & Natural Breath Pauses**: Normalizes em-dashes (`—` → `, `) and en-dashes (`–` → `, `) to comma pauses in Kokoro TTS, eliminating awkward 1.5s dead air pauses and accidental hyphen vocalization.
-   - **Phonetic Normalization**: Pre-normalizes symbols and acronyms (`24/7`, `LED`, `AI`, `$`, `%`) and applies post-transcription ASR homophone corrections.
-   - **Dead-Air Silence Tightener**: Clamps empty internal pauses >450ms down to 180ms for maximum viewer retention.
-
-4. **📝 Captioning (`generate_voice.py` / `render_video.py`)**
-   - Uses **Faster-Whisper** to transcribe word timestamps with millisecond accuracy.
-   - Applies phonetic ASR homophone corrections before generating subtitles.
-   - **Hyphen & Compound Normalization**: Em-dashes normalize to clean spaces, whitespace-padded hyphens are collapsed into unified compound tokens (`RE-WINDING`), and isolated dashes are stripped.
-   - **Smart Punctuation & Karaoke Formatting**: Strips leading/trailing punctuation marks from active-word color tags (`{\c&H0000D7FF&}`) so only word letters highlight in bright yellow, leaving punctuation neutral.
-   - Formats subtitles into `.ass` with modern Hormozi-style single-layer bold captions.
-
-5. **🎨 Visual Generation, Routing Isolation & Vision Critic (`generate_visuals.py` / `vision_critic.py`)**
-   - **Vision Critic Pre-Flight Inspector (`engine/vision_critic.py`)**: Multimodal Gemini Flash Vision audits candidate frames for anatomical integrity, prompt relevance, and 9:16 vertical composition before compositing; re-rolls flawed frames with targeted remedy hints.
-   - **OpenMontage 6-Dimension Slideshow Risk Scorer**: Audits prompt sequences across 6 dimensions (`repetition`, `decorative_visuals`, `weak_motion`, `weak_shot_intent`, `typography_overreliance`, `unsupported_cinematic_claims`). Automatically injects dynamic lenses (35mm wide, 50mm prime, 85mm portrait, 24mm low-angle) and motion framing (push-in, tracking pan, dolly-in) if risk > 0.35.
-   - **Delivery Promise & Visual Isolation**: Classifies channel promises via `engine/delivery_promise.py`. Fictional channels (`ANIMATION_LED`) strictly prohibit live-action stock footage (preventing the "lipstick and mall" bug), cascading exclusively to AI generation: Cloudflare FLUX ➡️ HuggingFace FLUX ➡️ Pollinations.ai ➡️ Local Offline Gradient.
-   - **CHAI Append-Only Decision Log**: Records all routing decisions to `memory/decision_log.jsonl` for transparent governance.
-
-6. **🎬 Video Studio Mastering, Kinetic Overlays & Contextual SFX (`render_video.py`)**
-   - Merges visuals, audio, and captions using complex **FFmpeg** filter graphs.
-   - **Hybrid Kinetic Motion Overlays (`engine/kinetic_overlays.py` / `render/kinetic_renderer.js`)**: Real-time hardware-accelerated animated progress bar (`drawbox`) tracking video progress across the bottom edge, with Node.js vector rendering integration.
-   - **Contextual Sound Effects (SFX) Layer (`engine/sfx_manager.py`)**: Procedural audio synthesis producing broadcast WAV stems (whooshes, 808 sub-drop impacts, risers) mixed at scene transitions, paired with an opening 3-second pattern interrupt zoom punch.
-   - **C-Level Radio Mastering**: Voice channel 80Hz high-pass rumble filter (`highpass=f=80`), de-esser (`deesser=i=0.5:f=0.5`), stereo widener (`stereotools=mwidth=1.35`), dynamic sidechain ducking (12 dB), and EBU R128 broadcast loudness normalization (`loudnorm=I=-14:TP=-1.0:LRA=7`).
-   - Applies sub-pixel Ken Burns motion (`zoompan`) and crossfades (`xfade`) at 60fps `1080x1920`.
-
-7. **🔌 Model Context Protocol (MCP) Server & Continuous Integrity (`mcp/` & `scripts/`)**
-   - **Ghost Engine Native MCP Server (`mcp/ghost_engine_server.py`)**: Zero-dependency JSON-RPC 2.0 stdio server exposing script previews, slideshow audits, fact verification, decision logs, and system health to Antigravity, Cursor, and Claude Desktop.
-   - **Continuous System Health Validator (`scripts/system_integrity_check.py`)**: Automated pre-flight CI health validator verifying YAML configs, memory stores, procedural stems, and Python syntax.
-   - **Dependabot Multi-Ecosystem Tracking (`.github/dependabot.yml`)**: Continuous automated dependency updates for pip, GitHub Actions, and Node.js (`/render`).
-
-8. **🚀 Publishing & Monetization (`youtube_manager.py` / `generate_metadata.py`)**
-   - Uploads final video and thumbnail to a private vault on YouTube.
-   - **High-Converting Pinned Comments**: Generates and automatically posts provocative debate questions to 3x comment engagement.
-   - **Monetization CTA Injection**: Inserts description calls-to-action and affiliate link slots.
-   - **Self-Learning Trajectory Capture**: Persists verified video runs to `memory/success_patterns.json` to continuously elevate future generations.
+> **Autonomous Single-Channel Stock-Video Production Engine**  
+> Engineered for maximum viewer retention, algorithmic reach, and 100% cloud-native execution.
 
 ---
 
-## 📺 Channel Configuration
+## 🌟 Overview & Golden Rule
 
-Your channel rules are defined in the engine.
-| Channel | ID | Content Type | Behavior |
-|---|---|---|---|
-| **AnimeRise** | `CH_01` | **Fictional** | Enforces a strict 3-beat storytelling arc (protagonist, conflict, resolution). Perfect for Pixar-style morals. |
-| **Topato** | `CH_02` | **Factual** | Anchors to educational/trending facts. Topics are guaranteed to be diverse and fast-paced. |
+`yt-automation-engine` v2.0 is an autonomous, sequential YouTube production pipeline built on the **"Pika Flow"** architecture. It transforms viral topic ideas into finished, scheduled YouTube Shorts (9:16) and Long-form (16:9) documentaries without human intervention.
 
----
-
-## 🛡️ The Fallback Cascades (Fail-Safes)
-
-The engine is designed to **never crash**. Every task has a fallback:
-- **LLM / Scripting:** Autonomous Multi-Provider Dynamic Routing Engine (`engine/llm_router.py`, `engine/model_entity.py` & `engine/dynamic_discovery.py`):
-  - **Namespaced Model Entities**: Treats every model endpoint as an autonomous entity (`<provider>:<model_identifier>`) across Google GenAI (`GEMINI_API_KEY`), Groq Cloud (`GROQ_API_KEY`), GitHub Models (`GH_MODELS_TOKEN`), and OpenRouter (`OPENROUTER_API_KEY`).
-  - **Dynamic Response Header Sniffing**: Discovers true upstream limits, remaining requests, and reset timers dynamically from HTTP response headers (`x-ratelimit-*`, `retry-after`) on live calls without hardcoding.
-  - **Scarcity Waterfall Resolver with 85% Safety Cushion**: Automatically harvests scarce flagship models (e.g. 20 RPD Gemini 3.8 Flash, Llama 3.3 70B) first up to an **85% safe ceiling** (16–17 calls max), deliberately locking a 3–4 call emergency reserve to avoid lockouts, 24-hr freezes, or anti-abuse penalties before cascading to 500 RPD workhorses (`google:gemini-flash-lite-latest`) or high-capacity Groq/GitHub models.
-  - **Strict Cloudflare Workers AI Isolation**: Cloudflare credentials (`CF_ACCOUNT_ID`, `CF_API_TOKEN`) are strictly reserved 100% for Flux Image Generation; LLM text generation via Cloudflare is hard-prevented.
-  - **Modern Prompt Optimization & 4-Scene Contract**: System prompts are trimmed by ~1,400 tokens (-40% latency), contradictory `<THINKING>` tags are eliminated, and scripts strictly enforce a 4-scene structure (Hook ➡️ Build ➡️ Climax ➡️ Circular Loop Bridge) within 85–125 words for infinite replay retention (>100% APV).
-  - **Universal Greedy JSON Parser**: Recovers from unescaped quotes, trailing commas, and markdown fences cleanly across all models.
-  - **Full Discord & Console Transparency**: Reports exact model URI, provider, and cascade layer (e.g. `google:gemini-3.8-flash (Tier 1 Flagship Canary)`) in stdout, execution logs, and Discord webhook embeds.
-  - **Run-Scoped Circuit Breakers & Provider-Aligned Resets**: Evaluates resets against Midnight Pacific Time (Google) and Midnight UTC (Groq/GitHub/OpenRouter). Isolates 404 (deprecated) and 429 (exhausted) models for 0ms bypass on subsequent calls.
-- **API Resilience:** All API calls are wrapped in exponential backoff with run-scoped Circuit Breakers and non-text / WebSocket live model exclusion filters.
-- **Images:** Cloudflare FLUX ➡️ HuggingFace FLUX ➡️ Pixabay Video (B-Roll) ➡️ Pollinations.ai (Zero-Key) ➡️ Pexels Stock Footage.
-- **Thumbnails:** Auto-crops vertical scene visual or extracts frame 1 from stock video clips via FFmpeg to generate 1280x720 YouTube thumbnails with gradient shadows and bold titles.
-- **Voiceover:** Local Kokoro-82M ➡️ EdgeTTS Azure Neural ➡️ Groq Orpheus.
-- **Rendering:** `xfade` Crossfade ➡️ Hard Cuts (Simple Concat).
+> [!IMPORTANT]
+> **GOLDEN RULE: ZERO LOCAL RUNS**  
+> This engine is strictly cloud-native and executed **100% via GitHub Actions CI/CD**. There are no heavy local dependencies, no local disk consumption, and no local GPU requirements. The engine runs on scheduled cloud runners and terminates cleanly.
 
 ---
 
-## ⚙️ How to Test & Use
+## ⚡ The 4-Stage "Pika Flow" Pipeline
 
-Because the engine is automated via GitHub Actions, manual usage is simple:
+The production pipeline is consolidated into a single master GitHub Actions workflow (`.github/workflows/master_pipeline.yml`) with modular, job-scoped dependencies for lightning-fast container startup:
 
-### 1. Test Mode (Local or Sandbox)
-If you want to run the pipeline without burning YouTube API quota:
-```bash
-# Sets TEST_MODE=true in your environment
-python main.py
+```mermaid
+flowchart LR
+    A["🚀 Init & Spec Generation"] --> B["🎬 Clip Generation"]
+    B --> C["✂️ Video Editor"]
+    C --> D["📦 YouTube Release"]
 ```
-This bypasses YouTube auth, skips DB writes, limits output to 1 video per channel, and saves the `.mp4` artifact locally in your workspace.
 
-### 2. Tuning the Settings (`config/settings.yaml`)
-You can control the aesthetic of the engine purely through `settings.yaml` without touching code:
-- **`render.xfade_duration`**: Adjust the length of crossfades (default 0.3s).
-- **`render.pan_percent`**: Adjust the speed of the Ken Burns zoom/pan (default 0.05).
-- **`caption_style_presets`**: Adjust font size, neon glow width, and blur strength for captions.
+### 1. `🚀 Init & Spec Generation` (Boot: ~5-10s)
+* **Competitor Spy & Viral Detection:** Scans competitor channels (e.g. `@BrainBlud`, `@FactFiend`) for viral outliers with 24-hour quota caching.
+* **Topic Sourcing & Fact-Checking Gate:** Pulls from Reddit (`r/todayilearned`, `r/Showerthoughts`, `r/psychology`) with datacenter Google Trends RSS fallbacks. Validates topics through an LLM scientific fact-checking gate to eliminate fake myths.
+* **BrainBlud Scriptwriting Engine:** Drafts retention-engineered scripts featuring:
+  * *In Media Res* hook openings.
+  * *The Seamless Loop* (final sentence connects syntactically back into the opening hook).
+  * Dynamic format weighting (80% Core BrainBlud / 20% Listicle).
+* **Phonetic Normalization & TTS:** Translates symbols and numbers to spoken English (`125` $\rightarrow$ `one hundred and twenty-five`), streams Edge-TTS audio, and captures millisecond word-boundary timestamps.
+* **Artifact:** Generates and uploads `output/spec.json`.
 
-### 3. Kill Switch
-To completely halt all GitHub Actions schedules:
-Go to GitHub Variables and set `GHOST_ENGINE_ENABLED = false`.
+### 2. `🎬 Clip Generation` (Boot: ~2-3s)
+* **100% Stock Video Architecture:** Zero AI image generation. Queries Pexels & Pixabay Video APIs for portrait (9:16) or landscape (16:9) clips.
+* **CDN Link Expiry Protection:** Persists Provider Video IDs in manifest to auto-refresh download links if signed tokens expire.
+* **Artifact:** Generates and uploads `output/clips_manifest.json`.
+
+### 3. `✂️ Video Editor` (FFmpeg Native Assembly)
+* **Aspect-Ratio Preserving Scaling:** Center-crop scaling (`force_original_aspect_ratio=increase,crop=1080:1920`) prevents stretched or distorted videos.
+* **Kinetic Micro-Chunked Captions:** 1 to 3 words on screen at a time using *Anton* font, with the actively spoken word highlighted in Cyberpunk Yellow (`#FFFF00`).
+* **Dynamic Transparent Watermark:** Burns in an elegant semi-transparent channel handle watermark (`opacity: 0.40`) in the `top_right` safe zone without cluttering the screen.
+* **Pop-Free Audio Ducking:** Background music mixed at $-22\text{dB}$ ducks via a smooth 150ms exponential crossfade (`afade=t=out:d=0.15`) to absolute silence before punchline revelations.
+* **Artifact:** Generates and uploads `output/final_render.mp4`.
+
+### 4. `📦 YouTube Release` (One-Shot Smart Release)
+* **Low-Quota Collision Detection:** Queries uploads playlist via a 1-unit low-quota check to identify occupied schedule slots.
+* **Optimal Peak Scheduling:** Schedules video for the daily peak audience window (18:00 UTC). If already occupied, automatically increments $+24$ hours to the next day's peak slot.
+* **One-Shot Upload (Zero Post-Edits):** Uploads video binary with finalized SEO metadata, category `27` (Education), and scheduled `publishAt` in a single API transaction. Never touches or edits the video post-upload to preserve algorithmic momentum.
+* **Storage Pruning:** Automatically deletes the local video file upon upload confirmation to keep repository storage lean.
 
 ---
 
-## 📦 Requirements & Auto-Upgrading
-All dependencies are tracked in `requirements.txt`. Because versioning uses `>=`, GitHub Actions will automatically install the absolute latest models and patches (like `edge-tts` and `faster-whisper`) every time the runner boots up. No manual maintenance is required.
+## 🛠️ Configuration & Customization
+
+All operational settings are fully dynamic and zero-hardcoded:
+
+### `config/channel_config.yaml`
+```yaml
+channel:
+  name: "BrainBlud"
+  handle: "@BrainBlud"
+  niche: "psychology_and_facts"
+  language: "en-US"
+  voice:
+    provider: "edge-tts"
+    voice_id: "en-US-ChristopherNeural"
+  branding:
+    enabled: true
+    watermark_text: "@BrainBlud"
+    opacity: 0.40 # 40% subtle transparency
+    position: "top_right" # Options: "top_right", "top_center", "above_title"
+    font_size: 26
+    font_family: "Montserrat-SemiBold"
+  upload_defaults:
+    privacy: "private"
+    category_id: "27"
+    made_for_kids: false
+```
+
+### `config/settings.yaml`
+Controls video profiles for Shorts (`9:16`, `1080x1920`, 3.5s cuts) and Long-form (`16:9`, `1920x1080`, 6.0s cuts), competitor targets, audio levels, and API quotas.
+
+### `memory/dynamic_weights.json`
+Stores self-learning state (format probability ratios and cut intervals) autonomously tuned by performance analytics.
+
+---
+
+## 🔐 Required GitHub Secrets
+
+Set these in your repository under **Settings ➔ Secrets and variables ➔ Actions**:
+
+| Secret Name | Description |
+|---|---|
+| `YOUTUBE_CLIENT_ID` | Google Cloud OAuth 2.0 Client ID |
+| `YOUTUBE_CLIENT_SECRET` | Google Cloud OAuth 2.0 Client Secret |
+| `YOUTUBE_REFRESH_TOKEN` | Google Cloud OAuth 2.0 Refresh Token |
+| `PEXELS_API_KEY` | Pexels API Key for stock videos |
+| `PIXABAY_API_KEY` | Pixabay API Key for stock videos |
+| `GROQ_API_KEY` | Primary LLM Provider (Llama 3.3 70B) |
+| `GEMINI_API_KEY` | Secondary LLM Provider (Gemini 2.5 Flash) |
+| `OPENAI_API_KEY` | Tertiary LLM Provider (GPT-4o-mini, optional) |
+| `DISCORD_WEBHOOK` | Webhook URL for Pika Flow real-time stage cards |
+
+---
+
+## 🚀 Triggering Production
+
+### Automated Daily Cron
+The pipeline triggers automatically every morning at **08:00 UTC** via GitHub Actions.
+
+### Manual Dispatch
+1. Go to the **Actions** tab in your GitHub repository.
+2. Select **Video Production Pipeline (v2.0)** on the left sidebar.
+3. Click **Run workflow**, choose your video type (`short` or `long`), and confirm.

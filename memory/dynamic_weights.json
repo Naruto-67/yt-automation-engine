@@ -1,0 +1,13 @@
+{
+  "sub_formats": {
+    "core_brainblud": 0.80,
+    "listicle": 0.20
+  },
+  "pacing": {
+    "target_duration_seconds": 52,
+    "cut_interval_seconds": 3.5,
+    "silence_lead_time_seconds": 1.0
+  },
+  "last_updated": "2026-10-02T00:00:00Z"
+}
+

@@ -1,0 +1,21 @@
+# config/channel_config.yaml — Single Channel Configuration (v2.0)
+channel:
+  name: "BrainBlud"
+  handle: "@BrainBlud"
+  niche: "psychology_and_facts"
+  language: "en-US"
+  voice:
+    provider: "edge-tts"
+    voice_id: "en-US-ChristopherNeural"
+  branding:
+    enabled: true
+    watermark_text: "@BrainBlud"
+    opacity: 0.40 # Subtle transparency (40%)
+    position: "top_right" # Options: "top_right", "top_center", "above_title"
+    font_size: 26
+    font_family: "Montserrat-SemiBold"
+  upload_defaults:
+    privacy: "private"
+    category_id: "27" # Education
+    made_for_kids: false
+
