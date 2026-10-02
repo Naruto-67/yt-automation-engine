@@ -34,8 +34,10 @@ def check_filter_supported(filter_name: str) -> bool:
 
 
 def download_cinematic_font() -> str:
-    """Fetches Anton font dynamically and caches across Windows and Linux runners."""
-    font_path = os.path.join(tempfile.gettempdir(), "Anton-Regular.ttf")
+    """Fetches Anton font dynamically and caches in output/fonts/."""
+    font_dir = os.path.join("output", "fonts")
+    os.makedirs(font_dir, exist_ok=True)
+    font_path = os.path.join(font_dir, "Anton-Regular.ttf")
     if os.path.exists(font_path) and os.path.getsize(font_path) > 20000:
         return font_path
 
@@ -343,7 +345,7 @@ def render_video_ffmpeg(
     print(f"  ✅ Concat completed in {concat_elapsed}s", flush=True)
 
     # ─── STAGE 3: COMPOSITE AUDIO, SUBTITLES & WATERMARK ──────────────────────
-    print(f"🎨 [RENDERER - STEP 3/3] Compositing audio, subtitles & watermark...", flush=True)
+    print(f"🎨 [RENDERER - STEP 3/3] Compositing audio, subtitles & watermark (target: {total_duration:.1f}s)...", flush=True)
     comp_start = time.time()
 
     vf_filters = []
@@ -361,8 +363,8 @@ def render_video_ffmpeg(
 
     # Burnt subtitles
     if check_filter_supported("subtitles") and os.path.exists(ass_path):
-        clean_ass = os.path.abspath(ass_path).replace("\\", "/").replace(":", "\\:")
-        font_dir = os.path.dirname(os.path.abspath(font_file)).replace("\\", "/").replace(":", "\\:") if (font_file and font_file != "Arial" and os.path.exists(font_file)) else ""
+        clean_ass = ass_path.replace("\\", "/")
+        font_dir = os.path.dirname(os.path.abspath(font_file)).replace("\\", "/") if (font_file and font_file != "Arial" and os.path.exists(font_file)) else ""
         fontsdir_arg = f":fontsdir='{font_dir}'" if font_dir else ""
         vf_filters.append(f"subtitles='{clean_ass}'{fontsdir_arg}")
     else:
@@ -394,8 +396,6 @@ def render_video_ffmpeg(
 
     comp_cmd = [
         "ffmpeg", "-y",
-        "-stats",
-        "-loglevel", "info",
         "-i", concat_base,
         *audio_inputs,
         *vf_arg,
@@ -408,43 +408,17 @@ def render_video_ffmpeg(
         output_video_path
     ]
 
-    process = subprocess.Popen(
+    res = subprocess.run(
         comp_cmd,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
         text=True,
-        bufsize=1,
-        universal_newlines=True
+        timeout=300
     )
 
-    stderr_lines = []
-    last_log_time = time.time()
-
-    for line in iter(process.stderr.readline, ""):
-        if not line:
-            break
-        stderr_lines.append(line)
-        if len(stderr_lines) > 200:
-            stderr_lines.pop(0)
-
-        now = time.time()
-        line_clean = line.strip()
-        if "time=" in line_clean or "frame=" in line_clean:
-            if now - last_log_time >= 5.0:
-                print(f"  ⏱️ [FFMPEG] {line_clean}", flush=True)
-                last_log_time = now
-        elif any(k in line_clean.lower() for k in ("error", "fatal")):
-            print(f"  ⚠️ [FFMPEG] {line_clean}", flush=True)
-
-    try:
-        process.wait(timeout=300)
-    except subprocess.TimeoutExpired:
-        process.kill()
-        raise RuntimeError(f"FFmpeg composite pass timed out after 300 seconds for topic '{spec.topic}'")
-
-    if process.returncode != 0:
-        err_tail = "".join(stderr_lines[-30:])
-        raise RuntimeError(f"FFmpeg composite pass failed with return code {process.returncode}:\n{err_tail}")
+    if res.returncode != 0:
+        err_tail = "\n".join(res.stderr.strip().splitlines()[-30:])
+        raise RuntimeError(f"FFmpeg composite pass failed with return code {res.returncode}:\n{err_tail}")
 
     comp_elapsed = round(time.time() - comp_start, 2)
     file_size_mb = os.path.getsize(output_video_path) / (1024 * 1024) if os.path.exists(output_video_path) else 0.0

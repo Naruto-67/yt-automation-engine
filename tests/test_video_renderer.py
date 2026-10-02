@@ -118,24 +118,7 @@ def test_render_video_ffmpeg_segmented_pipeline(tmp_path, monkeypatch):
             f.write(b"0" * 1000)
         return MagicMock(returncode=0, stderr="")
 
-    class MockPopen:
-        def __init__(self, cmd, *args, **kwargs):
-            executed_cmds.append(cmd)
-            self.returncode = 0
-            self.stderr = MagicMock()
-            self.stderr.readline.side_effect = [
-                "frame=  100 fps= 60 time=00:00:03.00\n",
-                ""
-            ]
-
-        def wait(self, timeout=None):
-            # Create final video output
-            with open(output_video, "wb") as f:
-                f.write(b"0" * 50000)
-            return 0
-
     monkeypatch.setattr("subprocess.run", mock_subprocess_run)
-    monkeypatch.setattr("subprocess.Popen", MockPopen)
 
     render_video_ffmpeg(
         spec=spec,
