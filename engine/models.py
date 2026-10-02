@@ -63,8 +63,8 @@ class ClipItem(BaseModel):
 class ClipsManifest(BaseModel):
     """Stage 2 output contract written to output/clips_manifest.json."""
     topic: str
-    video_type: str
-    clips: List[ClipItem]
+    video_type: str = Field(default="short", description="'short' (9:16) or 'long' (16:9)")
+    clips: List[ClipItem] = Field(default_factory=list)
 
 
 class BrandingConfig(BaseModel):

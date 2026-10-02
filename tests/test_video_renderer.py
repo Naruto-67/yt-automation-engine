@@ -85,6 +85,7 @@ def test_render_video_ffmpeg_segmented_pipeline(tmp_path, monkeypatch):
 
     clips_manifest = ClipsManifest(
         topic="Brain Power",
+        video_type="short",
         clips=[
             ClipItem(scene_id=1, query="brain query", download_url="http://mock.url/1.mp4", provider="pexels", video_id="101"),
             ClipItem(scene_id=2, query="brain query", download_url="http://mock.url/2.mp4", provider="pixabay", video_id="102"),
