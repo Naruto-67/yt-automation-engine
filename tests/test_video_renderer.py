@@ -1,4 +1,4 @@
-# tests/test_video_renderer.py — Unit Tests for OpenMontage 3-Stage Segmented Pipeline
+# tests/test_video_renderer.py — Unit Tests for 3-Stage Segmented Pipeline
 import os
 import tempfile
 import pytest
@@ -171,3 +171,4 @@ def test_render_video_ffmpeg_segmented_pipeline(tmp_path, monkeypatch):
     assert "subtitles" in final_cmd[final_cmd.index("-vf") + 1]
     assert "-c:a" in final_cmd and final_cmd[final_cmd.index("-c:a") + 1] == "aac"
     assert output_video in final_cmd
+

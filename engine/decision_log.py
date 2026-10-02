@@ -1,8 +1,7 @@
-# engine/decision_log.py — CMU/Harvard CHAI Append-Only Decision Log
+# engine/decision_log.py — Append-Only Decision Log
 """
 Append-Only Decision Log for Autonomous Production Governance.
-Adapted from CMU/Harvard Center for Human-Aware AI (CHAI) standards
-and calesthio/OpenMontage decision tracking.
+Provides structured decision tracking and auditability.
 
 Records every non-trivial decision made across the pipeline:
   - LLM model routing and fallback decisions

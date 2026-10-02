@@ -1,6 +1,6 @@
 """
 scripts/render_video.py — Stock Video Rendering Engine & Kinetic Subtitle Generator (v2.0)
-Implements an OpenMontage-inspired 3-stage segmented pipeline:
+Implements a robust 3-stage segmented pipeline:
   Stage 1: Pre-process and normalize each clip segment individually to standard specs.
   Stage 2: Lossless stream-copy concat via FFmpeg concat demuxer (-f concat -c copy).
   Stage 3: Composite pass burning word-by-word highlighted captions, watermark, and audio mux.
@@ -181,7 +181,7 @@ def render_video_ffmpeg(
     settings_cfg: Dict[str, Any]
 ) -> None:
     """
-    Assembles stock videos using OpenMontage-inspired 3-stage segmented pipeline:
+    Assembles stock videos using a robust 3-stage segmented pipeline:
       1. Pre-render individual normalized segments (1080x1920 / 1920x1080 @ 30fps).
       2. Instant lossless merge via FFmpeg concat demuxer (-c copy).
       3. Composite pass adding audio track, dynamic captions, and watermark.
