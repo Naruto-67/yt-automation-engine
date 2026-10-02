@@ -22,23 +22,31 @@ if hasattr(sys.stdout, "reconfigure"):
         pass
 
 
-# ─── HIGH-RETENTION ASMR TAXONOMY FOR SHORTS ────────────────────────────────
-SHORTS_ASMR_TAXONOMY: List[str] = [
+# ─── HIGH-RETENTION ASMR & SATISFYING TAXONOMY FOR SHORTS ─────────────────────
+SHORTS_VISUAL_TAXONOMY: List[str] = [
     "soap carving razor ASMR",
+    "kinetic sand slicing satisfying",
     "carpet cleaning power wash squeegee",
-    "kinetic sand slicing hot knife",
-    "lawn hedge trimming electric shears",
-    "floral foam crushing boots press",
     "hydraulic press squishing slime",
+    "satisfying slime bubble popping",
+    "lawn hedge trimming electric shears",
+    "pottery wheel clay shaping satisfying",
     "paint scraping palette knife acrylic",
     "wood turning lathe chisel shavings",
-    "pottery wheel trimming clay",
-    "macro ink fluid dynamics water drop",
-    "glass score snapping satisfying",
-    "metal milling lathe spiral shavings",
-    "ice crushing slow motion ASMR",
+    "marble run kinetic motion wooden",
     "pressure washing sidewalk clean moss",
+    "ice crushing slow motion ASMR",
+    "domino falling cascade smooth",
+    "floral foam crushing boots press",
+    "macro ink fluid dynamics water drop",
+    "spiral optical illusion hypnotic",
+    "satisfying soap cutting asmr",
+    "metal milling lathe spiral shavings",
+    "glass score snapping satisfying",
+    "kinetic sand slicing hot knife",
 ]
+# Backward-compatibility alias
+SHORTS_ASMR_TAXONOMY = SHORTS_VISUAL_TAXONOMY
 
 
 class StockVideoManager:
@@ -280,10 +288,10 @@ def run_clips_stage() -> None:
         print(f"🎬 [CLIPS] Sourcing stock videos for {len(spec.scenes)} scenes ({orientation})...", flush=True)
 
         for idx, scene in enumerate(spec.scenes):
-            # For Shorts in shower_thoughts/retention mode: rotate through ASMR taxonomy for maximum sensory variety
+            # For Shorts: STRICTLY rotate through satisfying ASMR & kinetic visuals.
+            # Never use literal LLM script queries, ensuring 100% satisfying/ASMR retention visuals.
             if spec.video_type == "short":
-                taxonomy_query = SHORTS_ASMR_TAXONOMY[idx % len(SHORTS_ASMR_TAXONOMY)]
-                query = scene.stock_video_query if (scene.stock_video_query and "abstract" not in scene.stock_video_query.lower()) else taxonomy_query
+                query = SHORTS_VISUAL_TAXONOMY[idx % len(SHORTS_VISUAL_TAXONOMY)]
             else:
                 query = scene.stock_video_query or "documentary cinematic background"
 
@@ -295,6 +303,19 @@ def run_clips_stage() -> None:
                 min_duration=scene.duration_seconds,
                 exclude_ids=used_in_current_run
             )
+            # Resilient fallback if specific query had 0 results
+            if not clip and spec.video_type == "short":
+                for fb_query in ["satisfying asmr", "kinetic sand slicing", "soap carving"]:
+                    clip = stock_mgr.search_video(
+                        fb_query,
+                        orientation=orientation,
+                        min_duration=scene.duration_seconds,
+                        exclude_ids=used_in_current_run
+                    )
+                    if clip:
+                        query = fb_query
+                        break
+
             if not clip:
                 raise RuntimeError(f"Could not find any suitable stock video for query: '{query}'")
 

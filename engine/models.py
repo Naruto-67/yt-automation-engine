@@ -46,6 +46,7 @@ class SpecOutput(BaseModel):
     total_duration_seconds: float = 0.0
     audio_path: Optional[str] = "output/narration.mp3"
     thought_process: Optional[Dict[str, Any]] = None
+    word_timestamps: List[WordTimestamp] = Field(default_factory=list)
 
 
 class ClipItem(BaseModel):

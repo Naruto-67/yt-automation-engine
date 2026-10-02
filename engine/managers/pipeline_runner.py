@@ -46,11 +46,9 @@ def run_spec_stage(video_type: str = "short") -> None:
         source = topic_info.get("source", "trend")
         script_cfg = prompts_cfg.get("long_form_doc", prompts_cfg["script_gen"])
     else:
-        # Roll for sub-format (favoring rapid-fire shower thoughts barrage)
-        sub_formats = weights.get("sub_formats", {"shower_thoughts_listicle": 0.70, "core_brainblud": 0.30})
-        listicle_prob = sub_formats.get("shower_thoughts_listicle", sub_formats.get("listicle", 0.70))
-        r = random.random()
-        sub_format = "shower_thoughts_listicle" if r < listicle_prob else "core_brainblud"
+        # For Shorts: STRICTLY lock sub-format to "shower_thoughts_listicle" (12-15 rapid-fire thoughts, 50-58s)
+        # Avoid rolling core_brainblud for shorts which is only 5 scenes / 25s
+        sub_format = "shower_thoughts_listicle"
 
         # 1. Discover topic (Competitor Spy -> Topic Inspector)
         surge = CompetitorSpy.get_surge_topic(settings_cfg.get("competitors", []))
@@ -58,7 +56,7 @@ def run_spec_stage(video_type: str = "short") -> None:
             topic = surge.get("title")
             source = "competitor_surge"
         else:
-            topic_info = inspector.discover_verified_topic(channel_cfg.get("niche", "psychology_and_facts"))
+            topic_info = inspector.discover_verified_topic(channel_cfg.get("niche", "shower_thoughts"))
             topic = topic_info["topic"]
             source = topic_info.get("source", "trend")
         script_cfg = prompts_cfg["script_gen"]
@@ -69,7 +67,7 @@ def run_spec_stage(video_type: str = "short") -> None:
         # 2. Generate Script
         system_prompt = script_cfg["system_prompt"] + "\n\n" + script_cfg["constitution"] + "\n\n" + script_cfg.get("few_shot_exemplars", "")
         user_prompt = script_cfg["user_template"].format(
-            niche=channel_cfg.get("niche", "psychology_and_facts"),
+            niche=channel_cfg.get("niche", "shower_thoughts"),
             topic=topic,
             sub_format=sub_format,
             target_duration=target_duration
@@ -86,13 +84,51 @@ def run_spec_stage(video_type: str = "short") -> None:
         if not raw_scenes:
             raise ValueError("LLM generated empty scene array.")
 
+        # Ensure sufficient scenes and words for Shorts in production runs
+        if video_type == "short" and not os.environ.get("PYTEST_CURRENT_TEST") and not os.environ.get("TEST_MODE"):
+            total_words = sum(len(s.get("spoken_text", "").split()) for s in raw_scenes)
+            if len(raw_scenes) < 11 or total_words < 125:
+                print(f"⚠️ [SPEC] LLM output short ({len(raw_scenes)} scenes, {total_words} words). Expanding with verified shower thoughts...", flush=True)
+                FALLBACK_THOUGHTS = [
+                    "Your shadow is proof that light traveled ninety-three million miles unobstructed just to be stopped by you.",
+                    "If you replace every single part of an axe, is it still the exact same axe?",
+                    "You have never actually seen your own face, only reflections, video screens, and photographs.",
+                    "Sleeping is just charging your biological battery, while dreaming is running a diagnostics test.",
+                    "Nothing is ever on fire. Fire is actually on things.",
+                    "Clapping is just repeatedly slapping yourself because you enjoyed something.",
+                    "Your age is just the number of laps you've survived around a giant nuclear fireball.",
+                    "If poison expires, does it become more poisonous, or less poisonous?",
+                    "Your future self is watching you right now through the lens of your memories.",
+                    "The brain named itself, recognized itself, and is now realizing that exact fact.",
+                    "Water can boil and freeze at the exact same instant under specific pressure."
+                ]
+                loop_scene = raw_scenes[-1] if len(raw_scenes) > 1 else None
+                mid_scenes = raw_scenes[:-1] if len(raw_scenes) > 1 else raw_scenes
+                existing_texts = {s.get("spoken_text", "").lower() for s in raw_scenes}
+                
+                for fb in FALLBACK_THOUGHTS:
+                    if fb.lower() not in existing_texts:
+                        mid_scenes.append({"scene_id": len(mid_scenes) + 1, "spoken_text": fb, "stock_video_query": "satisfying asmr"})
+                        existing_texts.add(fb.lower())
+                    if len(mid_scenes) >= 13 or sum(len(s.get("spoken_text", "").split()) for s in mid_scenes) >= 135:
+                        break
+                
+                if loop_scene:
+                    mid_scenes.append(loop_scene)
+                raw_scenes = mid_scenes
+                for i, sc in enumerate(raw_scenes):
+                    sc["scene_id"] = i + 1
+
         # 3. Normalize for Phonetic TTS & Extract Word Boundaries
+        for s in raw_scenes:
+            s["phonetic_text"] = VoiceNormalizer.normalize_text(s["spoken_text"])
+
+        full_phonetic_script = " ".join(s["phonetic_text"] for s in raw_scenes)
         full_display_script = " ".join(s["spoken_text"] for s in raw_scenes)
-        full_phonetic_script = VoiceNormalizer.normalize_text(full_display_script)
         
         audio_output = os.path.join("output", "narration.mp3")
         voice_cfg = channel_cfg.get("voice", {})
-        voice_id = voice_cfg.get("voice_id", "am_michael")
+        voice_id = voice_cfg.get("voice_id", "am_adam")
         voice_provider = voice_cfg.get("provider", "kokoro")
         
         print(f"🎙️ [TTS] Synthesizing narration with {voice_provider} (voice: {voice_id})...")
@@ -108,32 +144,50 @@ def run_spec_stage(video_type: str = "short") -> None:
             total_duration = max(15.0, round(words_count / 2.5, 2))
             print(f"⚠️ [TTS] Measured duration was 0.0s — calculated fallback duration: {total_duration:.1f}s")
 
-        # Map scene timing approximately across word timestamps
-        scenes_spec = []
-        word_cursor = 0
+        # Map scene timing precisely across word timestamps with zero accumulative drift
+        from engine.managers.stock_video_manager import SHORTS_VISUAL_TAXONOMY
         total_words_count = len(word_timestamps)
+        total_p_words = max(1, sum(len(s["phonetic_text"].split()) for s in raw_scenes))
+        accum_p_words = 0
+        scenes_spec = []
 
         for idx, s in enumerate(raw_scenes):
             s_text = s["spoken_text"]
-            p_text = VoiceNormalizer.normalize_text(s_text)
-            s_word_count = len(s_text.split())
+            p_text = s["phonetic_text"]
+            p_count = len(p_text.split())
             
-            # Slice word timestamps
-            scene_words = word_timestamps[word_cursor: word_cursor + s_word_count]
-            word_cursor += s_word_count
-            
-            s_dur = (scene_words[-1].end - scene_words[0].start) if scene_words else (total_duration / len(raw_scenes))
+            # Slice word timestamps proportionally to prevent any accumulative desynchronization
+            if total_words_count > 0 and total_p_words > 0:
+                start_w_idx = int(round(accum_p_words / total_p_words * total_words_count))
+                end_w_idx = int(round((accum_p_words + p_count) / total_p_words * total_words_count)) if idx < len(raw_scenes) - 1 else total_words_count
+                scene_words = word_timestamps[start_w_idx:end_w_idx]
+            else:
+                scene_words = []
+
+            accum_p_words += p_count
+
+            # Determine scene duration
+            if scene_words:
+                s_dur = round(scene_words[-1].end - scene_words[0].start, 2)
+            else:
+                s_dur = round(total_duration / len(raw_scenes), 2)
             if s_dur <= 0.0:
                 s_dur = round(total_duration / len(raw_scenes), 2)
             if s_dur <= 0.0:
-                s_dur = 5.0
+                s_dur = 4.0
+
+            # Stock video query: For Shorts, guarantee rotating satisfying ASMR query
+            if video_type == "short":
+                stock_query = SHORTS_VISUAL_TAXONOMY[idx % len(SHORTS_VISUAL_TAXONOMY)]
+            else:
+                stock_query = s.get("stock_video_query", "cinematic abstract background")
 
             scenes_spec.append(
                 SceneSpec(
                     scene_id=idx + 1,
                     spoken_text=s_text,
                     phonetic_text=p_text,
-                    stock_video_query=s.get("stock_video_query", "cinematic abstract background"),
+                    stock_video_query=stock_query,
                     duration_seconds=round(s_dur, 2),
                     word_timestamps=scene_words
                 )
@@ -170,7 +224,8 @@ def run_spec_stage(video_type: str = "short") -> None:
             scenes=scenes_spec,
             total_duration_seconds=calculated_total if calculated_total > 0.0 else 30.0,
             audio_path=audio_output,
-            thought_process=script_data.get("thought_process")
+            thought_process=script_data.get("thought_process"),
+            word_timestamps=word_timestamps
         )
 
         os.makedirs("output", exist_ok=True)

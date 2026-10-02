@@ -45,26 +45,26 @@ api_limits:
 
 # ─── BACKGROUND MUSIC & AUDIO ENGINEERING ────────────────────────────────────
 music:
-  volume: 0.08          # ~-22 dB relative background level
+  volume: 0.05          # Subtle, chill Lo-Fi backing level beneath clear voiceover
   ducking_fade_seconds: 0.15 # 150ms smooth exponential crossfade before punchline silence
   silence_duration_seconds: 1.0 # 1s dead silence before climax
   fade_in_seconds: 1.0
   fade_out_seconds: 1.5
 
 audio_mastering:
-  target_lufs: -14.0
+  target_lufs: -13.0
   loudness_range: 7.0
-  true_peak: -1.5
-  voice_gain: 1.5
+  true_peak: -1.0
+  voice_gain: 1.8
 
 # ─── CAPTION STYLING & HIGH-RETENTION TYPOGRAPHY ──────────────────────────────
 captions:
   font_name: "Anton"
-  font_size: 88
+  font_size: 96
   font_size_long: 44           # Lower-third documentary sizing for 16:9 widescreen
-  active_color: "&H0000FFFF" # Cyberpunk Yellow in ASS (&HAABBGGRR)
-  inactive_color: "&H00FFFFFF" # Crisp white
-  outline_color: "&H00000000" # Black outline
+  active_color: "&H00FFFFFF"   # Pure crisp white in ASS (&HAABBGGRR)
+  inactive_color: "&H00FFFFFF" # Pure crisp white
+  outline_color: "&H00000000"  # Solid pitch black outline
   outline_width: 6
   outline_width_long: 3        # Refined outline for long-form
   shadow_depth: 2

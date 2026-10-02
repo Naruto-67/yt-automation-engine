@@ -4,12 +4,12 @@ version: "2.0.0"
 script_gen:
   constitution: |
     ── UNIVERSAL HIGH-RETENTION ENGINE CONSTITUTION:
-    1. WORD CALIBRATION (45-55 SECONDS): Total spoken words across all scenes MUST BE BETWEEN 95 AND 130 WORDS. Under 90 words is rejected.
+    1. WORD CALIBRATION (50-58 SECONDS): Total spoken words across all scenes MUST BE BETWEEN 135 AND 160 WORDS. Under 130 words is strictly rejected.
     2. FORMAT ARCHITECTURES:
        - [shower_thoughts_listicle] (DEFAULT VIRAL BARRAGE):
-         * Fast-paced multi-thought barrage of 10 to 14 mind-bending shower thoughts, psychological paradoxes, or perception-shattering realities.
+         * Fast-paced multi-thought barrage of 12 to 15 mind-bending shower thoughts, psychological paradoxes, or perception-shattering realities.
          * Scene 1 is an irresistible psychological hook (e.g., "...and these shower thoughts will completely break your perception of reality.").
-         * Scenes 2 to N-1 are rapid-fire, independent, mind-blowing one-liners (6 to 12 words each, lasting 3.0 to 4.0 seconds).
+         * Scenes 2 to N-1 are rapid-fire, independent, mind-blowing one-liners (8 to 12 words each, lasting 3.5 to 4.2 seconds).
          * Every scene must feature a hypnotic, high-motion ASMR or kinetic visual search query (e.g. "satisfying soap carving asmr", "kinetic sand slicing", "colorful fluid dynamics neon", "hydraulic press crushing satisfying", "spiral optical illusion").
          * Scene N is a circular loop bridge sentence designed to flawlessly flow back into the opening hook of Scene 1.
        - [core_brainblud] (DEEP-DIVE PARADOX):
@@ -18,25 +18,27 @@ script_gen:
     3. IN MEDIA RES OPENING: Never use greetings ("Hey guys", "Welcome back", "Did you know"). Open mid-sentence or mid-thought with an immediate dopamine hook.
     4. SEAMLESS CIRCULAR LOOP: The final sentence must grammatically and rhythmically connect directly back into the opening hook of Scene 1 for a 100%+ replay loop.
     5. NO AI CLICHÉS: Banned words: "delve", "testament", "tapestry", "beacon", "game-changer", "mind-blowing", "journey", "fascinating", "in conclusion", "furthermore".
-    6. RAPID VISUAL PACING: Each scene must represent 3.0 to 4.0 seconds of audio mapped to a specific high-retention stock video visual search query.
+    6. RAPID VISUAL PACING: Each scene must represent 3.0 to 4.2 seconds of audio mapped to a specific high-retention stock video visual search query.
     7. FACTUAL INTEGRITY: All paradoxes and psychological insights must be logically sound, philosophically profound, or scientifically backed.
 
   few_shot_exemplars: |
     ── GOLDEN BENCHMARKS (ACTUAL VIRAL RETENTION SCRIPTS):
     
-    [EXEMPLAR 1: SHOWER THOUGHTS RAPID-FIRE BARRAGE (Format: shower_thoughts_listicle)]
+    [EXEMPLAR 1: SHOWER THOUGHTS RAPID-FIRE BARRAGE (Format: shower_thoughts_listicle, 140-155 words, 50-58s)]
     Hook (Scene 1): "...and these shower thoughts will completely ruin your perception of reality."
-    Scene 2: "Your shadow is proof that light traveled ninety-three million miles just to be blocked by you." (Query: "kinetic sand slicing satisfying")
-    Scene 3: "If you replace every single part of an axe, is it still the same axe?" (Query: "satisfying soap carving asmr")
-    Scene 4: "You have never actually seen your own face, only reflections and photos." (Query: "colorful fluid dynamics neon")
+    Scene 2: "Your shadow is proof that light traveled ninety-three million miles unobstructed just to be blocked by you." (Query: "kinetic sand slicing satisfying")
+    Scene 3: "If you replace every single part of an axe, is it still the exact same axe?" (Query: "satisfying soap carving asmr")
+    Scene 4: "You have never actually seen your own face, only reflections, video screens, and photographs." (Query: "colorful fluid dynamics neon")
     Scene 5: "Every book you've ever read is just twenty-six letters arranged in different orders." (Query: "hydraulic press crushing satisfying")
-    Scene 6: "Sleeping is just charging your battery, but dreaming is running a diagnostics test." (Query: "marble run kinetic motion")
-    Scene 7: "Nothing is ever on fire. Fire is just on things." (Query: "satisfying slime bubble popping")
-    Scene 8: "Clapping is just repeatedly hitting yourself because you like something." (Query: "domino falling cascade smooth")
-    Scene 9: "Your age is just the number of laps you've completed around a giant nuclear fireball." (Query: "spiral optical illusion mesmerizing")
+    Scene 6: "Sleeping is just charging your biological battery, while dreaming is running a diagnostics test." (Query: "marble run kinetic motion")
+    Scene 7: "Nothing is ever on fire. Fire is actually on things." (Query: "satisfying slime bubble popping")
+    Scene 8: "Clapping is just repeatedly slapping yourself because you enjoyed something." (Query: "domino falling cascade smooth")
+    Scene 9: "Your age is just the number of laps you've survived around a giant nuclear fireball." (Query: "spiral optical illusion mesmerizing")
     Scene 10: "If poison expires, does it become more poisonous, or less poisonous?" (Query: "pottery wheel clay shaping satisfying")
-    Scene 11: "Your future self is watching you right now through your memories." (Query: "satisfying kinetic sand loop")
-    Loop Bridge (Scene 12): "Which is why you should never overthink these..." (Seamlessly loops into Scene 1: "...and these shower thoughts will completely ruin your perception of reality.")
+    Scene 11: "Your future self is watching you right now through the lens of your memories." (Query: "satisfying kinetic sand loop")
+    Scene 12: "The brain named itself, recognized itself, and is now realizing that exact fact." (Query: "satisfying soap cutting asmr")
+    Scene 13: "Water can boil and freeze at the exact same instant under specific pressure." (Query: "ice crushing slow motion asmr")
+    Loop Bridge (Scene 14): "Which is why you should never overthink these..." (Seamlessly loops into Scene 1: "...and these shower thoughts will completely ruin your perception of reality.")
 
     [EXEMPLAR 2: SINGLE PARADOX DEEP-DIVE (Format: core_brainblud)]
     Hook (Scene 1): "...which is the exact reason your brain hallucinates every time you stare into a mirror in the dark."
@@ -54,18 +56,19 @@ script_gen:
     2. The cognitive contrast and dopamine progression of the thoughts.
     3. How the final sentence grammatically fuses into the first sentence for an infinite replay loop.
     
-    Target: 95-125 words total.
-    For "shower_thoughts_listicle": Generate 10 to 13 rapid-fire scenes (each 6-12 words, 3.0-3.5s).
+    Target: 135-160 words total (target duration: 50-58 seconds).
+    For "shower_thoughts_listicle": Generate 12 to 15 rapid-fire scenes (each 8-12 words, 3.5-4.2s). Total word count MUST be between 135 and 160 words.
     For "core_brainblud": Generate 5 to 6 scenes (each 15-20 words, 3.5-5.0s).
     Output MUST be valid JSON matching the exact schema.
 
   user_template: |
     NICHE: {niche}
     TOPIC: {topic}
-    SUB_FORMAT: {sub_format}  # "shower_thoughts_listicle" (10-13 rapid-fire mind-bending thoughts) or "core_brainblud" (single deep-dive paradox)
+    SUB_FORMAT: {sub_format}  # "shower_thoughts_listicle" (12-15 rapid-fire mind-bending thoughts, 135-160 words) or "core_brainblud" (single deep-dive paradox)
     TARGET_DURATION: {target_duration}s
 
     Write a viral short-form script following the golden guidelines for {sub_format}.
+    CRITICAL: Total words across all scenes MUST BE 135 TO 160 WORDS to achieve at least 50 seconds video length!
     
     RETURN ONLY A VALID JSON OBJECT:
     {{
@@ -88,12 +91,12 @@ script_gen:
         }},
         {{
           "scene_id": 3,
-          "spoken_text": "If you replace every single part of an axe, is it still the same axe?",
+          "spoken_text": "If you replace every single part of an axe, is it still the exact same axe?",
           "stock_video_query": "colorful fluid dynamics neon"
         }},
         {{
           "scene_id": 4,
-          "spoken_text": "You have never actually seen your own face, only reflections and photos.",
+          "spoken_text": "You have never actually seen your own face, only reflections, video screens, and photographs.",
           "stock_video_query": "hydraulic press crushing satisfying"
         }},
         {{
@@ -103,22 +106,22 @@ script_gen:
         }},
         {{
           "scene_id": 6,
-          "spoken_text": "Sleeping is just charging your battery, but dreaming is running a diagnostics test.",
+          "spoken_text": "Sleeping is just charging your biological battery, while dreaming is running a diagnostics test.",
           "stock_video_query": "satisfying slime bubble popping"
         }},
         {{
           "scene_id": 7,
-          "spoken_text": "Nothing is ever on fire. Fire is just on things.",
+          "spoken_text": "Nothing is ever on fire. Fire is actually on things.",
           "stock_video_query": "domino falling cascade smooth"
         }},
         {{
           "scene_id": 8,
-          "spoken_text": "Clapping is just repeatedly hitting yourself because you like something.",
+          "spoken_text": "Clapping is just repeatedly slapping yourself because you enjoyed something.",
           "stock_video_query": "pottery wheel clay shaping satisfying"
         }},
         {{
           "scene_id": 9,
-          "spoken_text": "Your age is just the number of laps you've completed around a giant nuclear fireball.",
+          "spoken_text": "Your age is just the number of laps you've survived around a giant nuclear fireball.",
           "stock_video_query": "satisfying soap cutting asmr"
         }},
         {{
@@ -128,11 +131,21 @@ script_gen:
         }},
         {{
           "scene_id": 11,
-          "spoken_text": "Your future self is watching you right now through your memories.",
+          "spoken_text": "Your future self is watching you right now through the lens of your memories.",
           "stock_video_query": "hypnotic spiral motion loop"
         }},
         {{
           "scene_id": 12,
+          "spoken_text": "The brain named itself, recognized itself, and is now realizing that exact fact.",
+          "stock_video_query": "carpet cleaning power wash squeegee"
+        }},
+        {{
+          "scene_id": 13,
+          "spoken_text": "Water can boil and freeze at the exact same instant under specific pressure.",
+          "stock_video_query": "ice crushing slow motion asmr"
+        }},
+        {{
+          "scene_id": 14,
           "spoken_text": "Which is why you should never overthink these...",
           "stock_video_query": "spiral optical illusion mesmerizing"
         }}

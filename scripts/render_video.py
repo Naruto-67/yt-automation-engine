@@ -69,18 +69,20 @@ def generate_ass_subtitles(
     height: int = 1920,
     font_name: str = "Anton",
     font_size: int = 72,
-    active_color: str = "&H0000FFFF",   # Yellow in ASS format
-    inactive_color: str = "&H00FFFFFF", # White
+    active_color: str = "&H00FFFFFF",   # Crisp white
+    inactive_color: str = "&H00FFFFFF", # Crisp white
     outline_color: str = "&H00000000",  # Solid Black
     outline_width: int = 6,
     shadow_depth: int = 2,
     chunk_size: int = 2,
     uppercase: bool = False,
     margin_v: Optional[int] = None,
+    master_word_timestamps: Optional[List[WordTimestamp]] = None,
 ) -> None:
     """
     Builds a word-by-word micro-chunked ASS subtitle file.
     Only 1-2 words on screen at a time for shorts, or conversational phrasing for long-form.
+    Uses continuous master timeline when available to eliminate boundary slicing jitter.
     """
     if margin_v is None:
         margin_v = int(height * 0.44) if height > width else int(height * 0.12)
@@ -110,10 +112,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             cs = 99
         return f"{h:01d}:{m:02d}:{s:02d}.{cs:02d}"
 
-    # Flatten all word timestamps across scenes
-    all_words: List[WordTimestamp] = []
-    for scene in scenes:
-        all_words.extend(getattr(scene, "word_timestamps", []))
+    # Master word timestamps take priority if available, avoiding any scene-slicing boundary corruption
+    if master_word_timestamps:
+        all_words = list(master_word_timestamps)
+    else:
+        all_words = []
+        for scene in scenes:
+            all_words.extend(getattr(scene, "word_timestamps", []))
 
     if not all_words:
         # Fallback if no word timestamps captured: create scene-level subtitles
@@ -127,7 +132,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             events.append(f"Dialogue: 0,{start_ts},{end_ts},Default,,0,0,0,,{text}")
             current_time += sc_dur
     else:
-        # Chunk words into groups of chunk_size (default 2)
+        # Chunk words into groups of chunk_size (default 1 for shorts)
         step_size = max(1, int(chunk_size))
         for i in range(0, len(all_words), step_size):
             chunk = all_words[i:i + step_size]
@@ -136,7 +141,18 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             # Create an event for each active word inside this chunk
             for active_idx, target_word in enumerate(chunk):
                 start_sec = target_word.start
-                end_sec = chunk[active_idx + 1].start if (active_idx + 1 < len(chunk)) else chunk_end
+                if active_idx + 1 < len(chunk):
+                    end_sec = chunk[active_idx + 1].start
+                elif i + step_size < len(all_words):
+                    next_word_start = all_words[i + step_size].start
+                    # If gap between words is short (natural cadence <= 0.40s), hold word until next word begins
+                    if next_word_start - target_word.end <= 0.40 and next_word_start > start_sec:
+                        end_sec = next_word_start
+                    else:
+                        end_sec = target_word.end + 0.15
+                else:
+                    end_sec = chunk_end + 0.20
+
                 if end_sec <= start_sec:
                     end_sec = start_sec + 0.25
 
@@ -273,7 +289,7 @@ def render_video_ffmpeg(
         height=target_h,
         font_name=font_name,
         font_size=sub_font_size,
-        active_color=caption_cfg.get("active_color", "&H0000FFFF"),
+        active_color=caption_cfg.get("active_color", "&H00FFFFFF"),
         inactive_color=caption_cfg.get("inactive_color", "&H00FFFFFF"),
         outline_color=caption_cfg.get("outline_color", "&H00000000"),
         outline_width=sub_outline_width,
@@ -281,6 +297,7 @@ def render_video_ffmpeg(
         chunk_size=sub_chunk_size,
         uppercase=sub_uppercase,
         margin_v=sub_margin_v,
+        master_word_timestamps=getattr(spec, "word_timestamps", None) or None,
     )
 
     # 4. Prepare Segment Timeline & Workspace
@@ -450,7 +467,7 @@ def render_video_ffmpeg(
             filter_complex = (
                 f"[1:a]loudnorm=I={target_lufs}:LRA={target_lra}:TP={target_tp},volume={voice_gain}[voice];"
                 f"[2:a]volume={bg_vol}[bg];"
-                f"[voice][bg]amix=inputs=2:duration=first:dropout_transition=2[aout]"
+                f"[voice][bg]amix=inputs=2:duration=first:dropout_transition=2:normalize=0[aout]"
             )
             audio_mapping = [
                 "-filter_complex", filter_complex,
