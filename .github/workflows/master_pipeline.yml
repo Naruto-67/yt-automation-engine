@@ -23,8 +23,8 @@ jobs:
     name: 🚀 Init & Spec Generation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -39,7 +39,7 @@ jobs:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: python -m engine.managers.pipeline_runner --stage spec --type ${{ inputs.video_type || 'short' }}
       - name: Upload Spec Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: spec-artifact
           path: output/spec.json
@@ -50,12 +50,12 @@ jobs:
     needs: init_and_spec
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
         with:
           name: spec-artifact
           path: output/
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -69,7 +69,7 @@ jobs:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: python -m engine.managers.pipeline_runner --stage clips
       - name: Upload Clip Manifest
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: clips-manifest
           path: output/clips_manifest.json
@@ -80,12 +80,12 @@ jobs:
     needs: [init_and_spec, clip_generation]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
         with:
           name: spec-artifact
           path: output/
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: clips-manifest
           path: output/
@@ -93,7 +93,7 @@ jobs:
         uses: FedericoCarboni/setup-ffmpeg@v3
         with:
           ffmpeg-version: '6.1.1'
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -107,7 +107,7 @@ jobs:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: python -m engine.managers.pipeline_runner --stage editor
       - name: Upload Final Video
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: final-video
           path: output/final_render.mp4
@@ -118,16 +118,16 @@ jobs:
     needs: [init_and_spec, video_editor]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
         with:
           name: spec-artifact
           path: output/
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: final-video
           path: output/
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -141,4 +141,3 @@ jobs:
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: python -m engine.managers.pipeline_runner --stage release
-
