@@ -8,6 +8,7 @@ tenacity>=8.5.0
 
 # Speech, Media & Schemas
 edge-tts>=7.0.0
+num2words>=0.5.13
 pydantic>=2.10.0
 PyYAML>=6.0.2
 python-dotenv>=1.0.0

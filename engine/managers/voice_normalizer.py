@@ -6,8 +6,50 @@ Converts raw scripts to spoken phonetic text and extracts millisecond word bound
 import os
 import re
 import asyncio
-from typing import List, Tuple
-from num2words import num2words
+def _int_to_words(n: int) -> str:
+    """Zero-dependency pure Python number to words converter for numbers up to billions."""
+    if n == 0:
+        return "zero"
+    if n < 0:
+        return f"minus {_int_to_words(abs(n))}"
+
+    units = ["", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+             "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
+             "seventeen", "eighteen", "nineteen"]
+    tens = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
+
+    def _convert_chunk(num: int) -> str:
+        parts = []
+        if num >= 100:
+            parts.append(f"{units[num // 100]} hundred")
+            num %= 100
+        if num >= 20:
+            parts.append(tens[num // 10])
+            num %= 10
+        if num > 0:
+            parts.append(units[num])
+        return " ".join(parts)
+
+    scales = [(1_000_000_000, "billion"), (1_000_000, "million"), (1_000, "thousand")]
+    result = []
+    for scale_val, scale_name in scales:
+        if n >= scale_val:
+            chunk = n // scale_val
+            result.append(f"{_convert_chunk(chunk)} {scale_name}")
+            n %= scale_val
+
+    if n > 0:
+        result.append(_convert_chunk(n))
+
+    return " ".join(result).strip()
+
+
+try:
+    from num2words import num2words
+except ImportError:
+    def num2words(n: int) -> str:
+        return _int_to_words(int(n))
+
 from engine.models import WordTimestamp
 
 
