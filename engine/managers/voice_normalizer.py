@@ -492,6 +492,15 @@ class VoiceNormalizer:
                             end=round((i + 1) * step, 3)
                         )
                     )
+        # CapCut-style acoustic caption alignment (faster-whisper / energy VAD)
+        from engine.managers.caption_aligner import CaptionAligner
+        aligned_words = CaptionAligner.align_captions(
+            audio_path=output_audio_path,
+            script_text=phonetic_text,
+            existing_timestamps=word_timestamps
+        )
+        if aligned_words:
+            word_timestamps = aligned_words
 
         return (duration, word_timestamps)
 

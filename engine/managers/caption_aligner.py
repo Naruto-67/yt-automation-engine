@@ -38,7 +38,7 @@ class CaptionAligner:
         falling back to RMS Energy VAD alignment, and finally existing timestamps.
         """
         # Tier 1: faster-whisper (Direct AI Transcription & Acoustic Alignment)
-        whisper_words = cls._align_with_faster_whisper(audio_path)
+        whisper_words = cls._align_with_faster_whisper(audio_path, script_text=script_text)
         if whisper_words and len(whisper_words) >= 1:
             print(f"✨ [CAPCUT ALIGNER] Transcribed {len(whisper_words)} exact word timestamps from audio via faster-whisper.", flush=True)
             return whisper_words
@@ -58,7 +58,11 @@ class CaptionAligner:
         return []
 
     @classmethod
-    def _align_with_faster_whisper(cls, audio_path: str) -> Optional[List[WordTimestamp]]:
+    def _align_with_faster_whisper(
+        cls,
+        audio_path: str,
+        script_text: Optional[str] = None
+    ) -> Optional[List[WordTimestamp]]:
         """Transcribes audio using faster-whisper with word-level acoustic alignment."""
         if not os.path.exists(audio_path):
             return None
@@ -69,10 +73,19 @@ class CaptionAligner:
             return None
 
         try:
-            print("🎙️ [CAPCUT ALIGNER] Running faster-whisper on voiceover audio...", flush=True)
+            print("🎙️ [CAPCUT ALIGNER] Running faster-whisper transcription on voiceover audio...", flush=True)
             # Use lightweight base.en model on CPU with int8 quantization (~1.5s execution)
             model = WhisperModel("base.en", device="cpu", compute_type="int8")
-            segments, info = model.transcribe(audio_path, word_timestamps=True, language="en")
+            prompt = script_text[:400] if script_text else None
+            segments, info = model.transcribe(
+                audio_path,
+                word_timestamps=True,
+                language="en",
+                initial_prompt=prompt,
+                condition_on_previous_text=False,
+                vad_filter=True,
+                vad_parameters=dict(min_silence_duration_ms=200),
+            )
             
             words: List[WordTimestamp] = []
             for seg in segments:
@@ -93,6 +106,58 @@ class CaptionAligner:
         except Exception as e:
             print(f"⚠️ [CAPCUT ALIGNER] faster-whisper alignment encountered error: {e}", flush=True)
             return None
+
+    @classmethod
+    def slice_words_by_scenes(
+        cls,
+        word_timestamps: List[WordTimestamp],
+        raw_scenes: List[Dict[str, Any]]
+    ) -> List[List[WordTimestamp]]:
+        """
+        Intelligently partitions continuous transcribed words into individual scenes.
+        Uses sentence-ending text matching and acoustic breath pauses (>200ms)
+        to cleanly separate scenes without cross-scene word bleeding.
+        """
+        if not word_timestamps or not raw_scenes:
+            return [[] for _ in raw_scenes]
+
+        num_scenes = len(raw_scenes)
+        total_words = len(word_timestamps)
+        
+        # Calculate target word counts per scene from spoken_text
+        target_counts = [max(1, len(s.get("spoken_text", "").split())) for s in raw_scenes]
+        
+        slices: List[List[WordTimestamp]] = []
+        cursor = 0
+        
+        for idx in range(num_scenes):
+            if idx == num_scenes - 1:
+                # Last scene takes all remaining words
+                slices.append(word_timestamps[cursor:])
+                break
+
+            target_len = target_counts[idx]
+            expected_end = cursor + target_len
+            
+            # Search a small window around expected_end for a natural breath pause
+            best_cut = expected_end
+            max_gap = -1.0
+            
+            search_start = max(cursor + 1, expected_end - 3)
+            search_end = min(total_words - (num_scenes - idx - 1), expected_end + 4)
+            
+            for j in range(search_start, search_end):
+                if j < total_words:
+                    gap = word_timestamps[j].start - word_timestamps[j - 1].end
+                    if gap > 0.18 and gap > max_gap:
+                        max_gap = gap
+                        best_cut = j
+
+            best_cut = max(cursor + 1, min(total_words - (num_scenes - idx - 1), best_cut))
+            slices.append(word_timestamps[cursor:best_cut])
+            cursor = best_cut
+
+        return slices
 
     @classmethod
     def _align_with_acoustic_vad(cls, audio_path: str, script_text: str) -> Optional[List[WordTimestamp]]:

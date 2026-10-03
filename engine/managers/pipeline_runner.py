@@ -207,24 +207,11 @@ def run_spec_stage(video_type: str = "short") -> None:
         # Map scene timing precisely across word timestamps with zero accumulative drift
         import random
         from engine.managers.stock_video_manager import SHORTS_VISUAL_TAXONOMY
-        total_words_count = len(word_timestamps)
-        total_p_words = max(1, sum(len(s["phonetic_text"].split()) for s in raw_scenes))
-        accum_p_words = 0
+        from engine.managers.caption_aligner import CaptionAligner
         num_scenes = len(raw_scenes)
 
-        # Pre-slice word timestamps for each scene
-        scene_word_slices = []
-        for idx, s in enumerate(raw_scenes):
-            p_text = s["phonetic_text"]
-            p_count = len(p_text.split())
-            if total_words_count > 0 and total_p_words > 0:
-                start_w_idx = int(round(accum_p_words / total_p_words * total_words_count))
-                end_w_idx = int(round((accum_p_words + p_count) / total_p_words * total_words_count)) if idx < num_scenes - 1 else total_words_count
-                scene_words = word_timestamps[start_w_idx:end_w_idx]
-            else:
-                scene_words = []
-            accum_p_words += p_count
-            scene_word_slices.append(scene_words)
+        # Pre-slice word timestamps for each scene using intelligent pause-seeking alignment
+        scene_word_slices = CaptionAligner.slice_words_by_scenes(word_timestamps, raw_scenes)
 
         # Calculate exact cut boundaries at silence midpoints between consecutive sentences
         cut_boundaries = [0.0] * (num_scenes + 1)

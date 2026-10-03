@@ -508,6 +508,81 @@ def test_scene_cut_boundaries_alignment(monkeypatch):
     assert round(sum(s.duration_seconds for s in spec.scenes), 2) == total_dur
 
 
+def test_caption_aligner_faster_whisper(tmp_path, monkeypatch):
+    """Verifies CaptionAligner transcribes audio via faster-whisper and extracts word timestamps."""
+    from engine.managers.caption_aligner import CaptionAligner
+    import sys
+
+    # Create dummy audio file
+    dummy_wav = str(tmp_path / "voice.wav")
+    with open(dummy_wav, "wb") as f:
+        f.write(b"RIFF" + b"\x00" * 100)
+
+    # Mock WhisperModel
+    mock_word_1 = MagicMock(word=" Space", start=0.25, end=0.85)
+    mock_word_2 = MagicMock(word=" expands.", start=0.85, end=1.60)
+    mock_seg = MagicMock(words=[mock_word_1, mock_word_2])
+
+    mock_model_inst = MagicMock()
+    mock_model_inst.transcribe.return_value = ([mock_seg], None)
+    mock_whisper_cls = MagicMock(return_value=mock_model_inst)
+
+    mock_fw = MagicMock()
+    mock_fw.WhisperModel = mock_whisper_cls
+    monkeypatch.setitem(sys.modules, "faster_whisper", mock_fw)
+
+    words = CaptionAligner.align_captions(dummy_wav, script_text="Space expands.")
+
+    assert len(words) == 2
+    assert words[0].word == "Space"
+    assert words[0].start == 0.25
+    assert words[0].end == 0.85
+    assert words[1].word == "expands."
+    assert words[1].start == 0.85
+    assert words[1].end == 1.60
+
+    # Verify transcribe was called with word_timestamps=True and initial_prompt
+    mock_model_inst.transcribe.assert_called_once()
+    call_kwargs = mock_model_inst.transcribe.call_args[1]
+    assert call_kwargs["word_timestamps"] is True
+    assert call_kwargs["initial_prompt"] == "Space expands."
+
+
+def test_caption_aligner_slice_words_by_scenes():
+    """Verifies that slice_words_by_scenes cleanly partitions words using acoustic pause detection."""
+    from engine.managers.caption_aligner import CaptionAligner
+    from engine.models import WordTimestamp
+
+    words = [
+        # Scene 1: 3 words
+        WordTimestamp(word="Light", start=0.1, end=0.4),
+        WordTimestamp(word="travels", start=0.4, end=0.9),
+        WordTimestamp(word="fast.", start=0.9, end=1.5),
+        # 0.5s breath pause (1.5 to 2.0)
+        # Scene 2: 3 words
+        WordTimestamp(word="Darkness", start=2.0, end=2.5),
+        WordTimestamp(word="was", start=2.5, end=2.8),
+        WordTimestamp(word="already", start=2.8, end=3.3),
+        WordTimestamp(word="there.", start=3.3, end=3.8),
+    ]
+
+    raw_scenes = [
+        {"spoken_text": "Light travels fast."},
+        {"spoken_text": "Darkness was already there."},
+    ]
+
+    slices = CaptionAligner.slice_words_by_scenes(words, raw_scenes)
+
+    assert len(slices) == 2
+    # Scene 1 must have the first 3 words
+    assert len(slices[0]) == 3
+    assert [w.word for w in slices[0]] == ["Light", "travels", "fast."]
+    # Scene 2 must have the remaining 4 words
+    assert len(slices[1]) == 4
+    assert [w.word for w in slices[1]] == ["Darkness", "was", "already", "there."]
+
+
+
 
 
 
