@@ -205,49 +205,75 @@ def run_spec_stage(video_type: str = "short") -> None:
                     wt.end = round(wt.end / speed_ratio, 3)
 
         # Map scene timing precisely across word timestamps with zero accumulative drift
+        import random
         from engine.managers.stock_video_manager import SHORTS_VISUAL_TAXONOMY
         total_words_count = len(word_timestamps)
         total_p_words = max(1, sum(len(s["phonetic_text"].split()) for s in raw_scenes))
         accum_p_words = 0
-        scenes_spec = []
+        num_scenes = len(raw_scenes)
 
+        # Pre-slice word timestamps for each scene
+        scene_word_slices = []
         for idx, s in enumerate(raw_scenes):
-            s_text = s["spoken_text"]
             p_text = s["phonetic_text"]
             p_count = len(p_text.split())
-            
-            # Slice word timestamps proportionally to prevent any accumulative desynchronization
             if total_words_count > 0 and total_p_words > 0:
                 start_w_idx = int(round(accum_p_words / total_p_words * total_words_count))
-                end_w_idx = int(round((accum_p_words + p_count) / total_p_words * total_words_count)) if idx < len(raw_scenes) - 1 else total_words_count
+                end_w_idx = int(round((accum_p_words + p_count) / total_p_words * total_words_count)) if idx < num_scenes - 1 else total_words_count
                 scene_words = word_timestamps[start_w_idx:end_w_idx]
             else:
                 scene_words = []
-
             accum_p_words += p_count
+            scene_word_slices.append(scene_words)
 
-            # Determine scene duration
-            if scene_words:
-                s_dur = round(scene_words[-1].end - scene_words[0].start, 2)
+        # Calculate exact cut boundaries at silence midpoints between consecutive sentences
+        cut_boundaries = [0.0] * (num_scenes + 1)
+        cut_boundaries[0] = 0.0
+        cut_boundaries[-1] = total_duration
+
+        for i in range(1, num_scenes):
+            prev_words = scene_word_slices[i - 1]
+            curr_words = scene_word_slices[i]
+            if prev_words and curr_words:
+                prev_end = prev_words[-1].end
+                curr_start = curr_words[0].start
+                mid = (prev_end + curr_start) / 2.0 if curr_start >= prev_end else prev_end
+                min_bound = cut_boundaries[i - 1] + 1.0
+                max_bound = total_duration - (num_scenes - i) * 1.0
+                cut_boundaries[i] = round(max(min_bound, min(max_bound, mid)), 2)
             else:
-                s_dur = round(total_duration / len(raw_scenes), 2)
-            if s_dur <= 0.0:
-                s_dur = round(total_duration / len(raw_scenes), 2)
+                cut_boundaries[i] = round(cut_boundaries[i - 1] + (total_duration - cut_boundaries[i - 1]) / (num_scenes - i + 1), 2)
+
+        # Sample unique visual queries for this video from the expanded taxonomy
+        if video_type == "short":
+            if len(SHORTS_VISUAL_TAXONOMY) >= num_scenes:
+                sampled_queries = random.sample(SHORTS_VISUAL_TAXONOMY, num_scenes)
+            else:
+                sampled_queries = (SHORTS_VISUAL_TAXONOMY * ((num_scenes // len(SHORTS_VISUAL_TAXONOMY)) + 1))[:num_scenes]
+                random.shuffle(sampled_queries)
+        else:
+            sampled_queries = [s.get("stock_video_query", "cinematic abstract background") for s in raw_scenes]
+
+        scenes_spec = []
+        for idx, s in enumerate(raw_scenes):
+            s_text = s["spoken_text"]
+            p_text = s["phonetic_text"]
+            scene_words = scene_word_slices[idx]
+            
+            if idx == num_scenes - 1:
+                s_dur = round(total_duration - sum(sc.duration_seconds for sc in scenes_spec), 2)
+            else:
+                s_dur = round(cut_boundaries[idx + 1] - cut_boundaries[idx], 2)
+
             if s_dur <= 0.0:
                 s_dur = 4.0
-
-            # Stock video query: For Shorts, guarantee rotating satisfying ASMR query
-            if video_type == "short":
-                stock_query = SHORTS_VISUAL_TAXONOMY[idx % len(SHORTS_VISUAL_TAXONOMY)]
-            else:
-                stock_query = s.get("stock_video_query", "cinematic abstract background")
 
             scenes_spec.append(
                 SceneSpec(
                     scene_id=idx + 1,
                     spoken_text=s_text,
                     phonetic_text=p_text,
-                    stock_video_query=stock_query,
+                    stock_video_query=sampled_queries[idx],
                     duration_seconds=round(s_dur, 2),
                     word_timestamps=scene_words
                 )

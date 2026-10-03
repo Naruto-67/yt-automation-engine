@@ -13,7 +13,15 @@ try:
 except ImportError:
     class MockBaseModel:
         def __init__(self, **kwargs):
+            hints = getattr(self.__class__, "__annotations__", {})
             for k, v in kwargs.items():
+                hint = hints.get(k)
+                if isinstance(v, dict) and isinstance(hint, type) and issubclass(hint, MockBaseModel):
+                    v = hint(**v)
+                elif isinstance(v, list) and hasattr(hint, "__origin__") and hint.__origin__ is list:
+                    args = getattr(hint, "__args__", ())
+                    if args and isinstance(args[0], type) and issubclass(args[0], MockBaseModel):
+                        v = [args[0](**item) if isinstance(item, dict) else item for item in v]
                 setattr(self, k, v)
             # Fill default attributes from class annotations/attributes
             for k in dir(self.__class__):

@@ -50,6 +50,15 @@ jobs:
           key: kokoro-hf-models-v1
           restore-keys: |
             kokoro-hf-models-
+      - name: Cache Engine Memory (Topics & History)
+        uses: actions/cache@v6
+        with:
+          path: memory
+          key: engine-memory-spec-${{ github.run_id }}
+          restore-keys: |
+            engine-memory-clips-
+            engine-memory-spec-
+            engine-memory-
       - name: Install Stage Dependencies
         run: pip install -r requirements/spec.txt
       - name: Run Spec Generation
@@ -83,6 +92,15 @@ jobs:
         with:
           name: spec-artifact
           path: output/
+      - name: Cache Engine Memory (Used Clips Registry)
+        uses: actions/cache@v6
+        with:
+          path: memory
+          key: engine-memory-clips-${{ github.run_id }}
+          restore-keys: |
+            engine-memory-spec-${{ github.run_id }}
+            engine-memory-clips-
+            engine-memory-
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11'

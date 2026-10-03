@@ -422,6 +422,93 @@ def test_caption_styling_settings():
     assert captions.get("active_color") == "&H0000FFFF"
 
 
+def test_stock_video_manager_registry_cooldown(tmp_path, monkeypatch):
+    """Verifies that StockVideoManager records clip usage and enforces 30-day cooldown."""
+    from engine.managers.stock_video_manager import StockVideoManager
+    reg_file = str(tmp_path / "test_used_clips.json")
+    monkeypatch.setattr(StockVideoManager, "REGISTRY_FILE", reg_file)
+
+    # Initially empty
+    assert StockVideoManager.is_clip_recent("vid_101") is False
+
+    # Record clip
+    StockVideoManager.record_clip_usage("vid_101", "pexels", "kinetic sand")
+
+    # Clip is now recent
+    assert StockVideoManager.is_clip_recent("vid_101") is True
+    assert StockVideoManager.is_clip_recent("vid_999") is False
+
+
+def test_scene_cut_boundaries_alignment(monkeypatch):
+    """Verifies that scene cut boundaries align at sentence pause midpoints and sum to total_duration."""
+    from engine.models import WordTimestamp
+    from engine.managers.pipeline_runner import run_spec_stage
+    from engine.models import SpecOutput
+
+    # Mock health checks and sync
+    monkeypatch.setattr("engine.managers.health_manager.HealthManager.check_and_sync_models", lambda **kw: {})
+    monkeypatch.setattr("engine.managers.competitor_spy.CompetitorSpy.get_surge_topic", lambda *a: None)
+    monkeypatch.setattr("engine.managers.topic_inspector.TopicInspector.discover_verified_topic", lambda self, niche, *a, **kw: {
+        "topic": "The Mirror Self-Recognition Test",
+        "verified_summary": "Animals recognizing themselves in mirrors",
+        "source": "verified_trend"
+    })
+
+    mock_script_response = {
+        "thought_process": {"hook": "intriguing", "loop": "circular"},
+        "title": "Why Animals Don't Understand Mirrors",
+        "scenes": [
+            {"scene_id": 1, "spoken_text": "Look into a mirror and you see yourself.", "stock_video_query": "mirror reflection"},
+            {"scene_id": 2, "spoken_text": "Most animals see a complete stranger.", "stock_video_query": "cat looking at mirror"},
+        ]
+    }
+    mock_seo_response = {
+        "title": "Mirrors #shorts",
+        "description": "Mirrors and animals #shorts",
+        "tags": ["psychology", "facts", "shorts"]
+    }
+
+    words = [
+        WordTimestamp(word="Look", start=0.2, end=0.6),
+        WordTimestamp(word="into", start=0.6, end=0.9),
+        WordTimestamp(word="a", start=0.9, end=1.1),
+        WordTimestamp(word="mirror", start=1.1, end=1.8),
+        WordTimestamp(word="and", start=1.8, end=2.0),
+        WordTimestamp(word="you", start=2.0, end=2.3),
+        WordTimestamp(word="see", start=2.3, end=2.7),
+        WordTimestamp(word="yourself.", start=2.7, end=3.4),  # Scene 1 ends at 3.4
+        # Pause from 3.4 to 4.0
+        WordTimestamp(word="Most", start=4.0, end=4.4),      # Scene 2 starts at 4.0
+        WordTimestamp(word="animals", start=4.4, end=4.9),
+        WordTimestamp(word="see", start=4.9, end=5.2),
+        WordTimestamp(word="a", start=5.2, end=5.4),
+        WordTimestamp(word="complete", start=5.4, end=5.9),
+        WordTimestamp(word="stranger.", start=5.9, end=6.6),
+    ]
+
+    total_dur = 7.2
+
+    monkeypatch.setattr("engine.managers.llm_manager.LLMManager.generate_json",
+                        lambda self, sys_p, usr_p, *a, **k: mock_seo_response if "SEO Director" in sys_p else mock_script_response)
+    monkeypatch.setattr("engine.managers.voice_normalizer.VoiceNormalizer.synthesize_sync",
+                        lambda **kw: (total_dur, words))
+
+    run_spec_stage(video_type="short")
+
+    with open("output/spec.json", "r", encoding="utf-8") as f:
+        spec = SpecOutput.model_validate_json(f.read())
+
+    assert len(spec.scenes) == 2
+    # Pause midpoint between 3.4 and 4.0 is 3.7
+    # Scene 1 duration should be 3.7 - 0.0 = 3.7
+    assert spec.scenes[0].duration_seconds == 3.7
+    # Scene 2 duration should be 7.2 - 3.7 = 3.5
+    assert spec.scenes[1].duration_seconds == 3.5
+    # Total sum of durations must equal total_dur
+    assert round(sum(s.duration_seconds for s in spec.scenes), 2) == total_dur
+
+
+
 
 
 

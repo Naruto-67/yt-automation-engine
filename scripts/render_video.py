@@ -161,7 +161,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
                 formatted_words = []
                 for idx, w in enumerate(chunk):
-                    word_str = w.word.upper() if uppercase else w.word
+                    raw_w = w.word.strip()
+                    # Strip leading and trailing punctuation (. , ! ? ; : " … -) while preserving internal apostrophes
+                    clean_w = re.sub(r"^[^\w]+|[^\w]+$", "", raw_w)
+                    word_str = (clean_w or raw_w).upper() if uppercase else (clean_w or raw_w)
                     if idx == active_idx:
                         formatted_words.append(f"{{\\c{active_color}}}{word_str}{{\\c{inactive_color}}}")
                     else:

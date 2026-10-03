@@ -44,6 +44,27 @@ SHORTS_VISUAL_TAXONOMY: List[str] = [
     "metal milling lathe spiral shavings",
     "glass score snapping satisfying",
     "kinetic sand slicing hot knife",
+    "honey dripping honeycomb macro",
+    "candle wax carving chisel satisfying",
+    "chocolate tempering marble slab scrape",
+    "coffee latte art etching pouring",
+    "magnetic putty swallowing magnet cube",
+    "kinetic sand cake decorating asmr",
+    "slime bubble popping crunch asmr",
+    "calligraphy ink writing macro slow motion",
+    "glass blowing shaping glowing molten",
+    "laser rust removal steel restoration",
+    "resin sphere polishing sandpaper lathe",
+    "spray foam expansion cutting knife",
+    "bubble wrap popping satisfying slowmo",
+    "sand pendulum geometric drawing harmonograph",
+    "3d printing timelapse smooth layer",
+    "pottery glaze dipping colorful drip",
+    "watercolor pigment blooming wet paper",
+    "hot wire foam slicing smooth satisfying",
+    "guitar string vibration macro slow motion",
+    "liquid nitrogen dipping shattering flower",
+    "metal drop stamping press factory"
 ]
 # Backward-compatibility alias
 SHORTS_ASMR_TAXONOMY = SHORTS_VISUAL_TAXONOMY
@@ -52,12 +73,12 @@ SHORTS_ASMR_TAXONOMY = SHORTS_VISUAL_TAXONOMY
 class StockVideoManager:
     """Manages searching, ranking, and refreshing stock videos from Pexels and Pixabay with deduplication."""
 
-    REGISTRY_FILE = os.path.join("data", "used_stock_clips.json")
+    REGISTRY_FILE = os.path.join("memory", "used_stock_clips.json")
 
     def __init__(self):
         self.pexels_key = os.environ.get("PEXELS_API_KEY")
         self.pixabay_key = os.environ.get("PIXABAY_API_KEY")
-        os.makedirs("data", exist_ok=True)
+        os.makedirs("memory", exist_ok=True)
 
     @classmethod
     def load_registry(cls) -> Dict[str, Any]:
@@ -157,20 +178,25 @@ class StockVideoManager:
     ) -> Optional[ClipItem]:
         url = "https://api.pexels.com/videos/search"
         headers = {"Authorization": self.pexels_key}
+        actual_page = page if page > 1 else random.randint(1, 3)
         params = {
             "query": query,
             "orientation": orientation,
             "size": "medium",
-            "per_page": 8,
-            "page": page
+            "per_page": 15,
+            "page": actual_page
         }
         resp = requests.get(url, headers=headers, params=params, timeout=10)
         resp.raise_for_status()
         data = resp.json()
         videos = data.get("videos", [])
         exclude = exclude_ids or set()
+        
+        # Shuffle candidates so we don't deterministically pick the same top-1 clip
+        shuffled_videos = list(videos)
+        random.shuffle(shuffled_videos)
 
-        for vid in videos:
+        for vid in shuffled_videos:
             vid_id = str(vid.get("id"))
             # Skip if used in current video or used recently
             if vid_id in exclude or self.is_clip_recent(vid_id):
@@ -193,9 +219,9 @@ class StockVideoManager:
                     height=chosen.get("height", 1920)
                 )
 
-        # If page 1 exhausted due to deduplication, try page 2
-        if page == 1 and len(videos) >= 5:
-            return self._search_pexels(query, orientation=orientation, min_duration=min_duration, exclude_ids=exclude, page=2)
+        # If chosen page exhausted due to deduplication, try page 1
+        if actual_page != 1:
+            return self._search_pexels(query, orientation=orientation, min_duration=min_duration, exclude_ids=exclude, page=1)
 
         return None
 
@@ -210,13 +236,14 @@ class StockVideoManager:
         params = {
             "key": self.pixabay_key,
             "q": query,
-            "per_page": 8,
+            "per_page": 15,
             "page": page
         }
         resp = requests.get(url, params=params, timeout=10)
         resp.raise_for_status()
         data = resp.json()
-        hits = data.get("hits", [])
+        hits = list(data.get("hits", []))
+        random.shuffle(hits)
         exclude = exclude_ids or set()
 
         for hit in hits:

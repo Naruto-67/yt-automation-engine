@@ -49,10 +49,12 @@ def test_generate_ass_subtitles(tmp_path):
     assert "PlayResY: 1920" in content
     assert "Style: Default,Anton,72,&H00FFFFFF" in content
     assert "[Events]" in content
-    # Verify word-by-word highlighting tag
+    # Verify word-by-word highlighting tag and stripped punctuation
     assert "{\\c&H0000FFFF}" in content
     assert "The" in content
     assert "brain" in content
+    assert "memories" in content
+    assert "memories." not in content
 
 
 def test_render_video_ffmpeg_segmented_pipeline(tmp_path, monkeypatch):
