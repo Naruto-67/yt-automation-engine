@@ -69,6 +69,11 @@ class VoiceNormalizer:
         text = re.sub(r"\*{1,3}([^*]+)\*{1,3}", r"\1", text)
         text = text.replace("**", "").replace("*", "")
 
+        # 0b. Strip leading ellipses, dots, hyphens, and whitespace to prevent silence delay
+        text = re.sub(r"^[\.\s…\-]+", "", text).strip()
+        if text and text[0].islower():
+            text = text[0].upper() + text[1:]
+
         # 1. Expand currency: e.g. $100 -> one hundred dollars
         def replace_currency(match):
             amount = match.group(1).replace(",", "")
@@ -406,6 +411,16 @@ class VoiceNormalizer:
                 import shutil
                 shutil.copyfile(wav_path, output_audio_path)
 
+        # CapCut-style acoustic caption alignment (faster-whisper / energy VAD)
+        from engine.managers.caption_aligner import CaptionAligner
+        aligned_words = CaptionAligner.align_captions(
+            audio_path=wav_path,
+            script_text=phonetic_text,
+            existing_timestamps=word_timestamps
+        )
+        if aligned_words:
+            word_timestamps = aligned_words
+
         print(f"✅ [KOKORO] Synthesized {total_duration:.2f}s audio successfully ({len(word_timestamps)} word timestamps captured).", flush=True)
         return (total_duration, word_timestamps)
 
@@ -540,5 +555,33 @@ class VoiceNormalizer:
                 phonetic_text, output_audio_path, voice=voice, speed=speed, prefer_provider=prefer_provider
             )
         )
+
+    @classmethod
+    def rescale_audio_duration(cls, input_audio_path: str, output_audio_path: str, speed_factor: float) -> bool:
+        """
+        Dynamically rescales audio playback speed to guarantee duration stays within platform limits.
+        Uses ffmpeg atempo filter.
+        """
+        if not os.path.exists(input_audio_path) or speed_factor <= 0.0 or abs(speed_factor - 1.0) < 0.01:
+            return False
+
+        try:
+            import subprocess
+            atempo_val = max(0.5, min(2.0, speed_factor))
+            cmd = [
+                "ffmpeg", "-y", "-nostats", "-loglevel", "error",
+                "-i", input_audio_path,
+                "-filter:a", f"atempo={atempo_val}",
+                "-c:a", "libmp3lame" if output_audio_path.endswith(".mp3") else "pcm_s16le",
+                output_audio_path
+            ]
+            res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, timeout=30)
+            if res.returncode == 0 and os.path.exists(output_audio_path) and os.path.getsize(output_audio_path) > 1000:
+                print(f"⚡ [AUDIO RESCALE] Successfully adjusted audio duration by {speed_factor:.3f}x via FFmpeg atempo.", flush=True)
+                return True
+        except Exception as e:
+            print(f"⚠️ [AUDIO RESCALE] FFmpeg atempo failed: {e}", flush=True)
+
+        return False
 
 

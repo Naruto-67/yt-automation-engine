@@ -344,4 +344,50 @@ def test_pipeline_runner_run_spec_stage(monkeypatch, tmp_path):
     assert spec_long.sub_format == "documentary_essay"
 
 
+def test_voice_normalizer_strip_leading_dots():
+    """Verifies that leading ellipses, dots, and hyphens are cleanly stripped to prevent audio pauses."""
+    raw = "...and these shower thoughts will break your reality."
+    normalized = VoiceNormalizer.normalize_text(raw)
+    assert normalized.startswith("And")
+    assert "..." not in normalized
+
+
+def test_caption_aligner_vad_fallback(tmp_path):
+    """Verifies CaptionAligner pure-Python acoustic VAD aligns words across audio soundwaves."""
+    import wave
+    import struct
+    from engine.managers.caption_aligner import CaptionAligner
+
+    test_wav = str(tmp_path / "test_voice.wav")
+    sr = 16000
+    # Create 2 seconds of dummy audio: 0.2s silence + 1.0s speech tone + 0.8s silence
+    n_samples = int(sr * 2.0)
+    samples = []
+    for i in range(n_samples):
+        t = i / sr
+        if 0.2 <= t <= 1.2:
+            import math
+            s = int(10000 * math.sin(2 * math.pi * 440 * t))
+        else:
+            s = 0
+        samples.append(s)
+
+    with wave.open(test_wav, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sr)
+        wf.writeframes(struct.pack(f"<{len(samples)}h", *samples))
+
+    script_text = "Your shadow is proof"
+    words = CaptionAligner.align_captions(test_wav, script_text=script_text)
+
+    assert len(words) == 4
+    # The first word must start after the initial 0.2s silence
+    assert words[0].start >= 0.15
+    assert words[-1].end <= 1.5
+    assert words[0].word == "Your"
+    assert words[-1].word == "proof"
+
+
+
 

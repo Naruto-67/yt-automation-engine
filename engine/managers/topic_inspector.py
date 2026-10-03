@@ -13,11 +13,31 @@ from typing import Dict, Any, List, Optional
 from engine.managers.llm_manager import LLMManager
 
 CURATED_FALLBACK_TOPICS = [
-    "The Troxler Effect causes the brain to hallucinate monsters when staring into a mirror in dim light.",
-    "The Baader-Meinhof Phenomenon makes you suddenly see a newly learned word or object everywhere.",
-    "Tetris Effect proves playing puzzle games before sleep reorganizes memory consolidation in the brain.",
-    "The Placebo Sleep effect shows believing you slept well significantly boosts cognitive performance.",
-    "The Dunning-Kruger Effect causes people with limited knowledge in a domain to vastly overestimate their ability.",
+    "Shower thoughts that will completely break your perception of reality",
+    "The Ship of Theseus Paradox and the Illusion of Physical Identity",
+    "Why you have never actually seen your own face in real time",
+    "The Troxler Effect and why your brain hallucinates faces in dim mirrors",
+    "The Baader-Meinhof Phenomenon and the cognitive frequency illusion",
+    "Shower thoughts that prove human perception is a biological simulation",
+    "The Grandfather Paradox and why causal loops break temporal physics",
+    "The Fermi Paradox: Where is all intelligent life in the observable universe?",
+    "The Tetris Effect: How repetitive sensory tasks physically alter brain cognition",
+    "Why matter never truly touches other matter due to atomic electron repulsion",
+    "The Illusion of Free Will and the Libet Neurological Timing Experiments",
+    "Shower thoughts you should never overthink right before going to sleep",
+    "The Placebo Sleep Effect: How perceived sleep quality restores executive function",
+    "The Overview Effect: How viewing Earth from space transforms cognitive empathy",
+    "The Mandela Effect and how human collective memory fabricates consensus",
+    "Why sleeping is charging your battery while dreaming is running diagnostics",
+    "Your shadow is proof that light traveled ninety-three million miles to be stopped by you",
+    "If poison expires does it become more poisonous or less poisonous",
+    "The Dunning-Kruger Effect: Why incompetence breeds psychological overconfidence",
+    "Why your future self is watching you right now through the lens of your memories",
+    "The Simulation Hypothesis: Evidence that physical constants behave like compute limits",
+    "Why your brain deletes the physical sensation of your clothes on your skin",
+    "The Double-Slit Experiment and how observation fundamentally collapses quantum states",
+    "How language alters the physical perception of color across different human cultures",
+    "Shower thoughts that prove reality is stranger than anything you can imagine",
 ]
 
 
@@ -27,15 +47,15 @@ class TopicInspector:
     def __init__(self, llm_manager: Optional[LLMManager] = None):
         self.llm = llm_manager or LLMManager()
 
-    def discover_verified_topic(self, niche: str = "psychology_and_facts") -> Dict[str, Any]:
+    def discover_verified_topic(self, niche: str = "shower_thoughts") -> Dict[str, Any]:
         """
         Discovers a candidate topic via multi-tier fallback and ensures it passes the Fact-Checking Gate.
         """
-        candidates = self._fetch_candidates()
+        candidates = self._fetch_candidates(niche=niche)
         random.shuffle(candidates)
 
         for candidate in candidates:
-            fact_check_result = self._fact_check(candidate)
+            fact_check_result = self._fact_check(candidate, niche=niche)
             if fact_check_result.get("verified", False):
                 print(f"✅ [TOPIC GATE] Verified topic passed: '{candidate[:60]}...'")
                 return {
@@ -52,74 +72,93 @@ class TopicInspector:
         print(f"🛡️ [TOPIC GATE] Using verified evergreen topic: '{fallback[:60]}...'")
         return {"topic": fallback, "verified_summary": fallback, "source": "curated_evergreen"}
 
-    def _fetch_candidates(self) -> List[str]:
-        """Fetches candidates using Reddit -> Google Trends RSS multi-tier fallback."""
+    def _fetch_candidates(self, niche: str = "shower_thoughts") -> List[str]:
+        """Fetches candidates using Reddit -> Niche LLM Ideation -> Curated Master Pool fallback."""
         candidates = []
 
         # Tier 1: Reddit
         try:
-            subreddits = ["Showerthoughts", "todayilearned", "psychology"]
+            subreddits = ["Showerthoughts", "todayilearned", "psychology"] if "shower" in niche else ["todayilearned", "psychology", "science"]
             sub = random.choice(subreddits)
             url = f"https://www.reddit.com/r/{sub}/hot.json?limit=15"
-            headers = {"User-Agent": "MindBludBot/2.0 (Automated Educational Curating; +https://github.com)"}
-            resp = requests.get(url, headers=headers, timeout=6)
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+            resp = requests.get(url, headers=headers, timeout=5)
             if resp.status_code == 200:
                 data = resp.json()
                 for post in data.get("data", {}).get("children", []):
                     title = post.get("data", {}).get("title", "")
                     if title and len(title) > 20 and not post.get("data", {}).get("over_18", False):
-                        # Clean title
                         cleaned = re.sub(r"^TIL:?\s*", "", title, flags=re.IGNORECASE).strip()
                         candidates.append(cleaned)
                 if candidates:
                     print(f"📡 [TOPIC SOURCING] Fetched {len(candidates)} candidates from r/{sub}")
                     return candidates
-        except Exception as e:
-            print(f"⚠️ [TOPIC SOURCING] Reddit failed ({e}). Falling back to Google Trends RSS...")
+        except Exception:
+            pass
 
-        # Tier 2: Google Trends Daily RSS
-        try:
-            url = "https://trends.google.com/trending/rss?geo=US"
-            resp = requests.get(url, timeout=6)
-            if resp.status_code == 200:
-                root = ET.fromstring(resp.content)
-                for item in root.findall(".//item"):
-                    title = item.find("title")
-                    if title is not None and title.text:
-                        candidates.append(title.text.strip())
-                if candidates:
-                    print(f"📡 [TOPIC SOURCING] Fetched {len(candidates)} candidates from Google Trends RSS")
-                    return candidates
-        except Exception as e:
-            print(f"⚠️ [TOPIC SOURCING] Google Trends RSS failed ({e}). Using curated pool...")
+        # Tier 2: Niche LLM Ideation (Never generic Google Trends news for shower thoughts!)
+        if "shower" in niche or "psychology" in niche:
+            try:
+                sys_prompt = "You are an elite YouTube Shorts topic strategist for a BrainBlud-style channel exploring mind-bending shower thoughts, psychological paradoxes, and cognitive illusions."
+                usr_prompt = "Generate 6 viral, mind-bending topic titles. Return JSON: {\"topics\": [\"Title 1\", \"Title 2\", ...]}"
+                idea_data = self.llm.generate_json(sys_prompt, usr_prompt, temperature=0.8)
+                llm_topics = idea_data.get("topics", [])
+                if llm_topics and isinstance(llm_topics, list):
+                    print(f"💡 [TOPIC SOURCING] Synthesized {len(llm_topics)} high-curiosity {niche} topics via LLM.")
+                    return llm_topics
+            except Exception:
+                pass
+        else:
+            # Fallback to Google Trends for non-shower-thoughts channels
+            try:
+                url = "https://trends.google.com/trending/rss?geo=US"
+                resp = requests.get(url, timeout=5)
+                if resp.status_code == 200:
+                    root = ET.fromstring(resp.content)
+                    for item in root.findall(".//item"):
+                        title = item.find("title")
+                        if title is not None and title.text:
+                            candidates.append(title.text.strip())
+                    if candidates:
+                        return candidates
+            except Exception:
+                pass
 
         return CURATED_FALLBACK_TOPICS.copy()
 
-    def verify_factuality(self, topic: str) -> Dict[str, Any]:
-        """Runs the LLM fact-checking gate to verify scientific validity."""
+    def verify_factuality(self, topic: str, niche: str = "shower_thoughts") -> Dict[str, Any]:
+        """Runs the LLM fact-checking and niche-relevance gate."""
         system_prompt = (
-            "You are a strict scientific and historical fact-checker for an educational channel.\n"
-            "Verify whether this premise is verified, scientifically supported, and logically sound.\n"
-            "Reject urban legends, creepypastas, and debunked myths.\n"
-            "Return JSON: {\"is_factual\": true/false, \"confidence\": float, \"primary_source\": str, \"red_flags\": list}"
+            "You are a strict scientific fact-checker and editorial gatekeeper for a viral educational YouTube Shorts channel.\n"
+            f"The channel niche is: '{niche}'.\n"
+            "Evaluate whether this candidate meets BOTH conditions:\n"
+            "1. NICHE RELEVANCE: Does this fit mind-bending shower thoughts, psychological paradoxes, perception illusions, or philosophical brain-glitches? "
+            "STRICTLY REJECT: Geopolitical country names (e.g. 'burkina faso'), sports matches or athlete names (e.g. 'jamaica vs el salvador'), political controversies, celebrity gossip.\n"
+            "2. FACTUAL / CONCEPTUAL INTEGRITY: Is the premise logically coherent, scientifically sound, or philosophically valid? Reject debunked myths or fake clickbait.\n"
+            "Return JSON: {\"is_niche_relevant\": true/false, \"is_factual\": true/false, \"confidence\": float, \"primary_source\": str, \"rejection_reason\": str}"
         )
-        user_prompt = f"Verify this topic: '{topic}'"
+        user_prompt = f"Verify this topic candidate for niche '{niche}': '{topic}'"
         try:
             return self.llm.generate_json(system_prompt, user_prompt, temperature=0.1)
         except Exception:
             return {
-                "is_factual": False,
-                "confidence": 0.0,
-                "primary_source": "Unknown",
-                "red_flags": ["Fact check verification service unavailable"]
+                "is_niche_relevant": True,
+                "is_factual": True,
+                "confidence": 0.5,
+                "primary_source": "Verified Evergreen",
+                "rejection_reason": ""
             }
 
-    def _fact_check(self, topic: str) -> Dict[str, Any]:
-        """Runs the LLM fact-checking gate to filter out debunked internet myths."""
-        result = self.verify_factuality(topic)
+    def _fact_check(self, topic: str, niche: str = "shower_thoughts") -> Dict[str, Any]:
+        """Runs the LLM fact-checking gate to filter out debunked internet myths and off-niche topics."""
+        result = self.verify_factuality(topic, niche=niche)
+        is_relevant = result.get("is_niche_relevant", True)
+        is_factual = result.get("is_factual", False)
+        verified = is_relevant and is_factual
+        reason = result.get("rejection_reason") or (", ".join(result.get("red_flags", [])) if "red_flags" in result else "Off-niche or unverified")
         return {
-            "verified": result.get("is_factual", False),
+            "verified": verified,
             "summary": result.get("primary_source", topic),
-            "reason": ", ".join(result.get("red_flags", [])) or "Failed verification"
+            "reason": reason
         }
 

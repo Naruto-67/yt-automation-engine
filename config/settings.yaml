@@ -60,15 +60,15 @@ audio_mastering:
 # ─── CAPTION STYLING & HIGH-RETENTION TYPOGRAPHY ──────────────────────────────
 captions:
   font_name: "Anton"
-  font_size: 96
+  font_size: 92
   font_size_long: 44           # Lower-third documentary sizing for 16:9 widescreen
-  active_color: "&H00FFFFFF"   # Pure crisp white in ASS (&HAABBGGRR)
-  inactive_color: "&H00FFFFFF" # Pure crisp white
-  outline_color: "&H00000000"  # Solid pitch black outline
+  active_color: "&H0000FFFF"   # Vibrant Cyberpunk / Electric Yellow highlight (&HAABBGGRR)
+  inactive_color: "&H00FFFFFF" # Pure crisp white for surrounding phrase words
+  outline_color: "&H00000000"  # Solid pitch black 6px outline
   outline_width: 6
   outline_width_long: 3        # Refined outline for long-form
   shadow_depth: 2
-  max_words_per_chunk: 1       # 1-word kinetic flash for Shorts (BrainBlud style)
+  max_words_per_chunk: 2       # 2-word dynamic phrase chunking (CapCut / BrainBlud viral style)
   max_words_per_chunk_long: 6  # Natural multi-word conversational flow for long-form
   uppercase: true
   uppercase_long: false        # Standard sentence casing for long-form documentary

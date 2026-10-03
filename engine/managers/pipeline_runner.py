@@ -5,6 +5,7 @@ Orchestrates Stage 1 (spec), Stage 2 (clips), Stage 3 (editor), and Stage 4 (rel
 
 import os
 import sys
+import re
 import yaml
 import json
 import random
@@ -84,23 +85,36 @@ def run_spec_stage(video_type: str = "short") -> None:
         if not raw_scenes:
             raise ValueError("LLM generated empty scene array.")
 
+        # Ensure clean opening for Hook (no leading ellipses or dots)
+        if raw_scenes:
+            raw_scenes[0]["spoken_text"] = re.sub(r"^[\.\s…\-]+", "", raw_scenes[0]["spoken_text"]).strip()
+            if raw_scenes[0]["spoken_text"] and raw_scenes[0]["spoken_text"][0].islower():
+                raw_scenes[0]["spoken_text"] = raw_scenes[0]["spoken_text"][0].upper() + raw_scenes[0]["spoken_text"][1:]
+
         # Ensure sufficient scenes and words for Shorts in production runs
         if video_type == "short" and not os.environ.get("PYTEST_CURRENT_TEST") and not os.environ.get("TEST_MODE"):
             total_words = sum(len(s.get("spoken_text", "").split()) for s in raw_scenes)
+            # Cap if too long to prevent > 58s run
+            if len(raw_scenes) > 13:
+                loop_scene = raw_scenes[-1]
+                raw_scenes = raw_scenes[:12] + [loop_scene]
+                for i, sc in enumerate(raw_scenes):
+                    sc["scene_id"] = i + 1
+                total_words = sum(len(s.get("spoken_text", "").split()) for s in raw_scenes)
+
             if len(raw_scenes) < 11 or total_words < 125:
                 print(f"⚠️ [SPEC] LLM output short ({len(raw_scenes)} scenes, {total_words} words). Expanding with verified shower thoughts...", flush=True)
                 FALLBACK_THOUGHTS = [
-                    "Your shadow is proof that light traveled ninety-three million miles unobstructed just to be stopped by you.",
+                    "Your shadow is proof that light traveled ninety-three million miles to be blocked by you.",
                     "If you replace every single part of an axe, is it still the exact same axe?",
                     "You have never actually seen your own face, only reflections, video screens, and photographs.",
                     "Sleeping is just charging your biological battery, while dreaming is running a diagnostics test.",
                     "Nothing is ever on fire. Fire is actually on things.",
                     "Clapping is just repeatedly slapping yourself because you enjoyed something.",
-                    "Your age is just the number of laps you've survived around a giant nuclear fireball.",
+                    "Your age is just the number of laps you survived around a giant nuclear fireball.",
                     "If poison expires, does it become more poisonous, or less poisonous?",
-                    "Your future self is watching you right now through the lens of your memories.",
                     "The brain named itself, recognized itself, and is now realizing that exact fact.",
-                    "Water can boil and freeze at the exact same instant under specific pressure."
+                    "Why your future self is watching you right now through the lens of your memories."
                 ]
                 loop_scene = raw_scenes[-1] if len(raw_scenes) > 1 else None
                 mid_scenes = raw_scenes[:-1] if len(raw_scenes) > 1 else raw_scenes
@@ -110,7 +124,7 @@ def run_spec_stage(video_type: str = "short") -> None:
                     if fb.lower() not in existing_texts:
                         mid_scenes.append({"scene_id": len(mid_scenes) + 1, "spoken_text": fb, "stock_video_query": "satisfying asmr"})
                         existing_texts.add(fb.lower())
-                    if len(mid_scenes) >= 13 or sum(len(s.get("spoken_text", "").split()) for s in mid_scenes) >= 135:
+                    if len(mid_scenes) >= 12 or sum(len(s.get("spoken_text", "").split()) for s in mid_scenes) >= 132:
                         break
                 
                 if loop_scene:
@@ -143,6 +157,19 @@ def run_spec_stage(video_type: str = "short") -> None:
             words_count = len(full_phonetic_script.split())
             total_duration = max(15.0, round(words_count / 2.5, 2))
             print(f"⚠️ [TTS] Measured duration was 0.0s — calculated fallback duration: {total_duration:.1f}s")
+
+        # Enforce strict Shorts duration ceiling (strictly under 59s: target 54-56s)
+        if video_type == "short" and total_duration > 57.5:
+            target_dur = 55.0
+            speed_ratio = round(total_duration / target_dur, 3)
+            print(f"⚠️ [DURATION GUARD] Measured audio ({total_duration:.2f}s) exceeds 57.5s. Rescaling audio by {speed_ratio}x to {target_dur}s...", flush=True)
+            rescaled_path = os.path.join("output", "narration_rescaled.mp3")
+            if VoiceNormalizer.rescale_audio_duration(audio_output, rescaled_path, speed_ratio):
+                audio_output = rescaled_path
+                total_duration = target_dur
+                for wt in word_timestamps:
+                    wt.start = round(wt.start / speed_ratio, 3)
+                    wt.end = round(wt.end / speed_ratio, 3)
 
         # Map scene timing precisely across word timestamps with zero accumulative drift
         from engine.managers.stock_video_manager import SHORTS_VISUAL_TAXONOMY

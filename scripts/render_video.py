@@ -465,7 +465,7 @@ def render_video_ffmpeg(
         if bg_music_path and os.path.exists(bg_music_path) and os.path.getsize(bg_music_path) > 4096:
             audio_inputs.extend(["-stream_loop", "-1", "-i", bg_music_path])
             filter_complex = (
-                f"[1:a]loudnorm=I={target_lufs}:LRA={target_lra}:TP={target_tp},volume={voice_gain}[voice];"
+                f"[1:a]loudnorm=I={target_lufs}:LRA={target_lra}:TP={target_tp}:linear=true,volume={voice_gain}[voice];"
                 f"[2:a]volume={bg_vol}[bg];"
                 f"[voice][bg]amix=inputs=2:duration=first:dropout_transition=2:normalize=0[aout]"
             )
@@ -480,7 +480,7 @@ def render_video_ffmpeg(
             ]
             print(f"🎵 [RENDERER] Mixing mastered narration (target {target_lufs} LUFS) with Lo-Fi background music ({os.path.basename(bg_music_path)} @ vol={bg_vol})...", flush=True)
         else:
-            filter_complex = f"[1:a]loudnorm=I={target_lufs}:LRA={target_lra}:TP={target_tp},volume={voice_gain}[aout]"
+            filter_complex = f"[1:a]loudnorm=I={target_lufs}:LRA={target_lra}:TP={target_tp}:linear=true,volume={voice_gain}[aout]"
             audio_mapping = [
                 "-filter_complex", filter_complex,
                 "-map", "0:v",
