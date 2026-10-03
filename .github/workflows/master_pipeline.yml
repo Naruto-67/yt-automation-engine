@@ -67,6 +67,8 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HUGGINGFACE_HUB_TOKEN: ${{ secrets.HF_TOKEN }}
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
           TEST_MODE: ${{ inputs.test_mode && 'true' || 'false' }}
         run: python -m engine.managers.pipeline_runner --stage spec --type ${{ inputs.video_type || 'short' }} ${{ inputs.test_mode && '--test-mode' || '' }}

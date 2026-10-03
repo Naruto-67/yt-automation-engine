@@ -8,6 +8,7 @@ import os
 import sys
 import json
 import time
+import random
 import requests
 from typing import Optional, List, Dict, Any, Set
 from engine.logger import StageTimer, PikaStage, logger
@@ -133,12 +134,17 @@ class StockVideoManager:
         query: str,
         orientation: str = "portrait",
         min_duration: float = 3.0,
-        exclude_ids: Optional[Set[str]] = None
+        exclude_ids: Optional[Set[str]] = None,
+        retry_depth: int = 0
     ) -> Optional[ClipItem]:
         """
         Searches Pexels first, falling back to Pixabay.
         Enforces intra-video uniqueness and past 30-day cooldown via exclude_ids.
+        Guarded against infinite recursion via retry_depth <= 2.
         """
+        if retry_depth > 2:
+            return None
+
         exclude = set(exclude_ids) if exclude_ids else set()
         clip = None
 
@@ -155,16 +161,16 @@ class StockVideoManager:
                 print(f"⚠️ [STOCK] Pixabay search failed for '{query}': {e}", flush=True)
 
         # Fallback 1: If specific query failed, try taxonomy query
-        if not clip:
+        if not clip and retry_depth < 2:
             fallback_query = "satisfying soap cutting ASMR"
             if query != fallback_query:
                 print(f"🔄 [STOCK] Retrying query with ASMR fallback: '{fallback_query}'", flush=True)
-                return self.search_video(fallback_query, orientation=orientation, min_duration=min_duration, exclude_ids=exclude)
+                return self.search_video(fallback_query, orientation=orientation, min_duration=min_duration, exclude_ids=exclude, retry_depth=retry_depth + 1)
 
         # Fallback 2: Universal abstract motion
-        if not clip and query != "satisfying abstract motion 4k":
+        if not clip and retry_depth < 2 and query != "satisfying abstract motion 4k":
             print(f"🔄 [STOCK] Retrying with universal abstract background for: '{query}'", flush=True)
-            return self.search_video("satisfying abstract motion 4k", orientation=orientation, min_duration=min_duration, exclude_ids=exclude)
+            return self.search_video("satisfying abstract motion 4k", orientation=orientation, min_duration=min_duration, exclude_ids=exclude, retry_depth=retry_depth + 1)
 
         return clip
 

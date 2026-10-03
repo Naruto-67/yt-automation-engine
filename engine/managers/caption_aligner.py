@@ -68,6 +68,9 @@ class CaptionAligner:
             return None
 
         try:
+            # Silence internal onnxruntime and ctranslate2 C++ device discovery warnings
+            os.environ["ORT_LOGGING_LEVEL"] = "3"
+            os.environ["CT2_VERBOSE"] = "0"
             from faster_whisper import WhisperModel
         except ImportError:
             return None

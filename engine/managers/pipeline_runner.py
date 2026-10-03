@@ -115,7 +115,7 @@ def run_spec_stage(video_type: str = "short") -> None:
                     sc["scene_id"] = i + 1
                 total_words = sum(len(s.get("spoken_text", "").split()) for s in raw_scenes)
 
-            if len(raw_scenes) < 11 or total_words < 125:
+            if len(raw_scenes) < 12 or total_words < 150:
                 print(f"⚠️ [SPEC] Script below target word budget ({len(raw_scenes)} scenes, {total_words} words). Expanding with verified viral thoughts...", flush=True)
                 FALLBACK_THOUGHTS = [
                     "Your shadow is proof that light traveled ninety-three million miles to be blocked by you.",
@@ -158,7 +158,7 @@ def run_spec_stage(video_type: str = "short") -> None:
                     if fb.lower() not in existing_texts:
                         mid_scenes.append({"scene_id": len(mid_scenes) + 1, "spoken_text": fb, "stock_video_query": "satisfying asmr"})
                         existing_texts.add(fb.lower())
-                    if len(mid_scenes) >= 11 and sum(len(s.get("spoken_text", "").split()) for s in mid_scenes) >= 125:
+                    if len(mid_scenes) >= 12 and sum(len(s.get("spoken_text", "").split()) for s in mid_scenes) >= 155:
                         break
                 
                 mid_scenes.append(loop_scene)
@@ -177,12 +177,14 @@ def run_spec_stage(video_type: str = "short") -> None:
         voice_cfg = channel_cfg.get("voice", {})
         voice_id = voice_cfg.get("voice_id", "am_adam")
         voice_provider = voice_cfg.get("provider", "kokoro")
+        voice_speed = float(voice_cfg.get("speed", 0.92))
         
-        print(f"🎙️ [TTS] Synthesizing narration with {voice_provider} (voice: {voice_id})...")
+        print(f"🎙️ [TTS] Synthesizing narration with {voice_provider} (voice: {voice_id}, speed: {voice_speed:.2f})...")
         total_duration, word_timestamps = VoiceNormalizer.synthesize_sync(
             phonetic_text=full_phonetic_script,
             output_audio_path=audio_output,
             voice=voice_id,
+            speed=voice_speed,
             prefer_provider=voice_provider
         )
 
@@ -191,18 +193,24 @@ def run_spec_stage(video_type: str = "short") -> None:
             total_duration = max(15.0, round(words_count / 2.5, 2))
             print(f"⚠️ [TTS] Measured duration was 0.0s — calculated fallback duration: {total_duration:.1f}s")
 
-        # Enforce strict Shorts duration ceiling (strictly under 59s: target 54-56s)
-        if video_type == "short" and total_duration > 57.5:
-            target_dur = 55.0
-            speed_ratio = round(total_duration / target_dur, 3)
-            print(f"⚠️ [DURATION GUARD] Measured audio ({total_duration:.2f}s) exceeds 57.5s. Rescaling audio by {speed_ratio}x to {target_dur}s...", flush=True)
-            rescaled_path = os.path.join("output", "narration_rescaled.mp3")
-            if VoiceNormalizer.rescale_audio_duration(audio_output, rescaled_path, speed_ratio):
-                audio_output = rescaled_path
-                total_duration = target_dur
-                for wt in word_timestamps:
-                    wt.start = round(wt.start / speed_ratio, 3)
-                    wt.end = round(wt.end / speed_ratio, 3)
+        # Enforce strict Shorts duration window (52-56s, strictly under 59s and at least 50s)
+        if video_type == "short":
+            target_dur = 0.0
+            if total_duration > 57.5:
+                target_dur = 55.0
+            elif total_duration < 50.0 and total_duration >= 25.0:
+                target_dur = 52.5
+
+            if target_dur > 0.0:
+                speed_ratio = round(total_duration / target_dur, 3)
+                print(f"⚠️ [DURATION GUARD] Measured audio ({total_duration:.2f}s) outside 50.0-57.5s window. Calibrating audio by {speed_ratio}x to {target_dur}s...", flush=True)
+                rescaled_path = os.path.join("output", "narration_rescaled.mp3")
+                if VoiceNormalizer.rescale_audio_duration(audio_output, rescaled_path, speed_ratio):
+                    audio_output = rescaled_path
+                    total_duration = target_dur
+                    for wt in word_timestamps:
+                        wt.start = round(wt.start / speed_ratio, 3)
+                        wt.end = round(wt.end / speed_ratio, 3)
 
         # Map scene timing precisely across word timestamps with zero accumulative drift
         import random

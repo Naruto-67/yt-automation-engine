@@ -582,6 +582,24 @@ def test_caption_aligner_slice_words_by_scenes():
     assert [w.word for w in slices[1]] == ["Darkness", "was", "already", "there."]
 
 
+def test_stock_video_manager_recursion_guard(monkeypatch):
+    """Verifies that StockVideoManager never recurses infinitely even when all APIs fail."""
+    from engine.managers.stock_video_manager import StockVideoManager
+
+    manager = StockVideoManager()
+    manager.pexels_key = "fake_key"
+    manager.pixabay_key = "fake_key"
+
+    # Mock both APIs to raise an exception
+    monkeypatch.setattr(manager, "_search_pexels", MagicMock(side_effect=RuntimeError("API Down")))
+    monkeypatch.setattr(manager, "_search_pixabay", MagicMock(side_effect=RuntimeError("API Down")))
+
+    # Must return None gracefully and not raise RecursionError
+    clip = manager.search_video("failing query")
+    assert clip is None
+
+
+
 
 
 

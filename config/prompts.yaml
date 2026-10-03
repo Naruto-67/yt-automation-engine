@@ -4,12 +4,12 @@ version: "2.0.0"
 script_gen:
   constitution: |
     ── UNIVERSAL HIGH-RETENTION ENGINE CONSTITUTION:
-    1. WORD CALIBRATION (52-56 SECONDS, STRICTLY UNDER 59 SECONDS): Total spoken words across all scenes MUST BE BETWEEN 130 AND 145 WORDS. Under 125 words or over 150 words is strictly rejected.
+    1. WORD CALIBRATION (52-56 SECONDS, STRICTLY UNDER 59 SECONDS): Total spoken words across all scenes MUST BE BETWEEN 155 AND 175 WORDS across 12 to 14 scenes. Under 150 words or over 180 words is strictly rejected.
     2. FORMAT ARCHITECTURES:
        - [shower_thoughts_listicle] (DEFAULT VIRAL BARRAGE):
-         * Fast-paced multi-thought barrage of 11 to 13 mind-bending shower thoughts, psychological paradoxes, or perception-shattering realities.
+         * Fast-paced multi-thought barrage of 12 to 14 mind-bending shower thoughts, psychological paradoxes, or perception-shattering realities.
          * Scene 1 is an irresistible psychological hook without leading punctuation (e.g., "And these shower thoughts will completely break your perception of reality.").
-         * Scenes 2 to N-1 are rapid-fire, independent, mind-blowing one-liners (8 to 11 words each, lasting 3.6 to 4.2 seconds).
+         * Scenes 2 to N-1 are rapid-fire, independent, mind-blowing one-liners (9 to 13 words each, lasting 3.6 to 4.2 seconds).
          * Every scene must feature a hypnotic, high-motion ASMR or kinetic visual search query (e.g. "satisfying soap carving asmr", "kinetic sand slicing", "colorful fluid dynamics neon", "hydraulic press crushing satisfying", "spiral optical illusion").
          * Scene N is a circular loop bridge sentence designed to flawlessly flow back into the opening hook of Scene 1.
        - [core_brainblud] (DEEP-DIVE PARADOX):
@@ -24,7 +24,7 @@ script_gen:
   few_shot_exemplars: |
     ── GOLDEN BENCHMARKS (ACTUAL VIRAL RETENTION SCRIPTS):
     
-    [EXEMPLAR 1: SHOWER THOUGHTS RAPID-FIRE BARRAGE (Format: shower_thoughts_listicle, 130-145 words, 52-56s)]
+    [EXEMPLAR 1: SHOWER THOUGHTS RAPID-FIRE BARRAGE (Format: shower_thoughts_listicle, 155-175 words, 52-56s)]
     Hook (Scene 1): "And these shower thoughts will completely ruin your perception of reality."
     Scene 2: "Your shadow is proof that light traveled ninety-three million miles to be blocked by you." (Query: "kinetic sand slicing satisfying")
     Scene 3: "If you replace every single part of an axe, is it still the exact same axe?" (Query: "satisfying soap carving asmr")
@@ -36,8 +36,10 @@ script_gen:
     Scene 9: "Your age is just the number of laps you survived around a giant nuclear fireball." (Query: "spiral optical illusion mesmerizing")
     Scene 10: "If poison expires, does it become more poisonous, or less poisonous?" (Query: "pottery wheel clay shaping satisfying")
     Scene 11: "The brain named itself, recognized itself, and is now realizing that exact fact." (Query: "carpet cleaning power wash squeegee")
-    Loop Bridge (Scene 12): "Which is why you should never overthink these..." (Seamlessly loops into Scene 1: "And these shower thoughts will completely ruin your perception of reality.")
+    Scene 12: "The voice inside your head never has to take a physical breath while speaking." (Query: "ferrofluid magnetic spike liquid")
+    Loop Bridge (Scene 13): "Which is why you should never overthink these..." (Seamlessly loops into Scene 1: "And these shower thoughts will completely ruin your perception of reality.")
 
+  few_shot_exemplars_core: |
     [EXEMPLAR 2: SINGLE PARADOX DEEP-DIVE (Format: core_brainblud)]
     Hook (Scene 1): "This is the exact reason your brain hallucinates every time you stare into a mirror in the dark."
     Scene 2: "After just sixty seconds of dim lighting, your visual cortex gets bored and starts inventing faces." (Query: "dark room mirror reflection")
@@ -55,8 +57,8 @@ script_gen:
     3. How the final sentence grammatically fuses into the first sentence for an infinite replay loop.
     
     CRITICAL ARCHITECTURE:
-    1. THIS IS A COMPILATION OF INDEPENDENT THOUGHTS: Do NOT write an essay or documentary on a single topic. Every scene from Scene 2 to Scene 11 MUST be a completely separate, standalone, mind-bending shower thought, psychological paradox, or cognitive brain-glitch.
-    2. TARGET DURATION & WORDS: Total words across all scenes MUST be 130 to 145 words across 11 to 13 scenes (each scene 8-11 words, 3.6-4.2s). Never output fewer than 11 scenes or fewer than 120 words.
+    1. THIS IS A COMPILATION OF INDEPENDENT THOUGHTS: Do NOT write an essay or documentary on a single topic. Every scene from Scene 2 to Scene 12 MUST be a completely separate, standalone, mind-bending shower thought, psychological paradox, or cognitive brain-glitch.
+    2. TARGET DURATION & WORDS: Total words across all scenes MUST be 155 to 175 words across 12 to 14 scenes (each scene 9-13 words, 3.6-4.2s). Never output fewer than 12 scenes or fewer than 150 words.
     3. NO LEADING ELLIPSES: Do NOT start Scene 1 with leading ellipses or dots ("..."). Start directly with clean words.
     4. VISUAL QUERIES: Each stock_video_query MUST be satisfying ASMR / kinetic motion footage (e.g. soap carving, hydraulic press, kinetic sand, fluid dynamics, marble run). Never literal depictions.
     Output MUST be valid JSON matching the exact schema.
