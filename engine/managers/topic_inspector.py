@@ -15,8 +15,34 @@ import xml.etree.ElementTree as ET
 from typing import Dict, Any, List, Optional, Set
 from engine.managers.llm_manager import LLMManager
 
-CURATED_FALLBACK_TOPICS = [
-    # Cognitive & Psychological Paradoxes
+# ─── VIRAL SHORTS THEMES (Listicle Hook Umbrellas for @BrainBlud style) ──────
+VIRAL_SHORTS_THEMES = [
+    "Shower thoughts that will completely ruin your perception of reality",
+    "Uncomfortable shower thoughts that will keep you awake tonight",
+    "Shower thoughts that feel like glitches in the simulation",
+    "Mind-bending psychological facts that sound completely fake",
+    "Shower thoughts you should never overthink right before sleep",
+    "Weird psychological facts that will mess with your head",
+    "Shower thoughts that prove human perception is a biological simulation",
+    "Mind-blowing shower thoughts that make too much sense",
+    "Brain glitches that feel illegal to know",
+    "Shower thoughts that break the laws of common sense",
+    "Disturbing psychological facts about the human mind",
+    "Shower thoughts that will give you an existential crisis",
+    "Cognitive paradoxes that will break your brain",
+    "Shower thoughts that prove reality is stranger than anything you can imagine",
+    "Unsettling thoughts you will never be able to unthink",
+    "Shower thoughts that will make you question your own existence",
+    "Psychological brain glitches you experience without realizing",
+    "Shower thoughts that are terrifying if you think about them",
+    "Facts about the human mind that feel like cheat codes",
+    "Shower thoughts that will ruin your day in five seconds"
+]
+
+CURATED_FALLBACK_TOPICS = VIRAL_SHORTS_THEMES  # Backward compatibility alias
+
+# ─── LONG-FORM DOCUMENTARY TOPICS (Deep Dives) ──────────────────────────────
+LONG_FORM_TOPICS = [
     "The Ship of Theseus Paradox and the Illusion of Physical Identity",
     "Why you have never actually seen your own face in real time",
     "The Troxler Effect and why your brain hallucinates faces in dim mirrors",
@@ -26,23 +52,6 @@ CURATED_FALLBACK_TOPICS = [
     "The Overview Effect: How viewing Earth from space transforms cognitive empathy",
     "The Mandela Effect and how human collective memory fabricates consensus",
     "The Dunning-Kruger Effect: Why incompetence breeds psychological overconfidence",
-    "Why your future self is watching you right now through the lens of your memories",
-    "Why your brain deletes the physical sensation of your clothes on your skin",
-    "How language alters the physical perception of color across different human cultures",
-    "The Rubber Hand Illusion and how easily your brain adopts artificial limbs",
-    "The Tetris Effect: How repetitive sensory tasks physically alter brain cognition",
-    "Phantom Vibration Syndrome and how our nervous systems hyper-predict stimuli",
-    "Semantic Satiation: Why repeating a single word makes it completely lose meaning",
-    "The Spotlight Effect: Why nobody is noticing the mistakes you obsess over",
-    "Pareidolia and why human evolutionary biology forces you to see faces everywhere",
-    "Capgras Delusion and the eerie feeling that your loved ones are exact impostors",
-    "Sleep Paralysis and why human waking consciousness gets hijacked by dream hallucinations",
-    "Chronostasis: The stopped-clock illusion where time appears to freeze",
-    "Déjà vu and why neural micro-delays create false sensations of past experience",
-    "Jamais vu: When a familiar room or person suddenly feels utterly alien",
-    "The Broken Window Fallacy: Why destruction never actually creates economic prosperity",
-
-    # Physics, Quantum & Cosmic Brain-Glitches
     "The Grandfather Paradox and why causal loops break temporal physics",
     "The Fermi Paradox: Where is all intelligent life in the observable universe?",
     "Why matter never truly touches other matter due to atomic electron repulsion",
@@ -54,32 +63,7 @@ CURATED_FALLBACK_TOPICS = [
     "Olbers' Paradox: Why the night sky is completely black despite infinite stars",
     "Quantum Tunneling: How the sun fuses hydrogen despite lacking the classical heat to do so",
     "The Cosmic Event Horizon: Why distant galaxies are permanently vanishing from our reach",
-    "Time dilation at the event horizon of a supermassive black hole",
-    "The heat death of the universe and the final decay of physical matter",
-
-    # Mind-Bending Shower Thoughts & Perception Glitches
-    "Shower thoughts that will completely break your perception of reality",
-    "Shower thoughts that prove human perception is a biological simulation",
-    "Shower thoughts you should never overthink right before going to sleep",
-    "Shower thoughts that prove reality is stranger than anything you can imagine",
-    "Why sleeping is charging your battery while dreaming is running diagnostics",
-    "Your shadow is proof that light traveled ninety-three million miles to be stopped by you",
-    "If poison expires does it become more poisonous or less poisonous",
-    "Every book you have ever read is just twenty-six letters arranged in different orders",
-    "Your age is just the number of laps you survived around a giant nuclear fireball",
-    "The brain named itself, recognized itself, and is now realizing that exact fact",
-    "Nothing is ever truly on fire. Fire is actually chemically on physical things",
-    "Clapping is just repeatedly slapping yourself because you enjoyed something",
-    "Water can boil and freeze at the exact same instant under specific pressure",
-    "Your stomach acid is strong enough to dissolve metal, but your lining constantly regenerates",
-    "You can never hold an empty container because it is always completely full of air",
-    "The voice inside your head never has to take a physical breath while talking",
-    "Mirrors do not reverse left and right; they reverse front and back",
-    "You are currently moving through space at hundreds of kilometers per second without feeling it",
-    "Your skeleton is wet right now and will stay wet until long after you die",
-    "History is written by the living; the billions of dead will never tell their side",
-    "Every decision you made in your entire past led to the exact moment you are reading this",
-    "You have breathed atoms that were once exhaled by prehistoric dinosaurs"
+    "The heat death of the universe and the final decay of physical matter"
 ]
 
 
@@ -205,12 +189,13 @@ class TopicInspector:
             items = [it for it in items if it.get("niche") == niche]
         return [it.get("topic", "") for it in items[-limit:] if it.get("topic")]
 
-    def discover_verified_topic(self, niche: str = "shower_thoughts") -> Dict[str, Any]:
+    def discover_verified_topic(self, niche: str = "shower_thoughts", video_type: str = "short") -> Dict[str, Any]:
         """
         Discovers a candidate topic via multi-tier fallback, filters out duplicates,
         and ensures it passes the Fact-Checking and Niche Relevance Gate.
         """
-        candidates = self._fetch_candidates(niche=niche)
+        target_pool = LONG_FORM_TOPICS if video_type == "long" else VIRAL_SHORTS_THEMES
+        candidates = self._fetch_candidates(niche=niche, video_type=video_type)
         random.shuffle(candidates)
 
         for candidate in candidates:
@@ -233,19 +218,20 @@ class TopicInspector:
                 reason = fact_check_result.get("reason", "Unverified or pseudoscientific myth")
                 print(f"⚠️ [TOPIC GATE] Rejected '{candidate[:40]}...': {reason}")
 
-        # Fallback to guaranteed verified evergreen fact that hasn't been used recently
-        available_fallbacks = [t for t in CURATED_FALLBACK_TOPICS if not self.is_topic_recent(t)]
+        # Fallback to guaranteed verified evergreen theme that hasn't been used recently
+        available_fallbacks = [t for t in target_pool if not self.is_topic_recent(t)]
         if available_fallbacks:
             fallback = random.choice(available_fallbacks)
         else:
-            fallback = random.choice(CURATED_FALLBACK_TOPICS)
+            fallback = random.choice(target_pool)
 
         print(f"🛡️ [TOPIC GATE] Using verified evergreen topic: '{fallback[:60]}...'")
         self.record_topic_usage(fallback, fallback, niche=niche)
         return {"topic": fallback, "verified_summary": fallback, "source": "curated_evergreen"}
 
-    def _fetch_candidates(self, niche: str = "shower_thoughts") -> List[str]:
+    def _fetch_candidates(self, niche: str = "shower_thoughts", video_type: str = "short") -> List[str]:
         """Fetches candidates using Reddit -> Niche LLM Ideation -> Curated Master Pool fallback."""
+        target_pool = LONG_FORM_TOPICS if video_type == "long" else VIRAL_SHORTS_THEMES
         candidates = []
 
         # Tier 1: Reddit
@@ -288,7 +274,11 @@ class TopicInspector:
                     "mind-bending shower thoughts, psychological paradoxes, and cognitive illusions."
                     f"{anti_rep_constraint}"
                 )
-                usr_prompt = "Generate 6 viral, mind-bending topic titles. Return JSON: {\"topics\": [\"Title 1\", \"Title 2\", ...]}"
+                usr_prompt = (
+                    "Generate 6 viral YouTube Shorts video hook themes for a shower thoughts listicle channel. "
+                    "Examples: 'Shower thoughts that will ruin your perception of reality', 'Uncomfortable thoughts that will keep you awake tonight'. "
+                    "Return JSON: {\"topics\": [\"Theme 1\", \"Theme 2\", ...]}"
+                )
                 idea_data = self.llm.generate_json(sys_prompt, usr_prompt, temperature=0.8)
                 llm_topics = idea_data.get("topics", [])
                 if llm_topics and isinstance(llm_topics, list):
@@ -316,8 +306,8 @@ class TopicInspector:
             except Exception:
                 pass
 
-        available_fallbacks = [t for t in CURATED_FALLBACK_TOPICS if not self.is_topic_recent(t)]
-        return available_fallbacks if available_fallbacks else CURATED_FALLBACK_TOPICS.copy()
+        available_fallbacks = [t for t in target_pool if not self.is_topic_recent(t)]
+        return available_fallbacks if available_fallbacks else target_pool.copy()
 
     def verify_factuality(self, topic: str, niche: str = "shower_thoughts") -> Dict[str, Any]:
         """Runs the LLM fact-checking and niche-relevance gate."""

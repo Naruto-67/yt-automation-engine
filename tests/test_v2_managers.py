@@ -296,7 +296,7 @@ def test_pipeline_runner_run_spec_stage(monkeypatch, tmp_path):
     # Mock health checks and sync
     monkeypatch.setattr("engine.managers.health_manager.HealthManager.check_and_sync_models", lambda **kw: {})
     monkeypatch.setattr("engine.managers.competitor_spy.CompetitorSpy.get_surge_topic", lambda *a: None)
-    monkeypatch.setattr("engine.managers.topic_inspector.TopicInspector.discover_verified_topic", lambda self, niche: {
+    monkeypatch.setattr("engine.managers.topic_inspector.TopicInspector.discover_verified_topic", lambda self, niche, *a, **kw: {
         "topic": "The Baader-Meinhof Phenomenon",
         "verified_summary": "Frequency illusion",
         "source": "verified_trend"
@@ -317,7 +317,7 @@ def test_pipeline_runner_run_spec_stage(monkeypatch, tmp_path):
         "tags": ["psychology", "facts", "shorts"]
     }
 
-    def mock_generate_json(self, sys_p, usr_p, temperature=0.7):
+    def mock_generate_json(self, sys_p, usr_p, temperature=0.7, *args, **kwargs):
         if "SEO Director" in sys_p:
             return mock_seo_response
         return mock_script_response

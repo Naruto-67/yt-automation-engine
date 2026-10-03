@@ -20,7 +20,7 @@ import time
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Set
+from typing import Dict, Any, List, Optional, Set, Callable
 
 from engine.discovery import (
     run_discovery,
@@ -230,10 +230,17 @@ class LLMManager:
         active.sort(key=lambda x: x.get("priority", 99))
         return active
 
-    def generate_json(self, system_prompt: str, user_prompt: str, temperature: float = 0.7) -> Dict[str, Any]:
+    def generate_json(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float = 0.7,
+        validator: Optional[Callable[[Dict[str, Any]], bool]] = None
+    ) -> Dict[str, Any]:
         """
         Executes generation dynamically across discovered providers:
         PikaFlow interleaved family priority -> auto-banning dead models on 404 -> cascading.
+        Optionally validates extracted JSON against custom predicate before accepting.
         """
         candidates = [p for p in self._get_active_providers() if p["id"] not in self._disabled_for_run]
 
@@ -264,10 +271,16 @@ class LLMManager:
                 if response_text and response_text.strip():
                     parsed = UniversalGreedyJSONParser.extract_json(response_text)
                     if parsed:
+                        if validator and not validator(parsed):
+                            print(f"⚠️ [LLM VALIDATOR] {prov_name} output rejected by validator criteria. Cascading...")
+                            continue
                         return parsed
                     # If JSON couldn't be parsed directly, try heuristic synthesis
                     synth = UniversalGreedyJSONParser.extract_or_synthesize(response_text, expected_type="script")
                     if synth and "scenes" in synth:
+                        if validator and not validator(synth):
+                            print(f"⚠️ [LLM VALIDATOR] {prov_name} synthesized output rejected by validator criteria. Cascading...")
+                            continue
                         return synth
 
                     print(f"⚠️ [LLM] {prov_name} returned unparseable output. Cascading to next candidate...")
@@ -337,7 +350,8 @@ class LLMManager:
                 ],
                 "generationConfig": {
                     "temperature": temperature,
-                    "responseMimeType": "application/json"
+                    "responseMimeType": "application/json",
+                    "maxOutputTokens": 900
                 }
             }
         else:
@@ -347,7 +361,8 @@ class LLMManager:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                "temperature": temperature
+                "temperature": temperature,
+                "max_tokens": 850
             }
             # Add json_object response_format if not free openrouter model
             if "openrouter" not in base_url or not str(model_name).endswith(":free"):

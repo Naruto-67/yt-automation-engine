@@ -323,6 +323,9 @@ class VoiceNormalizer:
         Primary TTS: Synthesizes high-fidelity speech via official hexgrad/kokoro KPipeline.
         Exact microsecond duration and word timestamps derived from 24kHz audio buffers.
         """
+        import warnings
+        warnings.filterwarnings("ignore", category=UserWarning)
+        warnings.filterwarnings("ignore", category=FutureWarning)
         from kokoro import KPipeline
         import soundfile as sf
         import numpy as np
@@ -330,7 +333,7 @@ class VoiceNormalizer:
         lang_code = cls.detect_lang_code(voice)
         print(f"🎙️ [KOKORO] Initializing official KPipeline (lang_code='{lang_code}', voice='{voice}', speed={speed})...", flush=True)
 
-        pipeline = KPipeline(lang_code=lang_code)
+        pipeline = KPipeline(lang_code=lang_code, repo_id="hexgrad/Kokoro-82M")
         generator = pipeline(phonetic_text, voice=voice, speed=speed)
 
         all_chunks = []

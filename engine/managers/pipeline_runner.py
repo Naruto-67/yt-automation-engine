@@ -42,7 +42,7 @@ def run_spec_stage(video_type: str = "short") -> None:
 
     if video_type == "long":
         sub_format = "documentary_essay"
-        topic_info = inspector.discover_verified_topic(channel_cfg.get("niche", "psychology_and_facts"))
+        topic_info = inspector.discover_verified_topic(channel_cfg.get("niche", "psychology_and_facts"), video_type="long")
         topic = topic_info["topic"]
         source = topic_info.get("source", "trend")
         script_cfg = prompts_cfg.get("long_form_doc", prompts_cfg["script_gen"])
@@ -60,7 +60,7 @@ def run_spec_stage(video_type: str = "short") -> None:
         else:
             if surge:
                 print(f"🔄 [COMPETITOR SPY] Surge topic '{surge.get('title', '')}' was already used recently. Discovering fresh topic...")
-            topic_info = inspector.discover_verified_topic(channel_cfg.get("niche", "shower_thoughts"))
+            topic_info = inspector.discover_verified_topic(channel_cfg.get("niche", "shower_thoughts"), video_type="short")
             topic = topic_info["topic"]
             source = topic_info.get("source", "trend")
         script_cfg = prompts_cfg["script_gen"]
@@ -77,7 +77,17 @@ def run_spec_stage(video_type: str = "short") -> None:
             target_duration=target_duration
         )
 
-        script_data = llm.generate_json(system_prompt, user_prompt, temperature=0.7)
+        def validate_short_script(data: Dict[str, Any]) -> bool:
+            if not isinstance(data, dict):
+                return False
+            scenes = data.get("scenes", [])
+            if not isinstance(scenes, list) or len(scenes) < 10:
+                return False
+            words = sum(len(sc.get("spoken_text", "").split()) for sc in scenes if isinstance(sc, dict))
+            return 110 <= words <= 165
+
+        validator = validate_short_script if (video_type == "short" and not os.environ.get("PYTEST_CURRENT_TEST")) else None
+        script_data = llm.generate_json(system_prompt, user_prompt, temperature=0.7, validator=validator)
         raw_scenes = script_data.get("scenes", [])
         if not raw_scenes and "chapters" in script_data:
             # Flatten scenes from chapters
@@ -94,8 +104,8 @@ def run_spec_stage(video_type: str = "short") -> None:
             if raw_scenes[0]["spoken_text"] and raw_scenes[0]["spoken_text"][0].islower():
                 raw_scenes[0]["spoken_text"] = raw_scenes[0]["spoken_text"][0].upper() + raw_scenes[0]["spoken_text"][1:]
 
-        # Ensure sufficient scenes and words for Shorts in production runs
-        if video_type == "short" and not os.environ.get("PYTEST_CURRENT_TEST") and not os.environ.get("TEST_MODE"):
+        # Ensure sufficient scenes and words for Shorts in production & test runs
+        if video_type == "short" and not os.environ.get("PYTEST_CURRENT_TEST"):
             total_words = sum(len(s.get("spoken_text", "").split()) for s in raw_scenes)
             # Cap if too long to prevent > 58s run
             if len(raw_scenes) > 13:
@@ -106,7 +116,7 @@ def run_spec_stage(video_type: str = "short") -> None:
                 total_words = sum(len(s.get("spoken_text", "").split()) for s in raw_scenes)
 
             if len(raw_scenes) < 11 or total_words < 125:
-                print(f"⚠️ [SPEC] LLM output short ({len(raw_scenes)} scenes, {total_words} words). Expanding with verified shower thoughts...", flush=True)
+                print(f"⚠️ [SPEC] Script below target word budget ({len(raw_scenes)} scenes, {total_words} words). Expanding with verified viral thoughts...", flush=True)
                 FALLBACK_THOUGHTS = [
                     "Your shadow is proof that light traveled ninety-three million miles to be blocked by you.",
                     "If you replace every single part of an axe, is it still the exact same axe?",
@@ -117,21 +127,41 @@ def run_spec_stage(video_type: str = "short") -> None:
                     "Your age is just the number of laps you survived around a giant nuclear fireball.",
                     "If poison expires, does it become more poisonous, or less poisonous?",
                     "The brain named itself, recognized itself, and is now realizing that exact fact.",
-                    "Why your future self is watching you right now through the lens of your memories."
+                    "Every book you have ever read is just twenty-six letters arranged in different orders.",
+                    "Why your future self is watching you right now through the lens of your memories.",
+                    "Water can boil and freeze at the exact same instant under specific pressure.",
+                    "You can never hold an empty container because it is always completely full of air.",
+                    "The voice inside your head never has to take a physical breath while talking."
                 ]
-                loop_scene = raw_scenes[-1] if len(raw_scenes) > 1 else None
-                mid_scenes = raw_scenes[:-1] if len(raw_scenes) > 1 else raw_scenes
-                existing_texts = {s.get("spoken_text", "").lower() for s in raw_scenes}
+                
+                # If LLM returned only 1 broken scene (like "Here."), synthesize a proper hook
+                if len(raw_scenes) <= 1 or total_words < 30:
+                    raw_scenes = [{
+                        "scene_id": 1,
+                        "spoken_text": "And these shower thoughts will completely ruin your perception of reality.",
+                        "stock_video_query": "satisfying kinetic sand slicing"
+                    }]
+
+                loop_scene = raw_scenes[-1] if len(raw_scenes) > 1 and "overthink" in raw_scenes[-1].get("spoken_text", "").lower() else {
+                    "scene_id": 12,
+                    "spoken_text": "Which is why you should never overthink these...",
+                    "stock_video_query": "spiral optical illusion mesmerizing"
+                }
+                
+                mid_scenes = [raw_scenes[0]]
+                for sc in raw_scenes[1:-1]:
+                    mid_scenes.append(sc)
+                
+                existing_texts = {s.get("spoken_text", "").lower() for s in mid_scenes}
                 
                 for fb in FALLBACK_THOUGHTS:
                     if fb.lower() not in existing_texts:
                         mid_scenes.append({"scene_id": len(mid_scenes) + 1, "spoken_text": fb, "stock_video_query": "satisfying asmr"})
                         existing_texts.add(fb.lower())
-                    if len(mid_scenes) >= 12 or sum(len(s.get("spoken_text", "").split()) for s in mid_scenes) >= 132:
+                    if len(mid_scenes) >= 11 and sum(len(s.get("spoken_text", "").split()) for s in mid_scenes) >= 125:
                         break
                 
-                if loop_scene:
-                    mid_scenes.append(loop_scene)
+                mid_scenes.append(loop_scene)
                 raw_scenes = mid_scenes
                 for i, sc in enumerate(raw_scenes):
                     sc["scene_id"] = i + 1
