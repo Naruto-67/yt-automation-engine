@@ -68,11 +68,11 @@ def generate_ass_subtitles(
     width: int = 1080,
     height: int = 1920,
     font_name: str = "Anton",
-    font_size: int = 72,
+    font_size: int = 108,
     active_color: str = "&H00FFFFFF",   # Crisp white
     inactive_color: str = "&H00FFFFFF", # Crisp white
     outline_color: str = "&H00000000",  # Solid Black
-    outline_width: int = 6,
+    outline_width: int = 7,
     shadow_depth: int = 2,
     chunk_size: int = 2,
     uppercase: bool = False,
@@ -269,9 +269,9 @@ def render_video_ffmpeg(
     ass_path = os.path.join("output", "captions.ass")
     caption_cfg = settings_cfg.get("captions", {})
     if is_short:
-        sub_font_size = caption_cfg.get("font_size", 88)
-        sub_chunk_size = caption_cfg.get("max_words_per_chunk", 1)
-        sub_outline_width = caption_cfg.get("outline_width", 6)
+        sub_font_size = caption_cfg.get("font_size", 108)
+        sub_chunk_size = caption_cfg.get("max_words_per_chunk", 2)
+        sub_outline_width = caption_cfg.get("outline_width", 7)
         sub_uppercase = caption_cfg.get("uppercase", True)
         sub_margin_v = int(target_h * 0.44)
     else:

@@ -389,5 +389,39 @@ def test_caption_aligner_vad_fallback(tmp_path):
     assert words[-1].word == "proof"
 
 
+def test_topic_inspector_deduplication_anti_repetition(tmp_path, monkeypatch):
+    """Verifies that TopicInspector prevents using duplicate or recently used topics."""
+    reg_file = str(tmp_path / "test_used_topics.json")
+    monkeypatch.setattr(TopicInspector, "REGISTRY_FILE", reg_file)
+
+    # Initially empty
+    assert TopicInspector.is_topic_recent("The Ship of Theseus Paradox") is False
+
+    # Record usage
+    TopicInspector.record_topic_usage("The Ship of Theseus Paradox and Identity", niche="shower_thoughts")
+
+    # Exact or near-exact match must be blocked
+    assert TopicInspector.is_topic_recent("The Ship of Theseus Paradox and Identity") is True
+
+    # Conceptually similar / high keyword overlap must be blocked
+    assert TopicInspector.is_topic_recent("The Ship of Theseus Paradox") is True
+
+    # Completely different topic must pass
+    assert TopicInspector.is_topic_recent("Why matter never truly touches other matter") is False
+
+
+def test_caption_styling_settings():
+    """Verifies settings.yaml has upgraded 108pt font size and 7px outline for high mobile retention."""
+    import yaml
+    with open("config/settings.yaml", "r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
+    captions = cfg.get("captions", {})
+    assert captions.get("font_size") == 108
+    assert captions.get("outline_width") == 7
+    assert captions.get("max_words_per_chunk") == 2
+    assert captions.get("active_color") == "&H0000FFFF"
+
+
+
 
 

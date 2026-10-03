@@ -53,10 +53,13 @@ def run_spec_stage(video_type: str = "short") -> None:
 
         # 1. Discover topic (Competitor Spy -> Topic Inspector)
         surge = CompetitorSpy.get_surge_topic(settings_cfg.get("competitors", []))
-        if surge:
+        if surge and not inspector.is_topic_recent(surge.get("title", "")):
             topic = surge.get("title")
             source = "competitor_surge"
+            inspector.record_topic_usage(topic, topic, niche=channel_cfg.get("niche", "shower_thoughts"))
         else:
+            if surge:
+                print(f"🔄 [COMPETITOR SPY] Surge topic '{surge.get('title', '')}' was already used recently. Discovering fresh topic...")
             topic_info = inspector.discover_verified_topic(channel_cfg.get("niche", "shower_thoughts"))
             topic = topic_info["topic"]
             source = topic_info.get("source", "trend")
