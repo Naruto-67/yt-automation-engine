@@ -81,10 +81,10 @@ def run_spec_stage(video_type: str = "short") -> None:
             if not isinstance(data, dict):
                 return False
             scenes = data.get("scenes", [])
-            if not isinstance(scenes, list) or len(scenes) < 10:
+            if not isinstance(scenes, list) or len(scenes) < 11 or len(scenes) > 13:
                 return False
             words = sum(len(sc.get("spoken_text", "").split()) for sc in scenes if isinstance(sc, dict))
-            return 110 <= words <= 165
+            return 135 <= words <= 158
 
         validator = validate_short_script if (video_type == "short" and not os.environ.get("PYTEST_CURRENT_TEST")) else None
         script_data = llm.generate_json(system_prompt, user_prompt, temperature=0.7, validator=validator)
@@ -115,12 +115,12 @@ def run_spec_stage(video_type: str = "short") -> None:
                     sc["scene_id"] = i + 1
                 total_words = sum(len(s.get("spoken_text", "").split()) for s in raw_scenes)
 
-            if len(raw_scenes) < 12 or total_words < 150:
+            if len(raw_scenes) < 11 or total_words < 135:
                 print(f"⚠️ [SPEC] Script below target word budget ({len(raw_scenes)} scenes, {total_words} words). Expanding with verified viral thoughts...", flush=True)
                 FALLBACK_THOUGHTS = [
                     "Your shadow is proof that light traveled ninety-three million miles to be blocked by you.",
                     "If you replace every single part of an axe, is it still the exact same axe?",
-                    "You have never actually seen your own face, only reflections, video screens, and photographs.",
+                    "You have never actually seen your own face, only reflections, screens, and photographs.",
                     "Sleeping is just charging your biological battery, while dreaming is running a diagnostics test.",
                     "Nothing is ever on fire. Fire is actually on things.",
                     "Clapping is just repeatedly slapping yourself because you enjoyed something.",
@@ -138,14 +138,14 @@ def run_spec_stage(video_type: str = "short") -> None:
                 if len(raw_scenes) <= 1 or total_words < 30:
                     raw_scenes = [{
                         "scene_id": 1,
-                        "spoken_text": "And these shower thoughts will completely ruin your perception of reality.",
-                        "stock_video_query": "satisfying kinetic sand slicing"
+                        "spoken_text": "The only part of your reflection you can lick is your tongue.",
+                        "stock_video_query": "soap cutting grid razor ASMR"
                     }]
 
                 loop_scene = raw_scenes[-1] if len(raw_scenes) > 1 and "overthink" in raw_scenes[-1].get("spoken_text", "").lower() else {
                     "scene_id": 12,
                     "spoken_text": "Which is why you should never overthink these...",
-                    "stock_video_query": "spiral optical illusion mesmerizing"
+                    "stock_video_query": "spiral optical illusion hypnotic"
                 }
                 
                 mid_scenes = [raw_scenes[0]]
@@ -156,9 +156,9 @@ def run_spec_stage(video_type: str = "short") -> None:
                 
                 for fb in FALLBACK_THOUGHTS:
                     if fb.lower() not in existing_texts:
-                        mid_scenes.append({"scene_id": len(mid_scenes) + 1, "spoken_text": fb, "stock_video_query": "satisfying asmr"})
+                        mid_scenes.append({"scene_id": len(mid_scenes) + 1, "spoken_text": fb, "stock_video_query": "soap cutting grid razor ASMR"})
                         existing_texts.add(fb.lower())
-                    if len(mid_scenes) >= 12 and sum(len(s.get("spoken_text", "").split()) for s in mid_scenes) >= 155:
+                    if len(mid_scenes) >= 11 and sum(len(s.get("spoken_text", "").split()) for s in mid_scenes) >= 140:
                         break
                 
                 mid_scenes.append(loop_scene)
@@ -195,7 +195,7 @@ def run_spec_stage(video_type: str = "short") -> None:
             each_d = round(total_duration / max(1, len(raw_scenes)), 2)
             scene_cut_durations = [each_d] * len(raw_scenes)
 
-        # Enforce strict Shorts duration window (50-56s, strictly under 59s and at least 50s)
+        # Enforce strict Shorts duration window (50-56.5s, strictly under 58s and at least 50s)
         if video_type == "short":
             target_dur = 0.0
             if total_duration > 57.5:
@@ -205,19 +205,48 @@ def run_spec_stage(video_type: str = "short") -> None:
 
             if target_dur > 0.0:
                 speed_ratio = round(total_duration / target_dur, 3)
-                print(f"⚠️ [DURATION GUARD] Measured audio ({total_duration:.2f}s) outside 50.0-57.5s window. Calibrating audio by {speed_ratio}x to {target_dur}s...", flush=True)
-                rescaled_path = os.path.join("output", "narration_rescaled.mp3")
-                if VoiceNormalizer.rescale_audio_duration(audio_output, rescaled_path, speed_ratio):
-                    audio_output = rescaled_path
+                print(f"⚠️ [DURATION GUARD] Measured audio ({total_duration:.2f}s) outside 50.0-57.5s window. Calibrating audio in-place by {speed_ratio}x to {target_dur}s...", flush=True)
+                wav_path = audio_output.rsplit(".", 1)[0] + ".wav"
+                rescaled_wav = os.path.join("output", "narration_rescaled.wav")
+                rescaled_mp3 = os.path.join("output", "narration_rescaled.mp3")
+
+                rescaled_ok = False
+                if os.path.exists(wav_path):
+                    rescaled_ok = VoiceNormalizer.rescale_audio_duration(wav_path, rescaled_wav, speed_ratio)
+                if not rescaled_ok and os.path.exists(audio_output):
+                    rescaled_ok = VoiceNormalizer.rescale_audio_duration(audio_output, rescaled_mp3, speed_ratio)
+
+                if rescaled_ok:
+                    import shutil
+                    if os.path.exists(rescaled_wav):
+                        shutil.move(rescaled_wav, wav_path)
+                    if os.path.exists(rescaled_mp3):
+                        shutil.move(rescaled_mp3, audio_output)
+                    elif os.path.exists(wav_path):
+                        # Convert rescaled wav to mp3 in place
+                        import subprocess
+                        subprocess.run(
+                            ["ffmpeg", "-y", "-nostats", "-loglevel", "error", "-i", wav_path, "-codec:a", "libmp3lame", "-b:a", "192k", audio_output],
+                            check=False
+                        )
                     total_duration = target_dur
-                    for wt in word_timestamps:
-                        wt.start = round(wt.start / speed_ratio, 3)
-                        wt.end = round(wt.end / speed_ratio, 3)
-                    scene_cut_durations = [round(d / speed_ratio, 2) for d in scene_cut_durations]
-                    for slc in scene_word_slices:
-                        for wt in slc:
+
+                    # Re-align captions directly on the final rescaled audio via CaptionAligner
+                    from engine.managers.caption_aligner import CaptionAligner
+                    target_audio = wav_path if os.path.exists(wav_path) else audio_output
+                    aligned_words = CaptionAligner.align_captions(
+                        audio_path=target_audio,
+                        script_text=full_phonetic_script
+                    )
+                    if aligned_words and len(aligned_words) >= max(1, int(len(word_timestamps) * 0.8)):
+                        word_timestamps = aligned_words
+                    else:
+                        for wt in word_timestamps:
                             wt.start = round(wt.start / speed_ratio, 3)
                             wt.end = round(wt.end / speed_ratio, 3)
+
+                    scene_cut_durations = [round(d / speed_ratio, 2) for d in scene_cut_durations]
+                    scene_word_slices = CaptionAligner.slice_words_by_scenes(word_timestamps, raw_scenes)
 
         num_scenes = len(raw_scenes)
         # Sample unique visual queries for this video from the expanded taxonomy

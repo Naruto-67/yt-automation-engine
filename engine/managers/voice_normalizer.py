@@ -630,7 +630,7 @@ class VoiceNormalizer:
                 all_audio_chunks = []
                 scene_boundaries: List[Tuple[float, float]] = []
                 current_time = 0.0
-                pause_samples = np.zeros(int(24000 * 0.25), dtype=np.float32)
+                pause_samples = np.zeros(int(24000 * 0.20), dtype=np.float32)
 
                 for idx, s in enumerate(raw_scenes):
                     p_text = s.get("phonetic_text") or cls.normalize_text(s.get("spoken_text", ""))
@@ -661,7 +661,7 @@ class VoiceNormalizer:
                     all_audio_chunks.append(scene_samples)
                     if idx < num_scenes - 1:
                         all_audio_chunks.append(pause_samples)
-                        current_time = round(scene_end + 0.25, 3)
+                        current_time = round(scene_end + 0.20, 3)
                     else:
                         current_time = scene_end
 

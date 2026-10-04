@@ -6,6 +6,7 @@ Includes 3-layer anti-duplication (intra-video uniqueness, persistent 30-day coo
 
 import os
 import sys
+import re
 import json
 import time
 import random
@@ -23,52 +24,50 @@ if hasattr(sys.stdout, "reconfigure"):
         pass
 
 
-# ─── HIGH-RETENTION ASMR & SATISFYING TAXONOMY FOR SHORTS ─────────────────────
+# ─── HIGH-RETENTION BRAND-SAFE ASMR & CRAFT TAXONOMY FOR SHORTS ────────────────
 SHORTS_VISUAL_TAXONOMY: List[str] = [
-    "soap carving razor ASMR",
-    "kinetic sand slicing satisfying",
-    "carpet cleaning power wash squeegee",
-    "hydraulic press squishing slime",
-    "satisfying slime bubble popping",
-    "lawn hedge trimming electric shears",
-    "pottery wheel clay shaping satisfying",
-    "paint scraping palette knife acrylic",
+    "soap cutting grid razor ASMR",
+    "kinetic sand slicing hot knife",
+    "carpet cleaning foam squeegee satisfying",
+    "colored pencils sharpening sander",
     "wood turning lathe chisel shavings",
-    "marble run kinetic motion wooden",
-    "pressure washing sidewalk clean moss",
+    "pottery wheel clay shaping satisfying",
+    "paint squeegee canvas colorful scraping",
+    "chocolate scraping curls marble spatula",
+    "marble run kinetic wooden track",
+    "honeycomb honey dripping macro",
     "ice crushing slow motion ASMR",
     "domino falling cascade smooth",
-    "floral foam crushing boots press",
-    "macro ink fluid dynamics water drop",
-    "spiral optical illusion hypnotic",
-    "satisfying soap cutting asmr",
-    "metal milling lathe spiral shavings",
-    "glass score snapping satisfying",
-    "kinetic sand slicing hot knife",
-    "honey dripping honeycomb macro",
-    "candle wax carving chisel satisfying",
-    "chocolate tempering marble slab scrape",
-    "coffee latte art etching pouring",
-    "magnetic putty swallowing magnet cube",
-    "kinetic sand cake decorating asmr",
-    "slime bubble popping crunch asmr",
-    "calligraphy ink writing macro slow motion",
-    "glass blowing shaping glowing molten",
-    "laser rust removal steel restoration",
-    "resin sphere polishing sandpaper lathe",
-    "spray foam expansion cutting knife",
-    "bubble wrap popping satisfying slowmo",
-    "sand pendulum geometric drawing harmonograph",
     "3d printing timelapse smooth layer",
     "pottery glaze dipping colorful drip",
-    "watercolor pigment blooming wet paper",
+    "candle wax carving chisel satisfying",
+    "laser rust removal steel restoration",
+    "calligraphy ink writing macro slow motion",
+    "coffee latte art etching pouring",
+    "resin sphere polishing sandpaper lathe",
+    "sand pendulum geometric drawing harmonograph",
+    "glass blowing shaping glowing molten",
+    "macro ink fluid dynamics water drop",
+    "spiral optical illusion hypnotic",
+    "metal milling lathe spiral shavings",
     "hot wire foam slicing smooth satisfying",
-    "guitar string vibration macro slow motion",
-    "liquid nitrogen dipping shattering flower",
-    "metal drop stamping press factory"
+    "satisfying soap cutting asmr",
+    "lawn hedge trimming electric shears",
+    "pressure washing sidewalk clean moss",
+    "bubble wrap popping satisfying slowmo",
+    "watercolor pigment blooming wet paper",
+    "guitar string vibration macro slow motion"
 ]
 # Backward-compatibility alias
 SHORTS_ASMR_TAXONOMY = SHORTS_VISUAL_TAXONOMY
+
+# Brand safety negative keywords (purges suggestive, latex, medical, or intimate content)
+BANNED_STOCK_KEYWORDS: Set[str] = {
+    "latex", "rubber", "balloon", "medical", "surgery", "condom",
+    "contraceptive", "intimate", "nude", "erotic", "blood", "flesh",
+    "hospital", "doctor", "needle", "syringe", "injection", "wound",
+    "fetish", "skin", "underwear", "bra", "lingerie"
+}
 
 
 class StockVideoManager:
@@ -128,6 +127,17 @@ class StockVideoManager:
             "query": query
         }
         cls.save_registry(registry)
+
+    @classmethod
+    def is_safe_clip(cls, metadata_text: str) -> bool:
+        """Enforces strict brand-safety filter, rejecting suggestive, medical, or latex content."""
+        if not metadata_text:
+            return True
+        meta_lower = metadata_text.lower()
+        for banned in BANNED_STOCK_KEYWORDS:
+            if re.search(r"\b" + re.escape(banned) + r"\b", meta_lower):
+                return False
+        return True
 
     def search_video(
         self,
@@ -208,6 +218,11 @@ class StockVideoManager:
             if vid_id in exclude or self.is_clip_recent(vid_id):
                 continue
 
+            # Brand safety check against tags, URL, and user
+            meta_str = f"{vid.get('url', '')} {' '.join(str(t) for t in vid.get('tags', []))}"
+            if not self.is_safe_clip(meta_str):
+                continue
+
             files = vid.get("video_files", [])
             # Find best HD file
             hd_files = [f for f in files if f.get("quality") == "hd" or (f.get("height", 0) >= 1280)]
@@ -256,6 +271,11 @@ class StockVideoManager:
             hit_id = str(hit.get("id"))
             # Skip if used in current video or used recently
             if hit_id in exclude or self.is_clip_recent(hit_id):
+                continue
+
+            # Brand safety check against tags and pageURL
+            meta_str = f"{hit.get('pageURL', '')} {hit.get('tags', '')}"
+            if not self.is_safe_clip(meta_str):
                 continue
 
             vids = hit.get("videos", {})

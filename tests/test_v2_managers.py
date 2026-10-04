@@ -670,6 +670,56 @@ def test_synthesize_scenes_sync_scene_durations(monkeypatch):
     assert round(sum(cut_durs), 2) == tot
 
 
+def test_stock_negative_keyword_filtering():
+    """Verifies that StockVideoManager blocks suggestive, medical, or latex content."""
+    from engine.managers.stock_video_manager import StockVideoManager
+
+    # Safe craft ASMR tags must pass
+    assert StockVideoManager.is_safe_clip("satisfying kinetic sand slicing craft") is True
+    assert StockVideoManager.is_safe_clip("soap cutting grid razor macro ASMR") is True
+    assert StockVideoManager.is_safe_clip("chocolate curls marble spatula") is True
+
+    # Suggestive / latex / medical terms must be blocked
+    assert StockVideoManager.is_safe_clip("hydraulic press squishing rolled latex") is False
+    assert StockVideoManager.is_safe_clip("medical surgery examination latex gloves") is False
+    assert StockVideoManager.is_safe_clip("balloon rubber stretching pop") is False
+    assert StockVideoManager.is_safe_clip("contraceptive condom squish") is False
+    assert StockVideoManager.is_safe_clip("https://pexels.com/video/rubber-balloon-squish-8433837") is False
+
+
+def test_script_validator_brainblud_word_budget():
+    """Verifies script validation matches BrainBlud word budget (135-158 words across 11-13 scenes)."""
+    # Helper to generate mock script
+    def make_script(num_scenes: int, words_per_scene: int):
+        return {
+            "scenes": [
+                {"scene_id": i + 1, "spoken_text": " ".join(["word"] * words_per_scene)}
+                for i in range(num_scenes)
+            ]
+        }
+
+    # 12 scenes * 12 words = 144 words (perfect target)
+    valid_script = make_script(12, 12)
+    scenes = valid_script["scenes"]
+    words = sum(len(sc["spoken_text"].split()) for sc in scenes)
+    assert 11 <= len(scenes) <= 13
+    assert 135 <= words <= 158
+
+    # Too few scenes (e.g. 8 scenes)
+    short_scenes_script = make_script(8, 15)
+    assert len(short_scenes_script["scenes"]) < 11
+
+    # Too few words (e.g. 100 words)
+    too_short_script = make_script(12, 8)
+    short_words = sum(len(sc["spoken_text"].split()) for sc in too_short_script["scenes"])
+    assert short_words < 135
+
+    # Too many words (e.g. 180 words)
+    too_long_script = make_script(12, 15)
+    long_words = sum(len(sc["spoken_text"].split()) for sc in too_long_script["scenes"])
+    assert long_words > 158
+
+
 
 
 

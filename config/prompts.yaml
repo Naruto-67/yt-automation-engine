@@ -4,13 +4,13 @@ version: "2.0.0"
 script_gen:
   constitution: |
     ── UNIVERSAL HIGH-RETENTION ENGINE CONSTITUTION:
-    1. WORD CALIBRATION (52-56 SECONDS, STRICTLY UNDER 59 SECONDS): Total spoken words across all scenes MUST BE BETWEEN 155 AND 175 WORDS across 12 to 14 scenes. Under 150 words or over 180 words is strictly rejected.
+    1. WORD CALIBRATION (53-56 SECONDS, STRICTLY UNDER 58 SECONDS): Total spoken words across all scenes MUST BE BETWEEN 140 AND 155 WORDS across 11 to 13 scenes. Scripts under 135 words or over 158 words are strictly rejected.
     2. FORMAT ARCHITECTURES:
        - [shower_thoughts_listicle] (DEFAULT VIRAL BARRAGE):
-         * Fast-paced multi-thought barrage of 12 to 14 mind-bending shower thoughts, psychological paradoxes, or perception-shattering realities.
-         * Scene 1 is an irresistible psychological hook without leading punctuation (e.g., "And these shower thoughts will completely break your perception of reality.").
-         * Scenes 2 to N-1 are rapid-fire, independent, mind-blowing one-liners (9 to 13 words each, lasting 3.6 to 4.2 seconds).
-         * Every scene must feature a hypnotic, high-motion ASMR or kinetic visual search query (e.g. "satisfying soap carving asmr", "kinetic sand slicing", "colorful fluid dynamics neon", "hydraulic press crushing satisfying", "spiral optical illusion").
+         * Fast-paced multi-thought barrage of 11 to 13 mind-bending shower thoughts, psychological paradoxes, or perception-shattering realities.
+         * Scene 1 is an irresistible perceptual or physical hook without leading punctuation (e.g., "The only part of your reflection you can lick is your tongue.").
+         * Scenes 2 to N-1 are rapid-fire, independent, mind-blowing one-liners (9 to 14 words each, lasting 3.6 to 4.2 seconds).
+         * Every scene must feature a hypnotic, brand-safe craft ASMR visual search query (e.g. "soap cutting grid razor ASMR", "colored pencils sharpening sander", "carpet cleaning foam squeegee satisfying", "kinetic sand slicing hot knife", "wood turning lathe chisel shavings", "pottery wheel clay shaping satisfying", "paint squeegee canvas colorful scraping", "chocolate scraping curls marble spatula").
          * Scene N is a circular loop bridge sentence designed to flawlessly flow back into the opening hook of Scene 1.
        - [core_brainblud] (DEEP-DIVE PARADOX):
          * Deep dive into a single verified psychological glitch or cognitive illusion across 5 to 6 scenes.
@@ -24,20 +24,19 @@ script_gen:
   few_shot_exemplars: |
     ── GOLDEN BENCHMARKS (ACTUAL VIRAL RETENTION SCRIPTS):
     
-    [EXEMPLAR 1: SHOWER THOUGHTS RAPID-FIRE BARRAGE (Format: shower_thoughts_listicle, 155-175 words, 52-56s)]
-    Hook (Scene 1): "And these shower thoughts will completely ruin your perception of reality."
-    Scene 2: "Your shadow is proof that light traveled ninety-three million miles to be blocked by you." (Query: "kinetic sand slicing satisfying")
-    Scene 3: "If you replace every single part of an axe, is it still the exact same axe?" (Query: "satisfying soap carving asmr")
-    Scene 4: "You have never actually seen your own face, only reflections, video screens, and photographs." (Query: "colorful fluid dynamics neon")
-    Scene 5: "Every book you have ever read is just twenty-six letters arranged in different orders." (Query: "hydraulic press crushing satisfying")
-    Scene 6: "Sleeping is just charging your biological battery, while dreaming is running a diagnostics test." (Query: "marble run kinetic motion")
-    Scene 7: "Nothing is ever on fire. Fire is actually on things." (Query: "satisfying slime bubble popping")
-    Scene 8: "Clapping is just repeatedly slapping yourself because you enjoyed something." (Query: "domino falling cascade smooth")
-    Scene 9: "Your age is just the number of laps you survived around a giant nuclear fireball." (Query: "spiral optical illusion mesmerizing")
-    Scene 10: "If poison expires, does it become more poisonous, or less poisonous?" (Query: "pottery wheel clay shaping satisfying")
-    Scene 11: "The brain named itself, recognized itself, and is now realizing that exact fact." (Query: "carpet cleaning power wash squeegee")
-    Scene 12: "The voice inside your head never has to take a physical breath while speaking." (Query: "ferrofluid magnetic spike liquid")
-    Loop Bridge (Scene 13): "Which is why you should never overthink these..." (Seamlessly loops into Scene 1: "And these shower thoughts will completely ruin your perception of reality.")
+    [EXEMPLAR 1: SHOWER THOUGHTS RAPID-FIRE BARRAGE (Format: shower_thoughts_listicle, 140-155 words, 53-56s)]
+    Hook (Scene 1): "The only part of your reflection you can lick is your tongue."
+    Scene 2: "Your shadow is proof that light traveled ninety-three million miles to be blocked by you." (Query: "kinetic sand slicing hot knife")
+    Scene 3: "If you replace every single part of an axe, is it still the exact same axe?" (Query: "soap cutting grid razor ASMR")
+    Scene 4: "You have never actually seen your own face, only reflections, screens, and photographs." (Query: "colored pencils sharpening sander")
+    Scene 5: "Every book you have ever read is just twenty-six letters arranged in different orders." (Query: "wood turning lathe chisel shavings")
+    Scene 6: "Sleeping is just charging your biological battery, while dreaming is running a diagnostics test." (Query: "marble run kinetic wooden track")
+    Scene 7: "Nothing is ever on fire. Fire is actually on things." (Query: "domino falling cascade smooth")
+    Scene 8: "Clapping is just repeatedly slapping yourself because you enjoyed something." (Query: "pottery wheel clay shaping satisfying")
+    Scene 9: "Your age is just the number of laps you survived around a giant nuclear fireball." (Query: "paint squeegee canvas colorful scraping")
+    Scene 10: "If poison expires, does it become more poisonous, or less poisonous?" (Query: "chocolate scraping curls marble spatula")
+    Scene 11: "The brain named itself, recognized itself, and is now realizing that exact fact." (Query: "carpet cleaning foam squeegee satisfying")
+    Loop Bridge (Scene 12): "Which is why you should never overthink these..." (Seamlessly loops into Scene 1 Hook: "The only part of your reflection you can lick is your tongue.")
 
   few_shot_exemplars_core: |
     [EXEMPLAR 2: SINGLE PARADOX DEEP-DIVE (Format: core_brainblud)]
@@ -57,22 +56,22 @@ script_gen:
     3. How the final sentence grammatically fuses into the first sentence for an infinite replay loop.
     
     CRITICAL ARCHITECTURE:
-    1. THIS IS A COMPILATION OF INDEPENDENT THOUGHTS: Do NOT write an essay or documentary on a single topic. Every scene from Scene 2 to Scene 12 MUST be a completely separate, standalone, mind-bending shower thought, psychological paradox, or cognitive brain-glitch.
-    2. TARGET DURATION & WORDS: Total words across all scenes MUST be 155 to 175 words across 12 to 14 scenes (each scene 9-13 words, 3.6-4.2s). Never output fewer than 12 scenes or fewer than 150 words.
+    1. THIS IS A COMPILATION OF INDEPENDENT THOUGHTS: Do NOT write an essay or documentary on a single topic. Every scene from Scene 2 to Scene 11 MUST be a completely separate, standalone, mind-bending shower thought, psychological paradox, or cognitive brain-glitch.
+    2. TARGET DURATION & WORDS: Total words across all scenes MUST be 140 to 155 words across 11 to 13 scenes (each scene 9-14 words, 3.6-4.2s). Never output fewer than 11 scenes or fewer than 135 words, and never exceed 158 words.
     3. NO LEADING ELLIPSES: Do NOT start Scene 1 with leading ellipses or dots ("..."). Start directly with clean words.
-    4. VISUAL QUERIES: Each stock_video_query MUST be satisfying ASMR / kinetic motion footage (e.g. soap carving, hydraulic press, kinetic sand, fluid dynamics, marble run). Never literal depictions.
+    4. VISUAL QUERIES: Each stock_video_query MUST be satisfying ASMR craft footage (e.g. soap cutting, kinetic sand slicing, colored pencils sharpening, carpet foam squeegee, pottery wheel, wood turning, chocolate curls, paint scraping). Never literal depictions.
     Output MUST be valid JSON matching the exact schema.
 
   user_template: |
     NICHE: {niche}
     VIDEO_THEME: {topic}  # Overarching viral hook umbrella (e.g. "Shower Thoughts That Will Ruin Your Perception of Reality")
-    SUB_FORMAT: {sub_format}  # "shower_thoughts_listicle" (11-13 rapid-fire mind-bending thoughts, 130-145 words)
+    SUB_FORMAT: {sub_format}  # "shower_thoughts_listicle" (11-13 rapid-fire mind-bending thoughts, 140-155 words)
     TARGET_DURATION: {target_duration}s
 
     Write a viral short-form script following the golden guidelines for {sub_format}.
-    CRITICAL: This is a compilation of 10 to 12 completely INDEPENDENT, mind-bending thoughts unified under the theme: "{topic}".
+    CRITICAL: This is a compilation of 11 to 13 completely INDEPENDENT, mind-bending thoughts unified under the theme: "{topic}".
     Every scene MUST present a different standalone brain-glitch or paradox! DO NOT focus on just one single topic.
-    Total words across all scenes MUST BE 130 TO 145 WORDS to stay between 52 and 56 seconds (strictly under 59 seconds)!
+    Total words across all scenes MUST BE 140 TO 155 WORDS to stay naturally between 53 and 56.5 seconds (strictly under 58 seconds)!
     Do not start with leading ellipses ("...").
     
     RETURN ONLY A VALID JSON OBJECT:
@@ -86,33 +85,33 @@ script_gen:
       "scenes": [
         {{
           "scene_id": 1,
-          "spoken_text": "And these shower thoughts will completely ruin your perception of reality.",
-          "stock_video_query": "satisfying kinetic sand slicing"
+          "spoken_text": "The only part of your reflection you can lick is your tongue.",
+          "stock_video_query": "soap cutting grid razor ASMR"
         }},
         {{
           "scene_id": 2,
           "spoken_text": "Your shadow is proof that light traveled ninety-three million miles to be blocked by you.",
-          "stock_video_query": "soap carving macro asmr"
+          "stock_video_query": "kinetic sand slicing hot knife"
         }},
         {{
           "scene_id": 3,
           "spoken_text": "If you replace every single part of an axe, is it still the exact same axe?",
-          "stock_video_query": "colorful fluid dynamics neon"
+          "stock_video_query": "colored pencils sharpening sander"
         }},
         {{
           "scene_id": 4,
-          "spoken_text": "You have never actually seen your own face, only reflections, video screens, and photographs.",
-          "stock_video_query": "hydraulic press crushing satisfying"
+          "spoken_text": "You have never actually seen your own face, only reflections, screens, and photographs.",
+          "stock_video_query": "wood turning lathe chisel shavings"
         }},
         {{
           "scene_id": 5,
           "spoken_text": "Every book you have ever read is just twenty-six letters arranged in different orders.",
-          "stock_video_query": "marble run kinetic motion"
+          "stock_video_query": "pottery wheel clay shaping satisfying"
         }},
         {{
           "scene_id": 6,
           "spoken_text": "Sleeping is just charging your biological battery, while dreaming is running a diagnostics test.",
-          "stock_video_query": "satisfying slime bubble popping"
+          "stock_video_query": "marble run kinetic wooden track"
         }},
         {{
           "scene_id": 7,
@@ -122,27 +121,27 @@ script_gen:
         {{
           "scene_id": 8,
           "spoken_text": "Clapping is just repeatedly slapping yourself because you enjoyed something.",
-          "stock_video_query": "pottery wheel clay shaping satisfying"
+          "stock_video_query": "paint squeegee canvas colorful scraping"
         }},
         {{
           "scene_id": 9,
           "spoken_text": "Your age is just the number of laps you survived around a giant nuclear fireball.",
-          "stock_video_query": "satisfying soap cutting asmr"
+          "stock_video_query": "chocolate scraping curls marble spatula"
         }},
         {{
           "scene_id": 10,
           "spoken_text": "If poison expires, does it become more poisonous, or less poisonous?",
-          "stock_video_query": "kinetic sand slicing satisfying"
+          "stock_video_query": "ice crushing slow motion ASMR"
         }},
         {{
           "scene_id": 11,
           "spoken_text": "The brain named itself, recognized itself, and is now realizing that exact fact.",
-          "stock_video_query": "carpet cleaning power wash squeegee"
+          "stock_video_query": "carpet cleaning foam squeegee satisfying"
         }},
         {{
           "scene_id": 12,
           "spoken_text": "Which is why you should never overthink these...",
-          "stock_video_query": "spiral optical illusion mesmerizing"
+          "stock_video_query": "spiral optical illusion hypnotic"
         }}
       ]
     }}
