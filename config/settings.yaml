@@ -60,12 +60,12 @@ audio_mastering:
 # ─── CAPTION STYLING & HIGH-RETENTION TYPOGRAPHY ──────────────────────────────
 captions:
   font_name: "Anton"
-  font_size: 108               # Increased for high-impact readability on mobile screens
+  font_size: 118               # Increased for high-impact bold readability on mobile screens
   font_size_long: 48           # Lower-third documentary sizing for 16:9 widescreen
   active_color: "&H0000FFFF"   # Vibrant Cyberpunk / Electric Yellow highlight (&HAABBGGRR)
   inactive_color: "&H00FFFFFF" # Pure crisp white for surrounding phrase words
   outline_color: "&H00000000"  # Solid pitch black outline
-  outline_width: 7             # Enhanced border width for crisp contrast against fast-moving footage
+  outline_width: 8             # Enhanced border width for crisp contrast against fast-moving footage
   outline_width_long: 3        # Refined outline for long-form
   shadow_depth: 2
   max_words_per_chunk: 2       # 2-word dynamic phrase chunking (CapCut / BrainBlud viral style)

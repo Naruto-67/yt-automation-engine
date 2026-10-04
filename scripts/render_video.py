@@ -68,11 +68,11 @@ def generate_ass_subtitles(
     width: int = 1080,
     height: int = 1920,
     font_name: str = "Anton",
-    font_size: int = 108,
-    active_color: str = "&H00FFFFFF",   # Crisp white
+    font_size: int = 118,
+    active_color: str = "&H0000FFFF",   # Vibrant Cyberpunk / Electric Yellow highlight
     inactive_color: str = "&H00FFFFFF", # Crisp white
     outline_color: str = "&H00000000",  # Solid Black
-    outline_width: int = 7,
+    outline_width: int = 8,
     shadow_depth: int = 2,
     chunk_size: int = 2,
     uppercase: bool = False,

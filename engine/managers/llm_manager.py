@@ -355,6 +355,7 @@ class LLMManager:
                 }
             }
         else:
+            max_tok = 750 if "groq" in base_url else 850
             payload = {
                 "model": model_name,
                 "messages": [
@@ -362,7 +363,7 @@ class LLMManager:
                     {"role": "user", "content": user_prompt}
                 ],
                 "temperature": temperature,
-                "max_tokens": 850
+                "max_tokens": max_tok
             }
             # Add json_object response_format if not free openrouter model
             if "openrouter" not in base_url or not str(model_name).endswith(":free"):

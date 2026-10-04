@@ -321,10 +321,9 @@ def run_clips_stage() -> None:
         print(f"🎬 [CLIPS] Sourcing stock videos for {len(spec.scenes)} scenes ({orientation})...", flush=True)
 
         for idx, scene in enumerate(spec.scenes):
-            # For Shorts: STRICTLY rotate through satisfying ASMR & kinetic visuals.
-            # Never use literal LLM script queries, ensuring 100% satisfying/ASMR retention visuals.
+            # For Shorts: Use the randomized ASMR & kinetic visual query assigned to this scene
             if spec.video_type == "short":
-                query = SHORTS_VISUAL_TAXONOMY[idx % len(SHORTS_VISUAL_TAXONOMY)]
+                query = scene.stock_video_query or random.choice(SHORTS_VISUAL_TAXONOMY)
             else:
                 query = scene.stock_video_query or "documentary cinematic background"
 

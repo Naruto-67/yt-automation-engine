@@ -180,8 +180,8 @@ def run_spec_stage(video_type: str = "short") -> None:
         voice_speed = float(voice_cfg.get("speed", 0.92))
         
         print(f"🎙️ [TTS] Synthesizing narration with {voice_provider} (voice: {voice_id}, speed: {voice_speed:.2f})...")
-        total_duration, word_timestamps = VoiceNormalizer.synthesize_sync(
-            phonetic_text=full_phonetic_script,
+        total_duration, word_timestamps, scene_cut_durations, scene_word_slices = VoiceNormalizer.synthesize_scenes_sync(
+            raw_scenes=raw_scenes,
             output_audio_path=audio_output,
             voice=voice_id,
             speed=voice_speed,
@@ -192,8 +192,10 @@ def run_spec_stage(video_type: str = "short") -> None:
             words_count = len(full_phonetic_script.split())
             total_duration = max(15.0, round(words_count / 2.5, 2))
             print(f"⚠️ [TTS] Measured duration was 0.0s — calculated fallback duration: {total_duration:.1f}s")
+            each_d = round(total_duration / max(1, len(raw_scenes)), 2)
+            scene_cut_durations = [each_d] * len(raw_scenes)
 
-        # Enforce strict Shorts duration window (52-56s, strictly under 59s and at least 50s)
+        # Enforce strict Shorts duration window (50-56s, strictly under 59s and at least 50s)
         if video_type == "short":
             target_dur = 0.0
             if total_duration > 57.5:
@@ -211,35 +213,15 @@ def run_spec_stage(video_type: str = "short") -> None:
                     for wt in word_timestamps:
                         wt.start = round(wt.start / speed_ratio, 3)
                         wt.end = round(wt.end / speed_ratio, 3)
+                    scene_cut_durations = [round(d / speed_ratio, 2) for d in scene_cut_durations]
+                    for slc in scene_word_slices:
+                        for wt in slc:
+                            wt.start = round(wt.start / speed_ratio, 3)
+                            wt.end = round(wt.end / speed_ratio, 3)
 
-        # Map scene timing precisely across word timestamps with zero accumulative drift
-        import random
-        from engine.managers.stock_video_manager import SHORTS_VISUAL_TAXONOMY
-        from engine.managers.caption_aligner import CaptionAligner
         num_scenes = len(raw_scenes)
-
-        # Pre-slice word timestamps for each scene using intelligent pause-seeking alignment
-        scene_word_slices = CaptionAligner.slice_words_by_scenes(word_timestamps, raw_scenes)
-
-        # Calculate exact cut boundaries at silence midpoints between consecutive sentences
-        cut_boundaries = [0.0] * (num_scenes + 1)
-        cut_boundaries[0] = 0.0
-        cut_boundaries[-1] = total_duration
-
-        for i in range(1, num_scenes):
-            prev_words = scene_word_slices[i - 1]
-            curr_words = scene_word_slices[i]
-            if prev_words and curr_words:
-                prev_end = prev_words[-1].end
-                curr_start = curr_words[0].start
-                mid = (prev_end + curr_start) / 2.0 if curr_start >= prev_end else prev_end
-                min_bound = cut_boundaries[i - 1] + 1.0
-                max_bound = total_duration - (num_scenes - i) * 1.0
-                cut_boundaries[i] = round(max(min_bound, min(max_bound, mid)), 2)
-            else:
-                cut_boundaries[i] = round(cut_boundaries[i - 1] + (total_duration - cut_boundaries[i - 1]) / (num_scenes - i + 1), 2)
-
         # Sample unique visual queries for this video from the expanded taxonomy
+        from engine.managers.stock_video_manager import SHORTS_VISUAL_TAXONOMY
         if video_type == "short":
             if len(SHORTS_VISUAL_TAXONOMY) >= num_scenes:
                 sampled_queries = random.sample(SHORTS_VISUAL_TAXONOMY, num_scenes)
@@ -253,13 +235,8 @@ def run_spec_stage(video_type: str = "short") -> None:
         for idx, s in enumerate(raw_scenes):
             s_text = s["spoken_text"]
             p_text = s["phonetic_text"]
-            scene_words = scene_word_slices[idx]
-            
-            if idx == num_scenes - 1:
-                s_dur = round(total_duration - sum(sc.duration_seconds for sc in scenes_spec), 2)
-            else:
-                s_dur = round(cut_boundaries[idx + 1] - cut_boundaries[idx], 2)
-
+            scene_words = scene_word_slices[idx] if idx < len(scene_word_slices) else []
+            s_dur = scene_cut_durations[idx] if idx < len(scene_cut_durations) else round(total_duration / max(1, num_scenes), 2)
             if s_dur <= 0.0:
                 s_dur = 4.0
 
@@ -321,6 +298,20 @@ def run_spec_stage(video_type: str = "short") -> None:
 
 
 def main():
+    # ── POINT 1: KILL SWITCH & RUNTIME MODE ───────────────────────────────────
+    _system_enabled = os.environ.get("GHOST_ENGINE_ENABLED", "true").strip().lower()
+    _event_name = os.environ.get("GITHUB_EVENT_NAME", "unknown")
+
+    if _system_enabled == "false":
+        print("🔴 [KILL SWITCH] GHOST_ENGINE_ENABLED=false. System halted by operator.")
+        sys.exit(0)
+    elif _system_enabled == "test" and _event_name == "schedule":
+        print("🔴 [TEST MODE] Scheduled cron run detected while in Test Mode. Halting automatically.")
+        sys.exit(0)
+    elif _system_enabled == "test":
+        os.environ["TEST_MODE"] = "true"
+        print("🧪 [TEST MODE] GHOST_ENGINE_ENABLED=test. YouTube API mutations & DB releases strictly blocked.")
+
     parser = argparse.ArgumentParser(description="Pika Flow Pipeline Runner (v2.0)")
     parser.add_argument("--stage", required=True, choices=["spec", "clips", "editor", "release"], help="Stage to execute")
     parser.add_argument("--type", default="short", choices=["short", "long"], help="Video profile type")

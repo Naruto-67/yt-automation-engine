@@ -326,6 +326,14 @@ class VoiceNormalizer:
         import warnings
         warnings.filterwarnings("ignore", category=UserWarning)
         warnings.filterwarnings("ignore", category=FutureWarning)
+        warnings.filterwarnings("ignore", message=".*repo_id.*")
+        hf_token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN") or os.environ.get("HUGGING_FACE_TOKEN")
+        if hf_token and hf_token.strip():
+            try:
+                from huggingface_hub import login
+                login(token=hf_token.strip(), add_to_git_credential=False)
+            except Exception:
+                pass
         from kokoro import KPipeline
         import soundfile as sf
         import numpy as np
@@ -567,6 +575,187 @@ class VoiceNormalizer:
                 phonetic_text, output_audio_path, voice=voice, speed=speed, prefer_provider=prefer_provider
             )
         )
+
+    @classmethod
+    def synthesize_scenes_sync(
+        cls,
+        raw_scenes: List[Dict[str, Any]],
+        output_audio_path: str,
+        voice: str = "am_adam",
+        speed: float = 1.0,
+        prefer_provider: Optional[str] = None
+    ) -> Tuple[float, List[WordTimestamp], List[float], List[List[WordTimestamp]]]:
+        """
+        Synthesizes speech scene-by-scene with natural breath pauses (0.25s),
+        guaranteeing exact scene boundaries and microsecond word-level alignment.
+        Returns:
+            (total_duration, master_word_timestamps, scene_cut_durations, scene_word_slices)
+        """
+        voice = cls.enforce_male_voice(voice)
+        num_scenes = len(raw_scenes)
+        if num_scenes == 0:
+            return (0.0, [], [], [])
+
+        # Try scene-bound Kokoro synthesis first
+        should_try_kokoro = (prefer_provider != "edge-tts")
+        if should_try_kokoro and cls.is_kokoro_voice(voice):
+            try:
+                import warnings
+                warnings.filterwarnings("ignore", category=UserWarning)
+                warnings.filterwarnings("ignore", category=FutureWarning)
+                warnings.filterwarnings("ignore", message=".*repo_id.*")
+                hf_token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN") or os.environ.get("HUGGING_FACE_TOKEN")
+                if hf_token and hf_token.strip():
+                    try:
+                        from huggingface_hub import login
+                        login(token=hf_token.strip(), add_to_git_credential=False)
+                    except Exception:
+                        pass
+
+                from kokoro import KPipeline
+                import soundfile as sf
+                import numpy as np
+
+                lang_code = cls.detect_lang_code(voice)
+                print(f"🎙️ [KOKORO] Synthesizing {num_scenes} scenes sequentially (voice='{voice}', speed={speed:.2f})...", flush=True)
+                pipeline = KPipeline(lang_code=lang_code, repo_id="hexgrad/Kokoro-82M")
+
+                all_audio_chunks = []
+                scene_boundaries: List[Tuple[float, float]] = []
+                current_time = 0.0
+                pause_samples = np.zeros(int(24000 * 0.25), dtype=np.float32)
+
+                for idx, s in enumerate(raw_scenes):
+                    p_text = s.get("phonetic_text") or cls.normalize_text(s.get("spoken_text", ""))
+                    gen = pipeline(p_text, voice=voice, speed=speed)
+                    scene_samples_list = []
+                    for item in gen:
+                        if item and len(item) > 2 and item[2] is not None:
+                            audio = item[2]
+                            if hasattr(audio, "cpu"):
+                                smp = audio.cpu().numpy()
+                            elif hasattr(audio, "numpy"):
+                                smp = audio.numpy()
+                            else:
+                                smp = np.array(audio, dtype=np.float32)
+                            if len(smp) > 0:
+                                scene_samples_list.append(smp)
+
+                    if not scene_samples_list:
+                        scene_samples = np.zeros(int(24000 * 1.5), dtype=np.float32)
+                    else:
+                        scene_samples = np.concatenate(scene_samples_list)
+
+                    scene_dur = round(len(scene_samples) / 24000.0, 3)
+                    scene_start = current_time
+                    scene_end = round(scene_start + scene_dur, 3)
+                    scene_boundaries.append((scene_start, scene_end))
+
+                    all_audio_chunks.append(scene_samples)
+                    if idx < num_scenes - 1:
+                        all_audio_chunks.append(pause_samples)
+                        current_time = round(scene_end + 0.25, 3)
+                    else:
+                        current_time = scene_end
+
+                combined_samples = np.concatenate(all_audio_chunks)
+                total_duration = round(len(combined_samples) / 24000.0, 2)
+
+                os.makedirs(os.path.dirname(output_audio_path) or ".", exist_ok=True)
+                wav_path = output_audio_path if output_audio_path.endswith(".wav") else output_audio_path.rsplit(".", 1)[0] + ".wav"
+                sf.write(wav_path, combined_samples, 24000)
+
+                if output_audio_path.endswith(".mp3"):
+                    converted = False
+                    try:
+                        import subprocess
+                        subprocess.run(
+                            ["ffmpeg", "-y", "-nostats", "-loglevel", "error", "-i", wav_path, "-codec:a", "libmp3lame", "-b:a", "192k", output_audio_path],
+                            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                        )
+                        converted = True
+                    except Exception:
+                        pass
+                    if not converted and not os.path.exists(output_audio_path):
+                        import shutil
+                        shutil.copyfile(wav_path, output_audio_path)
+
+                # Compute cut boundaries at silence midpoints
+                cut_boundaries = [0.0] * (num_scenes + 1)
+                cut_boundaries[0] = 0.0
+                cut_boundaries[-1] = total_duration
+                for i in range(1, num_scenes):
+                    mid = round((scene_boundaries[i - 1][1] + scene_boundaries[i][0]) / 2.0, 3)
+                    cut_boundaries[i] = mid
+
+                scene_cut_durations = [
+                    round(cut_boundaries[i + 1] - cut_boundaries[i], 2)
+                    for i in range(num_scenes)
+                ]
+
+                # Acoustic CapCut-style alignment via faster-whisper on clean audio
+                from engine.managers.caption_aligner import CaptionAligner
+                full_script = " ".join(s.get("phonetic_text", "") for s in raw_scenes)
+                master_words = CaptionAligner.align_captions(
+                    audio_path=wav_path,
+                    script_text=full_script
+                )
+
+                # Slicing words strictly by scene cut boundaries
+                scene_word_slices: List[List[WordTimestamp]] = []
+                for i in range(num_scenes):
+                    s_start = cut_boundaries[i] - 0.05
+                    s_end = cut_boundaries[i + 1] - 0.05 if i < num_scenes - 1 else total_duration + 1.0
+                    matched_words = [w for w in master_words if (w.start >= s_start and w.start < s_end)]
+                    
+                    if not matched_words:
+                        sc_text = raw_scenes[i].get("spoken_text", "").split()
+                        sc_dur = scene_boundaries[i][1] - scene_boundaries[i][0]
+                        step = sc_dur / max(1, len(sc_text))
+                        for w_i, w in enumerate(sc_text):
+                            matched_words.append(
+                                WordTimestamp(
+                                    word=re.sub(r"^[^\w]+|[^\w]+$", "", w) or w,
+                                    start=round(scene_boundaries[i][0] + (w_i * step), 3),
+                                    end=round(scene_boundaries[i][0] + ((w_i + 1) * step), 3)
+                                )
+                            )
+                    scene_word_slices.append(matched_words)
+
+                print(f"✅ [KOKORO] Synthesized {total_duration:.2f}s audio across {num_scenes} scenes ({len(master_words)} words captured).", flush=True)
+                return (total_duration, master_words, scene_cut_durations, scene_word_slices)
+            except Exception as e:
+                print(f"⚠️ [TTS] Scene-bound Kokoro synthesis failed ({e}). Cascading to monolithic synthesis...", flush=True)
+
+        # Fallback to standard monolithic synthesis if scene synthesis fails
+        full_text = " ".join(s.get("phonetic_text", "") for s in raw_scenes)
+        dur, words = cls.synthesize_sync(
+            phonetic_text=full_text,
+            output_audio_path=output_audio_path,
+            voice=voice,
+            speed=speed,
+            prefer_provider=prefer_provider
+        )
+        from engine.managers.caption_aligner import CaptionAligner
+        slices = CaptionAligner.slice_words_by_scenes(words, raw_scenes)
+        cut_boundaries = [0.0] * (num_scenes + 1)
+        cut_boundaries[0] = 0.0
+        cut_boundaries[-1] = dur
+        for i in range(1, num_scenes):
+            prev_words = slices[i - 1]
+            curr_words = slices[i]
+            if prev_words and curr_words:
+                prev_end = prev_words[-1].end
+                curr_start = curr_words[0].start
+                mid = (prev_end + curr_start) / 2.0 if curr_start >= prev_end else prev_end
+                min_bound = cut_boundaries[i - 1] + 1.0
+                max_bound = dur - (num_scenes - i) * 1.0
+                cut_boundaries[i] = round(max(min_bound, min(max_bound, mid)), 2)
+            else:
+                cut_boundaries[i] = round(cut_boundaries[i - 1] + (dur - cut_boundaries[i - 1]) / (num_scenes - i + 1), 2)
+
+        durs = [round(cut_boundaries[i + 1] - cut_boundaries[i], 2) for i in range(num_scenes)]
+        return (dur, words, durs, slices)
 
     @classmethod
     def rescale_audio_duration(cls, input_audio_path: str, output_audio_path: str, speed_factor: float) -> bool:

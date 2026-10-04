@@ -30,6 +30,9 @@ env:
 jobs:
   init_and_spec:
     name: 🚀 Init & Spec Generation
+    if: |
+      vars.GHOST_ENGINE_ENABLED != 'false' &&
+      (github.event_name != 'schedule' || vars.GHOST_ENGINE_ENABLED == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -70,6 +73,7 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HUGGINGFACE_HUB_TOKEN: ${{ secrets.HF_TOKEN }}
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          GHOST_ENGINE_ENABLED: ${{ vars.GHOST_ENGINE_ENABLED || 'test' }}
           TEST_MODE: ${{ inputs.test_mode && 'true' || 'false' }}
         run: python -m engine.managers.pipeline_runner --stage spec --type ${{ inputs.video_type || 'short' }} ${{ inputs.test_mode && '--test-mode' || '' }}
       - name: Upload Spec Artifact
@@ -115,6 +119,7 @@ jobs:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          GHOST_ENGINE_ENABLED: ${{ vars.GHOST_ENGINE_ENABLED || 'test' }}
         run: python -m engine.managers.pipeline_runner --stage clips
       - name: Upload Clip Manifest
         uses: actions/upload-artifact@v7
@@ -141,7 +146,12 @@ jobs:
       - name: Install FFmpeg & System Dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends ffmpeg fonts-freefont-ttf
+          sudo apt-get install -y --no-install-recommends ffmpeg fonts-freefont-ttf fontconfig
+      - name: Register System & Cinematic Fonts
+        run: |
+          mkdir -p ~/.local/share/fonts
+          cp output/fonts/*.ttf ~/.local/share/fonts/ 2>/dev/null || true
+          fc-cache -f 2>/dev/null || true
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
@@ -154,6 +164,7 @@ jobs:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          GHOST_ENGINE_ENABLED: ${{ vars.GHOST_ENGINE_ENABLED || 'test' }}
         run: python -m engine.managers.pipeline_runner --stage editor
       - name: Upload Final Video
         uses: actions/upload-artifact@v7
@@ -165,6 +176,9 @@ jobs:
   release:
     name: 📦 YouTube Release
     needs: [init_and_spec, video_editor]
+    if: |
+      vars.GHOST_ENGINE_ENABLED == 'true' &&
+      inputs.test_mode != true
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -190,5 +204,6 @@ jobs:
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          GHOST_ENGINE_ENABLED: ${{ vars.GHOST_ENGINE_ENABLED || 'test' }}
           TEST_MODE: ${{ inputs.test_mode && 'true' || 'false' }}
         run: python -m engine.managers.pipeline_runner --stage release ${{ inputs.test_mode && '--test-mode' || '' }}

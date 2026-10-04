@@ -78,16 +78,16 @@ class CaptionAligner:
         try:
             print("🎙️ [CAPCUT ALIGNER] Running faster-whisper transcription on voiceover audio...", flush=True)
             # Use lightweight base.en model on CPU with int8 quantization (~1.5s execution)
+            # Note: initial_prompt is strictly None so Whisper never skips speech at time 0.0s.
+            # vad_filter is False to prevent onnxruntime PCIe device scanning on virtual machines.
             model = WhisperModel("base.en", device="cpu", compute_type="int8")
-            prompt = script_text[:400] if script_text else None
             segments, info = model.transcribe(
                 audio_path,
                 word_timestamps=True,
                 language="en",
-                initial_prompt=prompt,
+                initial_prompt=None,
                 condition_on_previous_text=False,
-                vad_filter=True,
-                vad_parameters=dict(min_silence_duration_ms=200),
+                vad_filter=False,
             )
             
             words: List[WordTimestamp] = []
