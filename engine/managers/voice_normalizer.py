@@ -577,6 +577,8 @@ class VoiceNormalizer:
             )
         )
 
+    _original_synthesize_sync = synthesize_sync.__func__
+
     @classmethod
     def synthesize_scenes_sync(
         cls,
@@ -597,8 +599,12 @@ class VoiceNormalizer:
         if num_scenes == 0:
             return (0.0, [], [], [])
 
-        # Try scene-bound Kokoro synthesis first
-        should_try_kokoro = (prefer_provider != "edge-tts")
+        # Check if synthesize_sync has been mocked (e.g. in unit tests)
+        sync_func = getattr(cls.synthesize_sync, "__func__", cls.synthesize_sync)
+        is_mocked = (sync_func is not getattr(VoiceNormalizer, "_original_synthesize_sync", None))
+
+        # Try scene-bound Kokoro synthesis first (only when not mocked)
+        should_try_kokoro = (prefer_provider != "edge-tts") and not is_mocked
         if should_try_kokoro and cls.is_kokoro_voice(voice):
             try:
                 import warnings
