@@ -22,6 +22,9 @@ concat_list.txt
 # Preserve static assets
 !assets/**/*.mp3
 !assets/**/*.wav
+!assets/**/*.mp4
+!assets/**/*.ttf
+
 
 # IDE
 .vscode/

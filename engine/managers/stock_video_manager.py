@@ -10,7 +10,43 @@ import re
 import json
 import time
 import random
-import requests
+try:
+    import requests
+except ImportError:
+    import urllib.request
+    import urllib.parse
+    import urllib.error
+
+    class _RequestsShim:
+        class Response:
+            def __init__(self, data: bytes, status_code: int):
+                self._data = data
+                self.status_code = status_code
+            def json(self):
+                return json.loads(self._data.decode("utf-8"))
+            def raise_for_status(self):
+                if 400 <= self.status_code < 600:
+                    raise urllib.error.HTTPError("", self.status_code, "HTTP Error", None, None)
+            @property
+            def content(self):
+                return self._data
+            def iter_content(self, chunk_size=65536):
+                for i in range(0, len(self._data), chunk_size):
+                    yield self._data[i:i + chunk_size]
+
+        def get(self, url, headers=None, params=None, timeout=10, stream=False):
+            if params:
+                qs = urllib.parse.urlencode(params)
+                url = f"{url}?{qs}" if "?" not in url else f"{url}&{qs}"
+            req = urllib.request.Request(url, headers=headers or {"User-Agent": "Mozilla/5.0"})
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    return self.Response(resp.read(), resp.status)
+            except urllib.error.HTTPError as e:
+                return self.Response(b"", e.code)
+
+    requests = _RequestsShim()
+
 from typing import Optional, List, Dict, Any, Set
 from engine.logger import StageTimer, PikaStage, logger
 from engine.managers.error_manager import ErrorManager
@@ -179,14 +215,122 @@ class StockVideoManager:
             fallback_query = "satisfying soap cutting ASMR"
             if query != fallback_query:
                 print(f"🔄 [STOCK] Retrying query with ASMR fallback: '{fallback_query}'", flush=True)
-                return self.search_video(fallback_query, orientation=orientation, min_duration=min_duration, exclude_ids=exclude, retry_depth=retry_depth + 1)
+                clip = self.search_video(fallback_query, orientation=orientation, min_duration=min_duration, exclude_ids=exclude, retry_depth=retry_depth + 1)
 
         # Fallback 2: Universal tactile ASMR craft
         if not clip and retry_depth < 2 and query != "kinetic sand slicing hot knife":
             print(f"🔄 [STOCK] Retrying with tactile ASMR craft fallback for: '{query}'", flush=True)
-            return self.search_video("kinetic sand slicing hot knife", orientation=orientation, min_duration=min_duration, exclude_ids=exclude, retry_depth=retry_depth + 1)
+            clip = self.search_video("kinetic sand slicing hot knife", orientation=orientation, min_duration=min_duration, exclude_ids=exclude, retry_depth=retry_depth + 1)
+
+        # Fallback 3: Local Curated B-Roll Vault (resilient offline fallback)
+        if not clip and retry_depth == 0:
+            print(f"📦 [STOCK] Online APIs yielded no safe clips for '{query}'. Invoking local vault fallback...", flush=True)
+            clip = self.get_local_fallback(query=query, orientation=orientation, min_duration=min_duration, exclude_ids=exclude)
 
         return clip
+
+    def get_local_fallback(
+        self,
+        query: str = "",
+        orientation: str = "portrait",
+        min_duration: float = 3.0,
+        exclude_ids: Optional[Set[str]] = None
+    ) -> Optional[ClipItem]:
+        """
+        Retrieves a brand-safe, muted B-roll clip from the local repository vault.
+        Scans assets/broll_vault/ (satisfying, gaming, etc.) and assets/fallbacks/.
+        Applies archetype keyword matching, intra-video uniqueness, and 30-day cooldown.
+        If all candidates are in cooldown, automatically picks the least recently used clip.
+        """
+        import glob
+        exclude = set(exclude_ids) if exclude_ids else set()
+
+        search_dirs = [
+            os.path.join("assets", "broll_vault", "satisfying"),
+            os.path.join("assets", "broll_vault", "gaming"),
+            os.path.join("assets", "broll_vault"),
+            os.path.join("assets", "fallbacks"),
+        ]
+
+        candidate_paths = []
+        seen_paths = set()
+        for sdir in search_dirs:
+            if not os.path.exists(sdir):
+                continue
+            for mp4 in glob.glob(os.path.join(sdir, "*.mp4")):
+                norm = os.path.normpath(mp4)
+                if norm not in seen_paths:
+                    seen_paths.add(norm)
+                    candidate_paths.append(norm)
+
+        if not candidate_paths:
+            print("⚠️ [STOCK LOCAL] No local clips found in broll vault or fallbacks.", flush=True)
+            return None
+
+        # Filter out intra-video excluded clips
+        eligible = [
+            p for p in candidate_paths
+            if os.path.basename(p) not in exclude and p not in exclude and os.path.splitext(os.path.basename(p))[0] not in exclude
+        ]
+
+        if not eligible:
+            print("⚠️ [STOCK LOCAL] All local clips excluded by current run; resetting intra-video filter.", flush=True)
+            eligible = list(candidate_paths)
+
+        # Keyword archetype matching
+        archetype_keywords = {
+            "kinetic_sand": ["sand", "kinetic"],
+            "soap_cubes": ["soap"],
+            "slime_floam": ["slime", "floam", "bead", "putty"],
+            "honeycomb": ["honey", "wax", "comb"],
+            "natural_stone": ["stone", "rock", "shale"],
+            "power_wash": ["wash", "clean", "pressure", "moss"],
+            "candy_craft": ["candy", "sweet", "gelato", "chocolate"],
+            "jelly_slice": ["jelly", "gelatin"],
+            "art_paint": ["paint", "art", "canvas", "brush", "pastel", "drawing"],
+            "physics_marble": ["marble", "physics", "ball", "domino"],
+            "hedge_trim": ["hedge", "bush", "lawn", "grass", "trim"],
+            "bottle_stairs": ["bottle", "stair"],
+            "gaming": ["minecraft", "subway", "game", "gaming", "parkour"],
+        }
+
+        q_lower = (query or "").lower()
+        matched_pool = []
+        for arch, kws in archetype_keywords.items():
+            if any(kw in q_lower for kw in kws):
+                matched_pool.extend([p for p in eligible if arch in os.path.basename(p).lower()])
+
+        # Prioritize matching archetype pool if non-empty, otherwise use all eligible clips
+        pool = matched_pool if matched_pool else eligible
+
+        # Apply 30-day cooldown
+        cooldown_pool = [p for p in pool if not self.is_clip_recent(os.path.basename(p))]
+
+        if cooldown_pool:
+            chosen = random.choice(cooldown_pool)
+        else:
+            # Cooldown exhaustion: all candidates in pool have been used within 30 days.
+            # Gracefully pick the least recently used candidate!
+            registry = self.load_registry()
+            used_clips = registry.get("used_clips", {})
+            pool.sort(key=lambda p: used_clips.get(os.path.basename(p), {}).get("timestamp", 0))
+            chosen = pool[0]
+            print(f"🔄 [STOCK LOCAL] All candidates under cooldown. Selected least recently used: '{os.path.basename(chosen)}'", flush=True)
+
+        vid_id = os.path.basename(chosen)
+        width, height = (1080, 1920) if orientation == "portrait" else (1920, 1080)
+
+        return ClipItem(
+            scene_id=0,
+            query=query,
+            video_id=vid_id,
+            download_url=chosen.replace("\\", "/"),
+            provider="local",
+            duration=12.0,
+            width=width,
+            height=height
+        )
+
 
     def _search_pexels(
         self,
@@ -373,7 +517,16 @@ def run_clips_stage() -> None:
                         break
 
             if not clip:
-                raise RuntimeError(f"Could not find any suitable stock video for query: '{query}'")
+                print(f"📦 [CLIPS] Online search exhausted. Sourcing from local B-roll vault for '{query}'...", flush=True)
+                clip = stock_mgr.get_local_fallback(
+                    query=query,
+                    orientation=orientation,
+                    min_duration=scene.duration_seconds,
+                    exclude_ids=used_in_current_run
+                )
+
+            if not clip:
+                raise RuntimeError(f"Could not find any suitable stock video or local fallback for query: '{query}'")
 
             clip.scene_id = scene.scene_id
             manifest_clips.append(clip)

@@ -309,3 +309,73 @@ def test_subtitles_clear_during_inter_scene_pause_gap(tmp_path):
             assert start_ts >= "0:00:03.10"
 
 
+def test_orphan_absorption_and_capcut_styling(tmp_path):
+    """Verifies that trailing 1-word orphans are absorbed into preceding chunks and CapCut styles are applied."""
+    output_ass = str(tmp_path / "captions_orphan.ass")
+    # 5 words: with chunk_size=2, without orphan absorption would be 2+2+1 chunks.
+    # With orphan absorption, it becomes 2+3 chunks (total 5 dialogue events: 2 for chunk 1, 3 for chunk 2).
+    scenes = [
+        SceneSpec(
+            scene_id=1,
+            spoken_text="The sky is very blue",
+            phonetic_text="The sky is very blue",
+            stock_video_query="blue sky",
+            duration_seconds=3.0,
+            word_timestamps=[
+                WordTimestamp(word="The", start=0.0, end=0.3),
+                WordTimestamp(word="sky", start=0.3, end=0.6),
+                WordTimestamp(word="is", start=0.6, end=0.9),
+                WordTimestamp(word="very", start=0.9, end=1.3),
+                WordTimestamp(word="blue", start=1.3, end=1.8),
+            ]
+        )
+    ]
+
+    generate_ass_subtitles(
+        scenes=scenes,
+        output_ass_path=output_ass,
+        width=1080,
+        height=1920,
+        font_name="ZY Resolve",
+        font_size=88,
+        active_color="&H0000E6FF",
+        inactive_color="&H00FFFFFF",
+        outline_width=7,
+        shadow_depth=5,
+        shadow_blur=3,
+        shadow_color="&H33000000",
+        chunk_size=2,
+        uppercase=True,
+    )
+
+    with open(output_ass, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    # Style header assertions
+    assert "Style: Default,ZY Resolve,88,&H00FFFFFF,&H000000FF,&H00000000,&H33000000,-1,0,0,0,100,100,0,0,1,7,5,2,40,40," in content
+
+    lines = [l.strip() for l in content.splitlines() if l.startswith("Dialogue:")]
+    # Exactly 5 dialogue lines (2 for first chunk, 3 for second chunk)
+    assert len(lines) == 5
+
+    # Check soft blur tag and yellow highlight
+    for l in lines:
+        assert "{\\blur3}" in l
+
+    assert "{\\c&H0000E6FF}" in content
+
+    # Verify that the absorbed orphan 'BLUE' is displayed in the 3-word chunk with 'IS' and 'VERY'
+    last_event = lines[-1]
+    assert "IS VERY" in last_event
+    assert "BLUE" in last_event
+
+
+def test_download_cinematic_font_vault():
+    """Verifies download_cinematic_font prefers existing local repository vault font ZY-Resolve.ttf."""
+    from scripts.render_video import download_cinematic_font
+    font_path = download_cinematic_font()
+    assert os.path.exists(font_path)
+    assert "zy-resolve" in font_path.lower()
+
+
+

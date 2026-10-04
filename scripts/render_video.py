@@ -16,13 +16,64 @@ import tempfile
 import subprocess
 import re
 import time
-import requests
+try:
+    import requests
+except ImportError:
+    import urllib.request
+    import urllib.parse
+    import urllib.error
+
+    class _RequestsShim:
+        class Response:
+            def __init__(self, data: bytes, status_code: int):
+                self._data = data
+                self.status_code = status_code
+            def json(self):
+                return json.loads(self._data.decode("utf-8"))
+            def raise_for_status(self):
+                if 400 <= self.status_code < 600:
+                    raise urllib.error.HTTPError("", self.status_code, "HTTP Error", None, None)
+            @property
+            def content(self):
+                return self._data
+            def iter_content(self, chunk_size=65536):
+                for i in range(0, len(self._data), chunk_size):
+                    yield self._data[i:i + chunk_size]
+
+        def get(self, url, headers=None, params=None, timeout=10, stream=False):
+            if params:
+                qs = urllib.parse.urlencode(params)
+                url = f"{url}?{qs}" if "?" not in url else f"{url}&{qs}"
+            req = urllib.request.Request(url, headers=headers or {"User-Agent": "Mozilla/5.0"})
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    return self.Response(resp.read(), resp.status)
+            except urllib.error.HTTPError as e:
+                return self.Response(b"", e.code)
+
+    requests = _RequestsShim()
+
 from typing import List, Dict, Any, Optional
 
 from engine.logger import StageTimer, PikaStage, logger
 from engine.managers.error_manager import ErrorManager
 from engine.models import SpecOutput, ClipsManifest, WordTimestamp
 from engine.managers.music_manager import MusicManager
+
+
+def find_ffmpeg_bin() -> str:
+    """Finds available FFmpeg binary (favoring environment or PATH)."""
+    env_bin = os.environ.get("FFMPEG_BINARY")
+    if env_bin and os.path.exists(env_bin):
+        return env_bin
+    try:
+        import shutil
+        sys_bin = shutil.which("ffmpeg")
+        if sys_bin:
+            return sys_bin
+    except Exception:
+        pass
+    return "ffmpeg"
 
 
 def check_filter_supported(filter_name: str) -> bool:
@@ -34,8 +85,34 @@ def check_filter_supported(filter_name: str) -> bool:
         return False
 
 
-def download_cinematic_font() -> str:
-    """Fetches Anton font dynamically and caches in output/fonts/."""
+
+def download_cinematic_font(preferred_path: Optional[str] = "assets/fonts/ZY-Resolve.ttf") -> str:
+    """
+    Locates the primary cinematic font (ZY Resolve) or downloads Anton fallback.
+    Checks:
+      1. Local repository assets (preferred_path, e.g. assets/fonts/ZY-Resolve.ttf)
+      2. Local CapCut effect cache for ZY Resolve
+      3. output/fonts/ directory
+      4. Dynamic download of Anton-Regular.ttf from Google Fonts mirror
+      5. System font fallback ("Arial")
+    """
+    if preferred_path and os.path.exists(preferred_path) and os.path.getsize(preferred_path) > 1000:
+        return preferred_path
+
+    # Check CapCut local effect cache
+    try:
+        user_home = os.path.expanduser("~")
+        capcut_cache = os.path.join(user_home, "AppData", "Local", "CapCut", "User Data", "Cache")
+        if os.path.exists(capcut_cache):
+            for root, _, files in os.walk(capcut_cache):
+                for file in files:
+                    if file.lower() in ("zy resolve.ttf", "zy-resolve.ttf"):
+                        candidate = os.path.join(root, file)
+                        if os.path.getsize(candidate) > 1000:
+                            return candidate
+    except Exception:
+        pass
+
     font_dir = os.path.join("output", "fonts")
     os.makedirs(font_dir, exist_ok=True)
     font_path = os.path.join(font_dir, "Anton-Regular.ttf")
@@ -67,13 +144,15 @@ def generate_ass_subtitles(
     output_ass_path: str,
     width: int = 1080,
     height: int = 1920,
-    font_name: str = "Anton",
-    font_size: int = 118,
-    active_color: str = "&H0000FFFF",   # Vibrant Cyberpunk / Electric Yellow highlight
+    font_name: str = "ZY Resolve",
+    font_size: int = 88,
+    active_color: str = "&H0000E6FF",   # Lemon Yellow highlight (#FFE600 in BGR)
     inactive_color: str = "&H00FFFFFF", # Crisp white
     outline_color: str = "&H00000000",  # Solid Black
-    outline_width: int = 8,
-    shadow_depth: int = 2,
+    outline_width: int = 7,
+    shadow_depth: int = 5,
+    shadow_blur: int = 3,
+    shadow_color: str = "&H33000000",   # 80% opacity black
     chunk_size: int = 2,
     uppercase: bool = False,
     margin_v: Optional[int] = None,
@@ -81,7 +160,7 @@ def generate_ass_subtitles(
 ) -> None:
     """
     Builds a word-by-word micro-chunked ASS subtitle file.
-    Only 1-2 words on screen at a time for shorts, or conversational phrasing for long-form.
+    Only 1-2 words on screen at a time for shorts (with orphan absorption), or conversational phrasing for long-form.
     Uses continuous master timeline when available to eliminate boundary slicing jitter.
     """
     if margin_v is None:
@@ -95,7 +174,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{font_name},{font_size},{inactive_color},&H000000FF,{outline_color},&H80000000,-1,0,0,0,100,100,0,0,1,{outline_width},{shadow_depth},2,40,40,{margin_v},1
+Style: Default,{font_name},{font_size},{inactive_color},&H000000FF,{outline_color},{shadow_color},-1,0,0,0,100,100,0,0,1,{outline_width},{shadow_depth},2,40,40,{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -134,6 +213,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             end_ts = format_ts(current_time + sc_dur)
             raw_text = scene.spoken_text.upper() if uppercase else scene.spoken_text
             text = raw_text.replace("\n", " ")
+            if shadow_blur > 0:
+                text = f"{{\\blur{shadow_blur}}}{text}"
             events.append(f"Dialogue: 0,{start_ts},{end_ts},Default,,0,0,0,,{text}")
             current_time += sc_dur
     else:
@@ -146,6 +227,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 continue
 
             scene_chunks = [s_words[j:j + step_size] for j in range(0, len(s_words), step_size)]
+
+            # Orphan absorption: if trailing chunk is a lone word, merge into preceding chunk
+            if step_size >= 2 and len(scene_chunks) > 1 and len(scene_chunks[-1]) == 1:
+                scene_chunks[-2].extend(scene_chunks.pop())
 
             for c_idx, chunk in enumerate(scene_chunks):
                 is_last_chunk_in_scene = (c_idx == len(scene_chunks) - 1)
@@ -187,6 +272,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                             formatted_words.append(word_str)
 
                     chunk_text = " ".join(formatted_words)
+                    if shadow_blur > 0:
+                        chunk_text = f"{{\\blur{shadow_blur}}}{chunk_text}"
                     events.append(f"Dialogue: 0,{w_start},{w_end},Default,,0,0,0,,{chunk_text}")
 
     os.makedirs(os.path.dirname(output_ass_path) or ".", exist_ok=True)
@@ -195,12 +282,21 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 
 def download_clip(url: str, output_path: str, provider: str, video_id: str) -> str:
-    """Downloads an MP4 clip, refreshing signed CDN links via StockVideoManager if HTTP 403 occurs."""
+    """Downloads an MP4 clip, copying local vault clips directly or refreshing CDN links if HTTP 403 occurs."""
     if os.path.exists(output_path) and os.path.getsize(output_path) > 100000:
         return output_path
 
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+
+    # Local fallback clip handling: direct file copy without HTTP network call
+    if provider == "local" or os.path.isfile(url):
+        import shutil
+        if os.path.abspath(url) != os.path.abspath(output_path):
+            shutil.copy2(url, output_path)
+        return output_path
+
     r = requests.get(url, stream=True, timeout=15)
+
 
     if r.status_code == 403:
         print(f"⚠️ [DOWNLOAD] Link expired (403). Refreshing {provider} video {video_id}...", flush=True)
@@ -233,8 +329,20 @@ def render_video_ffmpeg(
       2. Instant lossless merge via FFmpeg concat demuxer (-c copy).
       3. Composite pass adding audio track, dynamic captions, and watermark.
     """
+    caption_cfg = settings_cfg.get("captions", {})
+    cfg_font_name = caption_cfg.get("font_name", "ZY Resolve")
     font_file = download_cinematic_font()
-    font_name = "Anton" if (font_file and "anton" in font_file.lower()) else "sans-serif"
+    if font_file and "zy" in os.path.basename(font_file).lower():
+        font_name = cfg_font_name
+    elif font_file and "anton" in os.path.basename(font_file).lower():
+        font_name = "Anton"
+    elif font_file and os.path.exists(font_file):
+        font_name = cfg_font_name
+    elif font_file == "Arial":
+        font_name = "Arial"
+    else:
+        font_name = cfg_font_name if os.path.exists("assets/fonts/ZY-Resolve.ttf") else "sans-serif"
+
     is_short = spec.video_type == "short"
     target_w, target_h = (1080, 1920) if is_short else (1920, 1080)
     fps = 30  # Standard 30fps for stable, fast cloud rendering
@@ -286,9 +394,8 @@ def render_video_ffmpeg(
 
     # 3. Build Subtitles (ASS)
     ass_path = os.path.join("output", "captions.ass")
-    caption_cfg = settings_cfg.get("captions", {})
     if is_short:
-        sub_font_size = caption_cfg.get("font_size", 108)
+        sub_font_size = caption_cfg.get("font_size", 88)
         sub_chunk_size = caption_cfg.get("max_words_per_chunk", 2)
         sub_outline_width = caption_cfg.get("outline_width", 7)
         sub_uppercase = caption_cfg.get("uppercase", True)
@@ -308,11 +415,13 @@ def render_video_ffmpeg(
         height=target_h,
         font_name=font_name,
         font_size=sub_font_size,
-        active_color=caption_cfg.get("active_color", "&H00FFFFFF"),
+        active_color=caption_cfg.get("active_color", "&H0000E6FF"),
         inactive_color=caption_cfg.get("inactive_color", "&H00FFFFFF"),
         outline_color=caption_cfg.get("outline_color", "&H00000000"),
         outline_width=sub_outline_width,
-        shadow_depth=caption_cfg.get("shadow_depth", 2),
+        shadow_depth=caption_cfg.get("shadow_depth", 5),
+        shadow_blur=caption_cfg.get("shadow_blur", 3),
+        shadow_color=caption_cfg.get("shadow_color", "&H33000000"),
         chunk_size=sub_chunk_size,
         uppercase=sub_uppercase,
         margin_v=sub_margin_v,
@@ -453,7 +562,11 @@ def render_video_ffmpeg(
     # Burnt subtitles
     if check_filter_supported("subtitles") and os.path.exists(ass_path):
         clean_ass = ass_path.replace("\\", "/")
-        font_dir = os.path.dirname(os.path.abspath(font_file)).replace("\\", "/") if (font_file and font_file != "Arial" and os.path.exists(font_file)) else ""
+        font_dir = ""
+        if font_file and font_file != "Arial" and os.path.exists(font_file):
+            font_dir = os.path.dirname(os.path.abspath(font_file)).replace("\\", "/")
+        elif os.path.isdir("assets/fonts"):
+            font_dir = os.path.abspath("assets/fonts").replace("\\", "/")
         fontsdir_arg = f":fontsdir='{font_dir}'" if font_dir else ""
         vf_filters.append(f"subtitles='{clean_ass}'{fontsdir_arg}")
     else:

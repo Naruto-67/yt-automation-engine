@@ -50,12 +50,12 @@ class SpecOutput(BaseModel):
 
 
 class ClipItem(BaseModel):
-    """Stock video clip match from Pexels or Pixabay."""
+    """Stock video clip match from Pexels, Pixabay, or local vault."""
     scene_id: int
     query: str = Field(default="", description="Search query used to locate clip")
     video_id: str
     download_url: str
-    provider: str = Field(..., description="'pexels' or 'pixabay'")
+    provider: str = Field(..., description="'pexels', 'pixabay', or 'local'")
     duration: float = 0.0
     width: int = 1080
     height: int = 1920

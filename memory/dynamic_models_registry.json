@@ -1,7 +1,7 @@
 {
-  "updated_at": "2026-10-04T01:53:26.199881+00:00",
+  "updated_at": "2026-10-04T15:17:22.553086+00:00",
   "provider_reset_dates": {
-    "google": "2026-10-03",
+    "google": "2026-10-04",
     "groq": "2026-10-04",
     "github": "2026-10-04",
     "openrouter": "2026-10-04"
@@ -170,7 +170,7 @@
       "consumed_today": 14386,
       "last_call_timestamp": 0.0,
       "status": "ACTIVE",
-      "reset_epoch": 1791078808.6998782,
+      "reset_epoch": 1791127045.0530827,
       "average_latency": 0.8,
       "cooldown_until": 0.0,
       "supports_thinking": false,

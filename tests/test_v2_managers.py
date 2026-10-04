@@ -151,6 +151,59 @@ def test_stock_video_manager_deduplication(tmp_path, monkeypatch):
     assert mgr.is_clip_recent("test_vid_999", cooldown_days=30) is False
 
 
+def test_stock_video_manager_local_vault_fallback(tmp_path, monkeypatch):
+    """Verifies that StockVideoManager gracefully falls back to local vault with archetype matching and deduplication."""
+    from engine.managers.stock_video_manager import StockVideoManager
+
+    reg_file = str(tmp_path / "used_clips_vault.json")
+    monkeypatch.setattr(StockVideoManager, "REGISTRY_FILE", reg_file)
+
+    mgr = StockVideoManager()
+
+    # 1. Test keyword archetype matching for kinetic sand
+    clip_sand = mgr.get_local_fallback("kinetic sand slicing ASMR")
+    assert clip_sand is not None
+    assert clip_sand.provider == "local"
+    assert "kinetic_sand" in clip_sand.video_id
+    assert os.path.exists(clip_sand.download_url)
+
+    # 2. Test keyword archetype matching for soap
+    clip_soap = mgr.get_local_fallback("soap carving ASMR")
+    assert clip_soap is not None
+    assert clip_soap.provider == "local"
+    assert "soap_cubes" in clip_soap.video_id
+
+    # 3. Test intra-video exclusion
+    clip_sand_2 = mgr.get_local_fallback("kinetic sand slicing", exclude_ids={clip_sand.video_id})
+    assert clip_sand_2 is not None
+    assert clip_sand_2.video_id != clip_sand.video_id
+
+    # 4. Test offline fallback when online search APIs fail or keys are absent
+    mgr.pexels_key = None
+    mgr.pixabay_key = None
+    clip_offline = mgr.search_video("power washing driveway moss")
+    assert clip_offline is not None
+    assert clip_offline.provider == "local"
+    assert "power_wash" in clip_offline.video_id
+
+
+def test_render_video_download_clip_local(tmp_path):
+    """Verifies that download_clip copies local vault clips directly without HTTP requests."""
+    from scripts.render_video import download_clip
+
+    # Create dummy source clip
+    src_file = str(tmp_path / "vault_clip.mp4")
+    with open(src_file, "wb") as f:
+        f.write(b"0" * 150000)
+
+    dest_file = str(tmp_path / "copied_clip.mp4")
+    result = download_clip(url=src_file, output_path=dest_file, provider="local", video_id="vault_clip.mp4")
+
+    assert result == dest_file
+    assert os.path.exists(dest_file)
+    assert os.path.getsize(dest_file) == 150000
+
+
 
 # ─── 3. ERROR MANAGER TESTS ──────────────────────────────────────────────────
 
@@ -411,15 +464,17 @@ def test_topic_inspector_deduplication_anti_repetition(tmp_path, monkeypatch):
 
 
 def test_caption_styling_settings():
-    """Verifies settings.yaml has high mobile retention font size (>=108pt) and outline (>=7px)."""
+    """Verifies settings.yaml has high mobile retention font size (>=88pt), ZY Resolve font, and CapCut styling."""
     import yaml
     with open("config/settings.yaml", "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
     captions = cfg.get("captions", {})
-    assert captions.get("font_size", 0) >= 108
+    assert captions.get("font_name") == "ZY Resolve"
+    assert captions.get("font_size", 0) >= 88
     assert captions.get("outline_width", 0) >= 7
     assert captions.get("max_words_per_chunk") == 2
-    assert captions.get("active_color") == "&H0000FFFF"
+    assert captions.get("active_color") == "&H0000E6FF"
+
 
 
 def test_stock_video_manager_registry_cooldown(tmp_path, monkeypatch):
