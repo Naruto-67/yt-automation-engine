@@ -686,6 +686,13 @@ def test_stock_negative_keyword_filtering():
     assert StockVideoManager.is_safe_clip("contraceptive condom squish") is False
     assert StockVideoManager.is_safe_clip("https://pexels.com/video/rubber-balloon-squish-8433837") is False
 
+    # Musical instruments, static gradients, and people must be blocked
+    assert StockVideoManager.is_safe_clip("guitar string vibration macro slow motion") is False
+    assert StockVideoManager.is_safe_clip("musician playing guitar concert") is False
+    assert StockVideoManager.is_safe_clip("pink gradient background water drop") is False
+    assert StockVideoManager.is_safe_clip("abstract wallpaper gradient 4k") is False
+    assert StockVideoManager.is_safe_clip("person face portrait interview talking") is False
+
 
 def test_script_validator_brainblud_word_budget():
     """Verifies script validation matches BrainBlud word budget (135-158 words across 11-13 scenes)."""

@@ -630,7 +630,7 @@ class VoiceNormalizer:
                 all_audio_chunks = []
                 scene_boundaries: List[Tuple[float, float]] = []
                 current_time = 0.0
-                pause_samples = np.zeros(int(24000 * 0.20), dtype=np.float32)
+                pause_samples = np.zeros(int(24000 * 0.12), dtype=np.float32)
 
                 for idx, s in enumerate(raw_scenes):
                     p_text = s.get("phonetic_text") or cls.normalize_text(s.get("spoken_text", ""))
@@ -653,6 +653,15 @@ class VoiceNormalizer:
                     else:
                         scene_samples = np.concatenate(scene_samples_list)
 
+                    # Trim native leading/trailing silence (< 0.008 amplitude) so only crisp speech is kept
+                    if len(scene_samples) > 2400:
+                        non_silent = np.where(np.abs(scene_samples) > 0.008)[0]
+                        if len(non_silent) > 0:
+                            pad = int(24000 * 0.01)  # 10ms smooth ramp
+                            start_idx = max(0, non_silent[0] - pad)
+                            end_idx = min(len(scene_samples), non_silent[-1] + pad + 1)
+                            scene_samples = scene_samples[start_idx:end_idx]
+
                     scene_dur = round(len(scene_samples) / 24000.0, 3)
                     scene_start = current_time
                     scene_end = round(scene_start + scene_dur, 3)
@@ -661,7 +670,7 @@ class VoiceNormalizer:
                     all_audio_chunks.append(scene_samples)
                     if idx < num_scenes - 1:
                         all_audio_chunks.append(pause_samples)
-                        current_time = round(scene_end + 0.20, 3)
+                        current_time = round(scene_end + 0.12, 3)
                     else:
                         current_time = scene_end
 

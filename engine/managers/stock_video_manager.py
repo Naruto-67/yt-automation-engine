@@ -32,41 +32,45 @@ SHORTS_VISUAL_TAXONOMY: List[str] = [
     "colored pencils sharpening sander",
     "wood turning lathe chisel shavings",
     "pottery wheel clay shaping satisfying",
-    "paint squeegee canvas colorful scraping",
     "chocolate scraping curls marble spatula",
-    "marble run kinetic wooden track",
-    "honeycomb honey dripping macro",
-    "ice crushing slow motion ASMR",
-    "domino falling cascade smooth",
-    "3d printing timelapse smooth layer",
+    "red jelly block slicing sharp knife",
+    "honeycomb uncapping scraper golden wax",
+    "comb teeth cutting scissors satisfying ASMR",
+    "spool thread slicing box cutter layers",
+    "play doh extrusion metal grid satisfying",
+    "glitter slime scoop spoon satisfying",
+    "lawn hedge trimming electric shears satisfying",
+    "pressure washing driveway pavement clean moss",
+    "peeling silicone spiked mat ASMR",
+    "3d printing timelapse nozzle layer",
+    "thick oil paint spatula canvas sculpting",
+    "ice block crushing slow motion ASMR",
+    "street line marking paint spray stencil",
+    "candle wax carving chisel ribbons",
+    "laser rust removal clean metal beam",
+    "hot wire foam cutting smooth shapes",
+    "fruit slicing watermelon knife satisfying",
+    "domino cascade falling smooth curve",
     "pottery glaze dipping colorful drip",
-    "candle wax carving chisel satisfying",
-    "laser rust removal steel restoration",
-    "calligraphy ink writing macro slow motion",
-    "coffee latte art etching pouring",
     "resin sphere polishing sandpaper lathe",
     "sand pendulum geometric drawing harmonograph",
-    "glass blowing shaping glowing molten",
-    "macro ink fluid dynamics water drop",
-    "spiral optical illusion hypnotic",
-    "metal milling lathe spiral shavings",
-    "hot wire foam slicing smooth satisfying",
-    "satisfying soap cutting asmr",
-    "lawn hedge trimming electric shears",
-    "pressure washing sidewalk clean moss",
-    "bubble wrap popping satisfying slowmo",
-    "watercolor pigment blooming wet paper",
-    "guitar string vibration macro slow motion"
+    "bubble wrap popping satisfying slowmo"
 ]
 # Backward-compatibility alias
 SHORTS_ASMR_TAXONOMY = SHORTS_VISUAL_TAXONOMY
 
-# Brand safety negative keywords (purges suggestive, latex, medical, or intimate content)
+# Brand safety negative keywords (purges suggestive, latex, people, instruments, and static gradients)
 BANNED_STOCK_KEYWORDS: Set[str] = {
+    # Inappropriate / latex / medical
     "latex", "rubber", "balloon", "medical", "surgery", "condom",
     "contraceptive", "intimate", "nude", "erotic", "blood", "flesh",
     "hospital", "doctor", "needle", "syringe", "injection", "wound",
-    "fetish", "skin", "underwear", "bra", "lingerie"
+    "fetish", "skin", "underwear", "bra", "lingerie",
+    # People / instruments / static backgrounds & gradients
+    "guitar", "instrument", "musician", "concert", "singing", "music",
+    "gradient", "background", "wallpaper", "abstract", "portrait",
+    "person", "face", "interview", "talking", "vlog", "walking",
+    "crowd", "city street", "sky", "clouds", "landscape", "sunset"
 }
 
 
@@ -177,10 +181,10 @@ class StockVideoManager:
                 print(f"🔄 [STOCK] Retrying query with ASMR fallback: '{fallback_query}'", flush=True)
                 return self.search_video(fallback_query, orientation=orientation, min_duration=min_duration, exclude_ids=exclude, retry_depth=retry_depth + 1)
 
-        # Fallback 2: Universal abstract motion
-        if not clip and retry_depth < 2 and query != "satisfying abstract motion 4k":
-            print(f"🔄 [STOCK] Retrying with universal abstract background for: '{query}'", flush=True)
-            return self.search_video("satisfying abstract motion 4k", orientation=orientation, min_duration=min_duration, exclude_ids=exclude, retry_depth=retry_depth + 1)
+        # Fallback 2: Universal tactile ASMR craft
+        if not clip and retry_depth < 2 and query != "kinetic sand slicing hot knife":
+            print(f"🔄 [STOCK] Retrying with tactile ASMR craft fallback for: '{query}'", flush=True)
+            return self.search_video("kinetic sand slicing hot knife", orientation=orientation, min_duration=min_duration, exclude_ids=exclude, retry_depth=retry_depth + 1)
 
         return clip
 

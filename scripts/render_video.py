@@ -112,15 +112,20 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             cs = 99
         return f"{h:01d}:{m:02d}:{s:02d}.{cs:02d}"
 
-    # Master word timestamps take priority if available, avoiding any scene-slicing boundary corruption
-    if master_word_timestamps:
-        all_words = list(master_word_timestamps)
+    # 1. Determine words per scene (guaranteeing no cross-scene word bleeding)
+    has_scene_words = any(bool(getattr(s, "word_timestamps", None)) for s in scenes)
+    if has_scene_words:
+        scene_word_groups = [list(getattr(s, "word_timestamps", []) or []) for s in scenes]
+    elif master_word_timestamps and len(scenes) > 0:
+        from engine.managers.caption_aligner import CaptionAligner
+        raw_scene_dicts = [{"spoken_text": s.spoken_text} for s in scenes]
+        scene_word_groups = CaptionAligner.slice_words_by_scenes(master_word_timestamps, raw_scene_dicts)
     else:
-        all_words = []
-        for scene in scenes:
-            all_words.extend(getattr(scene, "word_timestamps", []))
+        scene_word_groups = []
 
-    if not all_words:
+    total_words_found = sum(len(grp) for grp in scene_word_groups)
+
+    if total_words_found == 0:
         # Fallback if no word timestamps captured: create scene-level subtitles
         current_time = 0.0
         for scene in scenes:
@@ -132,46 +137,57 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             events.append(f"Dialogue: 0,{start_ts},{end_ts},Default,,0,0,0,,{text}")
             current_time += sc_dur
     else:
-        # Chunk words into groups of chunk_size (default 1 for shorts)
         step_size = max(1, int(chunk_size))
-        for i in range(0, len(all_words), step_size):
-            chunk = all_words[i:i + step_size]
-            chunk_end = chunk[-1].end
 
-            # Create an event for each active word inside this chunk
-            for active_idx, target_word in enumerate(chunk):
-                start_sec = target_word.start
-                if active_idx + 1 < len(chunk):
-                    end_sec = chunk[active_idx + 1].start
-                elif i + step_size < len(all_words):
-                    next_word_start = all_words[i + step_size].start
-                    # If gap between words is short (natural cadence <= 0.40s), hold word until next word begins
-                    if next_word_start - target_word.end <= 0.40 and next_word_start > start_sec:
-                        end_sec = next_word_start
+        # Chunk strictly per scene / per thought — eliminating cross-scene merging
+        for s_idx, scene in enumerate(scenes):
+            s_words = scene_word_groups[s_idx] if s_idx < len(scene_word_groups) else []
+            if not s_words:
+                continue
+
+            scene_chunks = [s_words[j:j + step_size] for j in range(0, len(s_words), step_size)]
+
+            for c_idx, chunk in enumerate(scene_chunks):
+                is_last_chunk_in_scene = (c_idx == len(scene_chunks) - 1)
+
+                for active_idx, target_word in enumerate(chunk):
+                    start_sec = target_word.start
+
+                    if active_idx + 1 < len(chunk):
+                        # Advance to next word inside the same displayed chunk
+                        end_sec = chunk[active_idx + 1].start
+                    elif not is_last_chunk_in_scene:
+                        # Advance to next chunk inside the SAME sentence/thought
+                        next_chunk_start = scene_chunks[c_idx + 1][0].start
+                        gap = next_chunk_start - target_word.end
+                        if 0.0 <= gap <= 0.15 and next_chunk_start > start_sec:
+                            end_sec = next_chunk_start
+                        else:
+                            end_sec = target_word.end + 0.06
                     else:
-                        end_sec = target_word.end + 0.15
-                else:
-                    end_sec = chunk_end + 0.20
+                        # FINAL CHUNK OF THIS THOUGHT: Cut off immediately when speech ends!
+                        # Zero captions hang on screen during the inter-thought silence gap!
+                        end_sec = target_word.end + 0.05
 
-                if end_sec <= start_sec:
-                    end_sec = start_sec + 0.25
+                    if end_sec <= start_sec:
+                        end_sec = start_sec + 0.20
 
-                w_start = format_ts(start_sec)
-                w_end = format_ts(end_sec)
+                    w_start = format_ts(start_sec)
+                    w_end = format_ts(end_sec)
 
-                formatted_words = []
-                for idx, w in enumerate(chunk):
-                    raw_w = w.word.strip()
-                    # Strip leading and trailing punctuation (. , ! ? ; : " … -) while preserving internal apostrophes
-                    clean_w = re.sub(r"^[^\w]+|[^\w]+$", "", raw_w)
-                    word_str = (clean_w or raw_w).upper() if uppercase else (clean_w or raw_w)
-                    if idx == active_idx:
-                        formatted_words.append(f"{{\\c{active_color}}}{word_str}{{\\c{inactive_color}}}")
-                    else:
-                        formatted_words.append(word_str)
+                    formatted_words = []
+                    for idx, w in enumerate(chunk):
+                        raw_w = w.word.strip()
+                        # Strip leading and trailing punctuation while preserving internal apostrophes
+                        clean_w = re.sub(r"^[^\w]+|[^\w]+$", "", raw_w)
+                        word_str = (clean_w or raw_w).upper() if uppercase else (clean_w or raw_w)
+                        if idx == active_idx:
+                            formatted_words.append(f"{{\\c{active_color}}}{word_str}{{\\c{inactive_color}}}")
+                        else:
+                            formatted_words.append(word_str)
 
-                chunk_text = " ".join(formatted_words)
-                events.append(f"Dialogue: 0,{w_start},{w_end},Default,,0,0,0,,{chunk_text}")
+                    chunk_text = " ".join(formatted_words)
+                    events.append(f"Dialogue: 0,{w_start},{w_end},Default,,0,0,0,,{chunk_text}")
 
     os.makedirs(os.path.dirname(output_ass_path) or ".", exist_ok=True)
     with open(output_ass_path, "w", encoding="utf-8") as f:

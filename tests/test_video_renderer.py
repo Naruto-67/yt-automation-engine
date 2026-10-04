@@ -242,3 +242,70 @@ def test_render_video_ffmpeg_long_form(tmp_path, monkeypatch):
     assert "h-text_h-80" in vf_str
 
 
+def test_subtitles_clear_during_inter_scene_pause_gap(tmp_path):
+    """Verifies that subtitles cleanly disappear during the inter-scene silence pause and never bleed across scenes."""
+    output_ass = str(tmp_path / "captions_gap.ass")
+    scenes = [
+        SceneSpec(
+            scene_id=1,
+            spoken_text="First thought finishes here.",
+            phonetic_text="First thought finishes here.",
+            stock_video_query="soap carving",
+            duration_seconds=3.0,
+            word_timestamps=[
+                WordTimestamp(word="First", start=0.2, end=0.7),
+                WordTimestamp(word="thought", start=0.7, end=1.4),
+                WordTimestamp(word="finishes", start=1.4, end=2.0),
+                WordTimestamp(word="here.", start=2.0, end=2.6),
+            ]
+        ),
+        SceneSpec(
+            scene_id=2,
+            spoken_text="Second thought starts now.",
+            phonetic_text="Second thought starts now.",
+            stock_video_query="kinetic sand",
+            duration_seconds=3.0,
+            word_timestamps=[
+                WordTimestamp(word="Second", start=3.1, end=3.6),
+                WordTimestamp(word="thought", start=3.6, end=4.2),
+                WordTimestamp(word="starts", start=4.2, end=4.8),
+                WordTimestamp(word="now.", start=4.8, end=5.4),
+            ]
+        )
+    ]
+
+    generate_ass_subtitles(
+        scenes=scenes,
+        output_ass_path=output_ass,
+        width=1080,
+        height=1920,
+        chunk_size=2,
+        uppercase=True
+    )
+
+    with open(output_ass, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+
+    dialogue_lines = [l.strip() for l in lines if l.startswith("Dialogue:")]
+    assert len(dialogue_lines) >= 4
+
+    for line in dialogue_lines:
+        parts = line.split(",")
+        start_ts = parts[1]
+        end_ts = parts[2]
+        text = ",".join(parts[9:])
+
+        # 1. Zero cross-scene word bleeding: Scene 1's words never share a chunk with Scene 2
+        if "HERE" in text:
+            assert "SECOND" not in text
+        if "SECOND" in text:
+            assert "HERE" not in text
+
+        # 2. Scene 1 events terminate cleanly before the 2.65-3.10s pause gap
+        if "FIRST" in text or "HERE" in text:
+            assert end_ts <= "0:00:02.70"
+        # 3. Scene 2 events start at 3.10s
+        if "SECOND" in text or "NOW" in text:
+            assert start_ts >= "0:00:03.10"
+
+
