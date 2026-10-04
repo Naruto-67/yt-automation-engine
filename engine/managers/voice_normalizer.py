@@ -4,10 +4,11 @@ Primary Engine: Official Kokoro-82M (hexgrad/kokoro) for studio-grade neural voi
 Fallback Engine: Edge-TTS WebSocket streamer with resilient 3-tier duration fallbacks.
 """
 
+from __future__ import annotations
 import os
 import re
 import asyncio
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict, Any
 
 def _int_to_words(n: int) -> str:
     """Zero-dependency pure Python number to words converter for numbers up to billions."""
