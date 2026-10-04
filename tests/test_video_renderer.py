@@ -378,4 +378,53 @@ def test_download_cinematic_font_vault():
     assert "zy-resolve" in font_path.lower()
 
 
+def test_intra_scene_caption_pause_bridging(tmp_path):
+    """Verifies that within a single scene, captions stay on-screen across long speech pauses (e.g. 0.76s pause)."""
+    from scripts.render_video import generate_ass_subtitles
+    from engine.models import SceneSpec, WordTimestamp
+
+    output_ass = str(tmp_path / "captions_pause_bridge.ass")
+    # Simulate Scene 10: "If poison expires, does it become more poisonous, or does it lose its power?"
+    # Pause between 'poisonous?' (end=46.42) and 'Or' (start=47.18) is 0.76s
+    scenes = [
+        SceneSpec(
+            scene_id=1,
+            spoken_text="More poisonous, or does it lose its power?",
+            phonetic_text="More poisonous, or does it lose its power?",
+            stock_video_query="ice crushing slow motion ASMR",
+            duration_seconds=4.5,
+            word_timestamps=[
+                WordTimestamp(word="More", start=45.72, end=46.02),
+                WordTimestamp(word="poisonous?", start=46.02, end=46.42),
+                WordTimestamp(word="Or", start=47.18, end=47.33),
+                WordTimestamp(word="does", start=47.33, end=47.44),
+                WordTimestamp(word="it", start=47.44, end=47.60),
+                WordTimestamp(word="lose", start=47.60, end=47.80),
+                WordTimestamp(word="its", start=47.80, end=48.00),
+                WordTimestamp(word="power?", start=48.00, end=48.26),
+            ]
+        )
+    ]
+
+    generate_ass_subtitles(
+        scenes=scenes,
+        output_ass_path=output_ass,
+        chunk_size=2,
+        uppercase=True
+    )
+
+    with open(output_ass, "r", encoding="utf-8") as f:
+        lines = [l.strip() for l in f.readlines() if l.startswith("Dialogue:")]
+
+    # Find the event where 'POISONOUS' is active (end of chunk 1)
+    poisonous_events = [l for l in lines if "POISONOUS" in l]
+    assert len(poisonous_events) >= 1
+    # The active highlight for 'POISONOUS' must extend to 47.18 (start of 'Or'), NOT cut off at 46.48
+    active_poisonous = [l for l in poisonous_events if "{\\c&H0000E6FF}POISONOUS" in l or "POISONOUS{\\c&H00FFFFFF}" in l][0]
+    parts = active_poisonous.split(",")
+    end_ts = parts[2]
+    # 47.18s is 0:00:47.18 in ASS format
+    assert end_ts == "0:00:47.18", f"Expected caption to bridge to 0:00:47.18, but got {end_ts}"
+
+
 

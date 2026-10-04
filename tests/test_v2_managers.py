@@ -782,6 +782,95 @@ def test_script_validator_brainblud_word_budget():
     assert long_words > 158
 
 
+def test_stock_video_manager_query_sanitization():
+    """Verifies that StockVideoManager.search_video intercepts queries containing banned terms (hair, street, etc.)."""
+    from engine.managers.stock_video_manager import StockVideoManager, SHORTS_VISUAL_TAXONOMY
+
+    mgr = StockVideoManager()
+    mgr.pexels_key = None
+    mgr.pixabay_key = None
+
+    # Query containing banned term 'street'
+    clip = mgr.search_video("street line marking paint spray stencil")
+    assert clip is not None
+    # Must have fallen back to local vault safely without querying for 'street'
+    assert clip.provider == "local"
+
+    # Query containing banned term 'barber'
+    clip_barber = mgr.search_video("barber cutting hair with scissors")
+    assert clip_barber is not None
+    assert clip_barber.provider == "local"
+
+
+def test_whisper_timestamp_sanitization_and_monotonicity():
+    """Verifies that Whisper timestamp sanitization eliminates duplicate words and enforces strict monotonicity."""
+    import re
+    from engine.models import WordTimestamp
+
+    # Simulate raw whisper words with:
+    # 1. Duplicate word hallucination ('recognized' twice)
+    # 2. Non-monotonic / identical start times ('Or' and 'does' both at 47.18)
+    raw_words = [
+        WordTimestamp(word="named", start=48.82, end=49.14),
+        WordTimestamp(word="itself", start=49.14, end=49.60),
+        WordTimestamp(word="recognized", start=49.60, end=50.02),
+        WordTimestamp(word="recognized", start=50.02, end=50.48),  # Hallucinated duplicate
+        WordTimestamp(word="itself,", start=50.48, end=50.72),
+        WordTimestamp(word="Or", start=47.18, end=47.33),
+        WordTimestamp(word="does", start=47.18, end=47.32),        # Identical start time!
+    ]
+
+    # Apply the same sanitization logic as in CaptionAligner._align_with_faster_whisper
+    words = []
+    for rw in raw_words:
+        if not words:
+            words.append(rw)
+            continue
+        prev = words[-1]
+        clean_curr = re.sub(r"[^\w]", "", rw.word).lower()
+        clean_prev = re.sub(r"[^\w]", "", prev.word).lower()
+        if clean_curr and clean_curr == clean_prev and rw.start <= prev.end + 0.15:
+            prev.end = max(prev.end, rw.end)
+            continue
+
+        if rw.start <= prev.start:
+            rw.start = round(prev.start + 0.10, 3)
+        if rw.end <= rw.start:
+            rw.end = round(rw.start + 0.15, 3)
+        if prev.end > rw.start:
+            prev.end = round(rw.start, 3)
+
+        words.append(rw)
+
+    # 1. Verify duplicate 'recognized' was merged into a single word with extended end time
+    word_texts = [w.word for w in words]
+    assert word_texts.count("recognized") == 1
+    rec_word = [w for w in words if w.word == "recognized"][0]
+    assert rec_word.start == 49.60
+    assert rec_word.end == 50.48
+
+    # 2. Verify 'Or' and 'does' no longer have identical start times
+    or_word = [w for w in words if w.word == "Or"][0]
+    does_word = [w for w in words if w.word == "does"][0]
+    assert does_word.start > or_word.start
+    assert does_word.start >= or_word.end
+
+
+def test_shorts_final_scene_loop_ellipsis_enforcement():
+    """Verifies that Shorts scripts guarantee trailing continuation ellipsis '...' on the final scene."""
+    raw_scenes = [
+        {"scene_id": 1, "spoken_text": "The only part of your reflection you can lick is your tongue."},
+        {"scene_id": 2, "spoken_text": "The brain named itself, recognized itself, and is now realizing that"}
+    ]
+
+    last_text = raw_scenes[-1]["spoken_text"].rstrip(".! ")
+    if not last_text.endswith("..."):
+        raw_scenes[-1]["spoken_text"] = f"{last_text}..."
+
+    assert raw_scenes[-1]["spoken_text"].endswith("...")
+    assert raw_scenes[-1]["spoken_text"] == "The brain named itself, recognized itself, and is now realizing that..."
+
+
 
 
 

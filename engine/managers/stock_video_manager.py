@@ -71,17 +71,17 @@ SHORTS_VISUAL_TAXONOMY: List[str] = [
     "chocolate scraping curls marble spatula",
     "red jelly block slicing sharp knife",
     "honeycomb uncapping scraper golden wax",
-    "comb teeth cutting scissors satisfying ASMR",
+    "wax seal stamp melting drip",
     "spool thread slicing box cutter layers",
     "play doh extrusion metal grid satisfying",
     "glitter slime scoop spoon satisfying",
     "lawn hedge trimming electric shears satisfying",
-    "pressure washing driveway pavement clean moss",
+    "glass marble rolling track kinetic",
     "peeling silicone spiked mat ASMR",
     "3d printing timelapse nozzle layer",
     "thick oil paint spatula canvas sculpting",
     "ice block crushing slow motion ASMR",
-    "street line marking paint spray stencil",
+    "fluid acrylic pour art colorful cells",
     "candle wax carving chisel ribbons",
     "laser rust removal clean metal beam",
     "hot wire foam cutting smooth shapes",
@@ -95,18 +95,26 @@ SHORTS_VISUAL_TAXONOMY: List[str] = [
 # Backward-compatibility alias
 SHORTS_ASMR_TAXONOMY = SHORTS_VISUAL_TAXONOMY
 
-# Brand safety negative keywords (purges suggestive, latex, people, instruments, and static gradients)
+# Brand safety & aesthetic negative keywords (purges people, haircuts, salons, streets, buildings, latex, medical)
 BANNED_STOCK_KEYWORDS: Set[str] = {
     # Inappropriate / latex / medical
     "latex", "rubber", "balloon", "medical", "surgery", "condom",
     "contraceptive", "intimate", "nude", "erotic", "blood", "flesh",
     "hospital", "doctor", "needle", "syringe", "injection", "wound",
     "fetish", "skin", "underwear", "bra", "lingerie",
-    # People / instruments / static backgrounds & gradients
+    # People / faces / haircuts / lifestyle (strictly banned in BrainBlud ASMR)
+    "haircut", "barber", "barbershop", "hairdresser", "hairstyle", "salon", "hair", "fade", "shave", "trim",
+    "graffiti", "mural", "spray paint", "wall art",
+    "person", "people", "man", "woman", "girl", "boy", "kid", "child",
+    "face", "interview", "talking", "vlog", "walking", "crowd",
+    "model", "fashion", "makeup", "cosmetics", "selfie",
+    # Real-world non-ASMR scenery
+    "street", "city", "building", "house", "aerial", "drone", "suburb",
+    "traffic", "car", "road", "pavement", "sidewalk", "highway", "asphalt", "pedestrian",
+    "landscape", "sunset", "sky", "clouds",
+    # Instruments / music / static gradients
     "guitar", "instrument", "musician", "concert", "singing", "music",
-    "gradient", "background", "wallpaper", "abstract", "portrait",
-    "person", "face", "interview", "talking", "vlog", "walking",
-    "crowd", "city street", "sky", "clouds", "landscape", "sunset"
+    "gradient", "background", "wallpaper", "abstract", "portrait"
 }
 
 
@@ -194,6 +202,14 @@ class StockVideoManager:
         """
         if retry_depth > 2:
             return None
+
+        # Sanitize query against banned keywords: if query contains banned concepts (e.g. hair, street, barber), replace with safe taxonomy query
+        for banned in BANNED_STOCK_KEYWORDS:
+            if re.search(r"\b" + re.escape(banned) + r"\b", query, re.IGNORECASE):
+                safe_choice = random.choice(SHORTS_VISUAL_TAXONOMY)
+                print(f"🛡️ [STOCK SAFETY] Query '{query}' contains banned term '{banned}'. Replacing with '{safe_choice}'.", flush=True)
+                query = safe_choice
+                break
 
         exclude = set(exclude_ids) if exclude_ids else set()
         clip = None
@@ -366,8 +382,12 @@ class StockVideoManager:
             if vid_id in exclude or self.is_clip_recent(vid_id):
                 continue
 
-            # Brand safety check against tags, URL, and user
-            meta_str = f"{vid.get('url', '')} {' '.join(str(t) for t in vid.get('tags', []))}"
+            # Brand safety check against slug, tags, URL, and creator
+            clean_slug = vid.get("url", "").replace("-", " ").replace("/", " ").replace("_", " ")
+            user_obj = vid.get("user")
+            user_name = user_obj.get("name", "") if isinstance(user_obj, dict) else ""
+            tag_list = vid.get("tags") or []
+            meta_str = f"{clean_slug} {user_name} {' '.join(str(t) for t in tag_list)}"
             if not self.is_safe_clip(meta_str):
                 continue
 
@@ -421,8 +441,9 @@ class StockVideoManager:
             if hit_id in exclude or self.is_clip_recent(hit_id):
                 continue
 
-            # Brand safety check against tags and pageURL
-            meta_str = f"{hit.get('pageURL', '')} {hit.get('tags', '')}"
+            # Brand safety check against tags and pageURL slug
+            clean_url = hit.get("pageURL", "").replace("-", " ").replace("/", " ").replace("_", " ")
+            meta_str = f"{clean_url} {hit.get('tags', '')}"
             if not self.is_safe_clip(meta_str):
                 continue
 

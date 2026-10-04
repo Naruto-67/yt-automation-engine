@@ -237,15 +237,24 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
                 for active_idx, target_word in enumerate(chunk):
                     start_sec = target_word.start
+                    # Guard against identical start timestamps within the same chunk
+                    if active_idx > 0 and start_sec <= chunk[active_idx - 1].start:
+                        start_sec = round(chunk[active_idx - 1].start + 0.12, 3)
 
                     if active_idx + 1 < len(chunk):
                         # Advance to next word inside the same displayed chunk
-                        end_sec = chunk[active_idx + 1].start
+                        next_word_start = chunk[active_idx + 1].start
+                        if next_word_start > start_sec:
+                            end_sec = next_word_start
+                        else:
+                            end_sec = round(start_sec + max(0.12, (chunk[active_idx + 1].end - start_sec) / 2.0), 3)
                     elif not is_last_chunk_in_scene:
-                        # Advance to next chunk inside the SAME sentence/thought
+                        # Advance to next chunk inside the SAME sentence/thought.
+                        # Bridge the full gap regardless of pause length so the
+                        # caption stays on-screen through natural speech pauses
+                        # (e.g. a 0.7 s breath between "poisonous?" and "Or").
                         next_chunk_start = scene_chunks[c_idx + 1][0].start
-                        gap = next_chunk_start - target_word.end
-                        if 0.0 <= gap <= 0.15 and next_chunk_start > start_sec:
+                        if next_chunk_start > start_sec:
                             end_sec = next_chunk_start
                         else:
                             end_sec = target_word.end + 0.06

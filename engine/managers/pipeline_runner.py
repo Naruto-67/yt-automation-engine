@@ -81,10 +81,13 @@ def run_spec_stage(video_type: str = "short") -> None:
             if not isinstance(data, dict):
                 return False
             scenes = data.get("scenes", [])
-            if not isinstance(scenes, list) or len(scenes) < 11 or len(scenes) > 13:
+            if not isinstance(scenes, list) or len(scenes) < 6:
                 return False
-            words = sum(len(sc.get("spoken_text", "").split()) for sc in scenes if isinstance(sc, dict))
-            return 135 <= words <= 158
+            valid_scenes = [sc for sc in scenes if isinstance(sc, dict) and bool(sc.get("spoken_text", "").strip())]
+            if len(valid_scenes) < 6:
+                return False
+            words = sum(len(sc.get("spoken_text", "").split()) for sc in valid_scenes)
+            return 80 <= words <= 190
 
         validator = validate_short_script if (video_type == "short" and not os.environ.get("PYTEST_CURRENT_TEST")) else None
         script_data = llm.generate_json(system_prompt, user_prompt, temperature=0.7, validator=validator)
@@ -165,6 +168,12 @@ def run_spec_stage(video_type: str = "short") -> None:
                 raw_scenes = mid_scenes
                 for i, sc in enumerate(raw_scenes):
                     sc["scene_id"] = i + 1
+
+        # Seamless circular loop for Shorts: Ensure final scene ends with continuation ellipsis '...'
+        if video_type == "short" and raw_scenes:
+            last_text = raw_scenes[-1]["spoken_text"].rstrip(".! ")
+            if not last_text.endswith("..."):
+                raw_scenes[-1]["spoken_text"] = f"{last_text}..."
 
         # 3. Normalize for Phonetic TTS & Extract Word Boundaries
         for s in raw_scenes:

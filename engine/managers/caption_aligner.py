@@ -90,7 +90,7 @@ class CaptionAligner:
                 vad_filter=False,
             )
             
-            words: List[WordTimestamp] = []
+            raw_words: List[WordTimestamp] = []
             for seg in segments:
                 if not getattr(seg, "words", None):
                     continue
@@ -101,9 +101,33 @@ class CaptionAligner:
                         end_t = round(float(w.end), 3)
                         if end_t <= start_t:
                             end_t = start_t + 0.15
-                        words.append(
+                        raw_words.append(
                             WordTimestamp(word=clean_text, start=start_t, end=end_t)
                         )
+
+            # Sanitize transcribed words: deduplicate Whisper hallucinations & enforce strict monotonicity
+            words: List[WordTimestamp] = []
+            for rw in raw_words:
+                if not words:
+                    words.append(rw)
+                    continue
+                prev = words[-1]
+                # 1. Deduplicate immediate duplicate words (Whisper hallucination)
+                clean_curr = re.sub(r"[^\w]", "", rw.word).lower()
+                clean_prev = re.sub(r"[^\w]", "", prev.word).lower()
+                if clean_curr and clean_curr == clean_prev and rw.start <= prev.end + 0.15:
+                    prev.end = max(prev.end, rw.end)
+                    continue
+
+                # 2. Enforce monotonic progression: ensure word starts after previous word starts
+                if rw.start <= prev.start:
+                    rw.start = round(prev.start + 0.10, 3)
+                if rw.end <= rw.start:
+                    rw.end = round(rw.start + 0.15, 3)
+                if prev.end > rw.start:
+                    prev.end = round(rw.start, 3)
+
+                words.append(rw)
 
             return words if words else None
         except Exception as e:

@@ -427,7 +427,14 @@ class OpenAICompatibleAdapter:
         resp = session.post(endpoint, json=payload, headers=headers, timeout=(10.0, float(timeout_s)))
         latency = round(time.time() - start_time, 2)
 
-        resp_headers = dict(resp.headers)
+        # Auto-heal Groq HTTP 400 json_validate_failed:
+        # Some models (e.g. openai/gpt-oss-20b, 120b) fail server-side JSON validation when thinking tokens are emitted.
+        # Retry once without response_format and let UniversalGreedyJSONParser parse the response.
+        if resp.status_code == 400 and "json_validate_failed" in resp.text and "response_format" in payload:
+            payload.pop("response_format", None)
+            resp = session.post(endpoint, json=payload, headers=headers, timeout=(10.0, float(timeout_s)))
+            latency = round(time.time() - start_time, 2)
+            resp_headers = dict(resp.headers)
 
         if resp.status_code == 200:
             body_text = resp.text.strip()
