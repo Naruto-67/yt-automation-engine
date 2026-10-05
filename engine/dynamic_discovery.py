@@ -27,6 +27,7 @@ BANNED_MODALITY_PATTERNS = [
     r"omni", r"imagen",
     r"orpheus", r"canopylabs", r"speech", r"voice", r"sound", r"realtime",
     r"inkling",
+    r"allam",
 ]
 
 # Deprecated legacy models known to return 404 / 410

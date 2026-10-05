@@ -27,7 +27,9 @@ script_gen:
     {performance_insight}
 
     Write a viral 11 to 13 scene short-form script (140 to 155 total spoken words) for the topic: "{topic}".
-    Every scene from Scene 2 to N-1 must present a distinct, standalone brain-glitch or paradox!
+    CRITICAL: Generate all scenes sequentially from scene_id 1 through 12. Do NOT stop after scene 2!
+    Every scene from Scene 2 to 11 must present a distinct, standalone brain-glitch or paradox!
+    Keep thought_process concise (1 sentence per field).
     
     RETURN ONLY VALID JSON:
     {{
@@ -40,6 +42,15 @@ script_gen:
       "scenes": [
         {{ "scene_id": 1, "spoken_text": "Opening hook sentence without leading dots...", "stock_video_query": "soap carving cubes ASMR" }},
         {{ "scene_id": 2, "spoken_text": "Second standalone mind-bending thought...", "stock_video_query": "kinetic sand squishing satisfying" }},
+        {{ "scene_id": 3, "spoken_text": "Third standalone thought...", "stock_video_query": "honey dripping slow motion" }},
+        {{ "scene_id": 4, "spoken_text": "Fourth standalone thought...", "stock_video_query": "wood lathe turning smooth" }},
+        {{ "scene_id": 5, "spoken_text": "Fifth standalone thought...", "stock_video_query": "paint mixing satisfying macro" }},
+        {{ "scene_id": 6, "spoken_text": "Sixth standalone thought...", "stock_video_query": "water droplet ripple slow motion" }},
+        {{ "scene_id": 7, "spoken_text": "Seventh standalone thought...", "stock_video_query": "glass marble run satisfying" }},
+        {{ "scene_id": 8, "spoken_text": "Eighth standalone thought...", "stock_video_query": "calligraphy ink writing macro" }},
+        {{ "scene_id": 9, "spoken_text": "Ninth standalone thought...", "stock_video_query": "pottery clay spinning on wheel" }},
+        {{ "scene_id": 10, "spoken_text": "Tenth standalone thought...", "stock_video_query": "domino chain reaction satisfying" }},
+        {{ "scene_id": 11, "spoken_text": "Eleventh standalone thought...", "stock_video_query": "candle wax melting close up" }},
         {{ "scene_id": 12, "spoken_text": "Loop bridge sentence ending with ellipsis...", "stock_video_query": "spiral optical illusion hypnotic" }}
       ]
     }}

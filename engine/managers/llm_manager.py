@@ -351,11 +351,11 @@ class LLMManager:
                 "generationConfig": {
                     "temperature": temperature,
                     "responseMimeType": "application/json",
-                    "maxOutputTokens": 900
+                    "maxOutputTokens": 2048
                 }
             }
         else:
-            max_tok = 750 if "groq" in base_url else 850
+            max_tok = 2048
             payload = {
                 "model": model_name,
                 "messages": [

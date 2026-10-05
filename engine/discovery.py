@@ -30,6 +30,7 @@ BANNED_MODALITY_PATTERNS = [
     r"orpheus", r"canopylabs", r"speech", r"voice", r"sound", r"realtime",
     r"inkling", r"lyria", r"banana", r"deep-research", r"antigravity",
     r"computer-use", r"customtools", r"content-safety",
+    r"allam",
 ]
 
 # Initial legacy seeds

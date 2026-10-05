@@ -250,10 +250,14 @@ def run_spec_stage(video_type: str = "short") -> None:
             if not isinstance(data, dict):
                 return False
             scenes = data.get("scenes", [])
-            if not isinstance(scenes, list) or len(scenes) < 10:
+            if not scenes and "chapters" in data:
+                scenes = []
+                for ch in data.get("chapters", []):
+                    scenes.extend(ch.get("scenes", []))
+            if not isinstance(scenes, list) or len(scenes) < 3:
                 return False
             valid_scenes = [sc for sc in scenes if isinstance(sc, dict) and bool(sc.get("spoken_text", "").strip())]
-            if len(valid_scenes) < 10:
+            if len(valid_scenes) < 3:
                 return False
             # YouTube policy safety gate: reject if script contains banned policy words
             for sc in valid_scenes:
@@ -262,7 +266,10 @@ def run_spec_stage(video_type: str = "short") -> None:
                     print(f"⚠️ [POLICY GATE] Script contains YouTube policy flagged term. Cascading...", flush=True)
                     return False
             words = sum(len(sc.get("spoken_text", "").split()) for sc in valid_scenes)
-            return 125 <= words <= 175
+            if words < 25 or words > 220:
+                print(f"⚠️ [VALIDATOR] Script word count out of range ({words} words, expected 25-220). Cascading...", flush=True)
+                return False
+            return True
 
         validator = validate_short_script if (video_type == "short" and not os.environ.get("PYTEST_CURRENT_TEST")) else None
         script_data = llm.generate_json(system_prompt, user_prompt, temperature=0.7, validator=validator)
@@ -322,15 +329,20 @@ def run_spec_stage(video_type: str = "short") -> None:
                         "stock_video_query": "soap carving cubes ASMR"
                     }]
 
-                loop_scene = raw_scenes[-1] if len(raw_scenes) > 1 and "overthink" in raw_scenes[-1].get("spoken_text", "").lower() else {
-                    "scene_id": 12,
-                    "spoken_text": default_loop,
-                    "stock_video_query": "spiral optical illusion hypnotic"
-                }
-
-                mid_scenes = [raw_scenes[0]]
-                for sc in raw_scenes[1:-1]:
-                    mid_scenes.append(sc)
+                has_loop_phrase = len(raw_scenes) > 1 and any(
+                    lp in raw_scenes[-1].get("spoken_text", "").lower()
+                    for lp in ["overthink", "which is why", "why you should", "never think about"]
+                )
+                if has_loop_phrase:
+                    loop_scene = raw_scenes[-1]
+                    mid_scenes = list(raw_scenes[:-1])
+                else:
+                    loop_scene = {
+                        "scene_id": 12,
+                        "spoken_text": default_loop,
+                        "stock_video_query": "spiral optical illusion hypnotic"
+                    }
+                    mid_scenes = list(raw_scenes)
 
                 # Fuzzy deduplication: avoid adding thoughts similar to existing ones
                 for fb in FALLBACK_THOUGHTS:

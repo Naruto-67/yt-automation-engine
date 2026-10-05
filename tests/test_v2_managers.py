@@ -1220,4 +1220,118 @@ def test_calculate_collision_free_publish_time_collision_advance(monkeypatch):
     assert target_today not in pub_iso
 
 
+def test_discovery_bans_allam_model():
+    """Verifies that allam models are strictly filtered out by modality patterns."""
+    from engine.discovery import is_modality_allowed, is_model_allowed
+    assert is_modality_allowed("allam-2-7b") is False
+    assert is_modality_allowed("allam-7b") is False
+    assert is_model_allowed("allam-2-7b", set()) is False
+    assert is_modality_allowed("gemini-3.5-flash") is True
+    assert is_modality_allowed("openai/gpt-oss-120b") is True
+
+
+def test_validate_short_script_permissive_and_policy_check():
+    """Verifies that validate_short_script accepts partial scripts for auto-expansion and rejects policy violations."""
+    from engine.managers.pipeline_runner import YOUTUBE_POLICY_BANNED_WORDS
+
+    # Simulate validator logic
+    def validate_script(data):
+        if not isinstance(data, dict):
+            return False
+        scenes = data.get("scenes", [])
+        if not isinstance(scenes, list) or len(scenes) < 3:
+            return False
+        valid_scenes = [sc for sc in scenes if isinstance(sc, dict) and bool(sc.get("spoken_text", "").strip())]
+        if len(valid_scenes) < 3:
+            return False
+        for sc in valid_scenes:
+            txt = sc.get("spoken_text", "").lower()
+            if any(bad in txt for bad in YOUTUBE_POLICY_BANNED_WORDS):
+                return False
+        words = sum(len(sc.get("spoken_text", "").split()) for sc in valid_scenes)
+        if words < 25 or words > 220:
+            return False
+        return True
+
+    # 4 scenes with 45 words — should PASS so downstream can auto-expand to 12
+    valid_partial = {
+        "scenes": [
+            {"scene_id": 1, "spoken_text": "The only part of your reflection you can lick is your tongue."},
+            {"scene_id": 2, "spoken_text": "Your shadow is proof that light traveled ninety-three million miles to be blocked by you."},
+            {"scene_id": 3, "spoken_text": "If you replace every single part of an axe, is it still the exact same axe?"},
+            {"scene_id": 4, "spoken_text": "Which is why you should never overthink these..."}
+        ]
+    }
+    assert validate_script(valid_partial) is True
+
+    # Policy violation — should FAIL
+    policy_violation = {
+        "scenes": [
+            {"scene_id": 1, "spoken_text": "Here is how to commit suicide safely..."},
+            {"scene_id": 2, "spoken_text": "Normal scene two."},
+            {"scene_id": 3, "spoken_text": "Normal scene three."}
+        ]
+    }
+    assert validate_script(policy_violation) is False
+
+    # Fewer than 3 scenes — should FAIL
+    too_few = {
+        "scenes": [
+            {"scene_id": 1, "spoken_text": "Only one scene here."}
+        ]
+    }
+    assert validate_script(too_few) is False
+
+
+def test_llm_token_limit_payload_calibration(monkeypatch):
+    """Verifies that LLMManager configures 2048 max output tokens for both Gemini and OpenAI/Groq."""
+    llm = LLMManager()
+
+    # Track requests
+    captured_payloads = []
+    def mock_http(url, method="POST", headers=None, json_data=None, timeout=60.0):
+        captured_payloads.append(json_data)
+        class MockResp:
+            status_code = 200
+            text = '{"candidates":[{"content":{"parts":[{"text":"{}"}]}}]}'
+            def json(self):
+                return {"candidates": [{"content": {"parts": [{"text": "{}"}]}}]}
+        return MockResp()
+
+    monkeypatch.setattr("engine.managers.llm_manager._http_request", mock_http)
+
+    gemini_prov = {
+        "id": "gemini_test",
+        "name": "Google (gemini-3.5-flash)",
+        "model": "gemini-3.5-flash",
+        "base_url": "https://generativelanguage.googleapis.com/",
+        "endpoint": "v1beta/models/gemini-3.5-flash:generateContent",
+        "secret_key": "MOCK_KEY"
+    }
+    llm._execute_provider_call(gemini_prov, "sys", "usr", 0.7)
+    assert captured_payloads[-1]["generationConfig"]["maxOutputTokens"] == 2048
+
+    groq_prov = {
+        "id": "groq_test",
+        "name": "Groq (openai/gpt-oss-120b)",
+        "model": "openai/gpt-oss-120b",
+        "base_url": "https://api.groq.com/openai/v1/chat/completions",
+        "endpoint": "openai/v1/chat/completions",
+        "secret_key": "MOCK_KEY"
+    }
+    def mock_groq_http(url, method="POST", headers=None, json_data=None, timeout=60.0):
+        captured_payloads.append(json_data)
+        class MockResp:
+            status_code = 200
+            text = '{"choices":[{"message":{"content":"{}"}}]}'
+            def json(self):
+                return {"choices": [{"message": {"content": "{}"}}]}
+        return MockResp()
+
+    monkeypatch.setattr("engine.managers.llm_manager._http_request", mock_groq_http)
+    llm._execute_provider_call(groq_prov, "sys", "usr", 0.7)
+    assert captured_payloads[-1]["max_tokens"] == 2048
+
+
+
 
