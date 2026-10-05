@@ -21,3 +21,40 @@ channel:
     category_id: "27" # Education
     made_for_kids: false
 
+# ─── PROMPT RULES ─────────────────────────────────────────────────────────────
+# Dynamic rules injected into the script-gen prompt at runtime.
+# Users can customise niche/topic emphasis and viral guardrails here
+# without editing prompts.yaml.
+prompt_rules:
+  enforce_virality: true           # Injects virality reinforcement into system prompt
+  extra_instructions: ""           # Optional freeform instruction appended to user prompt
+  banned_phrases: []               # Extra channel-specific banned phrases (merged with prompts.yaml list)
+
+# ─── THOUGHT CACHE (DEDUPLICATION) ────────────────────────────────────────────
+# Prevents the LLM from repeating the same spoken lines across videos.
+# Stored here so the user can inspect/clear entries without touching code.
+thought_cache:
+  max_entries: 200                  # Rolling window – older entries are evicted automatically
+  entries: []                       # [{"hash": "<sha256>", "ts": "<ISO-8601>"}]
+
+# ─── VISUAL SETTINGS ─────────────────────────────────────────────────────────
+visual_settings:
+  randomise_scene_order: false      # If true, shuffles visual queries across scenes each run
+                                    # (audio/caption order is preserved; only clip queries rotate)
+  frame_inspect_enabled: true       # Validate first frame of each clip before accepting it
+  frame_brightness_min: 15          # Reject frames darker than this (0-255 mean brightness)
+
+# ─── TITLE SETTINGS ──────────────────────────────────────────────────────────
+# Controls how the SEO title is built from the script and current trends.
+title_settings:
+  style_template: "{title}"         # Base template; trend terms are appended automatically
+  emojis: ["👀", "🔴", "⚡️", "🤯", "💀"]  # Pool – one emoji is picked randomly per video
+  trend_window_days: 1              # How many days of cached trend data to consider
+
+# ─── UPLOAD SETTINGS ─────────────────────────────────────────────────────────
+upload_settings:
+  random_schedule: false            # Set true to upload at a random time (within schedule_window_hours)
+  schedule_window_hours: 4          # Maximum hours ahead from now when random upload can land
+  thumbnail_strategy: "first_frame" # Options: first_frame | random_frame | custom_path
+  thumbnail_custom_path: ""         # Used when thumbnail_strategy == "custom_path"
+

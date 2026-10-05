@@ -7,7 +7,12 @@ uploads with one-shot publishAt scheduling (zero post-edits), and cleans up vide
 import os
 import json
 import time
-from datetime import datetime, timezone, timedelta
+import random
+import shutil
+import pathlib
+import datetime
+import subprocess
+from datetime import datetime as dt, timezone, timedelta
 from typing import Optional, Dict, Any, List
 
 from google.oauth2.credentials import Credentials
@@ -16,8 +21,228 @@ from googleapiclient.http import MediaFileUpload
 
 from engine.logger import StageTimer, PikaStage, logger
 from engine.managers.error_manager import ErrorManager
-from engine.models import SpecOutput
+from engine.models import SpecOutput, ClipsManifest
 from scripts.discord_notifier import notify_published
+
+
+# ─── FFMPEG AVAILABILITY CHECK ────────────────────────────────────────────────
+_FFMPEG_AVAILABLE = shutil.which("ffmpeg") is not None
+if not _FFMPEG_AVAILABLE:
+    print("⚠️ [YOUTUBE MANAGER] ffmpeg not found on PATH. Thumbnail extraction will be skipped.", flush=True)
+
+
+# ─── SEO TITLE GENERATOR ─────────────────────────────────────────────────────
+
+def _load_trend_terms(window_days: int = 1) -> List[str]:
+    """
+    Reads a cached trends CSV from data/yt_trends.csv (if present).
+    CSV format: term,volume,date
+    Returns the top 10 unique terms from the last `window_days` days.
+    Falls back gracefully to an empty list if the file is missing.
+    """
+    trend_path = pathlib.Path("data") / "yt_trends.csv"
+    if not trend_path.is_file():
+        return []
+    cutoff = datetime.date.today() - datetime.timedelta(days=window_days)
+    counts: Dict[str, int] = {}
+    try:
+        with trend_path.open(encoding="utf-8") as f:
+            for line in f:
+                parts = line.strip().split(",")
+                if len(parts) < 3:
+                    continue
+                term, _, date_str = parts[0], parts[1], parts[2]
+                try:
+                    if datetime.date.fromisoformat(date_str) >= cutoff:
+                        counts[term] = counts.get(term, 0) + 1
+                except ValueError:
+                    continue
+    except Exception as e:
+        print(f"⚠️ [SEO] Could not read trend data: {e}", flush=True)
+        return []
+    return [t for t, _ in sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:10]]
+
+
+def generate_seo_title(
+    niche: str,
+    base_title: str,
+    script_text: str,
+    cfg: Dict[str, Any]
+) -> str:
+    """
+    Builds a trend-aware, keyword-driven, emoji-randomised title.
+
+    Steps:
+    1. Extract meaningful keywords from the script.
+    2. Load recent trend terms from the CSV cache.
+    3. Find the intersection (max 2 trending keywords).
+    4. Apply the channel's style_template from title_settings.
+    5. Append a random emoji from the emoji pool.
+
+    Falls back gracefully to `base_title` if anything fails.
+    """
+    try:
+        from engine.managers.pipeline_runner import extract_keywords
+        keywords = extract_keywords(script_text, max_keywords=15)
+    except Exception:
+        keywords = []
+
+    trend_terms = _load_trend_terms(cfg.get("trend_window_days", 1))
+    trend_lower = {t.lower() for t in trend_terms}
+    hot_terms = [kw for kw in keywords if kw.lower() in trend_lower][:2]
+
+    # Pick an emoji from the pool (different each run for variety)
+    emoji_pool: List[str] = cfg.get("emojis", ["👀", "🔴", "⚡️"])
+    emoji = random.choice(emoji_pool) if emoji_pool else ""
+
+    # Apply the style template (default: just the base title)
+    tmpl: str = cfg.get("style_template", "{title}")
+    try:
+        title = tmpl.format(title=base_title, niche=niche, emoji=emoji)
+    except KeyError:
+        title = base_title
+
+    # Append hot trend terms if found
+    if hot_terms:
+        trend_suffix = " & ".join(hot_terms)
+        # Only append if it won't push past YouTube's 100-char title limit
+        candidate = f"{title} – {trend_suffix}"
+        if len(candidate) <= 100:
+            title = candidate
+
+    return title
+
+
+# ─── FRAME-BASED THUMBNAIL EXTRACTOR ─────────────────────────────────────────
+
+def extract_thumbnail(video_path: str, strategy: str = "first_frame", custom_path: str = "") -> Optional[str]:
+    """
+    Extracts a thumbnail from a rendered video using ffmpeg.
+
+    Strategies:
+    - first_frame: grab frame at t=0
+    - random_frame: grab a random frame within the first 10 seconds
+    - custom_path: return the user-specified image path directly
+
+    Returns the path to the thumbnail image, or None if extraction failed.
+    """
+    if strategy == "custom_path" and custom_path:
+        return custom_path if pathlib.Path(custom_path).is_file() else None
+
+    if not _FFMPEG_AVAILABLE:
+        return None
+
+    t = 0.0 if strategy == "first_frame" else round(random.uniform(0.5, 10.0), 2)
+    out_path = str(pathlib.Path(video_path).with_suffix("")) + "_thumbnail.jpg"
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-nostats", "-loglevel", "error",
+             "-ss", str(t), "-i", video_path,
+             "-vframes", "1", "-q:v", "2", out_path],
+            check=False, capture_output=True
+        )
+        if result.returncode == 0 and pathlib.Path(out_path).is_file():
+            return out_path
+    except Exception as e:
+        print(f"⚠️ [THUMBNAIL] ffmpeg extraction failed: {e}", flush=True)
+    return None
+
+
+# ─── RANDOMISED UPLOAD SCHEDULER ─────────────────────────────────────────────
+
+def schedule_upload_or_immediate(
+    video_path: str,
+    metadata: Dict[str, Any],
+    upload_cfg: Dict[str, Any],
+    yt_mgr: "YouTubeManager"
+) -> None:
+    """
+    If `random_schedule` is True in upload_cfg, defers the upload by a random delay
+    (within `schedule_window_hours`). Otherwise uploads immediately.
+
+    The deferred path writes a pending-upload JSON file and exits cleanly.
+    A separate trigger (e.g. the agent timer) will call `flush_pending_upload()`
+    to actually execute the upload — the pipeline does NOT wait, so no 6-hour limit is hit.
+    """
+    if not upload_cfg.get("random_schedule", False):
+        # Immediate upload path (original behaviour preserved)
+        yt_mgr.upload_one_shot_scheduled_video(
+            video_path=video_path,
+            title=metadata.get("title", ""),
+            description=metadata.get("description", ""),
+            tags=metadata.get("tags", []),
+            category_id=upload_cfg.get("category_id", "27")
+        )
+        return
+
+    # Randomised deferred upload
+    max_h = max(1, upload_cfg.get("schedule_window_hours", 4))
+    delay_secs = random.randint(300, max_h * 3600)  # at least 5 min delay
+    fire_at = dt.now(timezone.utc) + timedelta(seconds=delay_secs)
+    fire_at_iso = fire_at.isoformat()
+
+    pending = {
+        "video_path": video_path,
+        "metadata": metadata,
+        "upload_cfg": upload_cfg,
+        "fire_at": fire_at_iso,
+        "delay_seconds": delay_secs,
+    }
+
+    os.makedirs("memory", exist_ok=True)
+    pending_path = os.path.join("memory", "pending_upload.json")
+    with open(pending_path, "w", encoding="utf-8") as f:
+        json.dump(pending, f, indent=2)
+
+    print(
+        f"⏰ [UPLOAD] Random schedule enabled. Upload deferred by {delay_secs // 60} min "
+        f"(fires at {fire_at_iso}). Saved to '{pending_path}'.",
+        flush=True
+    )
+
+
+def flush_pending_upload() -> bool:
+    """
+    Called by the agent timer trigger. Reads memory/pending_upload.json,
+    checks if the scheduled time has arrived, and executes the upload.
+    Returns True if an upload was executed, False otherwise.
+    """
+    pending_path = os.path.join("memory", "pending_upload.json")
+    if not os.path.exists(pending_path):
+        return False
+
+    try:
+        with open(pending_path, "r", encoding="utf-8") as f:
+            pending = json.load(f)
+    except Exception as e:
+        print(f"⚠️ [UPLOAD] Could not read pending upload file: {e}", flush=True)
+        return False
+
+    fire_at = dt.fromisoformat(pending["fire_at"])
+    if dt.now(timezone.utc) < fire_at:
+        remaining = int((fire_at - dt.now(timezone.utc)).total_seconds())
+        print(f"⏳ [UPLOAD] Not yet time. {remaining // 60} min remaining.", flush=True)
+        return False
+
+    meta = pending.get("metadata", {})
+    cfg = pending.get("upload_cfg", {})
+    yt_mgr = YouTubeManager()
+    try:
+        yt_mgr.upload_one_shot_scheduled_video(
+            video_path=pending["video_path"],
+            title=meta.get("title", ""),
+            description=meta.get("description", ""),
+            tags=meta.get("tags", []),
+            category_id=cfg.get("category_id", "27")
+        )
+        os.remove(pending_path)
+        print("✅ [UPLOAD] Pending upload executed and cleared.", flush=True)
+        return True
+    except Exception as e:
+        print(f"❌ [UPLOAD] Upload failed: {e}", flush=True)
+        return False
+
+
 
 
 def is_test_mode() -> bool:
@@ -173,30 +398,49 @@ def run_release_stage() -> None:
     if not os.path.exists(video_path):
         raise FileNotFoundError(f"Final render not found at '{video_path}'. Run Stage 3 first.")
 
+    # Load upload settings from channel_config.yaml
+    import yaml as _yaml
+    with open("config/channel_config.yaml", "r", encoding="utf-8") as _f:
+        _cc = _yaml.safe_load(_f) or {}
+    upload_cfg = _cc.get("upload_settings", {})
+    upload_cfg.setdefault("category_id", _cc.get("channel", {}).get("upload_defaults", {}).get("category_id", "27"))
+
+    # Extract thumbnail
+    thumb_strategy = upload_cfg.get("thumbnail_strategy", "first_frame")
+    thumb_custom = upload_cfg.get("thumbnail_custom_path", "")
+    thumbnail_path = extract_thumbnail(video_path, strategy=thumb_strategy, custom_path=thumb_custom)
+    if thumbnail_path:
+        print(f"🖼️  [THUMBNAIL] Extracted thumbnail: {thumbnail_path}", flush=True)
+
     yt_mgr = YouTubeManager()
 
     with StageTimer(PikaStage.RELEASE, topic=spec.topic):
-        result = ErrorManager.execute_with_retry(
-            operation=lambda: yt_mgr.upload_one_shot_scheduled_video(
-                video_path=video_path,
-                title=spec.seo.title,
-                description=spec.seo.description,
-                tags=spec.seo.tags
-            ),
-            context_name="YouTube Upload & Schedule",
-            max_retries=3,
-            initial_backoff=5.0
+        metadata = {
+            "title": spec.seo.title,
+            "description": spec.seo.description,
+            "tags": spec.seo.tags,
+            "thumbnail": thumbnail_path,
+        }
+
+        schedule_upload_or_immediate(
+            video_path=video_path,
+            metadata=metadata,
+            upload_cfg=upload_cfg,
+            yt_mgr=yt_mgr
         )
 
-        video_id = result.get("video_id")
-        publish_time = result.get("publish_at")
+        video_id = None
+        publish_time = None
 
-        # 2. Notify Discord
-        notify_published(
-            topic=spec.topic,
-            video_id=video_id,
-            publish_time=publish_time
-        )
+        # If immediate upload, notify Discord and clean up
+        if not upload_cfg.get("random_schedule", False):
+            # (upload already happened inside schedule_upload_or_immediate)
+            # Notify Discord
+            notify_published(
+                topic=spec.topic,
+                video_id=video_id or "unknown",
+                publish_time=publish_time or "scheduled"
+            )
 
         # 3. Clean up heavy video file locally
         try:

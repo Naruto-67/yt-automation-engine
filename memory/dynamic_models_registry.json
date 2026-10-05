@@ -1,10 +1,10 @@
 {
-  "updated_at": "2026-10-04T16:39:08.780325+00:00",
+  "updated_at": "2026-10-05T03:28:53.906222+00:00",
   "provider_reset_dates": {
     "google": "2026-10-04",
-    "groq": "2026-10-04",
-    "github": "2026-10-04",
-    "openrouter": "2026-10-04"
+    "groq": "2026-10-05",
+    "github": "2026-10-05",
+    "openrouter": "2026-10-05"
   },
   "entities": {
     "google:gemini-2.5-flash": {
@@ -170,7 +170,7 @@
       "consumed_today": 14386,
       "last_call_timestamp": 0.0,
       "status": "ACTIVE",
-      "reset_epoch": 1791131951.2803166,
+      "reset_epoch": 1791170936.4062185,
       "average_latency": 0.8,
       "cooldown_until": 0.0,
       "supports_thinking": false,

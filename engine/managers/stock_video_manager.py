@@ -59,6 +59,46 @@ if hasattr(sys.stdout, "reconfigure"):
     except Exception:
         pass
 
+import shutil as _shutil
+_FFMPEG_AVAILABLE: bool = _shutil.which("ffmpeg") is not None
+
+
+def _check_frame_brightness(url: str, min_brightness: int = 15) -> bool:
+    """
+    Samples the first frame of a video URL using ffmpeg and checks its mean brightness.
+    Returns True if the frame is bright enough (mean pixel value >= min_brightness) or
+    if ffmpeg is unavailable / the check fails (fail-open to avoid false rejects).
+    """
+    if not _FFMPEG_AVAILABLE:
+        return True
+    try:
+        import subprocess
+        result = subprocess.run(
+            [
+                "ffmpeg", "-y", "-nostats", "-loglevel", "error",
+                "-i", url,
+                "-vframes", "1",
+                "-vf", "scale=64:64,signalstats",
+                "-f", "null", "-"
+            ],
+            capture_output=True, text=True, timeout=12
+        )
+        # ffmpeg prints "YAVG" (luma average) in stderr when signalstats filter is used
+        for line in result.stderr.splitlines():
+            if "YAVG" in line:
+                parts = line.strip().split(":")
+                if len(parts) >= 2:
+                    try:
+                        yavg = float(parts[-1].strip())
+                        if yavg < min_brightness:
+                            print(f"🌑 [STOCK FRAME] Clip too dark (YAVG={yavg:.1f} < {min_brightness}). Rejecting.", flush=True)
+                            return False
+                    except ValueError:
+                        pass
+    except Exception:
+        pass
+    return True
+
 
 # ─── HIGH-RETENTION BRAND-SAFE ASMR & CRAFT TAXONOMY FOR SHORTS ────────────────
 SHORTS_VISUAL_TAXONOMY: List[str] = [
@@ -397,11 +437,15 @@ class StockVideoManager:
             chosen = hd_files[0] if hd_files else (files[0] if files else None)
 
             if chosen and chosen.get("link"):
+                clip_url = chosen["link"]
+                # Frame-brightness inspection: reject clips that appear blank/black
+                if not _check_frame_brightness(clip_url):
+                    continue
                 return ClipItem(
                     scene_id=0,
                     query=query,
                     video_id=vid_id,
-                    download_url=chosen["link"],
+                    download_url=clip_url,
                     provider="pexels",
                     duration=float(vid.get("duration", 5.0)),
                     width=chosen.get("width", 1080),
@@ -450,11 +494,15 @@ class StockVideoManager:
             vids = hit.get("videos", {})
             target = vids.get("large") or vids.get("medium") or vids.get("small")
             if target and target.get("url"):
+                clip_url = target["url"]
+                # Frame-brightness inspection: reject clips that appear blank/black
+                if not _check_frame_brightness(clip_url):
+                    continue
                 return ClipItem(
                     scene_id=0,
                     query=query,
                     video_id=hit_id,
-                    download_url=target["url"],
+                    download_url=clip_url,
                     provider="pixabay",
                     duration=float(hit.get("duration", 5.0)),
                     width=target.get("width", 1080),

@@ -9,8 +9,11 @@ import re
 import yaml
 import json
 import random
+import hashlib
+import datetime
 import argparse
-from typing import Dict, Any
+import pathlib
+from typing import Dict, Any, List
 
 from engine.logger import StageTimer, PikaStage, logger
 from engine.managers.error_manager import ErrorManager
@@ -27,9 +30,115 @@ def load_yaml(path: str) -> Dict[str, Any]:
         return yaml.safe_load(f)
 
 
+def _save_yaml(path: str, data: Dict[str, Any]) -> None:
+    """Write YAML preserving key order. Creates a .bak backup first."""
+    p = pathlib.Path(path)
+    if p.exists():
+        try:
+            p.with_suffix(".yaml.bak").write_bytes(p.read_bytes())
+        except Exception:
+            pass
+    with p.open("w", encoding="utf-8") as f:
+        yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
+
+
+# ─── THOUGHT CACHE HELPERS ────────────────────────────────────────────────────
+
+_CHANNEL_CONFIG_PATH = "config/channel_config.yaml"
+
+
+def _hash_line(line: str) -> str:
+    """SHA-256 hash of a normalised spoken line (stripped, lowercased, no punctuation)."""
+    normalised = re.sub(r"[^\w\s]", "", line.strip().lower())
+    return hashlib.sha256(normalised.encode()).hexdigest()
+
+
+def _load_thought_cache(cfg: Dict[str, Any]) -> Dict[str, Any]:
+    return cfg.setdefault("thought_cache", {"max_entries": 200, "entries": []})
+
+
+def _is_duplicate(line: str, cache_cfg: Dict[str, Any]) -> bool:
+    lh = _hash_line(line)
+    return any(item.get("hash") == lh for item in cache_cfg.get("entries", []))
+
+
+def _add_to_cache(line: str, cache_cfg: Dict[str, Any]) -> None:
+    """Append hash of *line* and evict oldest entries beyond max_entries."""
+    lh = _hash_line(line)
+    now_iso = datetime.datetime.utcnow().isoformat()
+    entries: List[Dict] = cache_cfg.setdefault("entries", [])
+    # Don't double-register an entry from the same run
+    if not any(e.get("hash") == lh for e in entries):
+        entries.append({"hash": lh, "ts": now_iso})
+    max_sz = cache_cfg.get("max_entries", 200)
+    if len(entries) > max_sz:
+        cache_cfg["entries"] = entries[-max_sz:]
+
+
+# ─── PROMPT RULES HELPER ──────────────────────────────────────────────────────
+
+def apply_prompt_rules(system_prompt: str, user_prompt: str, channel_cfg: Dict[str, Any]) -> tuple:
+    """
+    Augments the generated prompts with any channel-specific rules from channel_config.yaml.
+    Returns (system_prompt, user_prompt) – both may be unchanged if no rules are set.
+    """
+    rules = channel_cfg.get("prompt_rules", {})
+
+    # 1. Enforce virality reminder
+    if rules.get("enforce_virality", True):
+        system_prompt += (
+            "\n\nVIRALITY ENFORCEMENT: Every scene must be instantly shareable, "
+            "psychologically shocking, and optimised for maximum scroll-stop retention."
+        )
+
+    # 2. Extra freeform user instruction
+    extra = (rules.get("extra_instructions") or "").strip()
+    if extra:
+        user_prompt += f"\n\nADDITIONAL CHANNEL INSTRUCTION: {extra}"
+
+    # 3. Extra banned phrases
+    banned: List[str] = rules.get("banned_phrases", [])
+    if banned:
+        joined = ", ".join(f'"{p}"' for p in banned)
+        system_prompt += f"\n\nEXTRA BANNED PHRASES (channel-specific): {joined}. Never use these."
+
+    return system_prompt, user_prompt
+
+
+# ─── SEO KEYWORD EXTRACTOR ────────────────────────────────────────────────────
+
+def extract_keywords(text: str, max_keywords: int = 10) -> List[str]:
+    """
+    Lightweight noun/keyword extractor using only stdlib (no spaCy / NLTK required).
+    Splits on whitespace, strips punctuation, removes stopwords, and deduplicates.
+    """
+    STOPWORDS = {
+        "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
+        "of", "with", "is", "it", "this", "that", "you", "your", "i", "we",
+        "they", "he", "she", "are", "was", "were", "be", "been", "have", "has",
+        "had", "do", "does", "did", "not", "so", "as", "if", "by", "from",
+        "can", "will", "just", "its", "into", "than", "then", "there", "when",
+        "which", "who", "what", "how", "why", "any", "all", "also", "because",
+        "more", "most", "over", "about", "after", "before", "every", "never",
+        "only", "same", "our", "my", "their", "would", "could", "should",
+    }
+    words = re.findall(r"[a-zA-Z]{4,}", text)
+    seen: set = set()
+    keywords: List[str] = []
+    for w in words:
+        lw = w.lower()
+        if lw not in STOPWORDS and lw not in seen:
+            seen.add(lw)
+            keywords.append(lw)
+        if len(keywords) >= max_keywords:
+            break
+    return keywords
+
+
 def run_spec_stage(video_type: str = "short") -> None:
     """Executes Stage 1: 🚀 Init & Spec Generation."""
-    channel_cfg = load_yaml("config/channel_config.yaml")["channel"]
+    full_channel_cfg = load_yaml("config/channel_config.yaml")
+    channel_cfg = full_channel_cfg["channel"]
     settings_cfg = load_yaml("config/settings.yaml")
     prompts_cfg = load_yaml("config/prompts.yaml")
     weights = HealthManager.load_dynamic_weights()
@@ -77,6 +186,12 @@ def run_spec_stage(video_type: str = "short") -> None:
             target_duration=target_duration
         )
 
+        # Inject channel-specific prompt rules (virality enforcement, banned phrases, extra instructions)
+        system_prompt, user_prompt = apply_prompt_rules(system_prompt, user_prompt, full_channel_cfg)
+
+        # Load thought-cache for deduplication (persisted in channel_config.yaml)
+        thought_cfg = _load_thought_cache(full_channel_cfg)
+
         def validate_short_script(data: Dict[str, Any]) -> bool:
             if not isinstance(data, dict):
                 return False
@@ -91,6 +206,7 @@ def run_spec_stage(video_type: str = "short") -> None:
 
         validator = validate_short_script if (video_type == "short" and not os.environ.get("PYTEST_CURRENT_TEST")) else None
         script_data = llm.generate_json(system_prompt, user_prompt, temperature=0.7, validator=validator)
+
         raw_scenes = script_data.get("scenes", [])
         if not raw_scenes and "chapters" in script_data:
             # Flatten scenes from chapters
@@ -175,12 +291,44 @@ def run_spec_stage(video_type: str = "short") -> None:
             if not last_text.endswith("..."):
                 raw_scenes[-1]["spoken_text"] = f"{last_text}..."
 
+        # ─── THOUGHT-CACHE DEDUPLICATION ──────────────────────────────────────
+        # Check each scene against the rolling thought cache (stored in channel_config.yaml).
+        # If a spoken line matches a previously used line, ask the LLM to rewrite only that scene.
+        if not os.environ.get("PYTEST_CURRENT_TEST"):
+            for scene in raw_scenes:
+                spoken = scene.get("spoken_text", "")
+                if spoken and _is_duplicate(spoken, thought_cfg):
+                    print(f"♻️  [THOUGHT CACHE] Duplicate line detected. Rewriting: '{spoken[:60]}...'", flush=True)
+                    rewrite_sys = (
+                        "You are a viral YouTube Shorts copywriter. Rewrite the following spoken line so it "
+                        "expresses a similar idea but uses completely different wording. Keep it under 15 words, "
+                        "psychologically punchy, and do NOT start with ellipses. "
+                        'Return ONLY valid JSON: {"text": "<rewritten line>"}'
+                    )
+                    rewrite_usr = f'Original: "{spoken}"\nRewrite (15 words max, no leading punctuation):'
+                    try:
+                        result = llm.generate_json(rewrite_sys, rewrite_usr, temperature=0.9)
+                        new_line = (result.get("text") or "").strip()
+                        new_line = re.sub(r'^["\']|["\']$', "", new_line)
+                        if new_line:
+                            scene["spoken_text"] = new_line
+                    except Exception as e:
+                        print(f"⚠️  [THOUGHT CACHE] Rewrite failed ({e}). Keeping original.", flush=True)
+            # Register all final lines in cache and persist
+            for scene in raw_scenes:
+                _add_to_cache(scene.get("spoken_text", ""), thought_cfg)
+            try:
+                _save_yaml(_CHANNEL_CONFIG_PATH, full_channel_cfg)
+            except Exception as e:
+                print(f"⚠️  [THOUGHT CACHE] Could not persist cache to channel_config.yaml: {e}", flush=True)
+
         # 3. Normalize for Phonetic TTS & Extract Word Boundaries
         for s in raw_scenes:
             s["phonetic_text"] = VoiceNormalizer.normalize_text(s["spoken_text"])
 
         full_phonetic_script = " ".join(s["phonetic_text"] for s in raw_scenes)
         full_display_script = " ".join(s["spoken_text"] for s in raw_scenes)
+
         
         audio_output = os.path.join("output", "narration.mp3")
         voice_cfg = channel_cfg.get("voice", {})
@@ -293,15 +441,28 @@ def run_spec_stage(video_type: str = "short") -> None:
         seo_cfg = prompts_cfg["seo_gen"]
         seo_user_prompt = seo_cfg["user_template"].format(script_text=full_display_script)
         seo_data = llm.generate_json(seo_cfg["system_prompt"], seo_user_prompt, temperature=0.2)
-        
+
         if video_type == "long":
             seo_title = seo_data.get("title", f"{topic[:60]}").replace("#shorts", "").strip()
             seo_desc = seo_data.get("description", f"An in-depth psychological documentary exploring {topic}.").replace("#shorts", "").strip()
             seo_tags = [t for t in seo_data.get("tags", ["psychology", "documentary", "facts", "essay"]) if t != "shorts"]
         else:
-            seo_title = seo_data.get("title", f"{topic[:40]} #shorts")
+            base_title = seo_data.get("title", f"{topic[:40]} #shorts")
             seo_desc = seo_data.get("description", f"Verified fact on {topic}. #shorts #psychology")
             seo_tags = seo_data.get("tags", ["shorts", "psychology", "facts"])
+            # Enhance title using script keywords, trend data, and channel title_settings
+            try:
+                from engine.managers.youtube_manager import generate_seo_title
+                title_cfg = full_channel_cfg.get("title_settings", {})
+                seo_title = generate_seo_title(
+                    niche=channel_cfg.get("niche", ""),
+                    base_title=base_title,
+                    script_text=full_display_script,
+                    cfg=title_cfg
+                )
+            except Exception as e:
+                print(f"⚠️ [SEO] Title enhancement failed ({e}). Using LLM base title.", flush=True)
+                seo_title = base_title
 
         seo = SEOMetadata(
             title=seo_title,

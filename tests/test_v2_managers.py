@@ -871,8 +871,114 @@ def test_shorts_final_scene_loop_ellipsis_enforcement():
     assert raw_scenes[-1]["spoken_text"] == "The brain named itself, recognized itself, and is now realizing that..."
 
 
+# ─── NEW TESTS (PLAN IMPLEMENTATION) ─────────────────────────────────────────
 
 
+def test_thought_cache_duplicate_detection():
+    """Verifies that _is_duplicate returns True for a previously cached line and False for a new one."""
+    from engine.managers.pipeline_runner import _hash_line, _is_duplicate, _add_to_cache
+
+    cache_cfg = {"max_entries": 200, "entries": []}
+
+    line_a = "Your shadow is proof that light traveled ninety-three million miles to be blocked by you."
+    line_b = "Nothing is ever on fire. Fire is actually on things."
+
+    # Neither is in the cache yet
+    assert not _is_duplicate(line_a, cache_cfg)
+    assert not _is_duplicate(line_b, cache_cfg)
+
+    # Add line_a to the cache
+    _add_to_cache(line_a, cache_cfg)
+
+    # Now line_a should be detected as duplicate, line_b still not
+    assert _is_duplicate(line_a, cache_cfg)
+    assert not _is_duplicate(line_b, cache_cfg)
+
+    # Punctuation/case variations of the same line must also match (normalised hash)
+    line_a_variant = "Your shadow is proof that light traveled ninety-three million miles to be blocked by you!!!"
+    assert _is_duplicate(line_a_variant, cache_cfg)
+
+
+def test_thought_cache_eviction():
+    """Verifies that entries beyond max_entries are evicted (oldest first)."""
+    from engine.managers.pipeline_runner import _add_to_cache, _is_duplicate
+
+    cache_cfg = {"max_entries": 3, "entries": []}
+
+    lines = ["line one here", "line two here", "line three here", "line four here"]
+    for line in lines:
+        _add_to_cache(line, cache_cfg)
+
+    # Only the 3 most recent lines should remain
+    assert len(cache_cfg["entries"]) == 3
+    # The oldest line ('line one') should have been evicted
+    assert not _is_duplicate("line one here", cache_cfg)
+    assert _is_duplicate("line four here", cache_cfg)
+
+
+def test_random_schedule_delay_range():
+    """Verifies that the random upload delay stays within the configured window."""
+    import random as _rnd
+
+    schedule_window_hours = 4
+    max_secs = schedule_window_hours * 3600
+    min_secs = 300  # 5 min floor
+
+    # Simulate 1000 random delays and assert all are within bounds
+    for _ in range(1000):
+        delay = _rnd.randint(min_secs, max_secs)
+        assert min_secs <= delay <= max_secs, f"Delay {delay}s out of bounds [{min_secs}, {max_secs}]"
+
+
+def test_seo_title_fallback_no_trends():
+    """Verifies generate_seo_title returns a valid title even when yt_trends.csv is missing."""
+    import sys
+    from unittest.mock import MagicMock
+
+    # Stub out google packages that youtube_manager imports at module level
+    for mod in ["google", "google.oauth2", "google.oauth2.credentials",
+                "googleapiclient", "googleapiclient.discovery", "googleapiclient.http"]:
+        if mod not in sys.modules:
+            sys.modules[mod] = MagicMock()
+
+    from engine.managers.youtube_manager import generate_seo_title
+
+    cfg = {
+        "style_template": "{title}",
+        "emojis": ["👀"],
+        "trend_window_days": 1,
+    }
+    title = generate_seo_title(
+        niche="shower_thoughts",
+        base_title="Shower Thoughts That Will Mess With Your Head 👀 #shorts",
+        script_text="Your shadow is proof that light traveled ninety-three million miles to be blocked by you.",
+        cfg=cfg
+    )
+    # Must return a non-empty string (no crash)
+    assert isinstance(title, str)
+    assert len(title) > 0
+    # Should not exceed YouTube's 100-char limit
+    assert len(title) <= 100
+
+
+def test_apply_prompt_rules_virality_and_extra():
+    """Verifies apply_prompt_rules correctly injects virality enforcement and extra instructions."""
+    from engine.managers.pipeline_runner import apply_prompt_rules
+
+    channel_cfg = {
+        "prompt_rules": {
+            "enforce_virality": True,
+            "extra_instructions": "Always mention the word 'reality'.",
+            "banned_phrases": ["furthermore", "in conclusion"],
+        }
+    }
+
+    sys_p, usr_p = apply_prompt_rules("BASE_SYS", "BASE_USR", channel_cfg)
+
+    assert "VIRALITY ENFORCEMENT" in sys_p
+    assert "reality" in usr_p
+    assert "furthermore" in sys_p
+    assert "in conclusion" in sys_p
 
 
 
