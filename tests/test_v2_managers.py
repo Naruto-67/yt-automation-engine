@@ -1138,3 +1138,41 @@ def test_optimal_publish_hour_learning(tmp_path, monkeypatch):
     hour = YouTubeManager.get_optimal_publish_hour()
     assert hour == 20
 
+
+def test_youtube_manager_graceful_missing_google_client(monkeypatch):
+    """Verifies that YouTubeManager can be used for title & community posts even without googleapiclient."""
+    import engine.managers.youtube_manager as ym
+    monkeypatch.setattr(ym, "_GOOGLE_API_AVAILABLE", False)
+
+    title = ym.generate_seo_title("shower_thoughts", "Base Title", "script text", {})
+    assert title != ""
+    assert isinstance(title, str)
+
+    post = ym.YouTubeManager.generate_community_post("Why mirrors flip horizontally", "Why do mirrors flip horizontally?")
+    assert "pinned_comment" in post
+    assert "community_post" in post
+
+
+def test_logger_deduplication_clean_tag(capsys, monkeypatch):
+    """Verifies that logger does not produce double tags like [SUCCESS] [SUCCESS]."""
+    from engine.logger import logger
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+
+    logger.success("Clean success message")
+    captured = capsys.readouterr()
+    assert "[SUCCESS] [SUCCESS]" not in captured.out
+    assert "[SUCCESS] Clean success message" in captured.out
+
+
+def test_channel_config_caption_typography_loading():
+    """Verifies that channel_config.yaml has caption_settings configured with ZY Resolve font."""
+    import yaml
+    with open("config/channel_config.yaml", "r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
+
+    assert "caption_settings" in cfg
+    caps = cfg["caption_settings"]
+    assert caps.get("font_name") == "ZY Resolve"
+    assert caps.get("font_file") == "assets/fonts/ZY-Resolve.ttf"
+
+

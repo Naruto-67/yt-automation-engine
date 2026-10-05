@@ -16,9 +16,16 @@ import subprocess
 from datetime import datetime as dt, timezone, timedelta
 from typing import Optional, Dict, Any, List
 
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
+try:
+    from google.oauth2.credentials import Credentials
+    from googleapiclient.discovery import build
+    from googleapiclient.http import MediaFileUpload
+    _GOOGLE_API_AVAILABLE = True
+except ImportError:
+    Credentials = None
+    build = None
+    MediaFileUpload = None
+    _GOOGLE_API_AVAILABLE = False
 
 from engine.logger import StageTimer, PikaStage, logger
 from engine.managers.error_manager import ErrorManager
@@ -262,6 +269,9 @@ class YouTubeManager:
     def get_client(self):
         if is_test_mode():
             return None
+
+        if not _GOOGLE_API_AVAILABLE:
+            raise ImportError("Google API client is not installed. Install google-api-python-client and google-auth-oauthlib.")
 
         if not all([self.client_id, self.client_secret, self.refresh_token]):
             raise ValueError("Missing YouTube credentials in environment variables.")

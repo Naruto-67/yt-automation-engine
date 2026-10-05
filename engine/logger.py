@@ -81,7 +81,8 @@ class StructuredLogger:
     @staticmethod
     def _log(tag: str, message: str, level: str = "INFO"):
         timestamp = datetime.now(timezone.utc).strftime("%H:%M:%S")
-        log_line = f"[{tag}] [{level}] {message}" if _IS_GITHUB else f"[{timestamp}] [{tag}] [{level}] {message}"
+        tag_str = f"[{tag}]" if tag == level else f"[{tag}] [{level}]"
+        log_line = f"{tag_str} {message}" if _IS_GITHUB else f"[{timestamp}] {tag_str} {message}"
         try:
             print(log_line, flush=True)
         except UnicodeEncodeError:

@@ -588,7 +588,7 @@ def main():
         sys.exit(0)
     elif _system_enabled == "test":
         os.environ["TEST_MODE"] = "true"
-        print("🧪 [TEST MODE] GHOST_ENGINE_ENABLED=test. YouTube API mutations & DB releases strictly blocked.")
+        print("🧪 [TEST MODE] Running in Test Mode (GHOST_ENGINE_ENABLED=test). API mutations & releases strictly blocked.")
 
     parser = argparse.ArgumentParser(description="Pika Flow Pipeline Runner (v2.0)")
     parser.add_argument("--stage", required=True, choices=["spec", "clips", "editor", "release"], help="Stage to execute")
@@ -596,7 +596,7 @@ def main():
     parser.add_argument("--test-mode", action="store_true", help="Run in test mode (bypasses YouTube upload and database updates)")
     args = parser.parse_args()
 
-    if args.test_mode:
+    if args.test_mode and os.environ.get("TEST_MODE") != "true":
         os.environ["TEST_MODE"] = "true"
         print("🧪 [TEST MODE] Activated via CLI flag. Zero YouTube API / Database mutation.")
 

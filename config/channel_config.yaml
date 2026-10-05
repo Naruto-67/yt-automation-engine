@@ -92,6 +92,24 @@ visual_settings:
     - "street"
     - "traffic"
 
+# ─── CAPTION & TYPOGRAPHY SETTINGS (TOPATO FLAGSHIP STYLE) ───────────────────
+caption_settings:
+  font_name: "ZY Resolve"
+  font_file: "assets/fonts/ZY-Resolve.ttf"
+  font_size: 88                # CapCut size 14 scale at 1080x1920
+  font_size_long: 44           # Lower-third documentary sizing for 16:9 widescreen
+  active_color: "&H0000E6FF"   # Vibrant Lemon Yellow highlight (#FFE600 in BGR)
+  inactive_color: "&H00FFFFFF" # Pure crisp white for surrounding phrase words
+  outline_color: "&H00000000"  # Solid pitch black stroke
+  outline_width: 7             # CapCut stroke 30-35
+  outline_width_long: 3        # Refined outline for long-form
+  shadow_depth: 5              # CapCut distance 10 at 1080p scale
+  shadow_blur: 3               # CapCut blur 15 soft shadow
+  shadow_color: "&H33000000"   # 80% opacity black
+  max_words_per_chunk: 2       # 2-word dynamic phrase chunking
+  max_words_per_chunk_long: 6  # Natural multi-word conversational flow for long-form
+  uppercase: true
+
 # ─── TITLE & SEO SETTINGS ────────────────────────────────────────────────────
 title_settings:
   style_template: "{title}"

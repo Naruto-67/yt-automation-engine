@@ -220,6 +220,7 @@ def _refresh_model_ids(providers: List[Dict[str, Any]], banned_models: Set[str])
                     models = [
                         m["name"].replace("models/", "") for m in resp.json().get("models", [])
                         if "generateContent" in m.get("supportedGenerationMethods", [])
+                        and not m["name"].lower().startswith("models/gemma")
                     ]
                     valid_models = [m for m in models if is_model_allowed(m, banned_models)]
                     for m in valid_models:
@@ -232,9 +233,9 @@ def _refresh_model_ids(providers: List[Dict[str, Any]], banned_models: Set[str])
                         new_p["model"] = m
                         new_p["endpoint"] = f"v1beta/models/{m}:generateContent"
                         expanded_providers.append(new_p)
-                        print(f"  🔄 Discovered Gemini model: {m}")
                     if valid_models:
                         added = True
+                        print(f"  🔍 Discovered {len(valid_models)} Google Gemini models")
             except Exception as e:
                 print(f"  ⚠️ Failed to discover Gemini models: {e}")
 
@@ -258,9 +259,9 @@ def _refresh_model_ids(providers: List[Dict[str, Any]], banned_models: Set[str])
                         new_p["name"] = f"Groq ({m})"
                         new_p["model"] = m
                         expanded_providers.append(new_p)
-                        print(f"  🔄 Discovered Groq model: {m}")
                     if valid_models:
                         added = True
+                        print(f"  🔍 Discovered {len(valid_models)} Groq models")
             except Exception as e:
                 print(f"  ⚠️ Failed to discover Groq models: {e}")
 
@@ -287,9 +288,9 @@ def _refresh_model_ids(providers: List[Dict[str, Any]], banned_models: Set[str])
                         new_p["name"] = f"OpenRouter ({m.split('/')[-1]})"
                         new_p["model"] = m
                         expanded_providers.append(new_p)
-                        print(f"  🔄 Discovered OpenRouter model: {m}")
                     if valid_models:
                         added = True
+                        print(f"  🔍 Discovered {len(valid_models)} OpenRouter models")
             except Exception as e:
                 print(f"  ⚠️ Failed to discover OpenRouter models: {e}")
 
@@ -348,7 +349,7 @@ def _health_check(provider: Dict[str, Any]) -> Dict[str, Any]:
 
     try:
         start = time.time()
-        resp = _http_request(url, method="POST", headers=headers, json_data=payload, timeout=12.0)
+        resp = _http_request(url, method="POST", headers=headers, json_data=payload, timeout=4.0)
         latency = int((time.time() - start) * 1000)
 
         if resp.status_code == 200:
@@ -358,10 +359,27 @@ def _health_check(provider: Dict[str, Any]) -> Dict[str, Any]:
         elif resp.status_code == 429:
             return {"ok": False, "latency_ms": 50000, "status_code": 429, "error": "Quota limit (rate-limited)"}
         else:
-            return {"ok": False, "latency_ms": latency, "status_code": resp.status_code, "error": resp.text[:200]}
+            clean_err = "Error"
+            try:
+                err_json = resp.json().get("error", {})
+                if isinstance(err_json, dict):
+                    clean_err = err_json.get("message") or err_json.get("status") or str(err_json)
+                elif isinstance(err_json, str):
+                    clean_err = err_json
+            except Exception:
+                clean_err = resp.text
+            clean_err = re.sub(r'https?://\S+', '[link]', str(clean_err))
+            clean_err = " ".join(clean_err.split())[:70]
+            return {"ok": False, "latency_ms": latency, "status_code": resp.status_code, "error": clean_err}
 
     except Exception as exc:
-        return {"ok": False, "latency_ms": 0, "status_code": 0, "error": str(exc)}
+        err_msg = str(exc)
+        if "timed out" in err_msg.lower():
+            err_msg = "Request timed out"
+        else:
+            err_msg = re.sub(r'https?://\S+', '[link]', err_msg)
+            err_msg = " ".join(err_msg.split())[:70]
+        return {"ok": False, "latency_ms": 0, "status_code": 0, "error": err_msg}
 
 
 def run_discovery(force: bool = False) -> Dict[str, Any]:

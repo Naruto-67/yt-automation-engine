@@ -338,9 +338,14 @@ def render_video_ffmpeg(
       2. Instant lossless merge via FFmpeg concat demuxer (-c copy).
       3. Composite pass adding audio track, dynamic captions, and watermark.
     """
-    caption_cfg = settings_cfg.get("captions", {})
+    channel_caption_cfg = channel_cfg.get("caption_settings", {})
+    caption_cfg = {**settings_cfg.get("captions", {}), **channel_caption_cfg}
     cfg_font_name = caption_cfg.get("font_name", "ZY Resolve")
-    font_file = download_cinematic_font()
+    preferred_font_path = caption_cfg.get("font_file", "assets/fonts/ZY-Resolve.ttf")
+    try:
+        font_file = download_cinematic_font(preferred_path=preferred_font_path)
+    except TypeError:
+        font_file = download_cinematic_font()
     if font_file and "zy" in os.path.basename(font_file).lower():
         font_name = cfg_font_name
     elif font_file and "anton" in os.path.basename(font_file).lower():
@@ -351,6 +356,8 @@ def render_video_ffmpeg(
         font_name = "Arial"
     else:
         font_name = cfg_font_name if os.path.exists("assets/fonts/ZY-Resolve.ttf") else "sans-serif"
+
+    print(f"🎬 [RENDERER] Caption typography: '{font_name}' active (source: {font_file})", flush=True)
 
     is_short = spec.video_type == "short"
     target_w, target_h = (1080, 1920) if is_short else (1920, 1080)
@@ -682,7 +689,12 @@ def run_editor_stage() -> None:
 
     import yaml
     with open("config/channel_config.yaml", "r", encoding="utf-8") as f:
-        channel_cfg = yaml.safe_load(f)["channel"]
+        full_cfg = yaml.safe_load(f) or {}
+        channel_cfg = full_cfg.get("channel", {})
+        if "caption_settings" in full_cfg:
+            channel_cfg["caption_settings"] = full_cfg["caption_settings"]
+        if "branding" in full_cfg:
+            channel_cfg["branding"] = full_cfg["branding"]
 
     with open("config/settings.yaml", "r", encoding="utf-8") as f:
         settings_cfg = yaml.safe_load(f)

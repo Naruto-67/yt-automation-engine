@@ -63,7 +63,9 @@ jobs:
             engine-memory-spec-
             engine-memory-
       - name: Install Stage Dependencies
-        run: pip install -r requirements/spec.txt
+        run: |
+          pip install -r requirements/spec.txt
+          python -m spacy download en_core_web_sm --quiet || true
       - name: Run Spec Generation
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
@@ -72,6 +74,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HUGGINGFACE_HUB_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_HUB_DISABLE_SYMLINKS_WARNING: "1"
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
           GHOST_ENGINE_ENABLED: ${{ vars.GHOST_ENGINE_ENABLED || 'test' }}
           TEST_MODE: ${{ inputs.test_mode && 'true' || 'false' }}
@@ -150,8 +153,12 @@ jobs:
       - name: Register System & Cinematic Fonts
         run: |
           mkdir -p ~/.local/share/fonts
-          cp output/fonts/*.ttf ~/.local/share/fonts/ 2>/dev/null || true
-          fc-cache -f 2>/dev/null || true
+          if [ -d "assets/fonts" ]; then
+            cp assets/fonts/*.ttf ~/.local/share/fonts/ 2>/dev/null || true
+          fi
+          fc-cache -f ~/.local/share/fonts
+          echo "System font cache updated. Registered fonts:"
+          fc-list : family | grep -i "ZY Resolve" || echo "Note: Font available in assets/fonts for libass"
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
