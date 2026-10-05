@@ -1,4 +1,4 @@
-# config/channel_config.yaml — Single Channel Configuration (v2.0)
+# config/channel_config.yaml — TOPATO Channel Configuration (v2.0)
 channel:
   name: "TOPATO"
   handle: "@metopato"
@@ -7,13 +7,13 @@ channel:
   voice:
     provider: "kokoro"
     voice_id: "am_adam" # Flagship Resonant Baritone Kokoro American Male voice (also am_fenrir, am_michael)
-    fallback_voice_id: "en-US-GuyNeural" # Deep, resonant, warm American male baritone
+    fallback_voice_id: "en-US-GuyNeural"
     speed: 1.0 # Natural 2.8 words/sec delivery (targets 53-56s duration naturally for 145-150 words)
   branding:
     enabled: true
     watermark_text: "@metopato"
-    opacity: 0.35 # Subtle, elegant branding transparency (35%)
-    position: "lower_center" # Lower-center sweet spot below captions
+    opacity: 0.35
+    position: "lower_center"
     font_size: 26
     font_family: "Montserrat-SemiBold"
   upload_defaults:
@@ -21,40 +21,88 @@ channel:
     category_id: "27" # Education
     made_for_kids: false
 
-# ─── PROMPT RULES ─────────────────────────────────────────────────────────────
-# Dynamic rules injected into the script-gen prompt at runtime.
-# Users can customise niche/topic emphasis and viral guardrails here
-# without editing prompts.yaml.
-prompt_rules:
-  enforce_virality: true           # Injects virality reinforcement into system prompt
-  extra_instructions: ""           # Optional freeform instruction appended to user prompt
-  banned_phrases: []               # Extra channel-specific banned phrases (merged with prompts.yaml list)
+# ─── PROMPT & CONTENT SETTINGS ───────────────────────────────────────────────
+prompt_settings:
+  channel_premise: |
+    Mind-bending shower thoughts, psychological paradoxes, and reality-breaking cognitive glitches.
+    Every thought must trigger a sudden realization or perspective shift.
+  extra_instructions: "" # User can add temporary prompt tweaks here anytime
+  banned_phrases: []     # Extra words to prohibit in scripts
+  # Emergency fallback library (used only if LLM generates < 11 scenes)
+  fallback_thoughts:
+    - "Your shadow is proof that light traveled ninety-three million miles to be blocked by you."
+    - "If you replace every single part of an axe, is it still the exact same axe?"
+    - "You have never actually seen your own face, only reflections, screens, and photographs."
+    - "Sleeping is just charging your biological battery, while dreaming is running a diagnostics test."
+    - "Nothing is ever on fire. Fire is actually on things."
+    - "Clapping is just repeatedly slapping yourself because you enjoyed something."
+    - "Your age is just the number of laps you survived around a giant nuclear fireball."
+    - "If poison expires, does it become more poisonous, or less poisonous?"
+    - "The brain named itself, recognized itself, and is now realizing that exact fact."
+    - "Every book you have ever read is just twenty-six letters arranged in different orders."
+    - "Water can boil and freeze at the exact same instant under specific pressure."
+    - "You can never hold an empty container because it is always completely full of air."
 
-# ─── THOUGHT CACHE (DEDUPLICATION) ────────────────────────────────────────────
-# Prevents the LLM from repeating the same spoken lines across videos.
-# Stored here so the user can inspect/clear entries without touching code.
+# ─── THOUGHT CACHE (CROSS-VIDEO DEDUPLICATION) ────────────────────────────────
 thought_cache:
-  max_entries: 200                  # Rolling window – older entries are evicted automatically
-  entries: []                       # [{"hash": "<sha256>", "ts": "<ISO-8601>"}]
+  max_entries: 200
+  entries: []
 
-# ─── VISUAL SETTINGS ─────────────────────────────────────────────────────────
+# ─── VISUAL SETTINGS (PURE SATISFYING ASMR CRAFT) ─────────────────────────────
 visual_settings:
-  randomise_scene_order: false      # If true, shuffles visual queries across scenes each run
-                                    # (audio/caption order is preserved; only clip queries rotate)
-  frame_inspect_enabled: true       # Validate first frame of each clip before accepting it
-  frame_brightness_min: 15          # Reject frames darker than this (0-255 mean brightness)
+  vault_blend_count: 3              # Automatically blend 2 to 3 rotating local vault clips per Short
+  frame_inspect_enabled: true
+  frame_brightness_min: 15
+  # 100% Brand-Safe Tactile & Craft ASMR Queries (Zero kitchen, zero food, zero cutting meat)
+  visual_taxonomy:
+    - "soap carving cubes ASMR"
+    - "kinetic sand squishing satisfying"
+    - "carpet cleaning foam squeegee satisfying"
+    - "colored pencils sharpening macro"
+    - "wood turning lathe chisel shavings"
+    - "pottery wheel clay shaping satisfying"
+    - "thick oil paint palette knife canvas"
+    - "sand pendulum harmonograph geometric"
+    - "resin lathe turning wood polishing"
+    - "ice block crushing hydraulic press ASMR"
+    - "laser rust removal beam metal clean"
+    - "marble run wooden track kinetic"
+    - "wax seal stamp melting drip"
+    - "honeycomb uncapping scraper golden wax"
+    - "3d printing timelapse nozzle layer"
+    - "fluid acrylic pour art colorful cells"
+    - "bubble wrap popping slow motion"
+    - "domino cascade chain reaction smooth"
+    - "glitter slime scoop satisfying"
+    - "hot wire foam cutting smooth shapes"
+    - "peeling silicone spiked mat ASMR"
+  # Channel-Specific Negative Keywords (Purges kitchen food prep, traffic, haircuts)
+  banned_keywords:
+    - "kitchen"
+    - "cook"
+    - "cooking"
+    - "chef"
+    - "cutting board"
+    - "food"
+    - "vegetable"
+    - "fruit"
+    - "meat"
+    - "haircut"
+    - "barber"
+    - "street"
+    - "traffic"
 
-# ─── TITLE SETTINGS ──────────────────────────────────────────────────────────
-# Controls how the SEO title is built from the script and current trends.
+# ─── TITLE & SEO SETTINGS ────────────────────────────────────────────────────
 title_settings:
-  style_template: "{title}"         # Base template; trend terms are appended automatically
-  emojis: ["👀", "🔴", "⚡️", "🤯", "💀"]  # Pool – one emoji is picked randomly per video
-  trend_window_days: 1              # How many days of cached trend data to consider
+  style_template: "{title}"
+  emojis: ["👀", "🔴", "⚡️", "🤯", "💀"]
+  trend_window_days: 1
 
-# ─── UPLOAD SETTINGS ─────────────────────────────────────────────────────────
+# ─── UPLOAD & LEARNING SETTINGS ──────────────────────────────────────────────
 upload_settings:
-  random_schedule: false            # Set true to upload at a random time (within schedule_window_hours)
-  schedule_window_hours: 4          # Maximum hours ahead from now when random upload can land
-  thumbnail_strategy: "first_frame" # Options: first_frame | random_frame | custom_path
-  thumbnail_custom_path: ""         # Used when thumbnail_strategy == "custom_path"
-
+  random_schedule: false
+  schedule_window_hours: 4
+  adaptive_schedule_learning: true   # Auto-tune release time to channel's peak view velocity hour
+  generate_community_post: true     # Generate subscriber discussion poll / pinned comment
+  thumbnail_strategy: "first_frame"
+  thumbnail_custom_path: ""

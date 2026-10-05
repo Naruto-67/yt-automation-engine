@@ -159,8 +159,17 @@ class CaptionAligner:
         
         for idx in range(num_scenes):
             if idx == num_scenes - 1:
-                # Last scene takes all remaining words
-                slices.append(word_timestamps[cursor:])
+                # Last scene takes remaining words with Loop Suffix Guard
+                last_slice = word_timestamps[cursor:]
+                expected_words = [w.strip() for w in raw_scenes[-1].get("spoken_text", "").split() if w.strip()]
+                if expected_words and len(last_slice) > len(expected_words):
+                    last_expected = re.sub(r"[^\w]", "", expected_words[-1]).lower()
+                    if len(last_slice) >= 2:
+                        second_last_clean = re.sub(r"[^\w]", "", last_slice[-2].word).lower()
+                        if second_last_clean == last_expected:
+                            # Prune trailing phantom echo token (e.g. 'ease' after 'these...')
+                            last_slice = last_slice[:-1]
+                slices.append(last_slice)
                 break
 
             target_len = target_counts[idx]

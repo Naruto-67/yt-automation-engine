@@ -5,6 +5,7 @@ uploads with one-shot publishAt scheduling (zero post-edits), and cleans up vide
 """
 
 import os
+import re
 import json
 import time
 import random
@@ -274,19 +275,116 @@ class YouTubeManager:
         )
         return build('youtube', 'v3', credentials=creds, static_discovery=False)
 
+    @staticmethod
+    def get_optimal_publish_hour() -> int:
+        """
+        Reads learned peak view velocity release hour from memory/channel_performance.json.
+        Defaults to 18 (18:00 UTC) if no data has been collected yet.
+        """
+        perf_path = os.path.join("memory", "channel_performance.json")
+        if os.path.exists(perf_path):
+            try:
+                with open(perf_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                hour = data.get("best_publish_hour")
+                if isinstance(hour, int) and 0 <= hour <= 23:
+                    return hour
+            except Exception:
+                pass
+        return 18
+
+    @staticmethod
+    def generate_community_post(topic: str, hook: str, script_summary: str = "") -> Dict[str, str]:
+        """
+        Generates an engaging subscriber discussion question and pinned comment for retention.
+        """
+        clean_hook = re.sub(r"[^\w\s\?]", "", hook).strip() if hook else topic
+        return {
+            "pinned_comment": "Which one of these thoughts broke your brain the most? 👇",
+            "community_post": f"Quick reality check: {clean_hook}\n\nWhat's your take? Vote below or drop your mind-bending thought! 🧠"
+        }
+
+    def sync_channel_performance(self, youtube=None) -> Dict[str, Any]:
+        """
+        Queries recent published videos to track audience view velocity and engagement.
+        Updates memory/channel_performance.json with learned peak hours and top topics.
+        """
+        perf_path = os.path.join("memory", "channel_performance.json")
+        os.makedirs("memory", exist_ok=True)
+        default_data = {
+            "last_sync": datetime.now(timezone.utc).isoformat(),
+            "best_publish_hour": 18,
+            "top_topic": "shower thoughts and perceptual paradoxes",
+            "videos_tracked": 0
+        }
+
+        if is_test_mode() or youtube is None:
+            with open(perf_path, "w", encoding="utf-8") as f:
+                json.dump(default_data, f, indent=2)
+            return default_data
+
+        try:
+            ch_resp = youtube.channels().list(part="contentDetails", mine=True).execute()
+            uploads_playlist_id = ch_resp["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
+            items_resp = youtube.playlistItems().list(
+                part="contentDetails,snippet",
+                playlistId=uploads_playlist_id,
+                maxResults=15
+            ).execute()
+
+            video_ids = [item["contentDetails"]["videoId"] for item in items_resp.get("items", [])]
+            if not video_ids:
+                return default_data
+
+            vids_resp = youtube.videos().list(part="statistics,snippet", id=",".join(video_ids)).execute()
+            items = vids_resp.get("items", [])
+
+            best_hour = 18
+            max_views = -1
+            top_topic = "perceptual paradoxes"
+
+            for v in items:
+                stats = v.get("statistics", {})
+                snippet = v.get("snippet", {})
+                views = int(stats.get("viewCount", 0))
+                pub_time = snippet.get("publishedAt", "")
+                if pub_time and views > max_views:
+                    max_views = views
+                    top_topic = snippet.get("title", "")
+                    try:
+                        dt = datetime.fromisoformat(pub_time.replace("Z", "+00:00"))
+                        best_hour = dt.hour
+                    except Exception:
+                        pass
+
+            result = {
+                "last_sync": datetime.now(timezone.utc).isoformat(),
+                "best_publish_hour": best_hour,
+                "top_topic": top_topic,
+                "videos_tracked": len(items)
+            }
+            with open(perf_path, "w", encoding="utf-8") as f:
+                json.dump(result, f, indent=2)
+            print(f"📊 [CHANNEL LEARNING] Synced {len(items)} videos. Peak hour: {best_hour}:00 UTC. Top topic: '{top_topic[:40]}...'", flush=True)
+            return result
+        except Exception as e:
+            print(f"⚠️ [CHANNEL LEARNING] Performance sync skipped: {e}", flush=True)
+            return default_data
+
     def calculate_collision_free_publish_time(self, youtube) -> str:
         """
-        Determines the optimal peak release window (18:00 UTC).
+        Determines the optimal peak release window (adaptive or 18:00 UTC).
         Uses a 1-unit query to check scheduled uploads and increments +24 hours if a slot is occupied.
         """
         now = datetime.now(timezone.utc)
-        # Target daily peak window: 18:00 UTC
+        peak_hour = self.get_optimal_publish_hour()
+        # Target daily peak window: adaptive peak_hour UTC
         target_day = now.date()
         # If it's already past 16:00 UTC, schedule for tomorrow
         if now.hour >= 16:
             target_day += timedelta(days=1)
 
-        candidate_time = datetime(target_day.year, target_day.month, target_day.day, 18, 0, 0, tzinfo=timezone.utc)
+        candidate_time = datetime(target_day.year, target_day.month, target_day.day, peak_hour, 0, 0, tzinfo=timezone.utc)
 
         if is_test_mode() or youtube is None:
             return candidate_time.strftime("%Y-%m-%dT%H:%M:%SZ")

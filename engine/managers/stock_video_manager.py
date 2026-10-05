@@ -102,47 +102,53 @@ def _check_frame_brightness(url: str, min_brightness: int = 15) -> bool:
 
 # ─── HIGH-RETENTION BRAND-SAFE ASMR & CRAFT TAXONOMY FOR SHORTS ────────────────
 SHORTS_VISUAL_TAXONOMY: List[str] = [
-    "soap cutting grid razor ASMR",
-    "kinetic sand slicing hot knife",
+    "soap carving cubes ASMR",
+    "kinetic sand squishing satisfying",
     "carpet cleaning foam squeegee satisfying",
-    "colored pencils sharpening sander",
+    "colored pencils sharpening macro",
     "wood turning lathe chisel shavings",
     "pottery wheel clay shaping satisfying",
-    "chocolate scraping curls marble spatula",
-    "red jelly block slicing sharp knife",
-    "honeycomb uncapping scraper golden wax",
+    "thick oil paint palette knife canvas",
+    "sand pendulum harmonograph geometric",
+    "resin lathe turning wood polishing",
+    "ice block crushing hydraulic press ASMR",
+    "laser rust removal beam metal clean",
+    "marble run wooden track kinetic",
     "wax seal stamp melting drip",
-    "spool thread slicing box cutter layers",
-    "play doh extrusion metal grid satisfying",
-    "glitter slime scoop spoon satisfying",
-    "lawn hedge trimming electric shears satisfying",
-    "glass marble rolling track kinetic",
-    "peeling silicone spiked mat ASMR",
+    "honeycomb uncapping scraper golden wax",
     "3d printing timelapse nozzle layer",
-    "thick oil paint spatula canvas sculpting",
-    "ice block crushing slow motion ASMR",
     "fluid acrylic pour art colorful cells",
-    "candle wax carving chisel ribbons",
-    "laser rust removal clean metal beam",
+    "bubble wrap popping slow motion",
+    "domino cascade chain reaction smooth",
+    "glitter slime scoop satisfying",
     "hot wire foam cutting smooth shapes",
-    "fruit slicing watermelon knife satisfying",
-    "domino cascade falling smooth curve",
-    "pottery glaze dipping colorful drip",
-    "resin sphere polishing sandpaper lathe",
-    "sand pendulum geometric drawing harmonograph",
-    "bubble wrap popping satisfying slowmo"
+    "peeling silicone spiked mat ASMR"
 ]
 # Backward-compatibility alias
 SHORTS_ASMR_TAXONOMY = SHORTS_VISUAL_TAXONOMY
 
-# Brand safety & aesthetic negative keywords (purges people, haircuts, salons, streets, buildings, latex, medical)
-BANNED_STOCK_KEYWORDS: Set[str] = {
-    # Inappropriate / latex / medical
-    "latex", "rubber", "balloon", "medical", "surgery", "condom",
-    "contraceptive", "intimate", "nude", "erotic", "blood", "flesh",
-    "hospital", "doctor", "needle", "syringe", "injection", "wound",
-    "fetish", "skin", "underwear", "bra", "lingerie",
-    # People / faces / haircuts / lifestyle (strictly banned in BrainBlud ASMR)
+# ─── TIER 1: UNIVERSAL PERMANENT BRAND SAFETY & YOUTUBE POLICY BAN ─────────────
+UNIVERSAL_BANNED_KEYWORDS: Set[str] = {
+    # Non-veg butchery / meat / slaughter / carcass
+    "meat", "butcher", "slaughter", "carcass", "slaughterhouse", "pork", "beef", "chicken",
+    "raw meat", "steak", "flesh", "blood", "bloody", "offal", "entrails",
+    # Animal abuse / cruelty
+    "animal abuse", "animal cruelty", "dog fight", "cock fight", "dead animal", "hunting kill",
+    # Adult / NSFW / fetish / contraceptive
+    "latex", "rubber", "balloon", "condom", "contraceptive", "intimate", "nude", "erotic",
+    "fetish", "underwear", "bra", "lingerie", "sex", "porn",
+    # Violence / weapons / self-harm
+    "suicide", "self-harm", "gun", "pistol", "rifle", "weapon", "shooting", "corpse",
+    # Graphic medical / surgery
+    "surgery", "operation", "wound", "syringe", "needle", "injection", "hospital surgery"
+}
+
+# ─── TIER 2: TOPATO AESTHETIC NEGATIVE KEYWORDS (PURGES FOOD & LIFESTYLE) ──────
+TOPATO_BANNED_KEYWORDS: Set[str] = {
+    # Kitchen / food preparation / cooking / vegetables / fruits
+    "kitchen", "cook", "cooking", "chef", "cutting board", "food", "vegetable", "fruit",
+    "onion", "garlic", "pepper", "lemon", "orange", "meal", "dish", "recipe", "baking", "stove", "pot", "pan", "plate",
+    # Haircuts / people / lifestyle
     "haircut", "barber", "barbershop", "hairdresser", "hairstyle", "salon", "hair", "fade", "shave", "trim",
     "graffiti", "mural", "spray paint", "wall art",
     "person", "people", "man", "woman", "girl", "boy", "kid", "child",
@@ -156,6 +162,8 @@ BANNED_STOCK_KEYWORDS: Set[str] = {
     "guitar", "instrument", "musician", "concert", "singing", "music",
     "gradient", "background", "wallpaper", "abstract", "portrait"
 }
+
+BANNED_STOCK_KEYWORDS: Set[str] = UNIVERSAL_BANNED_KEYWORDS | TOPATO_BANNED_KEYWORDS
 
 
 class StockVideoManager:
@@ -437,6 +445,12 @@ class StockVideoManager:
             chosen = hd_files[0] if hd_files else (files[0] if files else None)
 
             if chosen and chosen.get("link"):
+                # 9:16 Vertical Aspect Ratio Guard: reject horizontal or square clips for portrait
+                if orientation == "portrait":
+                    cw = chosen.get("width", 1080)
+                    ch = chosen.get("height", 1920)
+                    if cw > 0 and (ch / cw) < 1.3:
+                        continue
                 clip_url = chosen["link"]
                 # Frame-brightness inspection: reject clips that appear blank/black
                 if not _check_frame_brightness(clip_url):
@@ -494,6 +508,12 @@ class StockVideoManager:
             vids = hit.get("videos", {})
             target = vids.get("large") or vids.get("medium") or vids.get("small")
             if target and target.get("url"):
+                # 9:16 Vertical Aspect Ratio Guard: reject horizontal or square clips for portrait
+                if orientation == "portrait":
+                    tw = target.get("width", 1080)
+                    th = target.get("height", 1920)
+                    if tw > 0 and (th / tw) < 1.3:
+                        continue
                 clip_url = target["url"]
                 # Frame-brightness inspection: reject clips that appear blank/black
                 if not _check_frame_brightness(clip_url):
@@ -541,7 +561,7 @@ class StockVideoManager:
 
 
 def run_clips_stage() -> None:
-    """Executes Stage 2: 🎬 Clip Generation with 3-Layer Anti-Duplication."""
+    """Executes Stage 2: 🎬 Clip Generation with Vault Blending and 3-Layer Anti-Duplication."""
     spec_path = os.path.join("output", "spec.json")
     if not os.path.exists(spec_path):
         raise FileNotFoundError(f"Spec file not found at '{spec_path}'. Run Stage 1 first.")
@@ -554,27 +574,63 @@ def run_clips_stage() -> None:
     manifest_clips = []
     used_in_current_run: Set[str] = set()
 
+    # Load visual settings from channel_config.yaml
+    full_channel_cfg = {}
+    try:
+        import yaml as _yaml
+        with open("config/channel_config.yaml", "r", encoding="utf-8") as _f:
+            full_channel_cfg = _yaml.safe_load(_f) or {}
+    except Exception:
+        pass
+    visual_cfg = full_channel_cfg.get("visual_settings", {})
+    vault_blend_count = max(0, min(len(spec.scenes), visual_cfg.get("vault_blend_count", 3)))
+
+    # Determine anchor scene indices to blend local vault clips (hook, midpoint, loop)
+    vault_indices: Set[int] = set()
+    if spec.video_type == "short" and vault_blend_count > 0:
+        num_s = len(spec.scenes)
+        if vault_blend_count == 1:
+            vault_indices = {0}
+        elif vault_blend_count == 2:
+            vault_indices = {0, num_s - 1}
+        else:
+            vault_indices = {0, num_s // 2, num_s - 1}
+            step = max(1, num_s // vault_blend_count)
+            for i in range(0, num_s, step):
+                if len(vault_indices) < vault_blend_count:
+                    vault_indices.add(i)
+
     with StageTimer(PikaStage.CLIPS, topic=spec.topic):
-        print(f"🎬 [CLIPS] Sourcing stock videos for {len(spec.scenes)} scenes ({orientation})...", flush=True)
+        print(f"🎬 [CLIPS] Sourcing stock videos for {len(spec.scenes)} scenes ({orientation}, blending {len(vault_indices)} vault assets)...", flush=True)
 
         for idx, scene in enumerate(spec.scenes):
-            # For Shorts: Use the randomized ASMR & kinetic visual query assigned to this scene
-            if spec.video_type == "short":
-                query = scene.stock_video_query or random.choice(SHORTS_VISUAL_TAXONOMY)
-            else:
-                query = scene.stock_video_query or "documentary cinematic background"
+            clip = None
+            query = scene.stock_video_query or (random.choice(SHORTS_VISUAL_TAXONOMY) if spec.video_type == "short" else "documentary cinematic background")
 
-            print(f"🔍 [CLIPS] Scene {scene.scene_id}: Querying '{query}' (excluded: {len(used_in_current_run)} clips)...", flush=True)
-            
-            clip = stock_mgr.search_video(
-                query,
-                orientation=orientation,
-                min_duration=scene.duration_seconds,
-                exclude_ids=used_in_current_run
-            )
+            # 1. Local Vault Blending for anchor scenes
+            if idx in vault_indices:
+                clip = stock_mgr.get_local_fallback(
+                    query=query,
+                    orientation=orientation,
+                    min_duration=scene.duration_seconds or 4.0,
+                    exclude_ids=used_in_current_run
+                )
+                if clip:
+                    print(f"💎 [VAULT BLEND] Scene {scene.scene_id}: Blended curated local clip '{clip.video_id}'", flush=True)
+
+            # 2. Online search if not a vault-blended scene or vault returned None
+            if not clip:
+                print(f"🔍 [CLIPS] Scene {scene.scene_id}: Querying '{query}' (excluded: {len(used_in_current_run)} clips)...", flush=True)
+                clip = stock_mgr.search_video(
+                    query,
+                    orientation=orientation,
+                    min_duration=scene.duration_seconds,
+                    exclude_ids=used_in_current_run
+                )
+
             # Resilient fallback if specific query had 0 results
             if not clip and spec.video_type == "short":
-                for fb_query in ["satisfying asmr", "kinetic sand slicing", "soap carving"]:
+                for fb_query in ["soap carving cubes", "kinetic sand squishing", "resin lathe turning"]:
                     clip = stock_mgr.search_video(
                         fb_query,
                         orientation=orientation,

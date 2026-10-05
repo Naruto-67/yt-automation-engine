@@ -981,6 +981,160 @@ def test_apply_prompt_rules_virality_and_extra():
     assert "in conclusion" in sys_p
 
 
+def test_are_thoughts_similar_fuzzy():
+    """Verifies that are_thoughts_similar flags near-duplicate sentences with 1-word differences."""
+    from engine.managers.pipeline_runner import are_thoughts_similar
+
+    # Exact same sentence with and without 'just'
+    s1 = "Your shadow is proof that light traveled ninety-three million miles just to be blocked by you."
+    s2 = "Your shadow is proof that light traveled ninety-three million miles to be blocked by you."
+    assert are_thoughts_similar(s1, s2, threshold=0.45) is True
+
+    # Punctuation variations
+    s3 = "If you replace every single part of an axe, is it still the exact same axe???"
+    s4 = "If you replace every single part of an axe is it still the exact same axe."
+    assert are_thoughts_similar(s3, s4, threshold=0.45) is True
+
+    # Completely different sentences
+    s5 = "The only part of your reflection you can lick is your tongue."
+    s6 = "Clapping is just repeatedly slapping yourself because you enjoyed something."
+    assert are_thoughts_similar(s5, s6, threshold=0.45) is False
 
 
+def test_universal_banned_safety_filter():
+    """Verifies that universal brand-safety filter blocks animal cruelty, meat, butchery, and NSFW."""
+    from engine.managers.stock_video_manager import StockVideoManager
+
+    # Should reject meat/slaughter/animal abuse
+    assert StockVideoManager.is_safe_clip("raw butcher beef steak cutting") is False
+    assert StockVideoManager.is_safe_clip("animal abuse dog fight cruelty") is False
+    assert StockVideoManager.is_safe_clip("hospital surgery blood open wound") is False
+    assert StockVideoManager.is_safe_clip("erotic intimate underwear lingerie") is False
+
+    # Should accept clean satisfying craft ASMR
+    assert StockVideoManager.is_safe_clip("kinetic sand squishing satisfying macro") is True
+    assert StockVideoManager.is_safe_clip("pottery wheel clay shaping smooth") is True
+
+
+def test_topato_channel_banned_filter():
+    """Verifies that Topato negative filters block kitchen/cooking/food and haircuts."""
+    from engine.managers.stock_video_manager import StockVideoManager
+
+    # Should reject food / kitchen prep
+    assert StockVideoManager.is_safe_clip("chef slicing lemon on cutting board") is False
+    assert StockVideoManager.is_safe_clip("kitchen cooking vegetable onion pan") is False
+    assert StockVideoManager.is_safe_clip("barber haircut fade salon trimmer") is False
+    assert StockVideoManager.is_safe_clip("busy city street traffic car road") is False
+
+
+def test_trailing_whisper_hallucination_prune():
+    """Verifies that slice_words_by_scenes trims trailing phantom tokens on the loop scene."""
+    from engine.managers.caption_aligner import CaptionAligner
+    from engine.models import WordTimestamp
+
+    raw_scenes = [
+        {"scene_id": 1, "spoken_text": "The only part of your reflection you can lick is your tongue."},
+        {"scene_id": 2, "spoken_text": "Which is why you should never overthink these..."}
+    ]
+
+    # Transcribed words has trailing phantom token 'ease' after 'these'
+    word_timestamps = [
+        WordTimestamp(word="The", start=0.0, end=0.1),
+        WordTimestamp(word="only", start=0.1, end=0.3),
+        WordTimestamp(word="part", start=0.3, end=0.5),
+        WordTimestamp(word="of", start=0.5, end=0.6),
+        WordTimestamp(word="your", start=0.6, end=0.7),
+        WordTimestamp(word="reflection", start=0.7, end=1.0),
+        WordTimestamp(word="you", start=1.0, end=1.2),
+        WordTimestamp(word="can", start=1.2, end=1.3),
+        WordTimestamp(word="lick", start=1.3, end=1.5),
+        WordTimestamp(word="is", start=1.5, end=1.6),
+        WordTimestamp(word="your", start=1.6, end=1.7),
+        WordTimestamp(word="tongue", start=1.7, end=2.0),
+        # Scene 2 words:
+        WordTimestamp(word="Which", start=2.2, end=2.4),
+        WordTimestamp(word="is", start=2.4, end=2.5),
+        WordTimestamp(word="why", start=2.5, end=2.7),
+        WordTimestamp(word="you", start=2.7, end=2.8),
+        WordTimestamp(word="should", start=2.8, end=3.0),
+        WordTimestamp(word="never", start=3.0, end=3.2),
+        WordTimestamp(word="overthink", start=3.2, end=3.5),
+        WordTimestamp(word="these", start=3.5, end=3.8),
+        # Phantom hallucination token:
+        WordTimestamp(word="ease", start=3.85, end=4.0)
+    ]
+
+    slices = CaptionAligner.slice_words_by_scenes(word_timestamps, raw_scenes)
+    assert len(slices) == 2
+    scene_2_words = [wt.word for wt in slices[1]]
+    # Suffix guard should have pruned 'ease'
+    assert "ease" not in scene_2_words
+    assert scene_2_words[-1] == "these"
+
+
+def test_community_post_generation():
+    """Verifies YouTubeManager generates a subscriber poll and pinned comment."""
+    import sys
+    from unittest.mock import MagicMock
+    for mod in ["google", "google.oauth2", "google.oauth2.credentials",
+                "googleapiclient", "googleapiclient.discovery", "googleapiclient.http"]:
+        if mod not in sys.modules:
+            sys.modules[mod] = MagicMock()
+
+    from engine.managers.youtube_manager import YouTubeManager
+
+    post = YouTubeManager.generate_community_post(
+        topic="Creepy shower thoughts",
+        hook="The only part of your reflection you can lick is your tongue."
+    )
+    assert "pinned_comment" in post
+    assert "community_post" in post
+    assert "reflection" in post["community_post"]
+
+
+def test_vault_blend_indices():
+    """Verifies that vault blending designates anchor indices (0, mid, last) for a 12-scene short."""
+    num_scenes = 12
+    vault_blend_count = 3
+
+    vault_indices = set()
+    if vault_blend_count == 1:
+        vault_indices = {0}
+    elif vault_blend_count == 2:
+        vault_indices = {0, num_scenes - 1}
+    else:
+        vault_indices = {0, num_scenes // 2, num_scenes - 1}
+        step = max(1, num_scenes // vault_blend_count)
+        for i in range(0, num_scenes, step):
+            if len(vault_indices) < vault_blend_count:
+                vault_indices.add(i)
+
+    assert 0 in vault_indices
+    assert (num_scenes - 1) in vault_indices
+    assert len(vault_indices) == 3
+
+
+def test_optimal_publish_hour_learning(tmp_path, monkeypatch):
+    """Verifies YouTubeManager reads learned best publish hour from channel_performance.json."""
+    import sys
+    import json
+    from unittest.mock import MagicMock
+    for mod in ["google", "google.oauth2", "google.oauth2.credentials",
+                "googleapiclient", "googleapiclient.discovery", "googleapiclient.http"]:
+        if mod not in sys.modules:
+            sys.modules[mod] = MagicMock()
+
+    from engine.managers.youtube_manager import YouTubeManager
+
+    perf_file = tmp_path / "channel_performance.json"
+    perf_file.write_text(json.dumps({"best_publish_hour": 20}), encoding="utf-8")
+
+    # Point os.path.join("memory", "channel_performance.json") to temp file
+    monkeypatch.setattr(
+        "engine.managers.youtube_manager.os.path.join",
+        lambda *args: str(perf_file) if "channel_performance.json" in args else "/".join(args)
+    )
+
+    hour = YouTubeManager.get_optimal_publish_hour()
+    assert hour == 20
 

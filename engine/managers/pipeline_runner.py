@@ -65,7 +65,7 @@ def _is_duplicate(line: str, cache_cfg: Dict[str, Any]) -> bool:
 def _add_to_cache(line: str, cache_cfg: Dict[str, Any]) -> None:
     """Append hash of *line* and evict oldest entries beyond max_entries."""
     lh = _hash_line(line)
-    now_iso = datetime.datetime.utcnow().isoformat()
+    now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
     entries: List[Dict] = cache_cfg.setdefault("entries", [])
     # Don't double-register an entry from the same run
     if not any(e.get("hash") == lh for e in entries):
@@ -75,14 +75,42 @@ def _add_to_cache(line: str, cache_cfg: Dict[str, Any]) -> None:
         cache_cfg["entries"] = entries[-max_sz:]
 
 
+# ─── FUZZY SEMANTIC DEDUPLICATION (JACCARD) ───────────────────────────────────
+
+def are_thoughts_similar(text_a: str, text_b: str, threshold: float = 0.45) -> bool:
+    """
+    Calculates Jaccard similarity of content words between two sentences.
+    Catches 1-word differences (e.g. 'just to be blocked by you' vs 'to be blocked by you')
+    and minor punctuation/case variations.
+    """
+    stopwords = {
+        "a", "an", "the", "is", "are", "was", "were", "it", "to", "for", "of",
+        "in", "on", "at", "by", "that", "this", "you", "your", "just", "so",
+        "be", "with", "and", "or", "as", "if", "its", "then", "from"
+    }
+    words_a = {w for w in re.findall(r"\b\w+\b", text_a.lower()) if w not in stopwords}
+    words_b = {w for w in re.findall(r"\b\w+\b", text_b.lower()) if w not in stopwords}
+    if not words_a or not words_b:
+        return False
+    return (len(words_a & words_b) / len(words_a | words_b)) >= threshold
+
+
+# ─── YOUTUBE POLICY SAFETY WORD GATE ──────────────────────────────────────────
+
+YOUTUBE_POLICY_BANNED_WORDS = {
+    "suicide", "kill yourself", "slaughter", "murder", "terrorist", "nazi",
+    "rape", "pedophile", "child abuse", "behead", "massacre"
+}
+
+
 # ─── PROMPT RULES HELPER ──────────────────────────────────────────────────────
 
 def apply_prompt_rules(system_prompt: str, user_prompt: str, channel_cfg: Dict[str, Any]) -> tuple:
     """
     Augments the generated prompts with any channel-specific rules from channel_config.yaml.
-    Returns (system_prompt, user_prompt) – both may be unchanged if no rules are set.
+    Supports both prompt_settings and legacy prompt_rules sections.
     """
-    rules = channel_cfg.get("prompt_rules", {})
+    rules = channel_cfg.get("prompt_settings", channel_cfg.get("prompt_rules", {}))
 
     # 1. Enforce virality reminder
     if rules.get("enforce_virality", True):
@@ -178,12 +206,38 @@ def run_spec_stage(video_type: str = "short") -> None:
         print(f"🎯 [SPEC] Topic: '{topic}' (Source: {source}, Format: {sub_format}, Type: {video_type})")
 
         # 2. Generate Script
-        system_prompt = script_cfg["system_prompt"] + "\n\n" + script_cfg["constitution"] + "\n\n" + script_cfg.get("few_shot_exemplars", "")
+        system_prompt = script_cfg["system_prompt"]
+        if "constitution" in script_cfg:
+            system_prompt += "\n\n" + script_cfg["constitution"]
+        if "few_shot_exemplars" in script_cfg:
+            system_prompt += "\n\n" + script_cfg["few_shot_exemplars"]
+
+        # Load performance insights from memory/channel_performance.json if available
+        perf_insight = ""
+        perf_path = os.path.join("memory", "channel_performance.json")
+        if os.path.exists(perf_path):
+            try:
+                with open(perf_path, "r", encoding="utf-8") as f:
+                    perf_data = json.load(f)
+                top_topic = perf_data.get("top_topic", "")
+                if top_topic:
+                    perf_insight = f"AUDIENCE RETENTION INSIGHT: Prioritize cognitive glitch angles similar to high-performing theme: '{top_topic}'."
+            except Exception:
+                pass
+
+        prompt_settings = full_channel_cfg.get("prompt_settings", full_channel_cfg.get("prompt_rules", {}))
+        channel_premise = prompt_settings.get("channel_premise", "Mind-bending shower thoughts, psychological paradoxes, and reality-breaking cognitive glitches.")
+        extra_instructions = prompt_settings.get("extra_instructions", "")
+
         user_prompt = script_cfg["user_template"].format(
+            channel_name=channel_cfg.get("name", "TOPATO"),
             niche=channel_cfg.get("niche", "shower_thoughts"),
             topic=topic,
             sub_format=sub_format,
-            target_duration=target_duration
+            target_duration=target_duration,
+            channel_premise=channel_premise,
+            extra_instructions=extra_instructions,
+            performance_insight=perf_insight
         )
 
         # Inject channel-specific prompt rules (virality enforcement, banned phrases, extra instructions)
@@ -196,13 +250,19 @@ def run_spec_stage(video_type: str = "short") -> None:
             if not isinstance(data, dict):
                 return False
             scenes = data.get("scenes", [])
-            if not isinstance(scenes, list) or len(scenes) < 6:
+            if not isinstance(scenes, list) or len(scenes) < 10:
                 return False
             valid_scenes = [sc for sc in scenes if isinstance(sc, dict) and bool(sc.get("spoken_text", "").strip())]
-            if len(valid_scenes) < 6:
+            if len(valid_scenes) < 10:
                 return False
+            # YouTube policy safety gate: reject if script contains banned policy words
+            for sc in valid_scenes:
+                txt = sc.get("spoken_text", "").lower()
+                if any(bad in txt for bad in YOUTUBE_POLICY_BANNED_WORDS):
+                    print(f"⚠️ [POLICY GATE] Script contains YouTube policy flagged term. Cascading...", flush=True)
+                    return False
             words = sum(len(sc.get("spoken_text", "").split()) for sc in valid_scenes)
-            return 80 <= words <= 190
+            return 125 <= words <= 175
 
         validator = validate_short_script if (video_type == "short" and not os.environ.get("PYTEST_CURRENT_TEST")) else None
         script_data = llm.generate_json(system_prompt, user_prompt, temperature=0.7, validator=validator)
@@ -234,56 +294,68 @@ def run_spec_stage(video_type: str = "short") -> None:
                     sc["scene_id"] = i + 1
                 total_words = sum(len(s.get("spoken_text", "").split()) for s in raw_scenes)
 
+            FALLBACK_THOUGHTS = prompt_settings.get("fallback_thoughts", [
+                "Your shadow is proof that light traveled ninety-three million miles to be blocked by you.",
+                "If you replace every single part of an axe, is it still the exact same axe?",
+                "You have never actually seen your own face, only reflections, screens, and photographs.",
+                "Sleeping is just charging your biological battery, while dreaming is running a diagnostics test.",
+                "Nothing is ever on fire. Fire is actually on things.",
+                "Clapping is just repeatedly slapping yourself because you enjoyed something.",
+                "Your age is just the number of laps you survived around a giant nuclear fireball.",
+                "If poison expires, does it become more poisonous, or less poisonous?",
+                "The brain named itself, recognized itself, and is now realizing that exact fact.",
+                "Every book you have ever read is just twenty-six letters arranged in different orders.",
+                "Water can boil and freeze at the exact same instant under specific pressure.",
+                "You can never hold an empty container because it is always completely full of air."
+            ])
+
             if len(raw_scenes) < 11 or total_words < 135:
                 print(f"⚠️ [SPEC] Script below target word budget ({len(raw_scenes)} scenes, {total_words} words). Expanding with verified viral thoughts...", flush=True)
-                FALLBACK_THOUGHTS = [
-                    "Your shadow is proof that light traveled ninety-three million miles to be blocked by you.",
-                    "If you replace every single part of an axe, is it still the exact same axe?",
-                    "You have never actually seen your own face, only reflections, screens, and photographs.",
-                    "Sleeping is just charging your biological battery, while dreaming is running a diagnostics test.",
-                    "Nothing is ever on fire. Fire is actually on things.",
-                    "Clapping is just repeatedly slapping yourself because you enjoyed something.",
-                    "Your age is just the number of laps you survived around a giant nuclear fireball.",
-                    "If poison expires, does it become more poisonous, or less poisonous?",
-                    "The brain named itself, recognized itself, and is now realizing that exact fact.",
-                    "Every book you have ever read is just twenty-six letters arranged in different orders.",
-                    "Why your future self is watching you right now through the lens of your memories.",
-                    "Water can boil and freeze at the exact same instant under specific pressure.",
-                    "You can never hold an empty container because it is always completely full of air.",
-                    "The voice inside your head never has to take a physical breath while talking."
-                ]
-                
-                # If LLM returned only 1 broken scene (like "Here."), synthesize a proper hook
+
+                default_hook = prompt_settings.get("default_hook", "The only part of your reflection you can lick is your tongue.")
+                default_loop = prompt_settings.get("default_loop", "Which is why you should never overthink these...")
+
                 if len(raw_scenes) <= 1 or total_words < 30:
                     raw_scenes = [{
                         "scene_id": 1,
-                        "spoken_text": "The only part of your reflection you can lick is your tongue.",
-                        "stock_video_query": "soap cutting grid razor ASMR"
+                        "spoken_text": default_hook,
+                        "stock_video_query": "soap carving cubes ASMR"
                     }]
 
                 loop_scene = raw_scenes[-1] if len(raw_scenes) > 1 and "overthink" in raw_scenes[-1].get("spoken_text", "").lower() else {
                     "scene_id": 12,
-                    "spoken_text": "Which is why you should never overthink these...",
+                    "spoken_text": default_loop,
                     "stock_video_query": "spiral optical illusion hypnotic"
                 }
-                
+
                 mid_scenes = [raw_scenes[0]]
                 for sc in raw_scenes[1:-1]:
                     mid_scenes.append(sc)
-                
-                existing_texts = {s.get("spoken_text", "").lower() for s in mid_scenes}
-                
+
+                # Fuzzy deduplication: avoid adding thoughts similar to existing ones
                 for fb in FALLBACK_THOUGHTS:
-                    if fb.lower() not in existing_texts:
-                        mid_scenes.append({"scene_id": len(mid_scenes) + 1, "spoken_text": fb, "stock_video_query": "soap cutting grid razor ASMR"})
-                        existing_texts.add(fb.lower())
+                    if not any(are_thoughts_similar(fb, s.get("spoken_text", "")) for s in mid_scenes):
+                        mid_scenes.append({"scene_id": len(mid_scenes) + 1, "spoken_text": fb, "stock_video_query": "soap carving cubes ASMR"})
                     if len(mid_scenes) >= 11 and sum(len(s.get("spoken_text", "").split()) for s in mid_scenes) >= 140:
                         break
-                
+
                 mid_scenes.append(loop_scene)
                 raw_scenes = mid_scenes
                 for i, sc in enumerate(raw_scenes):
                     sc["scene_id"] = i + 1
+
+            # Intra-Script Deduplication: verify no two scenes in raw_scenes are duplicates
+            deduped_scenes = []
+            for s in raw_scenes:
+                is_duplicate = any(are_thoughts_similar(s.get("spoken_text", ""), prev.get("spoken_text", "")) for prev in deduped_scenes)
+                if is_duplicate and s != raw_scenes[-1] and s != raw_scenes[0]:
+                    print(f"♻️ [INTRA-DEDUP] Duplicate thought in script: '{s.get('spoken_text', '')[:40]}...'. Replacing with fresh thought.", flush=True)
+                    for fb in FALLBACK_THOUGHTS:
+                        if not any(are_thoughts_similar(fb, x.get("spoken_text", "")) for x in deduped_scenes + raw_scenes):
+                            s["spoken_text"] = fb
+                            break
+                deduped_scenes.append(s)
+            raw_scenes = deduped_scenes
 
         # Seamless circular loop for Shorts: Ensure final scene ends with continuation ellipsis '...'
         if video_type == "short" and raw_scenes:
@@ -406,13 +478,14 @@ def run_spec_stage(video_type: str = "short") -> None:
                     scene_word_slices = CaptionAligner.slice_words_by_scenes(word_timestamps, raw_scenes)
 
         num_scenes = len(raw_scenes)
-        # Sample unique visual queries for this video from the expanded taxonomy
+        # Sample unique visual queries for this video from the channel taxonomy
         from engine.managers.stock_video_manager import SHORTS_VISUAL_TAXONOMY
+        visual_tax = full_channel_cfg.get("visual_settings", {}).get("visual_taxonomy", SHORTS_VISUAL_TAXONOMY)
         if video_type == "short":
-            if len(SHORTS_VISUAL_TAXONOMY) >= num_scenes:
-                sampled_queries = random.sample(SHORTS_VISUAL_TAXONOMY, num_scenes)
+            if len(visual_tax) >= num_scenes:
+                sampled_queries = random.sample(visual_tax, num_scenes)
             else:
-                sampled_queries = (SHORTS_VISUAL_TAXONOMY * ((num_scenes // len(SHORTS_VISUAL_TAXONOMY)) + 1))[:num_scenes]
+                sampled_queries = (visual_tax * ((num_scenes // len(visual_tax)) + 1))[:num_scenes]
                 random.shuffle(sampled_queries)
         else:
             sampled_queries = [s.get("stock_video_query", "cinematic abstract background") for s in raw_scenes]
@@ -485,13 +558,19 @@ def run_spec_stage(video_type: str = "short") -> None:
             word_timestamps=word_timestamps
         )
 
+        spec_dict = spec.model_dump() if hasattr(spec, "model_dump") else spec.dict()
+        if full_channel_cfg.get("upload_settings", {}).get("generate_community_post", True):
+            try:
+                from engine.managers.youtube_manager import YouTubeManager
+                hook_txt = scenes_spec[0].spoken_text if scenes_spec else ""
+                spec_dict["community_engagement"] = YouTubeManager.generate_community_post(topic, hook_txt)
+            except Exception as e:
+                print(f"⚠️ [COMMUNITY] Failed to generate community post: {e}", flush=True)
+
         os.makedirs("output", exist_ok=True)
         spec_path = os.path.join("output", "spec.json")
         with open(spec_path, "w", encoding="utf-8") as f:
-            if hasattr(spec, "model_dump_json"):
-                f.write(spec.model_dump_json(indent=2))
-            else:
-                f.write(json.dumps(spec.model_dump() if hasattr(spec, "model_dump") else spec.dict(), indent=2))
+            f.write(json.dumps(spec_dict, indent=2))
 
         print(f"📦 [SPEC] Saved spec artifact to '{spec_path}' ({len(scenes_spec)} scenes, {total_duration:.1f}s)")
 
