@@ -389,7 +389,8 @@ class LLMManager:
             return resp.text
 
         # Error response
-        err_msg = f"HTTP {resp.status_code}: {resp.text}"
+        clean_text = re.sub(r'https?://\S+', '[link]', str(resp.text))
+        err_msg = f"HTTP {resp.status_code}: {clean_text}"
         raise RuntimeError(f"Provider {provider['name']} ({model_name}) error: {err_msg}")
 
     # Backward compatibility helper methods
