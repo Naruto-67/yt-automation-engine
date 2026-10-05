@@ -37,6 +37,12 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+      - name: Organic Trigger Jitter
+        if: github.event_name == 'schedule'
+        run: |
+          JITTER=$((RANDOM % 300))
+          echo "🎲 Organic trigger jitter: waiting ${JITTER}s before pipeline initiation..."
+          sleep $JITTER
       - name: Install System Audio & TTS Dependencies
         run: |
           sudo apt-get update -qq

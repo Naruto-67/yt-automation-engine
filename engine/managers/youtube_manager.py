@@ -11,9 +11,9 @@ import time
 import random
 import shutil
 import pathlib
-import datetime
 import subprocess
-from datetime import datetime as dt, timezone, timedelta
+from datetime import datetime, timezone, timedelta, date
+dt = datetime
 from typing import Optional, Dict, Any, List
 
 try:
@@ -51,7 +51,7 @@ def _load_trend_terms(window_days: int = 1) -> List[str]:
     trend_path = pathlib.Path("data") / "yt_trends.csv"
     if not trend_path.is_file():
         return []
-    cutoff = datetime.date.today() - datetime.timedelta(days=window_days)
+    cutoff = date.today() - timedelta(days=window_days)
     counts: Dict[str, int] = {}
     try:
         with trend_path.open(encoding="utf-8") as f:
@@ -61,7 +61,7 @@ def _load_trend_terms(window_days: int = 1) -> List[str]:
                     continue
                 term, _, date_str = parts[0], parts[1], parts[2]
                 try:
-                    if datetime.date.fromisoformat(date_str) >= cutoff:
+                    if date.fromisoformat(date_str) >= cutoff:
                         counts[term] = counts.get(term, 0) + 1
                 except ValueError:
                     continue
@@ -390,11 +390,13 @@ class YouTubeManager:
         peak_hour = self.get_optimal_publish_hour()
         # Target daily peak window: adaptive peak_hour UTC
         target_day = now.date()
-        # If it's already past 16:00 UTC, schedule for tomorrow
-        if now.hour >= 16:
-            target_day += timedelta(days=1)
+        # Add organic minute jitter (e.g. 18:24 or 18:41 UTC instead of fixed :00)
+        jitter_minute = random.randint(10, 50)
+        candidate_time = datetime(target_day.year, target_day.month, target_day.day, peak_hour, jitter_minute, 0, tzinfo=timezone.utc)
 
-        candidate_time = datetime(target_day.year, target_day.month, target_day.day, peak_hour, 0, 0, tzinfo=timezone.utc)
+        # Enforce that scheduled time is always strictly at least 1 hour in the future
+        while candidate_time <= now + timedelta(hours=1):
+            candidate_time += timedelta(days=1)
 
         if is_test_mode() or youtube is None:
             return candidate_time.strftime("%Y-%m-%dT%H:%M:%SZ")

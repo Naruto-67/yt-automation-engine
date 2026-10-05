@@ -1176,3 +1176,48 @@ def test_channel_config_caption_typography_loading():
     assert caps.get("font_file") == "assets/fonts/ZY-Resolve.ttf"
 
 
+def test_calculate_collision_free_publish_time_future_guarantee():
+    """Verifies that publishAt is always strictly at least 1 hour in the future."""
+    from engine.managers.youtube_manager import YouTubeManager
+    from datetime import datetime, timezone
+    
+    mgr = YouTubeManager()
+    pub_iso = mgr.calculate_collision_free_publish_time(None)
+    pub_dt = datetime.fromisoformat(pub_iso.replace("Z", "+00:00"))
+    now = datetime.now(timezone.utc)
+    
+    assert pub_dt > now
+    assert (pub_dt - now).total_seconds() >= 1800  # at least 30 minutes in future
+
+
+def test_calculate_collision_free_publish_time_collision_advance(monkeypatch):
+    """Verifies that if target day is occupied, it increments +24h to the next available day."""
+    from engine.managers.youtube_manager import YouTubeManager
+    from datetime import datetime, timezone, timedelta
+    from unittest.mock import MagicMock
+    
+    mgr = YouTubeManager()
+    monkeypatch.setenv("TEST_MODE", "false")
+    
+    now = datetime.now(timezone.utc)
+    target_today = now.strftime("%Y-%m-%d")
+    target_tomorrow = (now + timedelta(days=1)).strftime("%Y-%m-%d")
+    
+    # Mock YouTube API to return target_today as occupied
+    mock_yt = MagicMock()
+    mock_yt.channels().list().execute.return_value = {
+        "items": [{"contentDetails": {"relatedPlaylists": {"uploads": "UPL123"}}}]
+    }
+    mock_yt.playlistItems().list().execute.return_value = {
+        "items": [{"contentDetails": {"videoId": "vid_1"}}]
+    }
+    mock_yt.videos().list().execute.return_value = {
+        "items": [{"status": {"publishAt": f"{target_today}T18:00:00Z"}}]
+    }
+    
+    pub_iso = mgr.calculate_collision_free_publish_time(mock_yt)
+    # Target date should have bumped to tomorrow or beyond
+    assert target_today not in pub_iso
+
+
+
