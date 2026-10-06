@@ -45,6 +45,7 @@ def _save_yaml(path: str, data: Dict[str, Any]) -> None:
 # ─── THOUGHT CACHE HELPERS ────────────────────────────────────────────────────
 
 _CHANNEL_CONFIG_PATH = "config/channel_config.yaml"
+_MEMORY_THOUGHT_CACHE_PATH = os.path.join("memory", "thought_cache.json")
 
 
 def _hash_line(line: str) -> str:
@@ -54,7 +55,19 @@ def _hash_line(line: str) -> str:
 
 
 def _load_thought_cache(cfg: Dict[str, Any]) -> Dict[str, Any]:
-    return cfg.setdefault("thought_cache", {"max_entries": 200, "entries": []})
+    cache = cfg.setdefault("thought_cache", {"max_entries": 200, "entries": []})
+    if os.path.exists(_MEMORY_THOUGHT_CACHE_PATH):
+        try:
+            with open(_MEMORY_THOUGHT_CACHE_PATH, "r", encoding="utf-8") as f:
+                mem_cache = json.load(f)
+            existing_hashes = {e.get("hash") for e in cache.get("entries", [])}
+            for e in mem_cache.get("entries", []):
+                if e.get("hash") not in existing_hashes:
+                    cache["entries"].append(e)
+                    existing_hashes.add(e.get("hash"))
+        except Exception:
+            pass
+    return cache
 
 
 def _is_duplicate(line: str, cache_cfg: Dict[str, Any]) -> bool:
@@ -401,6 +414,12 @@ def run_spec_stage(video_type: str = "short") -> None:
             # Register all final lines in cache and persist
             for scene in raw_scenes:
                 _add_to_cache(scene.get("spoken_text", ""), thought_cfg)
+            try:
+                os.makedirs("memory", exist_ok=True)
+                with open(_MEMORY_THOUGHT_CACHE_PATH, "w", encoding="utf-8") as f:
+                    json.dump(thought_cfg, f, indent=2)
+            except Exception as e:
+                print(f"⚠️  [THOUGHT CACHE] Could not persist cache to memory: {e}", flush=True)
             try:
                 _save_yaml(_CHANNEL_CONFIG_PATH, full_channel_cfg)
             except Exception as e:
