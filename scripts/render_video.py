@@ -709,3 +709,18 @@ def run_editor_stage() -> None:
             channel_cfg=channel_cfg,
             settings_cfg=settings_cfg
         )
+
+        # Extract high-contrast thumbnail immediately while ffmpeg is active
+        try:
+            from engine.managers.youtube_manager import extract_thumbnail
+            thumb_strategy = full_cfg.get("upload_settings", {}).get("thumbnail_strategy", "hook_frame")
+            thumb_custom = full_cfg.get("upload_settings", {}).get("thumbnail_custom_path", "")
+            thumb_extracted = extract_thumbnail(output_render, strategy=thumb_strategy, custom_path=thumb_custom)
+            if thumb_extracted and os.path.exists(thumb_extracted):
+                print(f"🖼️  [THUMBNAIL] Generated thumbnail at render time: {thumb_extracted}", flush=True)
+                generic_thumb = os.path.join("output", "thumbnail.jpg")
+                if thumb_extracted != generic_thumb:
+                    import shutil
+                    shutil.copyfile(thumb_extracted, generic_thumb)
+        except Exception as e:
+            print(f"⚠️ [THUMBNAIL] Render-time thumbnail extraction skipped: {e}", flush=True)

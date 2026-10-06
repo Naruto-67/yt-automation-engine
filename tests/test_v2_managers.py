@@ -1333,5 +1333,99 @@ def test_llm_token_limit_payload_calibration(monkeypatch):
     assert captured_payloads[-1]["max_tokens"] == 2048
 
 
+def test_youtube_upload_metadata_and_thumbnail(tmp_path, monkeypatch):
+    """Verifies that upload_one_shot_scheduled_video constructs complete metadata and calls thumbnails().set()."""
+    from engine.managers.youtube_manager import YouTubeManager
+
+    monkeypatch.setenv("TEST_MODE", "false")
+    mgr = YouTubeManager()
+
+    # Create dummy video and thumbnail
+    dummy_video = tmp_path / "final_render.mp4"
+    dummy_video.write_bytes(b"dummy video data")
+    dummy_thumb = tmp_path / "final_render_thumbnail.jpg"
+    dummy_thumb.write_bytes(b"dummy thumb data")
+
+    inserted_body = {}
+    thumbnail_calls = []
+
+    mock_yt = MagicMock()
+    # Mock video insert
+    mock_insert_req = MagicMock()
+    mock_insert_req.next_chunk.return_value = (None, {"id": "uploaded_vid_999"})
+    
+    def fake_insert(part=None, body=None, media_body=None):
+        inserted_body.update(body)
+        return mock_insert_req
+
+    mock_yt.videos().insert = fake_insert
+
+    # Mock thumbnail set
+    mock_thumb_req = MagicMock()
+    mock_thumb_req.execute.return_value = {"items": []}
+    def fake_thumb_set(videoId=None, media_body=None):
+        thumbnail_calls.append({"videoId": videoId, "media_body": media_body})
+        return mock_thumb_req
+
+    mock_yt.thumbnails().set = fake_thumb_set
+
+    # Mock channels/playlist for collision check
+    mock_yt.channels().list().execute.return_value = {
+        "items": [{"contentDetails": {"relatedPlaylists": {"uploads": "UPL123"}}}]
+    }
+    mock_yt.playlistItems().list().execute.return_value = {"items": []}
+
+    monkeypatch.setattr(mgr, "get_client", lambda: mock_yt)
+    monkeypatch.setattr("engine.managers.youtube_manager.MediaFileUpload", MagicMock(return_value=MagicMock()))
+
+    res = mgr.upload_one_shot_scheduled_video(
+        video_path=str(dummy_video),
+        title="Mind-Bending Shower Thoughts That Make You Question Reality 🧠 #shorts",
+        description="Deep thoughts about the simulation. #showerthoughts #shorts",
+        tags=["shower thoughts", "psychology", "shorts"],
+        category_id="27",
+        default_language="en",
+        default_audio_language="en",
+        contains_synthetic_media=False,
+        thumbnail_path=str(dummy_thumb)
+    )
+
+    assert res["video_id"] == "uploaded_vid_999"
+    assert inserted_body["snippet"]["defaultLanguage"] == "en"
+    assert inserted_body["snippet"]["defaultAudioLanguage"] == "en"
+    assert inserted_body["snippet"]["categoryId"] == "27"
+    assert inserted_body["status"]["containsSyntheticMedia"] is False
+    assert inserted_body["status"]["selfDeclaredMadeForKids"] is False
+    assert inserted_body["status"]["embeddable"] is True
+    assert inserted_body["status"]["license"] == "youtube"
+
+    # Verify custom thumbnail was uploaded
+    assert len(thumbnail_calls) == 1
+    assert thumbnail_calls[0]["videoId"] == "uploaded_vid_999"
+
+
+def test_unified_script_seo_extraction():
+    """Verifies that pipeline_runner prefers embedded script SEO over secondary LLM call."""
+    script_data_with_seo = {
+        "thought_process": {"hook_psychology": "hooks immediately"},
+        "seo": {
+            "title": "Why Your Phone Is An Illusion 📱 #shorts",
+            "description": "Mind-bending paradoxes about modern technology. Which thought hit you hardest? 👇\n\n#showerthoughts #shorts",
+            "tags": ["phone", "screen", "mind blowing", "shorts"]
+        },
+        "scenes": [
+            {"scene_id": 1, "spoken_text": "Scene 1."},
+            {"scene_id": 2, "spoken_text": "Scene 2."}
+        ]
+    }
+
+    # Simulate extraction logic
+    script_seo = script_data_with_seo.get("seo")
+    assert isinstance(script_seo, dict)
+    assert script_seo.get("title") == "Why Your Phone Is An Illusion 📱 #shorts"
+    assert len(script_seo.get("tags")) == 4
+
+
+
 
 

@@ -13,6 +13,7 @@ script_gen:
     4. SEAMLESS CIRCULAR LOOP (SCENE N): The final sentence MUST end with an ellipsis "..." so voice intonation remains open and suspended, grammatically fusing directly back into Scene 1 for an infinite replay loop.
     5. BANNED CLICHÉS: Never use: "delve", "testament", "tapestry", "beacon", "game-changer", "in conclusion", "furthermore".
     6. YOUTUBE SAFETY: Strictly brand-safe. Zero hate speech, sexual content, violence, animal harm, or policy violations.
+    7. UNIFIED VIRAL SEO: Provide a high-CTR title (55-80 chars, curiosity hook, 1 emoji, #shorts), engaging description (hook summary + subscriber prompt + top hashtags), and 12-15 targeted tags.
     Output MUST be valid JSON matching the schema.
 
   user_template: |
@@ -34,11 +35,15 @@ script_gen:
     RETURN ONLY VALID JSON:
     {{
       "thought_process": {{
-        "hook_psychology": "Why scene 1 freezes the scroll...",
-        "cognitive_pacing": "Dopamine progression across scenes...",
-        "seamless_loop_connection": "How final scene grammatically connects back to scene 1..."
+        "hook_psychology": "Why scene 1 freezes scroll (1 sentence)",
+        "cognitive_pacing": "Dopamine progression across scenes (1 sentence)",
+        "seamless_loop_connection": "Loop connection to scene 1 (1 sentence)"
       }},
-      "title": "Shower Thoughts That Mess With Your Head 👀 #shorts",
+      "seo": {{
+        "title": "Compelling Psychological Hook Title (55-80 chars) 🧠 #shorts",
+        "description": "Mind-bending shower thoughts and psychological paradoxes that make you question reality. Which realization broke your brain the most? Drop your perspective below! 👇\n\nSubscribe to @metopato for daily mind-bending shifts.\n\n#showerthoughts #psychology #mindblowing #deepthoughts #shorts",
+        "tags": ["shower thoughts", "mind blowing facts", "psychology", "paradoxes", "brain glitches", "reality check", "deep thoughts", "curiosity", "shorts"]
+      }},
       "scenes": [
         {{ "scene_id": 1, "spoken_text": "Opening hook sentence without leading dots...", "stock_video_query": "soap carving cubes ASMR" }},
         {{ "scene_id": 2, "spoken_text": "Second standalone mind-bending thought...", "stock_video_query": "kinetic sand squishing satisfying" }},
@@ -115,13 +120,13 @@ seo_gen:
     "{script_text}"
     
     RULES:
-    1. Title: Under 50 characters, high curiosity gap, 1 emoji at end, includes #shorts.
-    2. Description: 2 punchy sentences summarizing the topic, plus 3 targeted hashtags (#showerthoughts #mindblowing #shorts).
-    3. Tags: 10-12 lowercase comma-separated tags.
+    1. Title: 55-80 characters, high curiosity gap, 1 emoji, includes #shorts.
+    2. Description: 2 punchy sentences summarizing topic + discussion question prompt ("Which realization broke your brain the most? 👇") + Subscribe to @metopato + 5 targeted hashtags (#showerthoughts #psychology #mindblowing #deepthoughts #shorts).
+    3. Tags: 12-16 lowercase targeted niche tags.
     
     RETURN ONLY JSON:
     {{
-      "title": "Shower Thoughts That Mess With Your Head 👀 #shorts",
-      "description": "Mind-bending thoughts and psychological paradoxes that will break your perception of reality. #showerthoughts #mindblowing #shorts",
-      "tags": ["shower thoughts", "mind blowing facts", "psychology", "paradoxes", "brain facts", "shorts"]
+      "title": "Mind-Bending Shower Thoughts That Make You Question Reality 🧠 #shorts",
+      "description": "Mind-bending shower thoughts and psychological paradoxes that make you question reality. Which realization broke your brain the most? Drop your thoughts below! 👇\n\nSubscribe to @metopato for daily perspective shifts.\n\n#showerthoughts #psychology #mindblowing #deepthoughts #shorts",
+      "tags": ["shower thoughts", "mind blowing facts", "psychology", "paradoxes", "brain glitches", "reality check", "deep thoughts", "perspective", "curiosity", "shorts"]
     }}

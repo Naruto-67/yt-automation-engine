@@ -125,22 +125,24 @@ def generate_seo_title(
 
 def extract_thumbnail(video_path: str, strategy: str = "first_frame", custom_path: str = "") -> Optional[str]:
     """
-    Extracts a thumbnail from a rendered video using ffmpeg.
+    Extracts a high-impact thumbnail from a rendered video using ffmpeg.
 
     Strategies:
-    - first_frame: grab frame at t=0
+    - hook_frame / first_frame: grab frame at t=1.2s (captures the bold yellow hook caption + active visual)
     - random_frame: grab a random frame within the first 10 seconds
     - custom_path: return the user-specified image path directly
-
-    Returns the path to the thumbnail image, or None if extraction failed.
     """
     if strategy == "custom_path" and custom_path:
         return custom_path if pathlib.Path(custom_path).is_file() else None
 
-    if not _FFMPEG_AVAILABLE:
+    if not shutil.which("ffmpeg"):
         return None
 
-    t = 0.0 if strategy == "first_frame" else round(random.uniform(0.5, 10.0), 2)
+    if strategy in ("hook_frame", "first_frame"):
+        t = 1.2
+    else:
+        t = round(random.uniform(0.5, 10.0), 2)
+
     out_path = str(pathlib.Path(video_path).with_suffix("")) + "_thumbnail.jpg"
     try:
         result = subprocess.run(
@@ -163,7 +165,7 @@ def schedule_upload_or_immediate(
     metadata: Dict[str, Any],
     upload_cfg: Dict[str, Any],
     yt_mgr: "YouTubeManager"
-) -> None:
+) -> Dict[str, Any]:
     """
     If `random_schedule` is True in upload_cfg, defers the upload by a random delay
     (within `schedule_window_hours`). Otherwise uploads immediately.
@@ -173,15 +175,18 @@ def schedule_upload_or_immediate(
     to actually execute the upload — the pipeline does NOT wait, so no 6-hour limit is hit.
     """
     if not upload_cfg.get("random_schedule", False):
-        # Immediate upload path (original behaviour preserved)
-        yt_mgr.upload_one_shot_scheduled_video(
+        # Immediate upload path (returns result dict)
+        return yt_mgr.upload_one_shot_scheduled_video(
             video_path=video_path,
             title=metadata.get("title", ""),
             description=metadata.get("description", ""),
             tags=metadata.get("tags", []),
-            category_id=upload_cfg.get("category_id", "27")
+            category_id=upload_cfg.get("category_id", "27"),
+            default_language=upload_cfg.get("default_language", "en"),
+            default_audio_language=upload_cfg.get("default_audio_language", "en"),
+            contains_synthetic_media=upload_cfg.get("contains_synthetic_media", False),
+            thumbnail_path=metadata.get("thumbnail")
         )
-        return
 
     # Randomised deferred upload
     max_h = max(1, upload_cfg.get("schedule_window_hours", 4))
@@ -207,6 +212,11 @@ def schedule_upload_or_immediate(
         f"(fires at {fire_at_iso}). Saved to '{pending_path}'.",
         flush=True
     )
+    return {
+        "video_id": "deferred_scheduled",
+        "publish_at": fire_at_iso,
+        "title": metadata.get("title", "")
+    }
 
 
 def flush_pending_upload() -> bool:
@@ -241,7 +251,11 @@ def flush_pending_upload() -> bool:
             title=meta.get("title", ""),
             description=meta.get("description", ""),
             tags=meta.get("tags", []),
-            category_id=cfg.get("category_id", "27")
+            category_id=cfg.get("category_id", "27"),
+            default_language=cfg.get("default_language", "en"),
+            default_audio_language=cfg.get("default_audio_language", "en"),
+            contains_synthetic_media=cfg.get("contains_synthetic_media", False),
+            thumbnail_path=meta.get("thumbnail")
         )
         os.remove(pending_path)
         print("✅ [UPLOAD] Pending upload executed and cleared.", flush=True)
@@ -445,10 +459,14 @@ class YouTubeManager:
         title: str,
         description: str,
         tags: List[str],
-        category_id: str = "27"
+        category_id: str = "27",
+        default_language: str = "en",
+        default_audio_language: str = "en",
+        contains_synthetic_media: bool = False,
+        thumbnail_path: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Executes a single-transaction scheduled upload with full SEO.
+        Executes a single-transaction scheduled upload with full SEO and rich channel metadata.
         Explicitly never updates or touches the video post-upload.
         """
         if is_test_mode():
@@ -470,26 +488,56 @@ class YouTubeManager:
                 "title": title,
                 "description": description,
                 "tags": tags,
-                "categoryId": category_id
+                "categoryId": str(category_id),
+                "defaultLanguage": default_language,
+                "defaultAudioLanguage": default_audio_language,
             },
             "status": {
                 "privacyStatus": "private",
                 "publishAt": publish_at_iso,
-                "selfDeclaredMadeForKids": False
+                "selfDeclaredMadeForKids": False,
+                "embeddable": True,
+                "publicStatsViewable": True,
+                "license": "youtube"
             }
         }
+        if contains_synthetic_media is not None:
+            body["status"]["containsSyntheticMedia"] = bool(contains_synthetic_media)
 
         media = MediaFileUpload(video_path, mimetype="video/mp4", resumable=True, chunksize=1024 * 1024 * 5)
-        request = youtube.videos().insert(part="snippet,status", body=body, media_body=media)
-
-        response = None
-        while response is None:
-            status, response = request.next_chunk()
-            if status:
-                print(f"📤 [YOUTUBE] Upload Progress: {int(status.progress() * 100)}%")
+        try:
+            request = youtube.videos().insert(part="snippet,status", body=body, media_body=media)
+            response = None
+            while response is None:
+                status, response = request.next_chunk()
+                if status:
+                    print(f"📤 [YOUTUBE] Upload Progress: {int(status.progress() * 100)}%")
+        except Exception as e:
+            # Fallback if containsSyntheticMedia is rejected by older API schemas
+            if "containsSyntheticMedia" in str(e) and "containsSyntheticMedia" in body.get("status", {}):
+                print("⚠️ [YOUTUBE] Retrying upload without containsSyntheticMedia field...", flush=True)
+                body["status"].pop("containsSyntheticMedia", None)
+                request = youtube.videos().insert(part="snippet,status", body=body, media_body=media)
+                response = None
+                while response is None:
+                    status, response = request.next_chunk()
+                    if status:
+                        print(f"📤 [YOUTUBE] Upload Progress: {int(status.progress() * 100)}%")
+            else:
+                raise e
 
         video_id = response.get("id")
         print(f"✅ [YOUTUBE] Video uploaded and scheduled! Video ID: {video_id}")
+
+        # Upload custom thumbnail if available
+        if thumbnail_path and os.path.exists(thumbnail_path):
+            try:
+                print(f"🖼️ [THUMBNAIL] Uploading custom thumbnail from '{thumbnail_path}' for video {video_id}...", flush=True)
+                thumb_media = MediaFileUpload(thumbnail_path, mimetype="image/jpeg")
+                youtube.thumbnails().set(videoId=video_id, media_body=thumb_media).execute()
+                print(f"✅ [THUMBNAIL] Custom thumbnail uploaded successfully for {video_id}!", flush=True)
+            except Exception as ex:
+                print(f"⚠️ [THUMBNAIL] Custom thumbnail upload notice: {ex}. (YouTube default frame retained).", flush=True)
 
         return {
             "video_id": video_id,
@@ -515,12 +563,19 @@ def run_release_stage() -> None:
     upload_cfg = _cc.get("upload_settings", {})
     upload_cfg.setdefault("category_id", _cc.get("channel", {}).get("upload_defaults", {}).get("category_id", "27"))
 
-    # Extract thumbnail
-    thumb_strategy = upload_cfg.get("thumbnail_strategy", "first_frame")
+    # Locate or extract thumbnail
+    thumb_strategy = upload_cfg.get("thumbnail_strategy", "hook_frame")
     thumb_custom = upload_cfg.get("thumbnail_custom_path", "")
     thumbnail_path = extract_thumbnail(video_path, strategy=thumb_strategy, custom_path=thumb_custom)
-    if thumbnail_path:
-        print(f"🖼️  [THUMBNAIL] Extracted thumbnail: {thumbnail_path}", flush=True)
+    if not thumbnail_path or not os.path.exists(thumbnail_path):
+        candidate = str(pathlib.Path(video_path).with_suffix("")) + "_thumbnail.jpg"
+        if os.path.exists(candidate):
+            thumbnail_path = candidate
+        elif os.path.exists("output/thumbnail.jpg"):
+            thumbnail_path = "output/thumbnail.jpg"
+
+    if thumbnail_path and os.path.exists(thumbnail_path):
+        print(f"🖼️  [THUMBNAIL] Found thumbnail for release: {thumbnail_path}", flush=True)
 
     yt_mgr = YouTubeManager()
 
@@ -532,19 +587,18 @@ def run_release_stage() -> None:
             "thumbnail": thumbnail_path,
         }
 
-        schedule_upload_or_immediate(
+        upload_res = schedule_upload_or_immediate(
             video_path=video_path,
             metadata=metadata,
             upload_cfg=upload_cfg,
             yt_mgr=yt_mgr
         )
 
-        video_id = None
-        publish_time = None
+        video_id = upload_res.get("video_id") if isinstance(upload_res, dict) else None
+        publish_time = upload_res.get("publish_at") if isinstance(upload_res, dict) else None
 
         # If immediate upload, notify Discord and clean up
         if not upload_cfg.get("random_schedule", False):
-            # (upload already happened inside schedule_upload_or_immediate)
             # Notify Discord
             notify_published(
                 topic=spec.topic,

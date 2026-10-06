@@ -522,19 +522,48 @@ def run_spec_stage(video_type: str = "short") -> None:
                 )
             )
 
-        # 4. Generate SEO Metadata
-        seo_cfg = prompts_cfg["seo_gen"]
-        seo_user_prompt = seo_cfg["user_template"].format(script_text=full_display_script)
-        seo_data = llm.generate_json(seo_cfg["system_prompt"], seo_user_prompt, temperature=0.2)
+        # 4. Extract or Generate SEO Metadata
+        script_seo = script_data.get("seo")
+        if isinstance(script_seo, dict) and script_seo.get("title"):
+            print("🚀 [SEO] Extracted unified SEO metadata directly from script generation.", flush=True)
+            seo_data = script_seo
+        elif "title" in script_data and ("description" in script_data or "tags" in script_data):
+            print("🚀 [SEO] Extracted root SEO metadata directly from script generation.", flush=True)
+            seo_data = {
+                "title": script_data.get("title"),
+                "description": script_data.get("description", ""),
+                "tags": script_data.get("tags", [])
+            }
+        else:
+            print("🤖 [SEO] Script did not include unified SEO. Generating via secondary SEO prompt...", flush=True)
+            seo_cfg = prompts_cfg["seo_gen"]
+            seo_user_prompt = seo_cfg["user_template"].format(script_text=full_display_script)
+            seo_data = llm.generate_json(seo_cfg["system_prompt"], seo_user_prompt, temperature=0.2)
 
         if video_type == "long":
             seo_title = seo_data.get("title", f"{topic[:60]}").replace("#shorts", "").strip()
             seo_desc = seo_data.get("description", f"An in-depth psychological documentary exploring {topic}.").replace("#shorts", "").strip()
             seo_tags = [t for t in seo_data.get("tags", ["psychology", "documentary", "facts", "essay"]) if t != "shorts"]
         else:
-            base_title = seo_data.get("title", f"{topic[:40]} #shorts")
-            seo_desc = seo_data.get("description", f"Verified fact on {topic}. #shorts #psychology")
-            seo_tags = seo_data.get("tags", ["shorts", "psychology", "facts"])
+            base_title = seo_data.get("title", f"{topic[:60]} #shorts")
+            if "#shorts" not in base_title.lower():
+                base_title = f"{base_title.rstrip()} #shorts"
+
+            default_desc = (
+                f"Mind-bending shower thoughts and psychological paradoxes about {topic}. "
+                f"Which realization broke your brain the most? Drop your perspective below! 👇\n\n"
+                f"Subscribe to @metopato for daily mind-bending shifts.\n\n"
+                f"#showerthoughts #psychology #mindblowing #deepthoughts #shorts"
+            )
+            seo_desc = seo_data.get("description", default_desc)
+            if not seo_desc or len(seo_desc.strip()) < 30:
+                seo_desc = default_desc
+
+            seo_tags = seo_data.get("tags", [
+                "shower thoughts", "mind blowing facts", "psychology", "paradoxes",
+                "brain glitches", "reality check", "deep thoughts", "shorts"
+            ])
+
             # Enhance title using script keywords, trend data, and channel title_settings
             try:
                 from engine.managers.youtube_manager import generate_seo_title
@@ -546,7 +575,7 @@ def run_spec_stage(video_type: str = "short") -> None:
                     cfg=title_cfg
                 )
             except Exception as e:
-                print(f"⚠️ [SEO] Title enhancement failed ({e}). Using LLM base title.", flush=True)
+                print(f"⚠️ [SEO] Title enhancement failed ({e}). Using base title.", flush=True)
                 seo_title = base_title
 
         seo = SEOMetadata(

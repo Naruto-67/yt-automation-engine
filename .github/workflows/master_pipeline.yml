@@ -179,11 +179,14 @@ jobs:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
           GHOST_ENGINE_ENABLED: ${{ vars.GHOST_ENGINE_ENABLED || 'test' }}
         run: python -m engine.managers.pipeline_runner --stage editor
-      - name: Upload Final Video
+      - name: Upload Final Video & Thumbnail
         uses: actions/upload-artifact@v7
         with:
           name: final-video
-          path: output/final_render.mp4
+          path: |
+            output/final_render.mp4
+            output/*thumbnail*.jpg
+            output/thumbnail.jpg
           retention-days: 1
 
   release:
@@ -204,6 +207,10 @@ jobs:
         with:
           name: final-video
           path: output/
+      - name: Install FFmpeg & System Dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11'

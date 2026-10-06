@@ -20,6 +20,9 @@ channel:
     privacy: "private"
     category_id: "27" # Education
     made_for_kids: false
+    default_language: "en"
+    default_audio_language: "en"
+    contains_synthetic_media: false
 
 # ─── PROMPT & CONTENT SETTINGS ───────────────────────────────────────────────
 prompt_settings:
@@ -122,5 +125,8 @@ upload_settings:
   schedule_window_hours: 4
   adaptive_schedule_learning: true   # Auto-tune release time to channel's peak view velocity hour
   generate_community_post: true     # Generate subscriber discussion poll / pinned comment
-  thumbnail_strategy: "first_frame"
+  thumbnail_strategy: "hook_frame"  # hook_frame (t=1.2s bold hook caption) or first_frame
   thumbnail_custom_path: ""
+  default_language: "en"
+  default_audio_language: "en"
+  contains_synthetic_media: false
