@@ -181,10 +181,15 @@ def schedule_upload_or_immediate(
             title=metadata.get("title", ""),
             description=metadata.get("description", ""),
             tags=metadata.get("tags", []),
-            category_id=upload_cfg.get("category_id", "27"),
-            default_language=upload_cfg.get("default_language", "en"),
-            default_audio_language=upload_cfg.get("default_audio_language", "en"),
+            category_id=upload_cfg.get("category_id", "24"),
+            default_language=upload_cfg.get("default_language", "en-US"),
+            default_audio_language=upload_cfg.get("default_audio_language", "en-US"),
             contains_synthetic_media=upload_cfg.get("contains_synthetic_media", False),
+            notify_subscribers=upload_cfg.get("notify_subscribers", False),
+            public_stats_viewable=upload_cfg.get("public_stats_viewable", False),
+            embeddable=upload_cfg.get("embeddable", True),
+            license_type=upload_cfg.get("license", "youtube"),
+            made_for_kids=upload_cfg.get("made_for_kids", False),
             thumbnail_path=metadata.get("thumbnail")
         )
 
@@ -251,10 +256,15 @@ def flush_pending_upload() -> bool:
             title=meta.get("title", ""),
             description=meta.get("description", ""),
             tags=meta.get("tags", []),
-            category_id=cfg.get("category_id", "27"),
-            default_language=cfg.get("default_language", "en"),
-            default_audio_language=cfg.get("default_audio_language", "en"),
+            category_id=cfg.get("category_id", "24"),
+            default_language=cfg.get("default_language", "en-US"),
+            default_audio_language=cfg.get("default_audio_language", "en-US"),
             contains_synthetic_media=cfg.get("contains_synthetic_media", False),
+            notify_subscribers=cfg.get("notify_subscribers", False),
+            public_stats_viewable=cfg.get("public_stats_viewable", False),
+            embeddable=cfg.get("embeddable", True),
+            license_type=cfg.get("license", "youtube"),
+            made_for_kids=cfg.get("made_for_kids", False),
             thumbnail_path=meta.get("thumbnail")
         )
         os.remove(pending_path)
@@ -459,10 +469,15 @@ class YouTubeManager:
         title: str,
         description: str,
         tags: List[str],
-        category_id: str = "27",
-        default_language: str = "en",
-        default_audio_language: str = "en",
+        category_id: str = "24",
+        default_language: str = "en-US",
+        default_audio_language: str = "en-US",
         contains_synthetic_media: bool = False,
+        notify_subscribers: bool = False,
+        public_stats_viewable: bool = False,
+        embeddable: bool = True,
+        license_type: str = "youtube",
+        made_for_kids: bool = False,
         thumbnail_path: Optional[str] = None
     ) -> Dict[str, Any]:
         """
@@ -495,10 +510,10 @@ class YouTubeManager:
             "status": {
                 "privacyStatus": "private",
                 "publishAt": publish_at_iso,
-                "selfDeclaredMadeForKids": False,
-                "embeddable": True,
-                "publicStatsViewable": True,
-                "license": "youtube"
+                "selfDeclaredMadeForKids": made_for_kids,
+                "embeddable": embeddable,
+                "publicStatsViewable": public_stats_viewable,
+                "license": license_type
             }
         }
         if contains_synthetic_media is not None:
@@ -506,7 +521,12 @@ class YouTubeManager:
 
         media = MediaFileUpload(video_path, mimetype="video/mp4", resumable=True, chunksize=1024 * 1024 * 5)
         try:
-            request = youtube.videos().insert(part="snippet,status", body=body, media_body=media)
+            request = youtube.videos().insert(
+                part="snippet,status",
+                body=body,
+                media_body=media,
+                notifySubscribers=bool(notify_subscribers)
+            )
             response = None
             while response is None:
                 status, response = request.next_chunk()
@@ -517,7 +537,12 @@ class YouTubeManager:
             if "containsSyntheticMedia" in str(e) and "containsSyntheticMedia" in body.get("status", {}):
                 print("⚠️ [YOUTUBE] Retrying upload without containsSyntheticMedia field...", flush=True)
                 body["status"].pop("containsSyntheticMedia", None)
-                request = youtube.videos().insert(part="snippet,status", body=body, media_body=media)
+                request = youtube.videos().insert(
+                    part="snippet,status",
+                    body=body,
+                    media_body=media,
+                    notifySubscribers=bool(notify_subscribers)
+                )
                 response = None
                 while response is None:
                     status, response = request.next_chunk()
@@ -561,7 +586,29 @@ def run_release_stage() -> None:
     with open("config/channel_config.yaml", "r", encoding="utf-8") as _f:
         _cc = _yaml.safe_load(_f) or {}
     upload_cfg = _cc.get("upload_settings", {})
-    upload_cfg.setdefault("category_id", _cc.get("channel", {}).get("upload_defaults", {}).get("category_id", "27"))
+    defaults = _cc.get("channel", {}).get("upload_defaults", {})
+    for k, v in defaults.items():
+        upload_cfg.setdefault(k, v)
+
+    is_short = (spec.video_type == "short")
+
+    # Resolve notification setting per video type (disabled for Shorts, enabled for Long form)
+    notify_subs = upload_cfg.get(
+        "notify_subscribers_shorts" if is_short else "notify_subscribers_long",
+        upload_cfg.get("notify_subscribers", not is_short)
+    )
+
+    # Resolve like count viewability per video type (hidden on Shorts to avoid low-like count bias)
+    public_stats = upload_cfg.get(
+        "public_stats_viewable_shorts" if is_short else "public_stats_viewable_long",
+        upload_cfg.get("public_stats_viewable", not is_short)
+    )
+
+    upload_cfg["notify_subscribers"] = notify_subs
+    upload_cfg["public_stats_viewable"] = public_stats
+    upload_cfg["category_id"] = upload_cfg.get("category_id", "24")
+    upload_cfg["default_language"] = upload_cfg.get("default_language", "en-US")
+    upload_cfg["default_audio_language"] = upload_cfg.get("default_audio_language", "en-US")
 
     # Locate or extract thumbnail
     thumb_strategy = upload_cfg.get("thumbnail_strategy", "hook_frame")
@@ -577,13 +624,32 @@ def run_release_stage() -> None:
     if thumbnail_path and os.path.exists(thumbnail_path):
         print(f"🖼️  [THUMBNAIL] Found thumbnail for release: {thumbnail_path}", flush=True)
 
+    # Merge evergreen brand tags with spec topic tags
+    brand_tags = _cc.get("brand_tags", [])
+    merged_tags = []
+    seen_tags = set()
+    for t in list(spec.seo.tags) + list(brand_tags):
+        t_clean = t.strip()
+        t_lower = t_clean.lower()
+        if t_clean and t_lower not in seen_tags:
+            seen_tags.add(t_lower)
+            merged_tags.append(t_clean)
+
+    # Cap total tags string to 490 characters (YouTube allows 500 max)
+    final_tags = []
+    char_count = 0
+    for t in merged_tags:
+        if char_count + len(t) + 1 <= 490:
+            final_tags.append(t)
+            char_count += len(t) + 1
+
     yt_mgr = YouTubeManager()
 
     with StageTimer(PikaStage.RELEASE, topic=spec.topic):
         metadata = {
             "title": spec.seo.title,
             "description": spec.seo.description,
-            "tags": spec.seo.tags,
+            "tags": final_tags,
             "thumbnail": thumbnail_path,
         }
 
@@ -599,7 +665,6 @@ def run_release_stage() -> None:
 
         # If immediate upload, notify Discord and clean up
         if not upload_cfg.get("random_schedule", False):
-            # Notify Discord
             notify_published(
                 topic=spec.topic,
                 video_id=video_id or "unknown",

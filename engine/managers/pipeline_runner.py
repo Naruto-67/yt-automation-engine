@@ -578,6 +578,19 @@ def run_spec_stage(video_type: str = "short") -> None:
                 print(f"⚠️ [SEO] Title enhancement failed ({e}). Using base title.", flush=True)
                 seo_title = base_title
 
+        # Merge evergreen brand tags from channel_config.yaml
+        brand_tags = full_channel_cfg.get("brand_tags", [])
+        if brand_tags:
+            merged_tags = []
+            seen_tags = set()
+            for t in list(seo_tags) + list(brand_tags):
+                t_clean = t.strip()
+                t_lower = t_clean.lower()
+                if t_clean and t_lower not in seen_tags:
+                    seen_tags.add(t_lower)
+                    merged_tags.append(t_clean)
+            seo_tags = merged_tags
+
         seo = SEOMetadata(
             title=seo_title,
             description=seo_desc,

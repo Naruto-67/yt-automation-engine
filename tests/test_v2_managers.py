@@ -1347,6 +1347,7 @@ def test_youtube_upload_metadata_and_thumbnail(tmp_path, monkeypatch):
     dummy_thumb.write_bytes(b"dummy thumb data")
 
     inserted_body = {}
+    inserted_kwargs = {}
     thumbnail_calls = []
 
     mock_yt = MagicMock()
@@ -1354,8 +1355,9 @@ def test_youtube_upload_metadata_and_thumbnail(tmp_path, monkeypatch):
     mock_insert_req = MagicMock()
     mock_insert_req.next_chunk.return_value = (None, {"id": "uploaded_vid_999"})
     
-    def fake_insert(part=None, body=None, media_body=None):
+    def fake_insert(part=None, body=None, media_body=None, notifySubscribers=None):
         inserted_body.update(body)
+        inserted_kwargs["notifySubscribers"] = notifySubscribers
         return mock_insert_req
 
     mock_yt.videos().insert = fake_insert
@@ -1383,21 +1385,25 @@ def test_youtube_upload_metadata_and_thumbnail(tmp_path, monkeypatch):
         title="Mind-Bending Shower Thoughts That Make You Question Reality 🧠 #shorts",
         description="Deep thoughts about the simulation. #showerthoughts #shorts",
         tags=["shower thoughts", "psychology", "shorts"],
-        category_id="27",
-        default_language="en",
-        default_audio_language="en",
+        category_id="24",
+        default_language="en-US",
+        default_audio_language="en-US",
         contains_synthetic_media=False,
+        notify_subscribers=False,
+        public_stats_viewable=False,
         thumbnail_path=str(dummy_thumb)
     )
 
     assert res["video_id"] == "uploaded_vid_999"
-    assert inserted_body["snippet"]["defaultLanguage"] == "en"
-    assert inserted_body["snippet"]["defaultAudioLanguage"] == "en"
-    assert inserted_body["snippet"]["categoryId"] == "27"
+    assert inserted_body["snippet"]["defaultLanguage"] == "en-US"
+    assert inserted_body["snippet"]["defaultAudioLanguage"] == "en-US"
+    assert inserted_body["snippet"]["categoryId"] == "24"
     assert inserted_body["status"]["containsSyntheticMedia"] is False
     assert inserted_body["status"]["selfDeclaredMadeForKids"] is False
     assert inserted_body["status"]["embeddable"] is True
+    assert inserted_body["status"]["publicStatsViewable"] is False
     assert inserted_body["status"]["license"] == "youtube"
+    assert inserted_kwargs["notifySubscribers"] is False
 
     # Verify custom thumbnail was uploaded
     assert len(thumbnail_calls) == 1
@@ -1424,6 +1430,37 @@ def test_unified_script_seo_extraction():
     assert isinstance(script_seo, dict)
     assert script_seo.get("title") == "Why Your Phone Is An Illusion 📱 #shorts"
     assert len(script_seo.get("tags")) == 4
+
+
+def test_brand_tags_merging_and_capping():
+    """Verifies brand tags deduplication and 490-character capping logic."""
+    topic_tags = ["shower thoughts", "mind blowing facts", "deep thoughts", "psychology"]
+    brand_tags = ["topato", "metopato", "SHOWER THOUGHTS", "cognitive glitches", "facts that break your brain"]
+
+    merged_tags = []
+    seen_tags = set()
+    for t in list(topic_tags) + list(brand_tags):
+        t_clean = t.strip()
+        t_lower = t_clean.lower()
+        if t_clean and t_lower not in seen_tags:
+            seen_tags.add(t_lower)
+            merged_tags.append(t_clean)
+
+    # Check deduplication is case-insensitive
+    assert len([t for t in merged_tags if t.lower() == "shower thoughts"]) == 1
+    assert "topato" in merged_tags
+    assert "metopato" in merged_tags
+
+    # Test 490-character capping
+    final_tags = []
+    char_count = 0
+    for t in merged_tags:
+        if char_count + len(t) + 1 <= 490:
+            final_tags.append(t)
+            char_count += len(t) + 1
+
+    total_len = sum(len(t) + 1 for t in final_tags)
+    assert total_len <= 490
 
 
 

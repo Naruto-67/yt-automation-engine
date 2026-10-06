@@ -18,11 +18,32 @@ channel:
     font_family: "Montserrat-SemiBold"
   upload_defaults:
     privacy: "private"
-    category_id: "27" # Education
+    category_id: "24"                  # 24 = Entertainment (eliminates academic syllabus fields)
     made_for_kids: false
-    default_language: "en"
-    default_audio_language: "en"
-    contains_synthetic_media: false
+    default_language: "en-US"
+    default_audio_language: "en-US"
+    contains_synthetic_media: false    # YouTube AI disclosure: False (exempt ASMR b-roll + TTS narration)
+    notify_subscribers_shorts: false   # Disable for Shorts to test organic algorithmic feed without sub spam
+    notify_subscribers_long: true      # Alert subscribers for long-form documentaries
+    public_stats_viewable_shorts: false # Hide like count on Shorts to eliminate low-like count bias
+    public_stats_viewable_long: true   # Show like count on long-form
+    license: "youtube"                 # Standard YouTube licence
+    embeddable: true
+
+# ─── BRAND & EVERGREEN TAGS ──────────────────────────────────────────────────
+brand_tags:
+  - "topato"
+  - "metopato"
+  - "shower thoughts"
+  - "shower thoughts shorts"
+  - "mind blowing facts"
+  - "psychological facts"
+  - "deep thoughts"
+  - "paradox"
+  - "cognitive glitches"
+  - "facts that break your brain"
+  - "satisfying facts"
+
 
 # ─── PROMPT & CONTENT SETTINGS ───────────────────────────────────────────────
 prompt_settings:
@@ -127,6 +148,14 @@ upload_settings:
   generate_community_post: true     # Generate subscriber discussion poll / pinned comment
   thumbnail_strategy: "hook_frame"  # hook_frame (t=1.2s bold hook caption) or first_frame
   thumbnail_custom_path: ""
-  default_language: "en"
-  default_audio_language: "en"
+  category_id: "24"                  # 24 = Entertainment
+  default_language: "en-US"
+  default_audio_language: "en-US"
   contains_synthetic_media: false
+  notify_subscribers_shorts: false
+  notify_subscribers_long: true
+  public_stats_viewable_shorts: false
+  public_stats_viewable_long: true
+  license: "youtube"
+  embeddable: true
+  made_for_kids: false
