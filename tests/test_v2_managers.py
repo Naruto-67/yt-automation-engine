@@ -1220,6 +1220,64 @@ def test_calculate_collision_free_publish_time_collision_advance(monkeypatch):
     assert target_today not in pub_iso
 
 
+def test_intelligent_scheduler_spacing_and_negative_jitter(tmp_path, monkeypatch):
+    """Verifies that the scheduler enforces anti-cannibalization buffer and negative minute jitter."""
+    from engine.managers.youtube_manager import YouTubeManager
+    from datetime import datetime, timezone, timedelta
+    from unittest.mock import MagicMock
+    import yaml
+
+    test_cfg = {
+        "upload_settings": {
+            "shorts_per_day": 1,
+            "min_spacing_hours": 6.0,
+            "use_negative_jitter": True,
+            "jitter_minutes_min": 5,
+            "jitter_minutes_max": 18,
+            "target_peak_windows_utc": [18, 22, 14, 1]
+        }
+    }
+    cfg_file = tmp_path / "channel_config.yaml"
+    cfg_file.write_text(yaml.dump(test_cfg), encoding="utf-8")
+    monkeypatch.setattr("builtins.open", lambda p, *a, **kw: open(str(cfg_file) if "channel_config.yaml" in str(p) else p, *a, **kw))
+    monkeypatch.setenv("TEST_MODE", "false")
+
+    mgr = YouTubeManager()
+    now = datetime.now(timezone.utc)
+    queued_time = now + timedelta(hours=2)
+
+    mock_yt = MagicMock()
+    mock_yt.channels().list().execute.return_value = {
+        "items": [{"contentDetails": {"relatedPlaylists": {"uploads": "UPL_TEST"}}}]
+    }
+    mock_yt.playlistItems().list().execute.return_value = {
+        "items": [{"contentDetails": {"videoId": "test_v1"}}]
+    }
+    mock_yt.videos().list().execute.return_value = {
+        "items": [{"status": {"publishAt": queued_time.strftime("%Y-%m-%dT%H:%M:%SZ")}}]
+    }
+
+    pub_iso = mgr.calculate_collision_free_publish_time(mock_yt)
+    pub_dt = datetime.fromisoformat(pub_iso.replace("Z", "+00:00"))
+
+    # Anti-cannibalization buffer: must be at least 6 hours away from queued video
+    gap_hours = (pub_dt - queued_time).total_seconds() / 3600.0
+    assert gap_hours >= 6.0
+
+    # Negative jitter: minute must be between 42 and 55 (5 to 18 mins before the target hour)
+    assert 42 <= pub_dt.minute <= 55
+
+
+def test_competitor_niche_timing_intel_caching(tmp_path):
+    """Verifies that CompetitorSpy ranks hours and caches results in memory/timing_intelligence.json."""
+    from engine.managers.competitor_spy import CompetitorSpy
+    intel = CompetitorSpy.get_niche_timing_intel(youtube=None, default_slots=[18, 22, 14, 1])
+    assert "ranked_hours" in intel
+    assert len(intel["ranked_hours"]) == 24
+    assert 18 in intel["ranked_hours"][:4]
+    assert os.path.exists(CompetitorSpy.TIMING_CACHE_FILE)
+
+
 def test_discovery_bans_allam_model():
     """Verifies that allam models are strictly filtered out by modality patterns."""
     from engine.discovery import is_modality_allowed, is_model_allowed

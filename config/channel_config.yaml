@@ -166,6 +166,17 @@ title_settings:
 
 # ─── UPLOAD & LEARNING SETTINGS ──────────────────────────────────────────────
 upload_settings:
+  # Multi-Shorts Daily Strategy & Timing
+  shorts_per_day: 1                  # Daily upload volume: 1 (or 2, 3, 4 for scaling)
+  min_spacing_hours: 6.0             # Anti-cannibalization buffer between uploads
+  use_negative_jitter: true          # Post 5-18 mins BEFORE peak hour to prime YouTube CDN
+  jitter_minutes_min: 5              # Minimum minutes before peak hour (e.g. :55)
+  jitter_minutes_max: 18             # Maximum minutes before peak hour (e.g. :42)
+  target_peak_windows_utc:           # Global/US audience peak viral windows (UTC)
+    - 18                             # 18:00 UTC (1:00 PM EST / Midday lunch surge)
+    - 22                             # 22:00 UTC (5:00 PM EST / Evening commute)
+    - 14                             # 14:00 UTC (9:00 AM EST / Morning rush)
+    - 1                              # 01:00 UTC (8:00 PM EST / Primetime relaxation)
   random_schedule: false
   schedule_window_hours: 4
   adaptive_schedule_learning: true   # Auto-tune release time to channel's peak view velocity hour

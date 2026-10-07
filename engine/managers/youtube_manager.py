@@ -12,6 +12,7 @@ import random
 import shutil
 import pathlib
 import subprocess
+import yaml
 from datetime import datetime, timezone, timedelta, date
 dt = datetime
 from typing import Optional, Dict, Any, List
@@ -405,63 +406,147 @@ class YouTubeManager:
             print(f"⚠️ [CHANNEL LEARNING] Performance sync skipped: {e}", flush=True)
             return default_data
 
-    def calculate_collision_free_publish_time(self, youtube) -> str:
+    def calculate_collision_free_publish_time(self, youtube=None) -> str:
         """
-        Determines the optimal peak release window (adaptive or 18:00 UTC).
-        Uses a 1-unit query to check scheduled uploads and increments +24 hours if a slot is occupied.
+        Determines the next optimal, collision-free scheduled publish time in the future.
+        Features:
+        1. Checks all currently scheduled videos on YouTube and identifies the last scheduled time.
+        2. Enforces anti-cannibalization spacing (min_spacing_hours, e.g. 6.0h).
+        3. Supports daily shorts volume strategy (shorts_per_day: 1, 2, 3, or 4).
+        4. Researches own channel + competitor channels (@BrainBlud, etc.) + viral niche benchmarks.
+        5. Uses negative minute jitter (e.g. -5 to -18 mins before the hour) to prime YouTube's CDN
+           and recommendation index before peak viewer activity strikes.
         """
         now = datetime.now(timezone.utc)
-        peak_hour = self.get_optimal_publish_hour()
-        # Target daily peak window: adaptive peak_hour UTC
-        target_day = now.date()
-        # Add organic minute jitter (e.g. 18:24 or 18:41 UTC instead of fixed :00)
-        jitter_minute = random.randint(10, 50)
-        candidate_time = datetime(target_day.year, target_day.month, target_day.day, peak_hour, jitter_minute, 0, tzinfo=timezone.utc)
 
-        # Enforce that scheduled time is always strictly at least 1 hour in the future
-        while candidate_time <= now + timedelta(hours=1):
-            candidate_time += timedelta(days=1)
-
-        if is_test_mode() or youtube is None:
-            return candidate_time.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-        # 1-Unit Low-Quota Schedule Check: Get uploads playlist ID
+        # 1. Load configuration from channel_config.yaml
+        cfg = {}
         try:
-            ch_resp = youtube.channels().list(part="contentDetails", mine=True).execute()
-            uploads_playlist_id = ch_resp["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
+            with open("config/channel_config.yaml", "r", encoding="utf-8") as f:
+                cfg = yaml.safe_load(f) or {}
+        except Exception:
+            pass
 
-            # Query recent 10 items from uploads playlist (1 unit cost)
-            items_resp = youtube.playlistItems().list(
-                part="contentDetails",
-                playlistId=uploads_playlist_id,
-                maxResults=10
-            ).execute()
+        upload_cfg = cfg.get("upload_settings", {})
+        shorts_per_day = max(1, int(upload_cfg.get("shorts_per_day", 1)))
+        min_spacing_hours = float(upload_cfg.get("min_spacing_hours", 6.0))
+        use_negative_jitter = bool(upload_cfg.get("use_negative_jitter", True))
+        jitter_min = int(upload_cfg.get("jitter_minutes_min", 5))
+        jitter_max = int(upload_cfg.get("jitter_minutes_max", 18))
+        target_windows = upload_cfg.get("target_peak_windows_utc", [18, 22, 14, 1])
 
-            video_ids = [item["contentDetails"]["videoId"] for item in items_resp.get("items", [])]
-            occupied_slots = set()
+        # 2. Gather cross-channel niche timing intelligence
+        from engine.managers.competitor_spy import CompetitorSpy
+        timing_intel = CompetitorSpy.get_niche_timing_intel(
+            youtube=youtube if not is_test_mode() else None,
+            default_slots=target_windows
+        )
+        ranked_hours = timing_intel.get("ranked_hours", target_windows)
 
-            if video_ids:
-                # Query videos status (1 unit cost)
-                vids_resp = youtube.videos().list(part="status", id=",".join(video_ids)).execute()
-                for vid in vids_resp.get("items", []):
-                    pub_at = vid.get("status", {}).get("publishAt")
-                    if pub_at:
-                        # Parse date string
-                        try:
-                            dt = datetime.fromisoformat(pub_at.replace("Z", "+00:00"))
-                            occupied_slots.add(dt.strftime("%Y-%m-%d"))
-                        except Exception:
-                            pass
+        # Select primary hours based on shorts_per_day
+        selected_peak_hours = []
+        for h in ranked_hours:
+            if not selected_peak_hours:
+                selected_peak_hours.append(h)
+            else:
+                if all(min((h - sh) % 24, (sh - h) % 24) >= min(4, int(min_spacing_hours - 1)) for sh in selected_peak_hours):
+                    selected_peak_hours.append(h)
+            if len(selected_peak_hours) >= max(shorts_per_day, 4):
+                break
+        if not selected_peak_hours:
+            selected_peak_hours = target_windows
 
-            # Advance day by day if target slot is occupied
-            while candidate_time.strftime("%Y-%m-%d") in occupied_slots:
-                print(f"⚠️ [SCHEDULER] Slot {candidate_time.strftime('%Y-%m-%d 18:00 UTC')} is already scheduled. Incrementing +24h...")
-                candidate_time += timedelta(days=1)
+        # 3. Query existing scheduled videos on YouTube
+        scheduled_dts = []
+        if not is_test_mode() and youtube is not None:
+            try:
+                ch_resp = youtube.channels().list(part="contentDetails", mine=True).execute()
+                uploads_playlist_id = ch_resp["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
+                items_resp = youtube.playlistItems().list(
+                    part="contentDetails",
+                    playlistId=uploads_playlist_id,
+                    maxResults=15
+                ).execute()
+                video_ids = [item["contentDetails"]["videoId"] for item in items_resp.get("items", [])]
+                if video_ids:
+                    vids_resp = youtube.videos().list(part="status", id=",".join(video_ids)).execute()
+                    for vid in vids_resp.get("items", []):
+                        pub_at = vid.get("status", {}).get("publishAt")
+                        if pub_at:
+                            try:
+                                p_dt = datetime.fromisoformat(pub_at.replace("Z", "+00:00"))
+                                if p_dt > now:
+                                    scheduled_dts.append(p_dt)
+                            except Exception:
+                                pass
+            except Exception as e:
+                print(f"⚠️ [SCHEDULER] Could not fetch current upload schedule: {e}", flush=True)
 
-        except Exception as e:
-            print(f"⚠️ [SCHEDULER] Could not check scheduled collisions ({e}). Using default optimal slot.")
+        # 4. Determine earliest allowed schedule reference point
+        min_future_buffer = now + timedelta(minutes=45)
 
-        return candidate_time.strftime("%Y-%m-%dT%H:%M:%SZ")
+        if scheduled_dts:
+            last_scheduled_dt = max(scheduled_dts)
+            earliest_allowed = max(min_future_buffer, last_scheduled_dt + timedelta(hours=min_spacing_hours))
+            print(
+                f"🗓️  [SCHEDULER] Found {len(scheduled_dts)} queued video(s). "
+                f"Last scheduled: {last_scheduled_dt.strftime('%Y-%m-%d %H:%M UTC')}. "
+                f"Next slot must be after: {earliest_allowed.strftime('%Y-%m-%d %H:%M UTC')} "
+                f"(anti-cannibalization buffer: {min_spacing_hours}h).",
+                flush=True
+            )
+        else:
+            earliest_allowed = min_future_buffer
+            print(f"🗓️  [SCHEDULER] No pending scheduled videos. Earliest allowed slot: {earliest_allowed.strftime('%Y-%m-%d %H:%M UTC')}.", flush=True)
+
+        # 5. Scan forward from earliest_allowed for the optimal peak slot
+        candidate_date = earliest_allowed.date()
+        chosen_time = None
+
+        for _ in range(30):
+            daily_candidates = []
+            for peak_hour in selected_peak_hours:
+                if use_negative_jitter:
+                    jitter_mins = random.randint(jitter_min, jitter_max)
+                    dt_candidate = datetime(
+                        candidate_date.year, candidate_date.month, candidate_date.day,
+                        peak_hour, 0, 0, tzinfo=timezone.utc
+                    ) - timedelta(minutes=jitter_mins)
+                else:
+                    jitter_mins = random.randint(10, 45)
+                    dt_candidate = datetime(
+                        candidate_date.year, candidate_date.month, candidate_date.day,
+                        peak_hour, jitter_mins, 0, tzinfo=timezone.utc
+                    )
+
+                if dt_candidate >= earliest_allowed:
+                    is_clear = True
+                    for s_dt in scheduled_dts:
+                        gap_h = abs((dt_candidate - s_dt).total_seconds()) / 3600.0
+                        if gap_h < min_spacing_hours:
+                            is_clear = False
+                            break
+                    if is_clear:
+                        daily_candidates.append((dt_candidate, peak_hour, jitter_mins))
+
+            if daily_candidates:
+                daily_candidates.sort(key=lambda x: x[0])
+                chosen_dt, peak_h, jit_m = daily_candidates[0]
+                chosen_time = chosen_dt
+                jit_str = f"-{jit_m}m CDN prime jitter" if use_negative_jitter else f"+{jit_m}m jitter"
+                print(
+                    f"🎯 [SCHEDULER] Optimal slot selected: {chosen_dt.strftime('%Y-%m-%d %H:%M UTC')} "
+                    f"(Target peak: {peak_h:02d}:00 UTC with {jit_str}, cadence: {shorts_per_day} short(s)/day).",
+                    flush=True
+                )
+                break
+
+            candidate_date += timedelta(days=1)
+
+        if chosen_time is None:
+            chosen_time = earliest_allowed + timedelta(hours=min_spacing_hours)
+
+        return chosen_time.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     def upload_one_shot_scheduled_video(
         self,
