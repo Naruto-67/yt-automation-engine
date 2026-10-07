@@ -2,10 +2,11 @@ name: Video Production Pipeline (v2.0)
 
 on:
   schedule:
-    # 2 shorts/day production cadence (runs 5-7h before peak viewership windows):
-    # - Run 1: 05:25 UTC (10:55 IST) -> prepares Short for 13:48 UTC (US Morning peak)
-    # - Run 2: 16:25 UTC (21:55 IST) -> prepares Short for 21:48 UTC (US Evening peak)
-    - cron: '25 5,16 * * *'
+    # 2 shorts/day production cadence (runs 5-8h before peak viewership windows):
+    # - Run 1: 05:25 UTC (10:55 AM IST) -> renders & schedules Short for ~13:48 UTC (US Morning peak)
+    - cron: '25 5 * * *'
+    # - Run 2: 16:25 UTC (09:55 PM IST) -> renders & schedules Short for ~21:48 UTC (US Evening peak)
+    - cron: '25 16 * * *'
   workflow_dispatch:
     inputs:
       video_type:
@@ -33,7 +34,9 @@ env:
 jobs:
   init_and_spec:
     name: 🚀 Init & Spec Generation
-    if: vars.GHOST_ENGINE_ENABLED != 'false'
+    if: |
+      vars.GHOST_ENGINE_ENABLED != 'false' &&
+      (github.event_name != 'schedule' || vars.GHOST_ENGINE_ENABLED == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -194,7 +197,7 @@ jobs:
     name: 📦 YouTube Release
     needs: [init_and_spec, video_editor]
     if: |
-      vars.GHOST_ENGINE_ENABLED != 'false' &&
+      vars.GHOST_ENGINE_ENABLED == 'true' &&
       inputs.test_mode != true
     runs-on: ubuntu-latest
     timeout-minutes: 20
