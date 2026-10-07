@@ -158,23 +158,21 @@ class UniversalGreedyJSONParser:
         scene_splits = re.split(r'(?:^|\n+)(?:Scene\s*\d+|Act\s*\d+|\[\d+\]|\d+\.)[:\s\-]*', clean, flags=re.IGNORECASE)
         scene_chunks = [s.strip() for s in scene_splits if s and len(s.strip()) > 10]
 
-        if len(scene_chunks) < 3:
-            paras = [p.strip() for p in clean.split('\n\n') if len(p.strip()) > 15]
-            if len(paras) >= 3:
-                scene_chunks = paras
+        if len(scene_chunks) < 8:
+            sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', clean) if s.strip() and len(s.split()) >= 4]
+            if len(sentences) >= 6:
+                scene_chunks = sentences[:12]
             else:
-                sentences = [s.strip() for s in re.split(r'[.!?]+', clean) if s.strip()]
-                if len(sentences) >= 4:
-                    k = max(1, len(sentences) // 4)
-                    scene_chunks = [
-                        ". ".join(sentences[i:i + k]) + "."
-                        for i in range(0, len(sentences), k)
-                    ][:4]
+                paras = [p.strip() for p in clean.split('\n\n') if len(p.strip()) > 15]
+                if len(paras) >= 3:
+                    scene_chunks = paras
+                elif len(sentences) >= 3:
+                    scene_chunks = sentences[:12]
                 else:
                     scene_chunks = [clean]
 
         final_scenes = []
-        for text in scene_chunks[:4]:
+        for text in scene_chunks[:12]:
             first_words = " ".join(text.split()[:5])
             final_scenes.append({
                 "spoken_text": text,
@@ -370,6 +368,11 @@ class LLMManager:
                 payload["response_format"] = {"type": "json_object"}
 
         resp = _http_request(url, method="POST", headers=headers, json_data=payload, timeout=60.0)
+
+        # Auto-heal Groq HTTP 400 json_validate_failed (thinking models or server-side schema incompatibilities)
+        if resp.status_code == 400 and "json_validate_failed" in getattr(resp, "text", "") and "response_format" in payload:
+            payload.pop("response_format", None)
+            resp = _http_request(url, method="POST", headers=headers, json_data=payload, timeout=60.0)
 
         if resp.status_code == 200:
             data = resp.json()

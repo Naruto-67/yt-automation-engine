@@ -251,6 +251,16 @@ def _refresh_model_ids(providers: List[Dict[str, Any]], banned_models: Set[str])
                 if resp.status_code == 200:
                     models = [m["id"] for m in resp.json().get("data", []) if m.get("active", True)]
                     valid_models = [m for m in models if is_model_allowed(m, banned_models)]
+                    # Prioritize flagship 70B models over experimental models
+                    def _groq_prio(mid: str) -> int:
+                        ml = mid.lower()
+                        if "llama-3.3-70b" in ml: return 1
+                        if "llama-3.1-70b" in ml or "70b" in ml: return 2
+                        if "llama-3.1-8b" in ml or "8b" in ml: return 3
+                        if "gpt-oss-20b" in ml: return 15
+                        return 10
+                    valid_models.sort(key=_groq_prio)
+
                     for m in valid_models:
                         if m in seen_models:
                             continue
@@ -280,6 +290,15 @@ def _refresh_model_ids(providers: List[Dict[str, Any]], banned_models: Set[str])
                         if m.get("pricing", {}).get("prompt") == "0" and m.get("pricing", {}).get("completion") == "0"
                     ]
                     valid_models = [m for m in free_models if is_model_allowed(m, banned_models)]
+                    # Prioritize 70B/72B open models over tiny 2B/3B models
+                    def _or_prio(mid: str) -> int:
+                        ml = mid.lower()
+                        if "70b" in ml or "72b" in ml: return 1
+                        if "qwen" in ml and ("14b" in ml or "32b" in ml): return 2
+                        if "8b" in ml or "9b" in ml: return 3
+                        if any(x in ml for x in ["2.5b", "2.6b", "1b", "2b", "3b"]): return 25
+                        return 10
+                    valid_models.sort(key=_or_prio)
                     for m in valid_models:
                         if m in seen_models:
                             continue
@@ -436,7 +455,14 @@ def run_discovery(force: bool = False) -> Dict[str, Any]:
         p_perf = performance.get("providers", {}).get(prov["id"], {})
         s_rate = p_perf.get("success_rate", 1.0 if res["ok"] else 0.0)
         lat = res["latency_ms"] if res["latency_ms"] > 0 else 9999
-        return int((1.0 - s_rate) * 1000 + lat)
+        # Tier bonus: prioritize 70B+ / flagship reasoning models over sub-4B toy models
+        m_name = (prov.get("model") or "").lower()
+        tier_adj = 0
+        if any(x in m_name for x in ["2.6b", "2.5b", "1b", "2b", "3b"]):
+            tier_adj = 1500  # Deprioritize sub-4B toy models
+        elif any(x in m_name for x in ["70b", "72b", "gemini-3", "gpt-4"]):
+            tier_adj = -200  # Priority boost for high-capacity flagships
+        return int((1.0 - s_rate) * 1000 + lat + tier_adj)
 
     def get_provider_family(p: dict) -> str:
         pid = p.get("id", "").lower()

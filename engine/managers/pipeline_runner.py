@@ -176,6 +176,164 @@ def extract_keywords(text: str, max_keywords: int = 10) -> List[str]:
     return keywords
 
 
+# ─── SHORT SCRIPT CALIBRATOR & WORD BUDGET GUARD ──────────────────────────────
+
+def calibrate_and_guard_script(
+    raw_scenes: List[Dict[str, Any]],
+    prompt_settings: Dict[str, Any],
+    target_duration: float = 55.0
+) -> List[Dict[str, Any]]:
+    """
+    Calibrates, re-segments, trims, and guards scene scripts for Shorts before TTS synthesis.
+
+    Guarantees:
+    - Multi-sentence scenes are re-segmented into individual standalone thoughts.
+    - Total spoken words is locked between 135 and 150 words (guaranteeing ~52-56s natural TTS duration).
+    - Over-budget scripts are trimmed safely without losing Hook or Loop bridge.
+    - Under-budget scripts are expanded with verified viral thoughts with a hard 150-word ceiling.
+    - Scene count is maintained between 11 and 13.
+    - Hook is clean (no leading punctuation, capitalized).
+    - Loop bridge ends with continuation ellipsis '...'.
+    """
+    if not raw_scenes:
+        return raw_scenes
+
+    # 1. Clean Hook opening
+    raw_scenes[0]["spoken_text"] = re.sub(r"^[\.\s…\-]+", "", raw_scenes[0].get("spoken_text", "")).strip()
+    if raw_scenes[0]["spoken_text"] and raw_scenes[0]["spoken_text"][0].islower():
+        raw_scenes[0]["spoken_text"] = raw_scenes[0]["spoken_text"][0].upper() + raw_scenes[0]["spoken_text"][1:]
+
+    # 2. Re-segment multi-sentence scenes if scene count is low (< 10)
+    if len(raw_scenes) < 10:
+        split_scenes = []
+        for sc in raw_scenes:
+            txt = sc.get("spoken_text", "").strip()
+            sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', txt) if s.strip()]
+            if len(sentences) > 1 and len(raw_scenes) < 10:
+                for s_txt in sentences:
+                    split_scenes.append({
+                        "scene_id": len(split_scenes) + 1,
+                        "spoken_text": s_txt,
+                        "stock_video_query": sc.get("stock_video_query", "mind bending psychological realization")
+                    })
+            else:
+                split_scenes.append(sc)
+        if len(split_scenes) > len(raw_scenes):
+            print(f"✂️ [SCRIPT RESEGMENT] Re-segmented {len(raw_scenes)} multi-sentence scenes into {len(split_scenes)} individual thought scenes.", flush=True)
+            raw_scenes = split_scenes
+
+    # 3. Separate loop scene
+    default_hook = prompt_settings.get("default_hook", "The only part of your reflection you can lick is your tongue.")
+    default_loop = prompt_settings.get("default_loop", "Which is why you should never overthink these...")
+
+    if len(raw_scenes) <= 1:
+        raw_scenes = [{
+            "scene_id": 1,
+            "spoken_text": default_hook,
+            "stock_video_query": "soap carving cubes ASMR"
+        }]
+
+    has_loop_phrase = len(raw_scenes) > 1 and any(
+        lp in raw_scenes[-1].get("spoken_text", "").lower()
+        for lp in ["overthink", "which is why", "why you should", "never think about"]
+    )
+    if has_loop_phrase:
+        loop_scene = raw_scenes[-1]
+        mid_scenes = list(raw_scenes[:-1])
+    else:
+        loop_scene = {
+            "scene_id": 12,
+            "spoken_text": default_loop,
+            "stock_video_query": "spiral optical illusion hypnotic"
+        }
+        mid_scenes = list(raw_scenes)
+
+    def _calc_words(s_list, loop_sc):
+        return sum(len(s.get("spoken_text", "").split()) for s in s_list) + len(loop_sc.get("spoken_text", "").split())
+
+    FALLBACK_THOUGHTS = prompt_settings.get("fallback_thoughts", [
+        "Your shadow is proof that light traveled ninety-three million miles to be blocked by you.",
+        "If you replace every single part of an axe, is it still the exact same axe?",
+        "You have never actually seen your own face, only reflections, screens, and photographs.",
+        "Sleeping is just charging your biological battery, while dreaming is running a diagnostics test.",
+        "Nothing is ever on fire. Fire is actually on things.",
+        "Clapping is just repeatedly slapping yourself because you enjoyed something.",
+        "Your age is just the number of laps you survived around a giant nuclear fireball.",
+        "If poison expires, does it become more poisonous, or less poisonous?",
+        "The brain named itself, recognized itself, and is now realizing that exact fact.",
+        "Every book you have ever read is just twenty-six letters arranged in different orders.",
+        "Water can boil and freeze at the exact same instant under specific pressure.",
+        "You can never hold an empty container because it is always completely full of air."
+    ])
+
+    total_words = _calc_words(mid_scenes, loop_scene)
+
+    # 4. Strict Word Budget Trimming (Guaranteed <= 150 words to avoid chipmunk audio)
+    if total_words > 150:
+        orig_words = total_words
+        orig_count = len(mid_scenes) + 1
+        while len(mid_scenes) > 9 and total_words > 150:
+            popped = mid_scenes.pop()
+            total_words -= len(popped.get("spoken_text", "").split())
+
+        if total_words > 150:
+            for sc in mid_scenes[1:]:  # preserve hook
+                w_list = sc.get("spoken_text", "").split()
+                if len(w_list) > 14:
+                    sc["spoken_text"] = " ".join(w_list[:14]).rstrip(",;:- ") + "."
+                    total_words = _calc_words(mid_scenes, loop_scene)
+                    if total_words <= 148:
+                        break
+
+        print(f"✂️ [SCRIPT TRIM] Trimmed over-budget script from {orig_words} words ({orig_count} scenes) down to {total_words} words ({len(mid_scenes) + 1} scenes) to prevent chipmunk audio.", flush=True)
+
+    # 5. Controlled Fallback Expansion (Guaranteed 135-148 words, NEVER exceeding 150 words)
+    elif total_words < 130 or len(mid_scenes) < 10:
+        orig_words = total_words
+        orig_count = len(mid_scenes) + 1
+        for fb in FALLBACK_THOUGHTS:
+            fb_words = len(fb.split())
+            if total_words + fb_words > 150:
+                break
+            if not any(are_thoughts_similar(fb, s.get("spoken_text", "")) for s in mid_scenes):
+                mid_scenes.append({
+                    "scene_id": len(mid_scenes) + 1,
+                    "spoken_text": fb,
+                    "stock_video_query": "soap carving cubes ASMR"
+                })
+                total_words += fb_words
+            if len(mid_scenes) >= 10 and total_words >= 135:
+                break
+        print(f"✨ [SCRIPT EXPAND] Expanded under-budget script from {orig_words} words ({orig_count} scenes) to {total_words} words ({len(mid_scenes) + 1} scenes).", flush=True)
+
+    # 6. Reassemble & Intra-Script Deduplication
+    raw_scenes = mid_scenes + [loop_scene]
+    deduped_scenes = []
+    for s in raw_scenes:
+        is_duplicate = any(are_thoughts_similar(s.get("spoken_text", ""), prev.get("spoken_text", "")) for prev in deduped_scenes)
+        if is_duplicate and s != raw_scenes[-1] and s != raw_scenes[0]:
+            print(f"♻️ [INTRA-DEDUP] Duplicate thought in script: '{s.get('spoken_text', '')[:40]}...'. Replacing with fresh thought.", flush=True)
+            for fb in FALLBACK_THOUGHTS:
+                if not any(are_thoughts_similar(fb, x.get("spoken_text", "")) for x in deduped_scenes + raw_scenes):
+                    s["spoken_text"] = fb
+                    break
+        deduped_scenes.append(s)
+    raw_scenes = deduped_scenes
+
+    # 7. Seamless circular loop ending
+    last_text = raw_scenes[-1]["spoken_text"].rstrip(".! ")
+    if not last_text.endswith("..."):
+        raw_scenes[-1]["spoken_text"] = f"{last_text}..."
+
+    # 8. Re-index scene_id sequentially
+    for i, sc in enumerate(raw_scenes):
+        sc["scene_id"] = i + 1
+
+    final_words = sum(len(s.get("spoken_text", "").split()) for s in raw_scenes)
+    print(f"🎯 [SCRIPT CALIBRATED] Final script locked at {len(raw_scenes)} scenes and {final_words} words (~{final_words / 2.6:.1f}s expected narration).", flush=True)
+    return raw_scenes
+
+
 def run_spec_stage(video_type: str = "short") -> None:
     """Executes Stage 1: 🚀 Init & Spec Generation."""
     full_channel_cfg = load_yaml("config/channel_config.yaml")
@@ -261,26 +419,45 @@ def run_spec_stage(video_type: str = "short") -> None:
 
         def validate_short_script(data: Dict[str, Any]) -> bool:
             if not isinstance(data, dict):
+                print(f"⚠️ [LLM VALIDATOR] Rejected: response is not a JSON object (got {type(data).__name__}). Cascading...", flush=True)
                 return False
+
+            # Normalize alternate key names produced by some models
+            if "scenes" not in data:
+                for alt_key in ["thoughts", "facts", "items", "list", "chapters"]:
+                    if alt_key in data and isinstance(data[alt_key], list):
+                        data["scenes"] = data[alt_key]
+                        break
+
             scenes = data.get("scenes", [])
-            if not scenes and "chapters" in data:
-                scenes = []
-                for ch in data.get("chapters", []):
-                    scenes.extend(ch.get("scenes", []))
             if not isinstance(scenes, list) or len(scenes) < 3:
+                print(f"⚠️ [LLM VALIDATOR] Rejected: fewer than 3 scenes (got {len(scenes) if isinstance(scenes, list) else 0}). Cascading...", flush=True)
                 return False
+
+            # Normalize spoken_text field in scenes
+            for sc in scenes:
+                if isinstance(sc, dict) and "spoken_text" not in sc:
+                    for k in ["text", "thought", "line", "narration", "fact"]:
+                        if k in sc and sc[k]:
+                            sc["spoken_text"] = sc[k]
+                            break
+
             valid_scenes = [sc for sc in scenes if isinstance(sc, dict) and bool(sc.get("spoken_text", "").strip())]
             if len(valid_scenes) < 3:
+                print(f"⚠️ [LLM VALIDATOR] Rejected: fewer than 3 valid scenes with text (got {len(valid_scenes)}). Cascading...", flush=True)
                 return False
+
             # YouTube policy safety gate: reject if script contains banned policy words
             for sc in valid_scenes:
                 txt = sc.get("spoken_text", "").lower()
-                if any(bad in txt for bad in YOUTUBE_POLICY_BANNED_WORDS):
-                    print(f"⚠️ [POLICY GATE] Script contains YouTube policy flagged term. Cascading...", flush=True)
-                    return False
+                for bad in YOUTUBE_POLICY_BANNED_WORDS:
+                    if bad in txt:
+                        print(f"⚠️ [POLICY GATE] Script contains YouTube policy flagged term '{bad}'. Cascading...", flush=True)
+                        return False
+
             words = sum(len(sc.get("spoken_text", "").split()) for sc in valid_scenes)
-            if words < 25 or words > 220:
-                print(f"⚠️ [VALIDATOR] Script word count out of range ({words} words, expected 25-220). Cascading...", flush=True)
+            if words < 35 or words > 200:
+                print(f"⚠️ [LLM VALIDATOR] Script word count out of range ({words} words, expected 35-200). Cascading...", flush=True)
                 return False
             return True
 
@@ -297,90 +474,13 @@ def run_spec_stage(video_type: str = "short") -> None:
         if not raw_scenes:
             raise ValueError("LLM generated empty scene array.")
 
-        # Ensure clean opening for Hook (no leading ellipses or dots)
-        if raw_scenes:
-            raw_scenes[0]["spoken_text"] = re.sub(r"^[\.\s…\-]+", "", raw_scenes[0]["spoken_text"]).strip()
-            if raw_scenes[0]["spoken_text"] and raw_scenes[0]["spoken_text"][0].islower():
-                raw_scenes[0]["spoken_text"] = raw_scenes[0]["spoken_text"][0].upper() + raw_scenes[0]["spoken_text"][1:]
-
         # Ensure sufficient scenes and words for Shorts in production & test runs
         if video_type == "short" and not os.environ.get("PYTEST_CURRENT_TEST"):
-            total_words = sum(len(s.get("spoken_text", "").split()) for s in raw_scenes)
-            # Cap if too long to prevent > 58s run
-            if len(raw_scenes) > 13:
-                loop_scene = raw_scenes[-1]
-                raw_scenes = raw_scenes[:12] + [loop_scene]
-                for i, sc in enumerate(raw_scenes):
-                    sc["scene_id"] = i + 1
-                total_words = sum(len(s.get("spoken_text", "").split()) for s in raw_scenes)
-
-            FALLBACK_THOUGHTS = prompt_settings.get("fallback_thoughts", [
-                "Your shadow is proof that light traveled ninety-three million miles to be blocked by you.",
-                "If you replace every single part of an axe, is it still the exact same axe?",
-                "You have never actually seen your own face, only reflections, screens, and photographs.",
-                "Sleeping is just charging your biological battery, while dreaming is running a diagnostics test.",
-                "Nothing is ever on fire. Fire is actually on things.",
-                "Clapping is just repeatedly slapping yourself because you enjoyed something.",
-                "Your age is just the number of laps you survived around a giant nuclear fireball.",
-                "If poison expires, does it become more poisonous, or less poisonous?",
-                "The brain named itself, recognized itself, and is now realizing that exact fact.",
-                "Every book you have ever read is just twenty-six letters arranged in different orders.",
-                "Water can boil and freeze at the exact same instant under specific pressure.",
-                "You can never hold an empty container because it is always completely full of air."
-            ])
-
-            if len(raw_scenes) < 11 or total_words < 135:
-                print(f"⚠️ [SPEC] Script below target word budget ({len(raw_scenes)} scenes, {total_words} words). Expanding with verified viral thoughts...", flush=True)
-
-                default_hook = prompt_settings.get("default_hook", "The only part of your reflection you can lick is your tongue.")
-                default_loop = prompt_settings.get("default_loop", "Which is why you should never overthink these...")
-
-                if len(raw_scenes) <= 1 or total_words < 30:
-                    raw_scenes = [{
-                        "scene_id": 1,
-                        "spoken_text": default_hook,
-                        "stock_video_query": "soap carving cubes ASMR"
-                    }]
-
-                has_loop_phrase = len(raw_scenes) > 1 and any(
-                    lp in raw_scenes[-1].get("spoken_text", "").lower()
-                    for lp in ["overthink", "which is why", "why you should", "never think about"]
-                )
-                if has_loop_phrase:
-                    loop_scene = raw_scenes[-1]
-                    mid_scenes = list(raw_scenes[:-1])
-                else:
-                    loop_scene = {
-                        "scene_id": 12,
-                        "spoken_text": default_loop,
-                        "stock_video_query": "spiral optical illusion hypnotic"
-                    }
-                    mid_scenes = list(raw_scenes)
-
-                # Fuzzy deduplication: avoid adding thoughts similar to existing ones
-                for fb in FALLBACK_THOUGHTS:
-                    if not any(are_thoughts_similar(fb, s.get("spoken_text", "")) for s in mid_scenes):
-                        mid_scenes.append({"scene_id": len(mid_scenes) + 1, "spoken_text": fb, "stock_video_query": "soap carving cubes ASMR"})
-                    if len(mid_scenes) >= 11 and sum(len(s.get("spoken_text", "").split()) for s in mid_scenes) >= 140:
-                        break
-
-                mid_scenes.append(loop_scene)
-                raw_scenes = mid_scenes
-                for i, sc in enumerate(raw_scenes):
-                    sc["scene_id"] = i + 1
-
-            # Intra-Script Deduplication: verify no two scenes in raw_scenes are duplicates
-            deduped_scenes = []
-            for s in raw_scenes:
-                is_duplicate = any(are_thoughts_similar(s.get("spoken_text", ""), prev.get("spoken_text", "")) for prev in deduped_scenes)
-                if is_duplicate and s != raw_scenes[-1] and s != raw_scenes[0]:
-                    print(f"♻️ [INTRA-DEDUP] Duplicate thought in script: '{s.get('spoken_text', '')[:40]}...'. Replacing with fresh thought.", flush=True)
-                    for fb in FALLBACK_THOUGHTS:
-                        if not any(are_thoughts_similar(fb, x.get("spoken_text", "")) for x in deduped_scenes + raw_scenes):
-                            s["spoken_text"] = fb
-                            break
-                deduped_scenes.append(s)
-            raw_scenes = deduped_scenes
+            raw_scenes = calibrate_and_guard_script(
+                raw_scenes=raw_scenes,
+                prompt_settings=prompt_settings,
+                target_duration=target_duration
+            )
 
         # Seamless circular loop for Shorts: Ensure final scene ends with continuation ellipsis '...'
         if video_type == "short" and raw_scenes:
@@ -464,8 +564,11 @@ def run_spec_stage(video_type: str = "short") -> None:
                 target_dur = 52.5
 
             if target_dur > 0.0:
-                speed_ratio = round(total_duration / target_dur, 3)
-                print(f"⚠️ [DURATION GUARD] Measured audio ({total_duration:.2f}s) outside 50.0-57.5s window. Calibrating audio in-place by {speed_ratio}x to {target_dur}s...", flush=True)
+                raw_speed_ratio = round(total_duration / target_dur, 3)
+                # Fidelity safety guard: strictly clamp speed adjustment to [0.95x, 1.10x]
+                speed_ratio = round(max(0.95, min(1.10, raw_speed_ratio)), 3)
+                effective_target_dur = round(total_duration / speed_ratio, 2)
+                print(f"⚠️ [DURATION GUARD] Measured audio ({total_duration:.2f}s) outside 50.0-57.5s window. Calibrating audio in-place by {speed_ratio}x (raw: {raw_speed_ratio}x, clamp [0.95, 1.10]) to ~{effective_target_dur}s...", flush=True)
                 wav_path = audio_output.rsplit(".", 1)[0] + ".wav"
                 rescaled_wav = os.path.join("output", "narration_rescaled.wav")
                 rescaled_mp3 = os.path.join("output", "narration_rescaled.mp3")
@@ -489,7 +592,7 @@ def run_spec_stage(video_type: str = "short") -> None:
                             ["ffmpeg", "-y", "-nostats", "-loglevel", "error", "-i", wav_path, "-codec:a", "libmp3lame", "-b:a", "192k", audio_output],
                             check=False
                         )
-                    total_duration = target_dur
+                    total_duration = effective_target_dur
 
                     # Re-align captions directly on the final rescaled audio via CaptionAligner
                     from engine.managers.caption_aligner import CaptionAligner

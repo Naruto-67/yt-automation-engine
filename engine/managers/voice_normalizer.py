@@ -784,7 +784,11 @@ class VoiceNormalizer:
 
         try:
             import subprocess
-            atempo_val = max(0.5, min(2.0, speed_factor))
+            # Fidelity safety guard: strictly clamp speed adjustment to [0.95x, 1.10x]
+            atempo_val = round(max(0.95, min(1.10, speed_factor)), 3)
+            if abs(atempo_val - speed_factor) > 0.01:
+                print(f"⚠️ [AUDIO RESCALE] Requested factor {speed_factor:.3f}x exceeds safe fidelity limits [0.95x, 1.10x]. Clamped to {atempo_val:.3f}x to preserve natural voice quality.", flush=True)
+
             cmd = [
                 "ffmpeg", "-y", "-nostats", "-loglevel", "error",
                 "-i", input_audio_path,
@@ -794,7 +798,7 @@ class VoiceNormalizer:
             ]
             res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, timeout=30)
             if res.returncode == 0 and os.path.exists(output_audio_path) and os.path.getsize(output_audio_path) > 1000:
-                print(f"⚡ [AUDIO RESCALE] Successfully adjusted audio duration by {speed_factor:.3f}x via FFmpeg atempo.", flush=True)
+                print(f"⚡ [AUDIO RESCALE] Successfully adjusted audio duration by {atempo_val:.3f}x via FFmpeg atempo.", flush=True)
                 return True
         except Exception as e:
             print(f"⚠️ [AUDIO RESCALE] FFmpeg atempo failed: {e}", flush=True)

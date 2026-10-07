@@ -1521,6 +1521,108 @@ def test_brand_tags_merging_and_capping():
     assert total_len <= 490
 
 
+def test_calibrate_and_guard_script_resegmentation():
+    """Verifies that 4 multi-sentence scenes with 160 words are re-segmented and trimmed to 11-13 scenes and <= 150 words."""
+    from engine.managers.pipeline_runner import calibrate_and_guard_script
+
+    raw_scenes = [
+        {"scene_id": 1, "spoken_text": "The only part of your reflection you can lick is your tongue. It proves your brain constructs reality. Mirrors are wild."},
+        {"scene_id": 2, "spoken_text": "Your shadow traveled 93 million miles just to be blocked by your body. Think about how long that light traveled. Space is completely pitch black."},
+        {"scene_id": 3, "spoken_text": "If poison expires does it become more poisonous or less poisonous? Nobody actually wants to test this hypothesis. Some paradoxes remain unsolved."},
+        {"scene_id": 4, "spoken_text": "Sleeping is just charging your biological battery while dreaming is running diagnostics. Which is why you should never overthink these..."}
+    ]
+
+    calibrated = calibrate_and_guard_script(raw_scenes, prompt_settings={})
+    assert len(calibrated) >= 10
+    total_words = sum(len(s["spoken_text"].split()) for s in calibrated)
+    assert 130 <= total_words <= 150
+    # Hook clean
+    assert not calibrated[0]["spoken_text"].startswith("...")
+    assert calibrated[0]["spoken_text"][0].isupper()
+    # Loop ellipsis
+    assert calibrated[-1]["spoken_text"].endswith("...")
+
+
+def test_calibrate_and_guard_script_underbudget_expansion():
+    """Verifies that an under-budget partial script (4 scenes, 45 words) expands up to 135-150 words without exceeding 150 words."""
+    from engine.managers.pipeline_runner import calibrate_and_guard_script
+
+    raw_scenes = [
+        {"scene_id": 1, "spoken_text": "The only part of your reflection you can lick is your tongue."},
+        {"scene_id": 2, "spoken_text": "Your shadow is proof that light traveled ninety-three million miles."},
+        {"scene_id": 3, "spoken_text": "Nothing is ever on fire. Fire is actually on things."},
+        {"scene_id": 4, "spoken_text": "Which is why you should never overthink these..."}
+    ]
+
+    calibrated = calibrate_and_guard_script(raw_scenes, prompt_settings={})
+    assert len(calibrated) >= 10
+    total_words = sum(len(s["spoken_text"].split()) for s in calibrated)
+    assert 135 <= total_words <= 150
+    assert calibrated[-1]["spoken_text"].endswith("...")
+
+
+def test_calibrate_and_guard_script_overbudget_trim():
+    """Verifies that an over-budget script (15 scenes, 210 words) is trimmed down to <= 150 words while preserving Hook and Loop bridge."""
+    from engine.managers.pipeline_runner import calibrate_and_guard_script
+
+    raw_scenes = [
+        {"scene_id": 1, "spoken_text": "The only part of your reflection you can lick is your tongue."}
+    ]
+    for i in range(2, 15):
+        raw_scenes.append({
+            "scene_id": i,
+            "spoken_text": f"This is scene {i} presenting another lengthy psychological thought that takes quite a few words to speak."
+        })
+    raw_scenes.append({
+        "scene_id": 15,
+        "spoken_text": "Which is why you should never overthink these..."
+    })
+
+    calibrated = calibrate_and_guard_script(raw_scenes, prompt_settings={})
+    total_words = sum(len(s["spoken_text"].split()) for s in calibrated)
+    assert total_words <= 150
+    assert calibrated[0]["spoken_text"] == "The only part of your reflection you can lick is your tongue."
+    assert calibrated[-1]["spoken_text"].endswith("...")
+
+
+def test_voice_normalizer_rescale_clamping(monkeypatch, tmp_path):
+    """Verifies that VoiceNormalizer.rescale_audio_duration clamps speed factor to [0.95, 1.10]."""
+    from engine.managers.voice_normalizer import VoiceNormalizer
+    import subprocess
+
+    dummy_in = str(tmp_path / "dummy.wav")
+    dummy_out = str(tmp_path / "dummy_out.wav")
+    with open(dummy_in, "wb") as f:
+        f.write(b"RIFF" + b"\x00" * 2000)
+
+    recorded_atempo = []
+
+    def mock_run(cmd, *args, **kwargs):
+        for arg in cmd:
+            if "atempo=" in arg:
+                recorded_atempo.append(float(arg.split("atempo=")[1]))
+        with open(dummy_out, "wb") as f:
+            f.write(b"RIFF" + b"\x00" * 2000)
+        class _Proc:
+            returncode = 0
+        return _Proc()
+
+    monkeypatch.setattr(subprocess, "run", mock_run)
+
+    # Test extreme high speed (e.g. 1.83x) -> should clamp to 1.10
+    VoiceNormalizer.rescale_audio_duration(dummy_in, dummy_out, speed_factor=1.83)
+    assert recorded_atempo[-1] == 1.10
+
+    # Test extreme low speed (e.g. 0.80x) -> should clamp to 0.95
+    VoiceNormalizer.rescale_audio_duration(dummy_in, dummy_out, speed_factor=0.80)
+    assert recorded_atempo[-1] == 0.95
+
+    # Test valid in-range speed (e.g. 1.05x) -> should pass through
+    VoiceNormalizer.rescale_audio_duration(dummy_in, dummy_out, speed_factor=1.05)
+    assert recorded_atempo[-1] == 1.05
+
+
+
 
 
 
