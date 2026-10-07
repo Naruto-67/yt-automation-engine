@@ -6,7 +6,7 @@ on:
     # - 1 short/day:  '0 8 * * *' (08:00 UTC)
     # - 2 shorts/day: '0 6,18 * * *' (06:00 and 18:00 UTC)
     # - 3 shorts/day: '0 4,12,20 * * *' (04:00, 12:00, and 20:00 UTC)
-    - cron: '0 8 * * *'
+    - cron: '0 6,18 * * *'
   workflow_dispatch:
     inputs:
       video_type:

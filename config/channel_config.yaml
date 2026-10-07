@@ -16,19 +16,6 @@ channel:
     position: "lower_center"
     font_size: 26
     font_family: "Montserrat-SemiBold"
-  upload_defaults:
-    privacy: "private"
-    category_id: "24"                  # 24 = Entertainment (eliminates academic syllabus fields)
-    made_for_kids: false
-    default_language: "en-US"
-    default_audio_language: "en-US"
-    contains_synthetic_media: false    # YouTube AI disclosure: False (exempt ASMR b-roll + TTS narration)
-    notify_subscribers_shorts: false   # Disable for Shorts to test organic algorithmic feed without sub spam
-    notify_subscribers_long: true      # Alert subscribers for long-form documentaries
-    public_stats_viewable_shorts: false # Hide like count on Shorts to eliminate low-like count bias
-    public_stats_viewable_long: true   # Show like count on long-form
-    license: "youtube"                 # Standard YouTube licence
-    embeddable: true
 
 # ─── BRAND & EVERGREEN TAGS ──────────────────────────────────────────────────
 brand_tags:
@@ -167,7 +154,7 @@ title_settings:
 # ─── UPLOAD & LEARNING SETTINGS ──────────────────────────────────────────────
 upload_settings:
   # Multi-Shorts Daily Strategy & Timing
-  shorts_per_day: 1                  # Daily upload volume: 1 (or 2, 3, 4 for scaling)
+  shorts_per_day: 2                  # Daily upload volume: 2 shorts per day
   min_spacing_hours: 6.0             # Anti-cannibalization buffer between uploads
   use_negative_jitter: true          # Post 5-18 mins BEFORE peak hour to prime YouTube CDN
   jitter_minutes_min: 5              # Minimum minutes before peak hour (e.g. :55)
@@ -177,6 +164,7 @@ upload_settings:
     - 22                             # 22:00 UTC (5:00 PM EST / Evening commute)
     - 14                             # 14:00 UTC (9:00 AM EST / Morning rush)
     - 1                              # 01:00 UTC (8:00 PM EST / Primetime relaxation)
+  privacy: "private"                 # Upload initial status
   random_schedule: false
   schedule_window_hours: 4
   adaptive_schedule_learning: true   # Auto-tune release time to channel's peak view velocity hour
