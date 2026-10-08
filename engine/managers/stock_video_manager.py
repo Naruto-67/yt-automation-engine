@@ -355,6 +355,7 @@ class StockVideoManager:
             "physics_marble": ["marble", "physics", "ball", "domino"],
             "hedge_trim": ["hedge", "bush", "lawn", "grass", "trim"],
             "bottle_stairs": ["bottle", "stair"],
+            "tactile_macro": ["macro", "tactile", "slice", "press", "wire", "crush", "cut", "hydraulic", "shredder", "oddly", "satisfying"],
             "gaming": ["minecraft", "subway", "game", "gaming", "parkour"],
         }
 
