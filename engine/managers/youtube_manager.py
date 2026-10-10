@@ -329,10 +329,8 @@ class YouTubeManager:
         return 18
 
     @staticmethod
-    def generate_community_post(topic: str, hook: str, script_summary: str = "") -> Dict[str, str]:
     def generate_community_post(topic: str, hook: str, script_summary: str = "") -> Dict[str, Any]:
         """
-        Generates an engaging subscriber discussion question and pinned comment for retention.
         Generates an engaging subscriber discussion question, pinned comment, and Community Tab poll.
         """
         clean_hook = re.sub(r"[^\w\s\?]", "", hook).strip() if hook else topic
@@ -358,8 +356,6 @@ class YouTubeManager:
         }
 
         return {
-            "pinned_comment": "Which one of these thoughts broke your brain the most? 👇",
-            "community_post": f"Quick reality check: {clean_hook}\n\nWhat's your take? Vote below or drop your mind-bending thought! 🧠"
             "pinned_comment": pinned_comment,
             "community_post": community_post,
             "community_poll": community_poll

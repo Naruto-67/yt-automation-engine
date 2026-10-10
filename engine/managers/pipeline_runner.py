@@ -271,39 +271,31 @@ def calibrate_and_guard_script(
 
     total_words = _calc_words(mid_scenes, loop_scene)
 
-    # 4. Strict Word Budget Trimming (Guaranteed <= 150 words to avoid chipmunk audio)
-    if total_words > 150:
     # 4. Strict Word Budget Trimming (Guaranteed <= 175 words to avoid chipmunk audio)
     if total_words > 175:
         orig_words = total_words
         orig_count = len(mid_scenes) + 1
-        while len(mid_scenes) > 9 and total_words > 150:
         while len(mid_scenes) > 10 and total_words > 175:
             popped = mid_scenes.pop()
             total_words -= len(popped.get("spoken_text", "").split())
 
-        if total_words > 150:
         if total_words > 175:
             for sc in mid_scenes[1:]:  # preserve hook
                 w_list = sc.get("spoken_text", "").split()
                 if len(w_list) > 14:
                     sc["spoken_text"] = " ".join(w_list[:14]).rstrip(",;:- ") + "."
                     total_words = _calc_words(mid_scenes, loop_scene)
-                    if total_words <= 148:
                     if total_words <= 172:
                         break
 
         print(f"✂️ [SCRIPT TRIM] Trimmed over-budget script from {orig_words} words ({orig_count} scenes) down to {total_words} words ({len(mid_scenes) + 1} scenes) to prevent chipmunk audio.", flush=True)
 
-    # 5. Controlled Fallback Expansion (Guaranteed 135-148 words, NEVER exceeding 150 words)
-    elif total_words < 130 or len(mid_scenes) < 10:
     # 5. Controlled Fallback Expansion (Guaranteed 155-172 words, NEVER exceeding 175 words)
     elif total_words < 155 or len(mid_scenes) < 10:
         orig_words = total_words
         orig_count = len(mid_scenes) + 1
         for fb in FALLBACK_THOUGHTS:
             fb_words = len(fb.split())
-            if total_words + fb_words > 150:
             if total_words + fb_words > 175:
                 break
             if not any(are_thoughts_similar(fb, s.get("spoken_text", "")) for s in mid_scenes):
@@ -313,7 +305,6 @@ def calibrate_and_guard_script(
                     "stock_video_query": "soap carving cubes ASMR"
                 })
                 total_words += fb_words
-            if len(mid_scenes) >= 10 and total_words >= 135:
             if len(mid_scenes) >= 11 and total_words >= 155:
                 break
         print(f"✨ [SCRIPT EXPAND] Expanded under-budget script from {orig_words} words ({orig_count} scenes) to {total_words} words ({len(mid_scenes) + 1} scenes).", flush=True)
