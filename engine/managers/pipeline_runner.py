@@ -189,9 +189,12 @@ def calibrate_and_guard_script(
     Guarantees:
     - Multi-sentence scenes are re-segmented into individual standalone thoughts.
     - Total spoken words is locked between 135 and 150 words (guaranteeing ~52-56s natural TTS duration).
+    - Total spoken words is locked between 155 and 175 words (guaranteeing ~52-56s natural TTS duration).
     - Over-budget scripts are trimmed safely without losing Hook or Loop bridge.
     - Under-budget scripts are expanded with verified viral thoughts with a hard 150-word ceiling.
     - Scene count is maintained between 11 and 13.
+    - Under-budget scripts are expanded with verified viral thoughts with a hard 175-word ceiling.
+    - Scene count is maintained between 12 and 14.
     - Hook is clean (no leading punctuation, capitalized).
     - Loop bridge ends with continuation ellipsis '...'.
     """
@@ -270,30 +273,38 @@ def calibrate_and_guard_script(
 
     # 4. Strict Word Budget Trimming (Guaranteed <= 150 words to avoid chipmunk audio)
     if total_words > 150:
+    # 4. Strict Word Budget Trimming (Guaranteed <= 175 words to avoid chipmunk audio)
+    if total_words > 175:
         orig_words = total_words
         orig_count = len(mid_scenes) + 1
         while len(mid_scenes) > 9 and total_words > 150:
+        while len(mid_scenes) > 10 and total_words > 175:
             popped = mid_scenes.pop()
             total_words -= len(popped.get("spoken_text", "").split())
 
         if total_words > 150:
+        if total_words > 175:
             for sc in mid_scenes[1:]:  # preserve hook
                 w_list = sc.get("spoken_text", "").split()
                 if len(w_list) > 14:
                     sc["spoken_text"] = " ".join(w_list[:14]).rstrip(",;:- ") + "."
                     total_words = _calc_words(mid_scenes, loop_scene)
                     if total_words <= 148:
+                    if total_words <= 172:
                         break
 
         print(f"✂️ [SCRIPT TRIM] Trimmed over-budget script from {orig_words} words ({orig_count} scenes) down to {total_words} words ({len(mid_scenes) + 1} scenes) to prevent chipmunk audio.", flush=True)
 
     # 5. Controlled Fallback Expansion (Guaranteed 135-148 words, NEVER exceeding 150 words)
     elif total_words < 130 or len(mid_scenes) < 10:
+    # 5. Controlled Fallback Expansion (Guaranteed 155-172 words, NEVER exceeding 175 words)
+    elif total_words < 155 or len(mid_scenes) < 10:
         orig_words = total_words
         orig_count = len(mid_scenes) + 1
         for fb in FALLBACK_THOUGHTS:
             fb_words = len(fb.split())
             if total_words + fb_words > 150:
+            if total_words + fb_words > 175:
                 break
             if not any(are_thoughts_similar(fb, s.get("spoken_text", "")) for s in mid_scenes):
                 mid_scenes.append({
@@ -303,6 +314,7 @@ def calibrate_and_guard_script(
                 })
                 total_words += fb_words
             if len(mid_scenes) >= 10 and total_words >= 135:
+            if len(mid_scenes) >= 11 and total_words >= 155:
                 break
         print(f"✨ [SCRIPT EXPAND] Expanded under-budget script from {orig_words} words ({orig_count} scenes) to {total_words} words ({len(mid_scenes) + 1} scenes).", flush=True)
 
@@ -458,6 +470,8 @@ def run_spec_stage(video_type: str = "short") -> None:
             words = sum(len(sc.get("spoken_text", "").split()) for sc in valid_scenes)
             if words < 35 or words > 200:
                 print(f"⚠️ [LLM VALIDATOR] Script word count out of range ({words} words, expected 35-200). Cascading...", flush=True)
+            if words < 45 or words > 220:
+                print(f"⚠️ [LLM VALIDATOR] Script word count out of range ({words} words, expected 45-220). Cascading...", flush=True)
                 return False
             return True
 
@@ -740,6 +754,14 @@ def run_spec_stage(video_type: str = "short") -> None:
                 from engine.managers.youtube_manager import YouTubeManager
                 hook_txt = scenes_spec[0].spoken_text if scenes_spec else ""
                 spec_dict["community_engagement"] = YouTubeManager.generate_community_post(topic, hook_txt)
+                comm_data = YouTubeManager.generate_community_post(topic, hook_txt)
+                spec_dict["community_engagement"] = comm_data
+
+                # Persist community engagement copy for 1-click posting
+                os.makedirs("output", exist_ok=True)
+                with open(os.path.join("output", "community_post.json"), "w", encoding="utf-8") as pf:
+                    json.dump(comm_data, pf, indent=2)
+                print("📦 [COMMUNITY] Generated Community Post & Poll in 'output/community_post.json'", flush=True)
             except Exception as e:
                 print(f"⚠️ [COMMUNITY] Failed to generate community post: {e}", flush=True)
 

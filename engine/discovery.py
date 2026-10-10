@@ -12,10 +12,18 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any, List, Set, Optional
+
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
 
 from engine.logger import logger
 
@@ -323,10 +331,40 @@ def _refresh_model_ids(providers: List[Dict[str, Any]], banned_models: Set[str])
     return expanded_providers
 
 
+def _extract_json_response(raw_text: str) -> Optional[Dict[str, Any]]:
+    """Lightweight resilient JSON extractor for empirical health-check probes."""
+    if not raw_text or not isinstance(raw_text, str):
+        return None
+    cleaned = raw_text.strip()
+    try:
+        return json.loads(cleaned)
+    except Exception:
+        pass
+    m = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", cleaned, re.IGNORECASE)
+    if m:
+        try:
+            return json.loads(m.group(1).strip())
+        except Exception:
+            pass
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        try:
+            return json.loads(cleaned[start:end + 1])
+        except Exception:
+            pass
+    return None
+
+
 def _health_check(provider: Dict[str, Any]) -> Dict[str, Any]:
     """
     Send a minimal request to the provider and return health metrics.
     Returns: {"ok": bool, "latency_ms": int, "status_code": int, "error": str|None}
+    Empirical functional test probe:
+    Sends a structured JSON generation request to the provider.
+    Verifies HTTP 200, parses the JSON payload, checks schema compliance,
+    and measures empirical round-trip latency in milliseconds.
+    Returns: {"ok": bool, "latency_ms": int, "status_code": int, "json_valid": bool, "error": str|None}
     """
     api_key = os.environ.get(provider.get("secret_key", ""), "")
     auth_header = provider.get("auth_header", "")
@@ -342,13 +380,37 @@ def _health_check(provider: Dict[str, Any]) -> Dict[str, Any]:
     if "generativelanguage" in provider.get("base_url", ""):
         payload = {"contents": [{"parts": [{"text": "Reply with: OK"}]}]}
     elif any(d in provider.get("base_url", "") for d in ["api.groq.com", "openrouter", "api.openai.com"]):
+    is_gemini = "generativelanguage" in provider.get("base_url", "")
+    is_openai_compat = any(d in provider.get("base_url", "") for d in ["api.groq.com", "openrouter", "api.openai.com"])
+
+    test_prompt = 'Output valid JSON only with keys "status" ("pass") and "scenes" (array with 1 object: {"scene_id": 1, "spoken_text": "verification test"}).'
+
+    if is_gemini:
+        payload = {
+            "contents": [{"role": "user", "parts": [{"text": test_prompt}]}],
+            "generationConfig": {
+                "temperature": 0.1,
+                "responseMimeType": "application/json",
+                "maxOutputTokens": 150
+            }
+        }
+    elif is_openai_compat:
         payload = {
             "model": provider["model"],
             "messages": [{"role": "user", "content": "Reply with: OK"}],
             "max_tokens": 5,
+            "messages": [
+                {"role": "system", "content": "You are a JSON evaluator. Output valid JSON only with no conversational text."},
+                {"role": "user", "content": test_prompt}
+            ],
+            "max_tokens": 150,
+            "temperature": 0.1
         }
+        if "openrouter" not in provider.get("base_url", "") or not str(provider.get("model", "")).endswith(":free"):
+            payload["response_format"] = {"type": "json_object"}
     else:
         payload = {"inputs": "Reply with: OK"}
+        payload = {"inputs": test_prompt}
 
     base_url = provider["base_url"]
     endpoint = provider["endpoint"]
@@ -360,6 +422,7 @@ def _health_check(provider: Dict[str, Any]) -> Dict[str, Any]:
         url = base_url + endpoint
 
     if "generativelanguage" in provider.get("base_url", "") and api_key:
+    if is_gemini and api_key:
         sep = "&" if "?" in url else "?"
         url += f"{sep}key={api_key}"
 
@@ -370,14 +433,50 @@ def _health_check(provider: Dict[str, Any]) -> Dict[str, Any]:
     try:
         start = time.time()
         resp = _http_request(url, method="POST", headers=headers, json_data=payload, timeout=4.0)
+        resp = _http_request(url, method="POST", headers=headers, json_data=payload, timeout=8.0)
         latency = int((time.time() - start) * 1000)
+
+        # Retry once without response_format if Groq returns 400 json_validate_failed
+        if resp.status_code == 400 and "json_validate_failed" in getattr(resp, "text", "") and "response_format" in payload:
+            payload.pop("response_format", None)
+            start = time.time()
+            resp = _http_request(url, method="POST", headers=headers, json_data=payload, timeout=8.0)
+            latency = int((time.time() - start) * 1000)
 
         if resp.status_code == 200:
             return {"ok": True, "latency_ms": latency, "status_code": 200, "error": None}
+            raw_text = ""
+            if is_gemini:
+                try:
+                    cands = resp.json().get("candidates", [])
+                    if cands and "content" in cands[0]:
+                        parts = cands[0]["content"].get("parts", [])
+                        if parts and "text" in parts[0]:
+                            raw_text = parts[0]["text"]
+                except Exception:
+                    pass
+            elif is_openai_compat:
+                try:
+                    choices = resp.json().get("choices", [])
+                    if choices and "message" in choices[0]:
+                        raw_text = choices[0]["message"].get("content", "")
+                except Exception:
+                    pass
+            else:
+                raw_text = getattr(resp, "text", "")
+
+            parsed = _extract_json_response(raw_text)
+            if parsed and (parsed.get("status") == "pass" or "scenes" in parsed):
+                return {"ok": True, "latency_ms": latency, "status_code": 200, "json_valid": True, "error": None}
+            else:
+                return {"ok": False, "latency_ms": latency, "status_code": 200, "json_valid": False, "error": "Output failed JSON schema validation"}
+
         elif resp.status_code == 404:
             return {"ok": False, "latency_ms": latency, "status_code": 404, "error": "Model not found / deprecated"}
+            return {"ok": False, "latency_ms": latency, "status_code": 404, "json_valid": False, "error": "Model not found / decommissioned"}
         elif resp.status_code == 429:
             return {"ok": False, "latency_ms": 50000, "status_code": 429, "error": "Quota limit (rate-limited)"}
+            return {"ok": False, "latency_ms": 50000, "status_code": 429, "json_valid": False, "error": "Quota limit (rate-limited)"}
         else:
             clean_err = "Error"
             try:
@@ -388,9 +487,11 @@ def _health_check(provider: Dict[str, Any]) -> Dict[str, Any]:
                     clean_err = err_json
             except Exception:
                 clean_err = resp.text
+                clean_err = getattr(resp, "text", "Unknown error")
             clean_err = re.sub(r'https?://\S+', '[link]', str(clean_err))
             clean_err = " ".join(clean_err.split())[:70]
             return {"ok": False, "latency_ms": latency, "status_code": resp.status_code, "error": clean_err}
+            return {"ok": False, "latency_ms": latency, "status_code": resp.status_code, "json_valid": False, "error": clean_err}
 
     except Exception as exc:
         err_msg = str(exc)
@@ -400,12 +501,14 @@ def _health_check(provider: Dict[str, Any]) -> Dict[str, Any]:
             err_msg = re.sub(r'https?://\S+', '[link]', err_msg)
             err_msg = " ".join(err_msg.split())[:70]
         return {"ok": False, "latency_ms": 0, "status_code": 0, "error": err_msg}
+        return {"ok": False, "latency_ms": 0, "status_code": 0, "json_valid": False, "error": err_msg}
 
 
 def run_discovery(force: bool = False) -> Dict[str, Any]:
     """
     Executes live multi-provider discovery, health-checks each candidate,
     empirically ranks and interleaves provider families, and saves active providers.
+    Zero hardcoded models: the priority chain is constructed purely from empirical results.
     """
     print("🔍 [PIKA FLOW DISCOVERY] Initiating Dynamic Provider Discovery & Health-Check...")
     print(f"   Timestamp: {datetime.now(timezone.utc).isoformat()}\n")
@@ -427,6 +530,8 @@ def run_discovery(force: bool = False) -> Dict[str, Any]:
         result = _health_check(p)
         status = "✅" if result["ok"] else "❌"
         print(f"  {status} {p['name']:35s} | {result['status_code']:3d} | {result['latency_ms']:5d} ms | {result['error'] or 'OK'}")
+        json_tag = "JSON:OK" if result.get("json_valid") else "JSON:FAIL"
+        print(f"  {status} {p['name']:35s} | {result['status_code']:3d} | {result['latency_ms']:5d} ms | {json_tag:9s} | {result['error'] or 'PASS'}")
         tested_results.append((p, result))
 
         perf = performance.setdefault("providers", {}).setdefault(p["id"], {})
@@ -444,14 +549,20 @@ def run_discovery(force: bool = False) -> Dict[str, Any]:
             print(f"    🚫 Permanently banned & decommissioned: {p['name']} ({p.get('model')})")
 
         if perf["success_rate"] < 0.2:
+        if perf["success_rate"] < 0.2 or not result["ok"]:
             p["enabled"] = False
             print(f"    ⛔ Disabled (low success rate): {p['name']}")
+            if not result["ok"]:
+                print(f"    ⛔ Disqualified from primary routing (test failed): {p['name']}")
 
     # Empirical Ranking & Interleaved Family Selection
+    # Empirical Ranking based solely on live test results (Zero Hardcoding)
     def perf_rank(item):
         prov, res = item
         if not prov.get("enabled", True) or prov.get("deprecated", False) or prov.get("model") in banned_models:
             return 999999
+        if not res.get("ok"):
+            return 800000 + res.get("latency_ms", 9999)
         p_perf = performance.get("providers", {}).get(prov["id"], {})
         s_rate = p_perf.get("success_rate", 1.0 if res["ok"] else 0.0)
         lat = res["latency_ms"] if res["latency_ms"] > 0 else 9999
@@ -463,6 +574,12 @@ def run_discovery(force: bool = False) -> Dict[str, Any]:
         elif any(x in m_name for x in ["70b", "72b", "gemini-3", "gpt-4"]):
             tier_adj = -200  # Priority boost for high-capacity flagships
         return int((1.0 - s_rate) * 1000 + lat + tier_adj)
+        s_rate = p_perf.get("success_rate", 1.0)
+        lat = res.get("latency_ms", 9999)
+        if lat <= 0:
+            lat = 9999
+        # Empirical score: higher reliability and lower latency wins
+        return int((1.0 - s_rate) * 5000 + lat)
 
     def get_provider_family(p: dict) -> str:
         pid = p.get("id", "").lower()
@@ -514,6 +631,14 @@ def run_discovery(force: bool = False) -> Dict[str, Any]:
     _save_providers(final_providers)
     _save_performance(performance)
 
+    print("\n" + "=" * 80)
+    print("🏆 EMPIRICAL LLM BENCHMARK LEADERBOARD (Dynamic Priority Chain)")
+    print("=" * 80)
+    for prov in sorted(final_providers, key=lambda x: x.get("priority", 99)):
+        status_sym = "🟢" if prov.get("enabled", True) else "⚪"
+        print(f"  {status_sym} Priority #{prov.get('priority'):2d}: {prov.get('name', 'Unknown'):35s} (Model: {prov.get('model', 'N/A')})")
+    print("=" * 80 + "\n")
+
     logger.success(f"✅ [DISCOVERY COMPLETE] Ranked {len(final_providers)} active models dynamically across {len(families)} provider families (banned {len(banned_models)} models).")
     return {
         "status": "SUCCESS",
@@ -522,3 +647,13 @@ def run_discovery(force: bool = False) -> Dict[str, Any]:
         "banned_count": len(banned_models),
         "providers": [p["name"] for p in final_providers]
     }
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Pika Flow LLM Discovery & Empirical Benchmark")
+    parser.add_argument("--force", action="store_true", help="Force refresh discovery cache")
+    parser.add_argument("--benchmark", action="store_true", help="Run empirical functional benchmark on all models")
+    cli_args = parser.parse_args()
+    res = run_discovery(force=cli_args.force or cli_args.benchmark)
+    print(f"Leaderboard saved to config/llm_providers.json ({res.get('active_models_count', 0)} active models).")

@@ -8,6 +8,7 @@ script_gen:
 
     UNIVERSAL RETENTION RULES:
     1. WORD CALIBRATION (50-57 SECONDS): Total spoken words across all scenes MUST BE BETWEEN 140 AND 155 WORDS across 11 to 13 scenes (each scene 9-14 words, 3.5-4.2s).
+    1. WORD CALIBRATION (52-57 SECONDS): Total spoken words across all scenes MUST BE BETWEEN 155 AND 175 WORDS across 12 to 14 scenes (each scene 11-14 words, 3.8-4.3s).
     2. HOOK (SCENE 1): In media res opening. Must be an irresistible physical or perceptual reality check that freezes the scroll instantly. Zero greetings ("Hey guys", "Did you know") and zero leading punctuation ("...").
     3. STANDALONE THOUGHTS (SCENES 2 to N-1): Every scene MUST be an independent, mind-bending shower thought, psychological paradox, or cognitive glitch. No essays, no filler.
     4. SEAMLESS CIRCULAR LOOP (SCENE N): The final sentence MUST end with an ellipsis "..." so voice intonation remains open and suspended, grammatically fusing directly back into Scene 1 for an infinite replay loop.
@@ -29,6 +30,8 @@ script_gen:
 
     Write a viral 11 to 13 scene short-form script (140 to 155 total spoken words) for the topic: "{topic}".
     CRITICAL: Generate all scenes sequentially from scene_id 1 through 12. Do NOT stop after scene 2!
+    Write a viral 12 to 14 scene short-form script (155 to 175 total spoken words) for the topic: "{topic}".
+    CRITICAL: Generate all scenes sequentially from scene_id 1 through 12-14. Do NOT stop after scene 2!
     Every scene from Scene 2 to 11 must present a distinct, standalone brain-glitch or paradox!
     Keep thought_process concise (1 sentence per field).
     

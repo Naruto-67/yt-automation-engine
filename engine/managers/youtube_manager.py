@@ -330,14 +330,73 @@ class YouTubeManager:
 
     @staticmethod
     def generate_community_post(topic: str, hook: str, script_summary: str = "") -> Dict[str, str]:
+    def generate_community_post(topic: str, hook: str, script_summary: str = "") -> Dict[str, Any]:
         """
         Generates an engaging subscriber discussion question and pinned comment for retention.
+        Generates an engaging subscriber discussion question, pinned comment, and Community Tab poll.
         """
         clean_hook = re.sub(r"[^\w\s\?]", "", hook).strip() if hook else topic
+        clean_topic = topic.strip()
+
+        # Dynamic, debative pinned comment that sparks comments & watch-time replay
+        if hook:
+            pinned_comment = f'"{hook}" — Did this one break your brain, or do you have a wilder perspective? Drop your thoughts below! 👇'
+        else:
+            pinned_comment = f"Which realization in this video broke your brain the most? Drop your perspective below! 👇"
+
+        community_post = f"Quick reality check: {clean_hook}\n\nWhat's your take? Vote below or drop your mind-bending thought! 🧠"
+
+        community_poll = {
+            "question": f"Reality Check: {clean_topic} — Which realization broke your brain the most?",
+            "options": [
+                "My perspective is completely broken 🤯",
+                "Already knew this one, drop a harder thought 👀",
+                "Need 5 minutes to process this existence glitch 💀",
+                "I have a wilder thought (check my comment) 👇"
+            ],
+            "channel_handle": "@metopato"
+        }
+
         return {
             "pinned_comment": "Which one of these thoughts broke your brain the most? 👇",
             "community_post": f"Quick reality check: {clean_hook}\n\nWhat's your take? Vote below or drop your mind-bending thought! 🧠"
+            "pinned_comment": pinned_comment,
+            "community_post": community_post,
+            "community_poll": community_poll
         }
+
+    def post_creator_comment(self, video_id: str, comment_text: str, youtube=None) -> Optional[str]:
+        """
+        Inserts a top-level creator comment on the uploaded video using YouTube Data API v3.
+        Note: The official YouTube Data API does not expose a parameter to 'pin' a comment;
+        pinning requires a creator tap in YouTube Studio UI, but inserting places it as top-level.
+        """
+        if is_test_mode():
+            print(f"🧪 [TEST MODE] Bypassing YouTube API comment insert for {video_id}: '{comment_text[:50]}...'")
+            return "test_comment_id"
+
+        if not video_id or video_id == "deferred_scheduled":
+            return None
+
+        client = youtube or self.get_client()
+        try:
+            body = {
+                "snippet": {
+                    "videoId": video_id,
+                    "topLevelComment": {
+                        "snippet": {
+                            "textOriginal": comment_text
+                        }
+                    }
+                }
+            }
+            resp = client.commentThreads().insert(part="snippet", body=body).execute()
+            comment_id = resp.get("id")
+            print(f"💬 [YOUTUBE] Successfully posted creator engagement comment on video {video_id} (Comment ID: {comment_id})", flush=True)
+            return comment_id
+        except Exception as e:
+            print(f"⚠️ [YOUTUBE] Could not post creator comment on video {video_id}: {e}", flush=True)
+            return None
 
     def sync_channel_performance(self, youtube=None) -> Dict[str, Any]:
         """
@@ -747,6 +806,34 @@ def run_release_stage() -> None:
 
         video_id = upload_res.get("video_id") if isinstance(upload_res, dict) else None
         publish_time = upload_res.get("publish_at") if isinstance(upload_res, dict) else None
+
+        # Auto-post creator engagement comment and save community poll artifact
+        if video_id and video_id != "deferred_scheduled":
+            comm_engagement = getattr(spec, "community_engagement", None)
+            if not comm_engagement:
+                hook_txt = spec.scenes[0].spoken_text if spec.scenes else spec.topic
+                comm_engagement = YouTubeManager.generate_community_post(spec.topic, hook_txt)
+
+            pinned_txt = comm_engagement.get("pinned_comment") if isinstance(comm_engagement, dict) else None
+            if pinned_txt:
+                yt_mgr.post_creator_comment(video_id=video_id, comment_text=pinned_txt)
+
+            # Persist community engagement package for 1-click posting
+            comm_payload = {
+                "video_id": video_id,
+                "video_title": spec.seo.title,
+                "pinned_comment": pinned_txt,
+                "community_post": comm_engagement.get("community_post") if isinstance(comm_engagement, dict) else "",
+                "community_poll": comm_engagement.get("community_poll") if isinstance(comm_engagement, dict) else None,
+                "published_at": publish_time or datetime.now(timezone.utc).isoformat()
+            }
+            try:
+                os.makedirs("output", exist_ok=True)
+                with open(os.path.join("output", "community_post.json"), "w", encoding="utf-8") as pf:
+                    json.dump(comm_payload, pf, indent=2)
+                print("📦 [COMMUNITY] Saved release Community Post & Poll in 'output/community_post.json'", flush=True)
+            except Exception:
+                pass
 
         # If immediate upload, notify Discord and clean up
         if not upload_cfg.get("random_schedule", False):

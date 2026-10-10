@@ -228,6 +228,17 @@ class LLMManager:
         active.sort(key=lambda x: x.get("priority", 99))
         return active
 
+    def benchmark_and_reorder(self) -> List[Dict[str, Any]]:
+        """
+        Runs empirical functional benchmarks across all candidate models,
+        updates latency and reliability metrics, and regenerates the priority chain.
+        """
+        print("⚡ [LLM] Running empirical functional benchmark across all models...")
+        run_discovery(force=True)
+        self._disabled_for_run.clear()
+        self._providers = self._get_active_providers()
+        return self._providers
+
     def generate_json(
         self,
         system_prompt: str,
@@ -256,8 +267,10 @@ class LLMManager:
             prov_id = provider["id"]
             model_name = provider.get("model", "")
             prov_name = provider.get("name", prov_id)
+            prio = provider.get("priority", "?")
 
             print(f"🤖 [LLM] Routing request to {prov_name} (Model: {model_name})...")
+            print(f"🤖 [LLM] Routing request to {prov_name} (Priority #{prio}, Model: {model_name})...")
             try:
                 response_text = self._execute_provider_call(
                     provider=provider,

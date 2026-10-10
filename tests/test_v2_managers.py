@@ -1089,7 +1089,30 @@ def test_community_post_generation():
     )
     assert "pinned_comment" in post
     assert "community_post" in post
+    assert "community_poll" in post
+    assert len(post["community_poll"]["options"]) == 4
     assert "reflection" in post["community_post"]
+
+
+def test_youtube_manager_post_creator_comment(monkeypatch):
+    """Verifies YouTubeManager.post_creator_comment formats commentThreads insert request."""
+    from engine.managers.youtube_manager import YouTubeManager
+    import engine.managers.youtube_manager as ym
+
+    yt = YouTubeManager()
+    monkeypatch.setattr(ym, "is_test_mode", lambda: False)
+
+    mock_client = MagicMock()
+    mock_insert = MagicMock()
+    mock_insert.execute.return_value = {"id": "comment_abc123"}
+    mock_client.commentThreads.return_value.insert.return_value = mock_insert
+
+    res = yt.post_creator_comment("video_123", "Did this break your brain? 👇", youtube=mock_client)
+    assert res == "comment_abc123"
+    mock_client.commentThreads.return_value.insert.assert_called_once()
+    call_args = mock_client.commentThreads.return_value.insert.call_args[1]
+    assert call_args["body"]["snippet"]["videoId"] == "video_123"
+    assert call_args["body"]["snippet"]["topLevelComment"]["snippet"]["textOriginal"] == "Did this break your brain? 👇"
 
 
 def test_vault_blend_indices():
@@ -1523,6 +1546,7 @@ def test_brand_tags_merging_and_capping():
 
 def test_calibrate_and_guard_script_resegmentation():
     """Verifies that 4 multi-sentence scenes with 160 words are re-segmented and trimmed to 11-13 scenes and <= 150 words."""
+    """Verifies that 4 multi-sentence scenes with 160 words are re-segmented and trimmed to 11-14 scenes and 150-175 words."""
     from engine.managers.pipeline_runner import calibrate_and_guard_script
 
     raw_scenes = [
@@ -1536,6 +1560,7 @@ def test_calibrate_and_guard_script_resegmentation():
     assert len(calibrated) >= 10
     total_words = sum(len(s["spoken_text"].split()) for s in calibrated)
     assert 130 <= total_words <= 150
+    assert 150 <= total_words <= 175
     # Hook clean
     assert not calibrated[0]["spoken_text"].startswith("...")
     assert calibrated[0]["spoken_text"][0].isupper()
@@ -1545,6 +1570,7 @@ def test_calibrate_and_guard_script_resegmentation():
 
 def test_calibrate_and_guard_script_underbudget_expansion():
     """Verifies that an under-budget partial script (4 scenes, 45 words) expands up to 135-150 words without exceeding 150 words."""
+    """Verifies that an under-budget partial script (4 scenes, 45 words) expands up to 155-175 words without exceeding 175 words."""
     from engine.managers.pipeline_runner import calibrate_and_guard_script
 
     raw_scenes = [
@@ -1558,11 +1584,13 @@ def test_calibrate_and_guard_script_underbudget_expansion():
     assert len(calibrated) >= 10
     total_words = sum(len(s["spoken_text"].split()) for s in calibrated)
     assert 135 <= total_words <= 150
+    assert 150 <= total_words <= 175
     assert calibrated[-1]["spoken_text"].endswith("...")
 
 
 def test_calibrate_and_guard_script_overbudget_trim():
     """Verifies that an over-budget script (15 scenes, 210 words) is trimmed down to <= 150 words while preserving Hook and Loop bridge."""
+    """Verifies that an over-budget script (15 scenes, 210 words) is trimmed down to <= 175 words while preserving Hook and Loop bridge."""
     from engine.managers.pipeline_runner import calibrate_and_guard_script
 
     raw_scenes = [
@@ -1581,6 +1609,7 @@ def test_calibrate_and_guard_script_overbudget_trim():
     calibrated = calibrate_and_guard_script(raw_scenes, prompt_settings={})
     total_words = sum(len(s["spoken_text"].split()) for s in calibrated)
     assert total_words <= 150
+    assert total_words <= 175
     assert calibrated[0]["spoken_text"] == "The only part of your reflection you can lick is your tongue."
     assert calibrated[-1]["spoken_text"].endswith("...")
 
