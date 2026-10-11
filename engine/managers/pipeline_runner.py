@@ -206,13 +206,13 @@ def calibrate_and_guard_script(
     if raw_scenes[0]["spoken_text"] and raw_scenes[0]["spoken_text"][0].islower():
         raw_scenes[0]["spoken_text"] = raw_scenes[0]["spoken_text"][0].upper() + raw_scenes[0]["spoken_text"][1:]
 
-    # 2. Re-segment multi-sentence scenes if scene count is low (< 10)
-    if len(raw_scenes) < 10:
+    # 2. Re-segment multi-sentence scenes if scene count is low (< 11)
+    if len(raw_scenes) < 11:
         split_scenes = []
         for sc in raw_scenes:
             txt = sc.get("spoken_text", "").strip()
             sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', txt) if s.strip()]
-            if len(sentences) > 1 and len(raw_scenes) < 10:
+            if len(sentences) > 1 and len(split_scenes) < 13:
                 for s_txt in sentences:
                     split_scenes.append({
                         "scene_id": len(split_scenes) + 1,
@@ -477,10 +477,8 @@ def run_spec_stage(video_type: str = "short") -> None:
                         return False
 
             words = sum(len(sc.get("spoken_text", "").split()) for sc in valid_scenes)
-            if words < 35 or words > 200:
-                print(f"⚠️ [LLM VALIDATOR] Script word count out of range ({words} words, expected 35-200). Cascading...", flush=True)
-            if words < 45 or words > 220:
-                print(f"⚠️ [LLM VALIDATOR] Script word count out of range ({words} words, expected 45-220). Cascading...", flush=True)
+            if words < 60 or words > 240:
+                print(f"⚠️ [LLM VALIDATOR] Script word count out of range ({words} words, expected 60-240). Cascading...", flush=True)
                 return False
             return True
 
