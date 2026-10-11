@@ -28,7 +28,7 @@ import requests
 from datetime import datetime, timezone
 
 # ── Active channel state ──────────────────────────────────────────────────────
-_ACTIVE_WEBHOOK  = os.environ.get("DISCORD_WEBHOOK_URL", "")
+_ACTIVE_WEBHOOK  = os.environ.get("DISCORD_WEBHOOK", "") or os.environ.get("DISCORD_WEBHOOK_URL", "")
 _ACTIVE_CHANNEL  = "System"
 _ACTIVE_CHANNEL_ID = ""
 
@@ -63,17 +63,32 @@ _STEP_EMOJI = {
 }
 
 
+def _get_active_webhook(provided_url: str = "") -> str:
+    """Resolves active webhook URL across explicit arguments and environment variables."""
+    if provided_url:
+        return provided_url
+    if _ACTIVE_WEBHOOK:
+        return _ACTIVE_WEBHOOK
+    return (
+        os.environ.get("DISCORD_WEBHOOK")
+        or os.environ.get("DISCORD_WEBHOOK_URL")
+        or os.environ.get("DISCORD_WEBHOOK_CH1")
+        or os.environ.get("DISCORD_WEBHOOK_CH2")
+        or ""
+    )
+
+
 def set_channel_context(channel_config):
     """Call this before processing each channel to route webhooks correctly."""
     global _ACTIVE_WEBHOOK, _ACTIVE_CHANNEL, _ACTIVE_CHANNEL_ID
     if isinstance(channel_config, dict):
         env_key            = channel_config.get("discord_webhook_env", "")
-        _ACTIVE_WEBHOOK    = os.environ.get(env_key, "")
+        _ACTIVE_WEBHOOK    = os.environ.get(env_key, "") or os.environ.get("DISCORD_WEBHOOK", "") or os.environ.get("DISCORD_WEBHOOK_URL", "")
         _ACTIVE_CHANNEL    = channel_config.get("channel_name", "System")
         _ACTIVE_CHANNEL_ID = channel_config.get("id", "")
     else:
         env_key            = getattr(channel_config, "discord_webhook_env", "")
-        _ACTIVE_WEBHOOK    = os.environ.get(env_key, "")
+        _ACTIVE_WEBHOOK    = os.environ.get(env_key, "") or os.environ.get("DISCORD_WEBHOOK", "") or os.environ.get("DISCORD_WEBHOOK_URL", "")
         _ACTIVE_CHANNEL    = getattr(channel_config, "channel_name", "System")
         _ACTIVE_CHANNEL_ID = getattr(channel_config, "channel_id", "")
 
@@ -82,12 +97,16 @@ def _all_channel_webhooks() -> list[str]:
     """Return webhooks for every active channel — for system-wide broadcasts."""
     try:
         from engine.config_manager import config_manager
-        return [
+        hooks = [
             wh for ch in config_manager.get_active_channels()
             if (wh := os.environ.get(ch.discord_webhook_env, ""))
         ]
+        if hooks:
+            return hooks
     except Exception:
-        return [w for w in [_ACTIVE_WEBHOOK] if w]
+        pass
+    fallback = _get_active_webhook()
+    return [fallback] if fallback else []
 
 
 def _ts() -> str:
@@ -97,23 +116,27 @@ def _ts() -> str:
 
 def _send(webhook_url: str, payload: dict, retries: int = 2):
     """Low-level send with rate-limit handling. Never raises — logs and moves on."""
-    if not webhook_url:
+    target_url = _get_active_webhook(webhook_url)
+    if not target_url:
+        print("⚠️ [DISCORD] Notification skipped: No webhook URL configured (checked DISCORD_WEBHOOK, DISCORD_WEBHOOK_URL).", flush=True)
         return
     for attempt in range(retries + 1):
         try:
             time.sleep(random.uniform(0.8, 1.5))  # gentle throttle
-            r = requests.post(webhook_url, json=payload, timeout=10)
+            r = requests.post(target_url, json=payload, timeout=10)
             if r.status_code == 429:
                 wait = float(r.json().get("retry_after", 5))
-                print(f"⚠️ [DISCORD] Rate limited — waiting {wait:.1f}s")
+                print(f"⚠️ [DISCORD] Rate limited — waiting {wait:.1f}s", flush=True)
                 time.sleep(wait + 0.5)
                 continue
             if r.status_code not in (200, 204):
-                print(f"⚠️ [DISCORD] HTTP {r.status_code}: {r.text[:100]}")
+                print(f"⚠️ [DISCORD] HTTP {r.status_code}: {r.text[:100]}", flush=True)
+            else:
+                print("✅ [DISCORD] Notification delivered successfully.", flush=True)
             return
         except Exception:
             if attempt == retries:
-                print(f"⚠️ [DISCORD] Failed after {retries+1} attempts:\n{traceback.format_exc()}")
+                print(f"⚠️ [DISCORD] Failed after {retries+1} attempts:\n{traceback.format_exc()}", flush=True)
             else:
                 time.sleep(2)
 
@@ -248,7 +271,7 @@ def notify_production_success(
         "footer": {"text": f"Ghost Engine  •  {_ACTIVE_CHANNEL}  •  {_ts()}"}
     }]
 
-    webhook_to_use = _ACTIVE_WEBHOOK or os.environ.get("DISCORD_WEBHOOK_URL", "")
+    webhook_to_use = _get_active_webhook()
     _send(webhook_to_use, {"embeds": embeds})
 
 
@@ -314,7 +337,7 @@ def notify_daily_pulse(views: int, subs: int, growth_7d: int, intel: dict, analy
         "footer": {"text": f"Ghost Engine • {_ts()}"}
     }]
 
-    webhook_to_use = _ACTIVE_WEBHOOK or os.environ.get("DISCORD_WEBHOOK_URL", "")
+    webhook_to_use = _get_active_webhook()
     _send(webhook_to_use, {"embeds": embeds, "content": _MENTION_HERE})
 
 

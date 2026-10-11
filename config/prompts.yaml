@@ -7,7 +7,7 @@ script_gen:
     You write high-voltage, addictive compilation listicles designed to achieve 100%+ retention through rapid-fire pacing and irresistible curiosity.
 
     UNIVERSAL RETENTION RULES:
-    1. DYNAMIC DURATION CALIBRATION (45-58 SECONDS): Aim for 115 to 150 total spoken words across 8 to 11 scenes (each scene 10-16 words, 3.8-4.8s). Let each thought breathe with natural human conversational cadence.
+    1. DYNAMIC DURATION CALIBRATION (48-58 SECONDS): Aim for 150 to 180 total spoken words across 11 to 14 scenes (each scene 12-16 words, 3.8-4.8s). Every second counts to guarantee total duration stays strictly between 45s and 59s. Let each thought breathe with natural human conversational cadence.
     2. HOOK (SCENE 1): In media res opening. Irresistible physical, sensory, or perceptual reality check that freezes the scroll instantly. Zero greetings ("Hey guys", "Did you know") and zero leading punctuation ("...").
     3. BALANCED THOUGHTS & VERIFIED FACTS (SCENES 2 to N-1): Alternate between an astonishing, counter-intuitive true fact and a relatable, perspective-flipping shower thought or cognitive glitch. Never invent fake science or stoner philosophy. Keep every line punchy, clear, and immediately understandable.
     4. EXPRESSIVE VOCAL CADENCE & INTONATION: Do NOT end every sentence in a flat period ".". Neural voice synthesis converts punctuation directly into emotion: incorporate 1-2 thought-provoking rhetorical questions ("?"), natural mid-sentence pauses (",", "—"), and emphatic punch ("!"). This drives dynamic pitch modulation, vocal curiosity, and emotional range instead of a monotone drone.
@@ -29,7 +29,7 @@ script_gen:
     {performance_insight}
     {grounding_facts_section}
 
-    Write a viral 8 to 11 scene short-form script (115 to 150 total spoken words) for the topic: "{topic}".
+    Write a viral 11 to 14 scene short-form script (150 to 180 total spoken words) for the topic: "{topic}".
     CRITICAL: Generate all scenes sequentially from scene_id 1 through the final loop scene.
     Alternate between astonishing verified facts and mind-bending everyday perspective shifts!
     Use expressive punctuation (?, ,, —, !) so the voiceover delivers rich emotional inflection!

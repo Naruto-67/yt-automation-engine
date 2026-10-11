@@ -272,27 +272,27 @@ def calibrate_and_guard_script(
 
     total_words = _calc_words(mid_scenes, loop_scene)
 
-    # 4. Dynamic Word Budget Trimming (Guaranteed <= 165 words to preserve natural pacing)
-    if total_words > 165:
+    # 4. Dynamic Word Budget Trimming (Guaranteed <= 180 words to keep under 59s ceiling)
+    if total_words > 185:
         orig_words = total_words
         orig_count = len(mid_scenes) + 1
-        while len(mid_scenes) > 8 and total_words > 155:
+        while len(mid_scenes) > 10 and total_words > 175:
             popped = mid_scenes.pop()
             total_words -= len(popped.get("spoken_text", "").split())
 
-        if total_words > 165:
+        if total_words > 185:
             for sc in mid_scenes[1:]:  # preserve hook
                 w_list = sc.get("spoken_text", "").split()
                 if len(w_list) > 15:
                     sc["spoken_text"] = " ".join(w_list[:15]).rstrip(",;:- ") + "."
                     total_words = _calc_words(mid_scenes, loop_scene)
-                    if total_words <= 155:
+                    if total_words <= 175:
                         break
 
         print(f"✂️ [SCRIPT TRIM] Trimmed over-budget script from {orig_words} words ({orig_count} scenes) down to {total_words} words ({len(mid_scenes) + 1} scenes) for natural pacing.", flush=True)
 
-    # 5. Dynamic Fallback Expansion (Only if under-budget < 115 words, ensuring minimum 45s Shorts duration)
-    elif total_words < 115 or len(mid_scenes) < 6:
+    # 5. Dynamic Fallback Expansion (Only if under-budget < 145 words, ensuring minimum 45s Shorts duration)
+    elif total_words < 145 or len(mid_scenes) < 9:
         orig_words = total_words
         orig_count = len(mid_scenes) + 1
         vault_thoughts = []
@@ -305,7 +305,7 @@ def calibrate_and_guard_script(
         expansion_pool = (vault_thoughts or []) + FALLBACK_THOUGHTS
         for fb in expansion_pool:
             fb_words = len(fb.split())
-            if total_words + fb_words > 155:
+            if total_words + fb_words > 180:
                 break
             if not any(are_thoughts_similar(fb, s.get("spoken_text", "")) for s in mid_scenes):
                 mid_scenes.append({
@@ -314,7 +314,7 @@ def calibrate_and_guard_script(
                     "stock_video_query": "soap carving cubes ASMR"
                 })
                 total_words += fb_words
-            if len(mid_scenes) >= 8 and total_words >= 115:
+            if len(mid_scenes) >= 10 and total_words >= 150:
                 break
         if total_words > orig_words:
             print(f"✨ [SCRIPT EXPAND] Expanded under-budget script from {orig_words} words ({orig_count} scenes) to {total_words} words ({len(mid_scenes) + 1} scenes).", flush=True)
@@ -343,7 +343,7 @@ def calibrate_and_guard_script(
         sc["scene_id"] = i + 1
 
     final_words = sum(len(s.get("spoken_text", "").split()) for s in raw_scenes)
-    print(f"🎯 [SCRIPT CALIBRATED] Final script locked at {len(raw_scenes)} scenes and {final_words} words (~{final_words / 2.6:.1f}s expected narration).", flush=True)
+    print(f"🎯 [SCRIPT CALIBRATED] Final script locked at {len(raw_scenes)} scenes and {final_words} words (~{final_words / 3.25:.1f}s expected narration).", flush=True)
     return raw_scenes
 
 
