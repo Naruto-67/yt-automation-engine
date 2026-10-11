@@ -240,12 +240,13 @@ def calibrate_and_guard_script(
         lp in raw_scenes[-1].get("spoken_text", "").lower()
         for lp in ["overthink", "which is why", "why you should", "never think about"]
     )
-    if has_loop_phrase:
+    if has_loop_phrase or len(raw_scenes) >= 6:
+        # If the LLM already wrote a full script (6+ scenes), its final scene serves as the loop bridge
         loop_scene = raw_scenes[-1]
         mid_scenes = list(raw_scenes[:-1])
     else:
         loop_scene = {
-            "scene_id": 12,
+            "scene_id": len(raw_scenes) + 1,
             "spoken_text": default_loop,
             "stock_video_query": "spiral optical illusion hypnotic"
         }
@@ -271,32 +272,40 @@ def calibrate_and_guard_script(
 
     total_words = _calc_words(mid_scenes, loop_scene)
 
-    # 4. Strict Word Budget Trimming (Guaranteed <= 175 words to avoid chipmunk audio)
-    if total_words > 175:
+    # 4. Dynamic Word Budget Trimming (Guaranteed <= 165 words to preserve natural pacing)
+    if total_words > 165:
         orig_words = total_words
         orig_count = len(mid_scenes) + 1
-        while len(mid_scenes) > 10 and total_words > 175:
+        while len(mid_scenes) > 8 and total_words > 155:
             popped = mid_scenes.pop()
             total_words -= len(popped.get("spoken_text", "").split())
 
-        if total_words > 175:
+        if total_words > 165:
             for sc in mid_scenes[1:]:  # preserve hook
                 w_list = sc.get("spoken_text", "").split()
-                if len(w_list) > 14:
-                    sc["spoken_text"] = " ".join(w_list[:14]).rstrip(",;:- ") + "."
+                if len(w_list) > 15:
+                    sc["spoken_text"] = " ".join(w_list[:15]).rstrip(",;:- ") + "."
                     total_words = _calc_words(mid_scenes, loop_scene)
-                    if total_words <= 172:
+                    if total_words <= 155:
                         break
 
-        print(f"✂️ [SCRIPT TRIM] Trimmed over-budget script from {orig_words} words ({orig_count} scenes) down to {total_words} words ({len(mid_scenes) + 1} scenes) to prevent chipmunk audio.", flush=True)
+        print(f"✂️ [SCRIPT TRIM] Trimmed over-budget script from {orig_words} words ({orig_count} scenes) down to {total_words} words ({len(mid_scenes) + 1} scenes) for natural pacing.", flush=True)
 
-    # 5. Controlled Fallback Expansion (Guaranteed 155-172 words, NEVER exceeding 175 words)
-    elif total_words < 155 or len(mid_scenes) < 10:
+    # 5. Dynamic Fallback Expansion (Only if under-budget < 115 words, ensuring minimum 45s Shorts duration)
+    elif total_words < 115 or len(mid_scenes) < 6:
         orig_words = total_words
         orig_count = len(mid_scenes) + 1
-        for fb in FALLBACK_THOUGHTS:
+        vault_thoughts = []
+        try:
+            from engine.managers.topic_inspector import TopicInspector
+            vault_items = TopicInspector.get_grounding_references(count=10)
+            vault_thoughts = [item["text"] for item in vault_items if item.get("text")]
+        except Exception:
+            pass
+        expansion_pool = (vault_thoughts or []) + FALLBACK_THOUGHTS
+        for fb in expansion_pool:
             fb_words = len(fb.split())
-            if total_words + fb_words > 175:
+            if total_words + fb_words > 155:
                 break
             if not any(are_thoughts_similar(fb, s.get("spoken_text", "")) for s in mid_scenes):
                 mid_scenes.append({
@@ -305,9 +314,10 @@ def calibrate_and_guard_script(
                     "stock_video_query": "soap carving cubes ASMR"
                 })
                 total_words += fb_words
-            if len(mid_scenes) >= 11 and total_words >= 155:
+            if len(mid_scenes) >= 8 and total_words >= 115:
                 break
-        print(f"✨ [SCRIPT EXPAND] Expanded under-budget script from {orig_words} words ({orig_count} scenes) to {total_words} words ({len(mid_scenes) + 1} scenes).", flush=True)
+        if total_words > orig_words:
+            print(f"✨ [SCRIPT EXPAND] Expanded under-budget script from {orig_words} words ({orig_count} scenes) to {total_words} words ({len(mid_scenes) + 1} scenes).", flush=True)
 
     # 6. Reassemble & Intra-Script Deduplication
     raw_scenes = mid_scenes + [loop_scene]
@@ -324,7 +334,7 @@ def calibrate_and_guard_script(
     raw_scenes = deduped_scenes
 
     # 7. Seamless circular loop ending
-    last_text = raw_scenes[-1]["spoken_text"].rstrip(".! ")
+    last_text = raw_scenes[-1]["spoken_text"].rstrip(".!? ")
     if not last_text.endswith("..."):
         raw_scenes[-1]["spoken_text"] = f"{last_text}..."
 
@@ -402,6 +412,13 @@ def run_spec_stage(video_type: str = "short") -> None:
         prompt_settings = full_channel_cfg.get("prompt_settings", full_channel_cfg.get("prompt_rules", {}))
         channel_premise = prompt_settings.get("channel_premise", "Mind-bending shower thoughts, psychological paradoxes, and reality-breaking cognitive glitches.")
         extra_instructions = prompt_settings.get("extra_instructions", "")
+        # Sourcing verified grounding references (real human facts/thoughts) for scriptwriter context
+        grounding_refs = TopicInspector.get_grounding_references(count=5)
+        if grounding_refs:
+            grounding_lines = "\n".join(f"- [{r.get('type', 'fact').upper()}] {r.get('text', '')}" for r in grounding_refs)
+            grounding_facts_section = f"VERIFIED INSPIRATION REFERENCES (adapt and weave these into the script):\n{grounding_lines}\n"
+        else:
+            grounding_facts_section = ""
 
         user_prompt = script_cfg["user_template"].format(
             channel_name=channel_cfg.get("name", "TOPATO"),
@@ -411,7 +428,8 @@ def run_spec_stage(video_type: str = "short") -> None:
             target_duration=target_duration,
             channel_premise=channel_premise,
             extra_instructions=extra_instructions,
-            performance_insight=perf_insight
+            performance_insight=perf_insight,
+            grounding_facts_section=grounding_facts_section
         )
 
         # Inject channel-specific prompt rules (virality enforcement, banned phrases, extra instructions)
@@ -560,61 +578,11 @@ def run_spec_stage(video_type: str = "short") -> None:
             each_d = round(total_duration / max(1, len(raw_scenes)), 2)
             scene_cut_durations = [each_d] * len(raw_scenes)
 
-        # Enforce strict Shorts duration window (50-56.5s, strictly under 58s and at least 50s)
+        # Natural Shorts duration audit (100% natural 1.0x audio speed, zero atempo distortion)
         if video_type == "short":
-            target_dur = 0.0
-            if total_duration > 57.5:
-                target_dur = 55.0
-            elif total_duration < 50.0 and total_duration >= 25.0:
-                target_dur = 52.5
-
-            if target_dur > 0.0:
-                raw_speed_ratio = round(total_duration / target_dur, 3)
-                # Fidelity safety guard: strictly clamp speed adjustment to [0.95x, 1.10x]
-                speed_ratio = round(max(0.95, min(1.10, raw_speed_ratio)), 3)
-                effective_target_dur = round(total_duration / speed_ratio, 2)
-                print(f"⚠️ [DURATION GUARD] Measured audio ({total_duration:.2f}s) outside 50.0-57.5s window. Calibrating audio in-place by {speed_ratio}x (raw: {raw_speed_ratio}x, clamp [0.95, 1.10]) to ~{effective_target_dur}s...", flush=True)
-                wav_path = audio_output.rsplit(".", 1)[0] + ".wav"
-                rescaled_wav = os.path.join("output", "narration_rescaled.wav")
-                rescaled_mp3 = os.path.join("output", "narration_rescaled.mp3")
-
-                rescaled_ok = False
-                if os.path.exists(wav_path):
-                    rescaled_ok = VoiceNormalizer.rescale_audio_duration(wav_path, rescaled_wav, speed_ratio)
-                if not rescaled_ok and os.path.exists(audio_output):
-                    rescaled_ok = VoiceNormalizer.rescale_audio_duration(audio_output, rescaled_mp3, speed_ratio)
-
-                if rescaled_ok:
-                    import shutil
-                    if os.path.exists(rescaled_wav):
-                        shutil.move(rescaled_wav, wav_path)
-                    if os.path.exists(rescaled_mp3):
-                        shutil.move(rescaled_mp3, audio_output)
-                    elif os.path.exists(wav_path):
-                        # Convert rescaled wav to mp3 in place
-                        import subprocess
-                        subprocess.run(
-                            ["ffmpeg", "-y", "-nostats", "-loglevel", "error", "-i", wav_path, "-codec:a", "libmp3lame", "-b:a", "192k", audio_output],
-                            check=False
-                        )
-                    total_duration = effective_target_dur
-
-                    # Re-align captions directly on the final rescaled audio via CaptionAligner
-                    from engine.managers.caption_aligner import CaptionAligner
-                    target_audio = wav_path if os.path.exists(wav_path) else audio_output
-                    aligned_words = CaptionAligner.align_captions(
-                        audio_path=target_audio,
-                        script_text=full_phonetic_script
-                    )
-                    if aligned_words and len(aligned_words) >= max(1, int(len(word_timestamps) * 0.8)):
-                        word_timestamps = aligned_words
-                    else:
-                        for wt in word_timestamps:
-                            wt.start = round(wt.start / speed_ratio, 3)
-                            wt.end = round(wt.end / speed_ratio, 3)
-
-                    scene_cut_durations = [round(d / speed_ratio, 2) for d in scene_cut_durations]
-                    scene_word_slices = CaptionAligner.slice_words_by_scenes(word_timestamps, raw_scenes)
+            print(f"⏱️ [DURATION AUDIT] Narration audio finalized at {total_duration:.2f}s across {len(raw_scenes)} scenes (100% natural speed, zero atempo distortion).", flush=True)
+            from engine.managers.caption_aligner import CaptionAligner
+            scene_word_slices = CaptionAligner.slice_words_by_scenes(word_timestamps, raw_scenes)
 
         num_scenes = len(raw_scenes)
         # Sample unique visual queries for this video from the channel taxonomy

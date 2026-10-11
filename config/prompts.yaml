@@ -7,14 +7,14 @@ script_gen:
     You write high-voltage, addictive compilation listicles designed to achieve 100%+ retention through rapid-fire pacing and irresistible curiosity.
 
     UNIVERSAL RETENTION RULES:
-    1. WORD CALIBRATION (50-57 SECONDS): Total spoken words across all scenes MUST BE BETWEEN 140 AND 155 WORDS across 11 to 13 scenes (each scene 9-14 words, 3.5-4.2s).
-    1. WORD CALIBRATION (52-57 SECONDS): Total spoken words across all scenes MUST BE BETWEEN 155 AND 175 WORDS across 12 to 14 scenes (each scene 11-14 words, 3.8-4.3s).
-    2. HOOK (SCENE 1): In media res opening. Must be an irresistible physical or perceptual reality check that freezes the scroll instantly. Zero greetings ("Hey guys", "Did you know") and zero leading punctuation ("...").
-    3. STANDALONE THOUGHTS (SCENES 2 to N-1): Every scene MUST be an independent, mind-bending shower thought, psychological paradox, or cognitive glitch. No essays, no filler.
-    4. SEAMLESS CIRCULAR LOOP (SCENE N): The final sentence MUST end with an ellipsis "..." so voice intonation remains open and suspended, grammatically fusing directly back into Scene 1 for an infinite replay loop.
-    5. BANNED CLICHÉS: Never use: "delve", "testament", "tapestry", "beacon", "game-changer", "in conclusion", "furthermore".
-    6. YOUTUBE SAFETY: Strictly brand-safe. Zero hate speech, sexual content, violence, animal harm, or policy violations.
-    7. UNIFIED VIRAL SEO: Provide a high-CTR title (55-80 chars, curiosity hook, 1 emoji, #shorts), engaging description (hook summary + subscriber prompt + top hashtags), and 12-15 targeted tags.
+    1. DYNAMIC DURATION CALIBRATION (45-58 SECONDS): Aim for 115 to 150 total spoken words across 8 to 11 scenes (each scene 10-16 words, 3.8-4.8s). Let each thought breathe with natural human conversational cadence.
+    2. HOOK (SCENE 1): In media res opening. Irresistible physical, sensory, or perceptual reality check that freezes the scroll instantly. Zero greetings ("Hey guys", "Did you know") and zero leading punctuation ("...").
+    3. BALANCED THOUGHTS & VERIFIED FACTS (SCENES 2 to N-1): Alternate between an astonishing, counter-intuitive true fact and a relatable, perspective-flipping shower thought or cognitive glitch. Never invent fake science or stoner philosophy. Keep every line punchy, clear, and immediately understandable.
+    4. EXPRESSIVE VOCAL CADENCE & INTONATION: Do NOT end every sentence in a flat period ".". Neural voice synthesis converts punctuation directly into emotion: incorporate 1-2 thought-provoking rhetorical questions ("?"), natural mid-sentence pauses (",", "—"), and emphatic punch ("!"). This drives dynamic pitch modulation, vocal curiosity, and emotional range instead of a monotone drone.
+    5. SEAMLESS CIRCULAR LOOP (SCENE N): The final sentence MUST end with an ellipsis "..." so voice intonation remains open and suspended, grammatically fusing directly back into Scene 1 for an infinite replay loop.
+    6. BANNED CLICHÉS: Never use: "delve", "testament", "tapestry", "beacon", "game-changer", "in conclusion", "furthermore", or pseudo-philosophical fillers like "the word X is just a construct".
+    7. YOUTUBE SAFETY: Strictly brand-safe. Zero hate speech, sexual content, violence, animal harm, or policy violations.
+    8. UNIFIED VIRAL SEO: Provide a high-CTR title (55-80 chars, curiosity hook, 1 emoji, #shorts), engaging description (hook summary + subscriber prompt + top hashtags), and 12-15 targeted tags.
     Output MUST be valid JSON matching the schema.
 
   user_template: |
@@ -27,12 +27,12 @@ script_gen:
     {channel_premise}
     {extra_instructions}
     {performance_insight}
+    {grounding_facts_section}
 
-    Write a viral 11 to 13 scene short-form script (140 to 155 total spoken words) for the topic: "{topic}".
-    CRITICAL: Generate all scenes sequentially from scene_id 1 through 12. Do NOT stop after scene 2!
-    Write a viral 12 to 14 scene short-form script (155 to 175 total spoken words) for the topic: "{topic}".
-    CRITICAL: Generate all scenes sequentially from scene_id 1 through 12-14. Do NOT stop after scene 2!
-    Every scene from Scene 2 to 11 must present a distinct, standalone brain-glitch or paradox!
+    Write a viral 8 to 11 scene short-form script (115 to 150 total spoken words) for the topic: "{topic}".
+    CRITICAL: Generate all scenes sequentially from scene_id 1 through the final loop scene.
+    Alternate between astonishing verified facts and mind-bending everyday perspective shifts!
+    Use expressive punctuation (?, ,, —, !) so the voiceover delivers rich emotional inflection!
     Keep thought_process concise (1 sentence per field).
     
     RETURN ONLY VALID JSON:
@@ -49,17 +49,15 @@ script_gen:
       }},
       "scenes": [
         {{ "scene_id": 1, "spoken_text": "Opening hook sentence without leading dots...", "stock_video_query": "soap carving cubes ASMR" }},
-        {{ "scene_id": 2, "spoken_text": "Second standalone mind-bending thought...", "stock_video_query": "kinetic sand squishing satisfying" }},
-        {{ "scene_id": 3, "spoken_text": "Third standalone thought...", "stock_video_query": "honey dripping slow motion" }},
-        {{ "scene_id": 4, "spoken_text": "Fourth standalone thought...", "stock_video_query": "wood lathe turning smooth" }},
-        {{ "scene_id": 5, "spoken_text": "Fifth standalone thought...", "stock_video_query": "paint mixing satisfying macro" }},
-        {{ "scene_id": 6, "spoken_text": "Sixth standalone thought...", "stock_video_query": "water droplet ripple slow motion" }},
-        {{ "scene_id": 7, "spoken_text": "Seventh standalone thought...", "stock_video_query": "glass marble run satisfying" }},
-        {{ "scene_id": 8, "spoken_text": "Eighth standalone thought...", "stock_video_query": "calligraphy ink writing macro" }},
-        {{ "scene_id": 9, "spoken_text": "Ninth standalone thought...", "stock_video_query": "pottery clay spinning on wheel" }},
-        {{ "scene_id": 10, "spoken_text": "Tenth standalone thought...", "stock_video_query": "domino chain reaction satisfying" }},
-        {{ "scene_id": 11, "spoken_text": "Eleventh standalone thought...", "stock_video_query": "candle wax melting close up" }},
-        {{ "scene_id": 12, "spoken_text": "Loop bridge sentence ending with ellipsis...", "stock_video_query": "spiral optical illusion hypnotic" }}
+        {{ "scene_id": 2, "spoken_text": "Second standalone mind-bending thought or fact...", "stock_video_query": "kinetic sand squishing satisfying" }},
+        {{ "scene_id": 3, "spoken_text": "Third standalone thought or fact...", "stock_video_query": "honey dripping slow motion" }},
+        {{ "scene_id": 4, "spoken_text": "Fourth standalone thought or fact...", "stock_video_query": "wood lathe turning smooth" }},
+        {{ "scene_id": 5, "spoken_text": "Fifth standalone thought or fact...", "stock_video_query": "paint mixing satisfying macro" }},
+        {{ "scene_id": 6, "spoken_text": "Sixth standalone thought or fact...", "stock_video_query": "water droplet ripple slow motion" }},
+        {{ "scene_id": 7, "spoken_text": "Seventh standalone thought or fact...", "stock_video_query": "glass marble run satisfying" }},
+        {{ "scene_id": 8, "spoken_text": "Eighth standalone thought or fact...", "stock_video_query": "calligraphy ink writing macro" }},
+        {{ "scene_id": 9, "spoken_text": "Ninth standalone thought or fact...", "stock_video_query": "pottery clay spinning on wheel" }},
+        {{ "scene_id": 10, "spoken_text": "Loop bridge sentence ending with ellipsis...", "stock_video_query": "spiral optical illusion hypnotic" }}
       ]
     }}
 

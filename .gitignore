@@ -2,6 +2,14 @@
 .env
 *.env
 .env.*
+*credential*
+*secret*
+*token*.json
+*.pem
+*.key
+*.sqlite
+*.db
+broll_vault/
 
 # Python cache
 __pycache__/

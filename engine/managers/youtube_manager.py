@@ -391,7 +391,11 @@ class YouTubeManager:
             print(f"💬 [YOUTUBE] Successfully posted creator engagement comment on video {video_id} (Comment ID: {comment_id})", flush=True)
             return comment_id
         except Exception as e:
-            print(f"⚠️ [YOUTUBE] Could not post creator comment on video {video_id}: {e}", flush=True)
+            err_str = str(e).lower()
+            if "insufficient permissions" in err_str or "forbidden" in err_str or "403" in err_str:
+                print(f"ℹ️ [YOUTUBE] Direct comment posting skipped: video is scheduled/private (Comment is packaged in Discord for 1-click posting).", flush=True)
+            else:
+                print(f"⚠️ [YOUTUBE] Could not post creator comment on video {video_id}: {e}", flush=True)
             return None
 
     def sync_channel_performance(self, youtube=None) -> Dict[str, Any]:
@@ -831,13 +835,13 @@ def run_release_stage() -> None:
             except Exception:
                 pass
 
-        # If immediate upload, notify Discord and clean up
-        if not upload_cfg.get("random_schedule", False):
-            notify_published(
-                topic=spec.topic,
-                video_id=video_id or "unknown",
-                publish_time=publish_time or "scheduled"
-            )
+        # Always dispatch Discord notification with the complete release & community package
+        notify_published(
+            topic=spec.topic,
+            video_id=video_id or "unknown",
+            publish_time=publish_time or "scheduled",
+            community_data=comm_payload if 'comm_payload' in locals() else None
+        )
 
         # 3. Clean up heavy video file locally
         try:

@@ -1545,7 +1545,7 @@ def test_brand_tags_merging_and_capping():
 
 
 def test_calibrate_and_guard_script_resegmentation():
-    """Verifies that 4 multi-sentence scenes with 160 words are re-segmented and trimmed to 11-14 scenes and 150-175 words."""
+    """Verifies that 4 multi-sentence scenes with 160 words are re-segmented and trimmed to 10+ scenes and 115-165 words."""
     from engine.managers.pipeline_runner import calibrate_and_guard_script
 
     raw_scenes = [
@@ -1558,7 +1558,7 @@ def test_calibrate_and_guard_script_resegmentation():
     calibrated = calibrate_and_guard_script(raw_scenes, prompt_settings={})
     assert len(calibrated) >= 10
     total_words = sum(len(s["spoken_text"].split()) for s in calibrated)
-    assert 150 <= total_words <= 175
+    assert 115 <= total_words <= 165
     # Hook clean
     assert not calibrated[0]["spoken_text"].startswith("...")
     assert calibrated[0]["spoken_text"][0].isupper()
@@ -1567,7 +1567,7 @@ def test_calibrate_and_guard_script_resegmentation():
 
 
 def test_calibrate_and_guard_script_underbudget_expansion():
-    """Verifies that an under-budget partial script (4 scenes, 45 words) expands up to 155-175 words without exceeding 175 words."""
+    """Verifies that an under-budget partial script (4 scenes, 45 words) expands up to 115-165 words without exceeding 165 words."""
     from engine.managers.pipeline_runner import calibrate_and_guard_script
 
     raw_scenes = [
@@ -1580,7 +1580,7 @@ def test_calibrate_and_guard_script_underbudget_expansion():
     calibrated = calibrate_and_guard_script(raw_scenes, prompt_settings={})
     assert len(calibrated) >= 10
     total_words = sum(len(s["spoken_text"].split()) for s in calibrated)
-    assert 150 <= total_words <= 175
+    assert 115 <= total_words <= 165
     assert calibrated[-1]["spoken_text"].endswith("...")
 
 
@@ -1643,6 +1643,106 @@ def test_voice_normalizer_rescale_clamping(monkeypatch, tmp_path):
     # Test valid in-range speed (e.g. 1.05x) -> should pass through
     VoiceNormalizer.rescale_audio_duration(dummy_in, dummy_out, speed_factor=1.05)
     assert recorded_atempo[-1] == 1.05
+
+
+def test_secret_sanitizer():
+    """Verifies that engine.logger.sanitize_log_message masks sensitive API keys, tokens, and bearer headers."""
+    from engine.logger import sanitize_log_message
+
+    # Test Google API key masking
+    msg_google = "Connecting with key AIzaSyD1234567890abcdefghijklmnopqrstuvwxyz"
+    sanitized = sanitize_log_message(msg_google)
+    assert "[REDACTED_API_KEY]" in sanitized
+    assert "AIzaSyD1234567890abcdefghijklmnopqrstuvwxyz" not in sanitized
+
+    # Test HuggingFace token masking
+    msg_hf = "Error fetching from HF: hf_abcdef1234567890abcdef1234567890"
+    sanitized_hf = sanitize_log_message(msg_hf)
+    assert "[REDACTED_HF_TOKEN]" in sanitized_hf
+    assert "abcdef1234567890" not in sanitized_hf
+
+    # Test Groq key masking
+    msg_groq = "Groq call failed with gsk_abcdef1234567890abcdef1234567890"
+    sanitized_groq = sanitize_log_message(msg_groq)
+    assert "[REDACTED_GROQ_KEY]" in sanitized_groq
+
+    # Test Bearer token masking
+    msg_bearer = "Authorization: Bearer ya29.a0AfH6SM1234567890abcdef"
+    sanitized_bearer = sanitize_log_message(msg_bearer)
+    assert "Bearer [REDACTED_TOKEN]" in sanitized_bearer
+
+    # Test normal message unaltered
+    msg_normal = "Generated 12 scenes successfully with 130 words."
+    assert sanitize_log_message(msg_normal) == msg_normal
+
+
+def test_curated_facts_and_grounding():
+    """Verifies that TopicInspector.get_grounding_references extracts structured facts and thoughts from the curated vault."""
+    from engine.managers.topic_inspector import TopicInspector
+
+    # 1. Retrieve random items
+    items = TopicInspector.get_grounding_references(count=5)
+    assert len(items) == 5
+    for item in items:
+        assert "text" in item and len(item["text"]) > 10
+        assert item.get("type") in ["thought", "fact"]
+        assert "pillar" in item
+
+    # 2. Filter by specific pillar
+    hb_items = TopicInspector.get_grounding_references(count=4, pillar="human_body")
+    assert len(hb_items) == 4
+    for item in hb_items:
+        assert "human_body" in item["pillar"]
+
+    # 3. Handle graceful fallback when vault file is invalid or missing
+    items_fallback = TopicInspector.get_grounding_references(count=3, pillar="nonexistent_pillar")
+    assert len(items_fallback) == 3
+
+
+def test_discord_notification_includes_community_package(monkeypatch):
+    """Verifies that scripts.discord_notifier.notify_published formats pinned comments and community polls into Discord embed fields."""
+    import scripts.discord_notifier as discord_notifier
+    import requests
+
+    captured_payloads = []
+
+    def mock_post(url, json=None, *args, **kwargs):
+        captured_payloads.append(json)
+        class _Resp:
+            status_code = 204
+            text = ""
+        return _Resp()
+
+    monkeypatch.setattr(requests, "post", mock_post)
+    monkeypatch.setattr(discord_notifier, "_ACTIVE_WEBHOOK", "https://discord.com/api/webhooks/mock/test")
+
+    community_data = {
+        "pinned_comment": "Which everyday object secretly freaks you out the most? 👇",
+        "community_post": "Did you know your brain actively edits out your heartbeat? What other biological glitches do you notice?",
+        "community_poll": {
+            "question": "What is the strangest fact about reality?",
+            "options": ["Mirrors lie", "Light lag", "Poison paradox", "Time dilation"]
+        }
+    }
+
+    discord_notifier.notify_published(
+        topic="Mind Bending Realities",
+        video_id="test_vid_123",
+        publish_time="2026-10-12 18:00 UTC",
+        community_data=community_data
+    )
+
+    assert len(captured_payloads) == 1
+    embed = captured_payloads[0]["embeds"][0]
+    field_names = [f["name"] for f in embed.get("fields", [])]
+    assert "📌 Pinned Comment (Copy & Pin in Studio)" in field_names
+    assert "📊 Community Poll (Copy & Post)" in field_names
+    assert "📢 Community Tab Post (Copy & Post)" in field_names
+
+    # Check pinned comment value
+    pinned_field = next(f for f in embed["fields"] if f["name"] == "📌 Pinned Comment (Copy & Pin in Studio)")
+    assert "Which everyday object secretly freaks you out the most?" in pinned_field["value"]
+
 
 
 

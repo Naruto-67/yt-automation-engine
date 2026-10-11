@@ -1,11 +1,29 @@
-# engine/logger.py — Pika Flow Unified Stopwatch Logger (v2.0)
 import os
 import sys
 import time
+import re
 from datetime import datetime, timezone
 from typing import Optional
 
 _IS_GITHUB = os.environ.get("GITHUB_ACTIONS") == "true"
+
+_SECRET_PATTERNS = [
+    (re.compile(r"AIza[0-9A-Za-z-_]{35}"), "[REDACTED_API_KEY]"),
+    (re.compile(r"hf_[0-9A-Za-z]{25,}"), "[REDACTED_HF_TOKEN]"),
+    (re.compile(r"(Bearer\s+)[0-9A-Za-z\-_\.]{20,}", re.IGNORECASE), r"\1[REDACTED_TOKEN]"),
+    (re.compile(r"(key=)[0-9A-Za-z\-_\.]{20,}", re.IGNORECASE), r"\1[REDACTED_KEY]"),
+    (re.compile(r"gsk_[0-9A-Za-z]{30,}"), "[REDACTED_GROQ_KEY]"),
+    (re.compile(r"sk-or-v1-[0-9a-fA-F]{64}"), "[REDACTED_OPENROUTER_KEY]"),
+]
+
+
+def sanitize_log_message(message: str) -> str:
+    """Scrubs API keys, Bearer tokens, and secrets from log strings."""
+    if not isinstance(message, str):
+        message = str(message)
+    for pattern, replacement in _SECRET_PATTERNS:
+        message = pattern.sub(replacement, message)
+    return message
 
 
 class PikaStage:
@@ -80,9 +98,10 @@ class StructuredLogger:
     """Unified system logging with zero noise."""
     @staticmethod
     def _log(tag: str, message: str, level: str = "INFO"):
+        safe_msg = sanitize_log_message(message)
         timestamp = datetime.now(timezone.utc).strftime("%H:%M:%S")
         tag_str = f"[{tag}]" if tag == level else f"[{tag}] [{level}]"
-        log_line = f"{tag_str} {message}" if _IS_GITHUB else f"[{timestamp}] {tag_str} {message}"
+        log_line = f"{tag_str} {safe_msg}" if _IS_GITHUB else f"[{timestamp}] {tag_str} {safe_msg}"
         try:
             print(log_line, flush=True)
         except UnicodeEncodeError:

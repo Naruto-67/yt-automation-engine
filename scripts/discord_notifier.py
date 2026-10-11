@@ -413,15 +413,46 @@ def notify_quota_warning(provider: str, usage: int, limit: int):
 
 
 # ── Published (SILENT) ───────────────────────────────────────────────────────
-def notify_published(topic: str, video_id: str, publish_time: str):
-    url = f"https://youtu.be/{video_id}" if video_id else "—"
+def notify_published(topic: str, video_id: str, publish_time: str, community_data: dict = None):
+    url = f"https://youtu.be/{video_id}" if video_id and "unknown" not in str(video_id).lower() else "—"
+    fields = [
+        {"name": "⏰ Publish Time", "value": str(publish_time), "inline": True},
+        {"name": "📺 Watch Link", "value": f"[Watch Video]({url})" if url != "—" else "Scheduled", "inline": True},
+    ]
+
+    if isinstance(community_data, dict):
+        pinned = community_data.get("pinned_comment")
+        if pinned:
+            fields.append({
+                "name": "📌 Pinned Comment (Copy & Pin in Studio)",
+                "value": f"```text\n{pinned[:1000]}\n```",
+                "inline": False
+            })
+
+        post = community_data.get("community_post")
+        if post:
+            fields.append({
+                "name": "📢 Community Tab Post (Copy & Post)",
+                "value": f"```text\n{post[:1000]}\n```",
+                "inline": False
+            })
+
+        poll = community_data.get("community_poll")
+        if isinstance(poll, dict):
+            q = poll.get("question", "Quick vote:")
+            opts = "\n".join(f"{i+1}. {opt}" for i, opt in enumerate(poll.get("options", [])))
+            poll_text = f"{q}\n\nOptions:\n{opts}"
+            fields.append({
+                "name": "📊 Community Poll (Copy & Post)",
+                "value": f"```text\n{poll_text[:1000]}\n```",
+                "inline": False
+            })
+
     _send_embed(
-        title="🚀 Video Scheduled",
-        description=f"**{topic[:80]}**\n[Watch]({url})",
+        title="🚀 Video Scheduled & Community Package Ready",
+        description=f"**{topic[:80]}**\n[Watch on YouTube]({url})" if url != "—" else f"**{topic[:80]}**",
         color=_COLOR["teal"],
-        fields=[
-            {"name": "⏰ Publish Time", "value": publish_time, "inline": True},
-        ],
+        fields=fields,
     )
 
 

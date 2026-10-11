@@ -71,9 +71,36 @@ class TopicInspector:
     """Sources trending topics, validates them against fact-checking gates, and enforces persistent anti-repetition cooldown."""
 
     REGISTRY_FILE = os.path.join("memory", "used_topics_registry.json")
+    VAULT_FILE = os.path.join("data", "curated_thoughts_and_facts.json")
 
     def __init__(self, llm_manager: Optional[LLMManager] = None):
         self.llm = llm_manager or LLMManager()
+
+    @classmethod
+    def get_grounding_references(cls, count: int = 5, pillar: Optional[str] = None) -> List[Dict[str, str]]:
+        """
+        Retrieves verified facts and thoughts from the curated vault
+        to inject as concrete grounding context for LLM script generation.
+        """
+        vault_path = cls.VAULT_FILE
+        if not os.path.exists(vault_path):
+            return []
+        try:
+            with open(vault_path, "r", encoding="utf-8") as f:
+                vault_data = json.load(f)
+            items = vault_data.get("items", [])
+            if pillar:
+                p_clean = pillar.lower().strip()
+                filtered = [it for it in items if p_clean == it.get("pillar", "").lower() or p_clean in it.get("pillar", "").lower()]
+                if filtered:
+                    items = filtered
+            if not items:
+                return []
+            sampled = random.sample(items, min(count, len(items)))
+            return [{"text": it.get("text", ""), "type": it.get("type", "fact"), "pillar": it.get("pillar", "")} for it in sampled]
+        except Exception as e:
+            print(f"⚠️ [TOPIC INSPECTOR] Could not load grounding references: {e}", flush=True)
+            return []
 
     @classmethod
     def load_registry(cls) -> Dict[str, Any]:
@@ -229,33 +256,96 @@ class TopicInspector:
         self.record_topic_usage(fallback, fallback, niche=niche)
         return {"topic": fallback, "verified_summary": fallback, "source": "curated_evergreen"}
 
-    def _fetch_candidates(self, niche: str = "shower_thoughts", video_type: str = "short") -> List[str]:
-        """Fetches candidates using Reddit -> Niche LLM Ideation -> Curated Master Pool fallback."""
-        target_pool = LONG_FORM_TOPICS if video_type == "long" else VIRAL_SHORTS_THEMES
+    def fetch_youtube_trends(self, category_ids: Optional[List[int]] = None) -> List[str]:
+        """
+        Fetches trending video topics from YouTube Data API v3 across
+        Entertainment (24), Education (27), and Science & Tech (28).
+        Falls back to local trend cache if API is unavailable.
+        """
+        if category_ids is None:
+            category_ids = [24, 27, 28]  # Entertainment primary, Education & Science cross-sourcing
         candidates = []
-
-        # Tier 1: Reddit
         try:
-            subreddits = ["Showerthoughts", "todayilearned", "psychology"] if "shower" in niche else ["todayilearned", "psychology", "science"]
-            sub = random.choice(subreddits)
-            url = f"https://www.reddit.com/r/{sub}/hot.json?limit=20"
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-            resp = requests.get(url, headers=headers, timeout=5)
-            if resp.status_code == 200:
-                data = resp.json()
-                for post in data.get("data", {}).get("children", []):
-                    title = post.get("data", {}).get("title", "")
-                    if title and len(title) > 20 and not post.get("data", {}).get("over_18", False):
-                        cleaned = re.sub(r"^TIL:?\s*", "", title, flags=re.IGNORECASE).strip()
-                        if not self.is_topic_recent(cleaned):
-                            candidates.append(cleaned)
-                if candidates:
-                    print(f"📡 [TOPIC SOURCING] Fetched {len(candidates)} fresh candidates from r/{sub}")
-                    return candidates
+            from engine.managers.youtube_manager import YouTubeManager
+            yt_mgr = YouTubeManager()
+            client = yt_mgr.get_client()
+            if client:
+                for cat_id in category_ids:
+                    try:
+                        resp = client.videos().list(
+                            part="snippet",
+                            chart="mostPopular",
+                            videoCategoryId=str(cat_id),
+                            regionCode="US",
+                            maxResults=10
+                        ).execute()
+                        for item in resp.get("items", []):
+                            title = item.get("snippet", {}).get("title", "")
+                            # Clean up title: remove hashtags, emojis, brackets
+                            cleaned = re.sub(r"[#\|\[\(\<].*$", "", title).strip()
+                            if len(cleaned) > 15 and not self.is_topic_recent(cleaned):
+                                candidates.append(cleaned)
+                    except Exception:
+                        continue
         except Exception:
             pass
 
-        # Tier 2: Niche LLM Ideation with Negative Deduplication Constraints
+        if not candidates:
+            # Check local trend CSV cache (data/yt_trends.csv)
+            trend_csv = os.path.join("data", "yt_trends.csv")
+            if os.path.isfile(trend_csv):
+                try:
+                    with open(trend_csv, "r", encoding="utf-8") as f:
+                        for line in f:
+                            parts = line.strip().split(",")
+                            if len(parts) >= 1 and parts[0]:
+                                term = parts[0].strip()
+                                if len(term) > 10 and not self.is_topic_recent(term):
+                                    candidates.append(term)
+                except Exception:
+                    pass
+        return candidates
+
+    def _fetch_candidates(self, niche: str = "shower_thoughts", video_type: str = "short") -> List[str]:
+        """Fetches candidates using Reddit -> YouTube Trends -> Niche LLM Ideation -> Curated Vault fallback."""
+        target_pool = LONG_FORM_TOPICS if video_type == "long" else VIRAL_SHORTS_THEMES
+        candidates = []
+
+        # Tier 1: Live Reddit Sourcing (r/Showerthoughts, r/todayilearned, r/Damnthatsinteresting)
+        subreddits = ["Showerthoughts", "todayilearned", "Damnthatsinteresting"] if "shower" in niche else ["todayilearned", "Damnthatsinteresting", "science"]
+        for sub in random.sample(subreddits, len(subreddits)):
+            try:
+                endpoints = [
+                    f"https://www.reddit.com/r/{sub}/hot.json?limit=25",
+                    f"https://www.reddit.com/r/{sub}/top.json?t=month&limit=25"
+                ]
+                endpoint = random.choice(endpoints)
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                    "Accept": "application/json"
+                }
+                resp = requests.get(endpoint, headers=headers, timeout=5)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    for post in data.get("data", {}).get("children", []):
+                        title = post.get("data", {}).get("title", "")
+                        if title and len(title) > 20 and not post.get("data", {}).get("over_18", False):
+                            cleaned = re.sub(r"^(TIL|TIL that|Showerthought:?)\s*", "", title, flags=re.IGNORECASE).strip()
+                            if not self.is_topic_recent(cleaned):
+                                candidates.append(cleaned)
+                    if candidates:
+                        print(f"📡 [TOPIC SOURCING] Fetched {len(candidates)} fresh candidates from r/{sub}")
+                        return candidates
+            except Exception:
+                continue
+
+        # Tier 2: YouTube Trends (Entertainment 24, Education 27, Science 28)
+        yt_trends = self.fetch_youtube_trends(category_ids=[24, 27, 28])
+        if yt_trends:
+            print(f"📈 [TOPIC SOURCING] Harvested {len(yt_trends)} trending topics from YouTube API.")
+            return yt_trends
+
+        # Tier 3: Niche LLM Ideation with Negative Deduplication Constraints
         if "shower" in niche or "psychology" in niche:
             try:
                 recent_topics = self.get_recent_topics(niche=niche, limit=20)
@@ -266,17 +356,20 @@ class TopicInspector:
                         "Our channel has ALREADY created videos on these topics:\n"
                         + "\n".join(f"- {t}" for t in recent_topics[:15]) +
                         "\nYou MUST NOT reuse, rephrase, or overlap with any of the above premises. "
-                        "Generate completely fresh, novel, and unexplored cognitive paradoxes or shower thoughts."
+                        "Generate completely fresh, novel, and unexplored cognitive paradoxes, body glitches, or everyday shower thoughts."
                     )
 
                 sys_prompt = (
-                    "You are an elite YouTube Shorts topic strategist for a BrainBlud-style channel exploring "
-                    "mind-bending shower thoughts, psychological paradoxes, and cognitive illusions."
+                    "You are an elite YouTube Shorts topic strategist for a high-retention channel exploring "
+                    "mind-bending shower thoughts, psychological paradoxes, and counter-intuitive facts.\n"
+                    "RULES:\n"
+                    "- Focus on concrete, relatable, tactile, physical, or human body realities.\n"
+                    "- STRICTLY AVOID abstract linguistic philosophy (e.g. 'words are lies', 'the language trap') and depressing existential nihilism.\n"
                     f"{anti_rep_constraint}"
                 )
                 usr_prompt = (
-                    "Generate 6 viral YouTube Shorts video hook themes for a shower thoughts listicle channel. "
-                    "Examples: 'Shower thoughts that will ruin your perception of reality', 'Uncomfortable thoughts that will keep you awake tonight'. "
+                    "Generate 6 viral YouTube Shorts video hook themes for a shower thoughts and mind-blowing facts listicle channel. "
+                    "Examples: 'Shower thoughts that will completely ruin your perception of reality', 'Everyday brain glitches that feel illegal to know'. "
                     "Return JSON: {\"topics\": [\"Theme 1\", \"Theme 2\", ...]}"
                 )
                 idea_data = self.llm.generate_json(sys_prompt, usr_prompt, temperature=0.8)
@@ -306,6 +399,7 @@ class TopicInspector:
             except Exception:
                 pass
 
+        # Tier 4: Fallback to Curated Vault Themes
         available_fallbacks = [t for t in target_pool if not self.is_topic_recent(t)]
         return available_fallbacks if available_fallbacks else target_pool.copy()
 
@@ -315,9 +409,10 @@ class TopicInspector:
             "You are a strict scientific fact-checker and editorial gatekeeper for a viral educational YouTube Shorts channel.\n"
             f"The channel niche is: '{niche}'.\n"
             "Evaluate whether this candidate meets BOTH conditions:\n"
-            "1. NICHE RELEVANCE: Does this fit mind-bending shower thoughts, psychological paradoxes, perception illusions, or philosophical brain-glitches? "
-            "STRICTLY REJECT: Geopolitical country names (e.g. 'burkina faso'), sports matches or athlete names (e.g. 'jamaica vs el salvador'), political controversies, celebrity gossip.\n"
-            "2. FACTUAL / CONCEPTUAL INTEGRITY: Is the premise logically coherent, scientifically sound, or philosophically valid? Reject debunked myths or fake clickbait.\n"
+            "1. NICHE RELEVANCE: Does this fit mind-bending shower thoughts, psychological paradoxes, perception illusions, or physical brain-glitches? "
+            "STRICTLY REJECT: Geopolitical country names, sports matches, political controversies, celebrity gossip, "
+            "and abstract semantic nihilism (e.g. 'words are lies', 'the language trap', 'meaning is an illusion' with no concrete relatable grounding).\n"
+            "2. FACTUAL / CONCEPTUAL INTEGRITY: Is the premise logically coherent, scientifically sound, or psychologically valid? Reject debunked myths or fake clickbait.\n"
             "Return JSON: {\"is_niche_relevant\": true/false, \"is_factual\": true/false, \"confidence\": float, \"primary_source\": str, \"rejection_reason\": str}"
         )
         user_prompt = f"Verify this topic candidate for niche '{niche}': '{topic}'"

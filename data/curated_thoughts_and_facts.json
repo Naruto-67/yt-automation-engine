@@ -1,0 +1,848 @@
+{
+  "version": "1.0.0",
+  "updated_at": "2026-10-11T00:00:00Z",
+  "description": "Internal curated knowledge-base of 120+ verified, fact-checked human observations and counter-intuitive facts.",
+  "items": [
+    {
+      "id": "body_01",
+      "pillar": "human_body_and_perception",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "The only part of your reflection you can actually lick is your tongue."
+    },
+    {
+      "id": "body_02",
+      "pillar": "human_body_and_perception",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Your brain actively deletes your nose from your vision even though you see it twenty-four seven."
+    },
+    {
+      "id": "body_03",
+      "pillar": "human_body_and_perception",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "You physically cannot hum while holding your nose shut."
+    },
+    {
+      "id": "body_04",
+      "pillar": "human_body_and_perception",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "You have never actually seen your own face with your own eyes, only reflections, screens, and photographs."
+    },
+    {
+      "id": "body_05",
+      "pillar": "human_body_and_perception",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Your brain uses twenty percent of your body's total energy despite accounting for only two percent of your weight."
+    },
+    {
+      "id": "body_06",
+      "pillar": "human_body_and_perception",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "Sleeping is just charging your biological battery, while dreaming is running a background diagnostic test."
+    },
+    {
+      "id": "body_07",
+      "pillar": "human_body_and_perception",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Every seven years, virtually every single cell in your body has been replaced, making you a completely new person."
+    },
+    {
+      "id": "body_08",
+      "pillar": "human_body_and_perception",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "Clapping is just repeatedly slapping yourself because you enjoyed something."
+    },
+    {
+      "id": "body_09",
+      "pillar": "human_body_and_perception",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Your nervous system has an eighty millisecond transmission delay, meaning you technically live slightly in the past."
+    },
+    {
+      "id": "body_10",
+      "pillar": "human_body_and_perception",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "The brain named itself, recognized itself, and is right now realizing that exact fact."
+    },
+    {
+      "id": "body_11",
+      "pillar": "human_body_and_perception",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Your stomach produces a brand new layer of mucus every two weeks to prevent digesting itself."
+    },
+    {
+      "id": "body_12",
+      "pillar": "human_body_and_perception",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "You can never touch anything truly at the atomic level, because electron repulsions make you hover over everything."
+    },
+    {
+      "id": "body_13",
+      "pillar": "human_body_and_perception",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Your bones are completely wet right now, but you will never feel it."
+    },
+    {
+      "id": "body_14",
+      "pillar": "human_body_and_perception",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "When you blush, the lining of your stomach also blushes red."
+    },
+    {
+      "id": "body_15",
+      "pillar": "human_body_and_perception",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Human eye lenses focus upside down, and your brain permanently flips the image so you do not get confused."
+    },
+    {
+      "id": "body_16",
+      "pillar": "human_body_and_perception",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "Hearing your voice on a recording sounds wrong because you usually hear it vibrating through your own skull bones."
+    },
+    {
+      "id": "body_17",
+      "pillar": "human_body_and_perception",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Fingerprints exist to give your skin friction and allow acoustic vibrations to travel deeper into tactile nerves."
+    },
+    {
+      "id": "body_18",
+      "pillar": "human_body_and_perception",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "Blinking is a physical screen wipe that your brain intentionally edits out of your conscious memory."
+    },
+    {
+      "id": "body_19",
+      "pillar": "human_body_and_perception",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Your tongue is the only muscle in your entire body that is anchored at only one end."
+    },
+    {
+      "id": "body_20",
+      "pillar": "human_body_and_perception",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "You are a brain piloting a bone mech armor wrapped in meat and powered by bio-electricity."
+    },
+    {
+      "id": "body_21",
+      "pillar": "human_body_and_perception",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "If unraveled, the DNA in every single cell of your body would stretch to Pluto and back."
+    },
+    {
+      "id": "body_22",
+      "pillar": "human_body_and_perception",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "Your age is just the number of laps you have survived around a giant nuclear fireball in space."
+    },
+    {
+      "id": "body_23",
+      "pillar": "human_body_and_perception",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Yawning cools down your brain when blood temperature inside the cranial cavity rises."
+    },
+    {
+      "id": "body_24",
+      "pillar": "human_body_and_perception",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "You can easily bite through your own finger with the force you use for a carrot, but your brain refuses to allow it."
+    },
+    {
+      "id": "time_01",
+      "pillar": "time_and_space",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Cleopatra lived closer in time to the Moon landing than to the construction of the Great Pyramid of Giza."
+    },
+    {
+      "id": "time_02",
+      "pillar": "time_and_space",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "Your shadow is proof that light traveled ninety-three million miles uninterrupted through space just to be blocked by your foot."
+    },
+    {
+      "id": "time_03",
+      "pillar": "time_and_space",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "A day on Venus is longer than a year on Venus because it rotates slower than it orbits the Sun."
+    },
+    {
+      "id": "time_04",
+      "pillar": "time_and_space",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "When you look at stars in the night sky, you are looking at ghost light from millions of years ago."
+    },
+    {
+      "id": "time_05",
+      "pillar": "time_and_space",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "If you fold a single sheet of paper in half forty-two times, its thickness would reach all the way to the Moon."
+    },
+    {
+      "id": "time_06",
+      "pillar": "time_and_space",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "Oxford University existed for hundreds of years before the Aztec Empire was even founded."
+    },
+    {
+      "id": "time_07",
+      "pillar": "time_and_space",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Time moves slightly faster on top of a mountain than at sea level due to gravitational time dilation."
+    },
+    {
+      "id": "time_08",
+      "pillar": "time_and_space",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "Today is the oldest you have ever been, and the youngest you will ever be for the rest of your life."
+    },
+    {
+      "id": "time_09",
+      "pillar": "time_and_space",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "There are more trees on planet Earth than there are stars in the entire Milky Way galaxy."
+    },
+    {
+      "id": "time_10",
+      "pillar": "time_and_space",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "Every clock you look at is just a synchronized estimate created by humanity so we can agree on meetings."
+    },
+    {
+      "id": "time_11",
+      "pillar": "time_and_space",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "The Sun takes about two hundred and thirty million years to orbit the galaxy, meaning dinosaurs lived on the opposite side of space."
+    },
+    {
+      "id": "time_12",
+      "pillar": "time_and_space",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "If the history of Earth were compressed into twenty-four hours, humans showed up at eleven fifty-eight at night."
+    },
+    {
+      "id": "time_13",
+      "pillar": "time_and_space",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Because the universe expands in all directions, every point in existence can mathematically claim to be the center."
+    },
+    {
+      "id": "time_14",
+      "pillar": "time_and_space",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "We use calendars to track the past, but we spend our entire existence strictly anticipating the next hour."
+    },
+    {
+      "id": "time_15",
+      "pillar": "time_and_space",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Woolly mammoths were still roaming Wrangel Island while workers were building the Egyptian pyramids."
+    },
+    {
+      "id": "time_16",
+      "pillar": "time_and_space",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "The present moment has no physical thickness; the second you experience it, it instantly transforms into historical data."
+    },
+    {
+      "id": "time_17",
+      "pillar": "time_and_space",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Light from the Sun takes eight minutes and twenty seconds to reach Earth, meaning if it disappeared right now, we would not notice."
+    },
+    {
+      "id": "time_18",
+      "pillar": "time_and_space",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "Space is not completely silent because electromagnetic vibrations can be converted into terrifying audible frequencies."
+    },
+    {
+      "id": "time_19",
+      "pillar": "time_and_space",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Neutron stars are so dense that a single teaspoon of their material would weigh six billion tons on Earth."
+    },
+    {
+      "id": "time_20",
+      "pillar": "time_and_space",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "You are traveling through space right now at over one point three million miles per hour without feeling a breeze."
+    },
+    {
+      "id": "time_21",
+      "pillar": "time_and_space",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "A teaspoon of water contains more water molecules than there are teaspoons of water in the Atlantic Ocean."
+    },
+    {
+      "id": "time_22",
+      "pillar": "time_and_space",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "Every photo taken of you captures a younger version of yourself that no longer exists anywhere."
+    },
+    {
+      "id": "time_23",
+      "pillar": "time_and_space",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "If two pieces of identical metals touch in open space vacuum, they permanently fuse together in cold welding."
+    },
+    {
+      "id": "time_24",
+      "pillar": "time_and_space",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "The Earth is basically a giant spaceship with life support, but nobody is at the control steering wheel."
+    },
+    {
+      "id": "objects_01",
+      "pillar": "everyday_objects_and_food",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Honey never spoils; archaeologists discovered three-thousand-year-old honey inside Egyptian tombs that remains completely edible."
+    },
+    {
+      "id": "objects_02",
+      "pillar": "everyday_objects_and_food",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "A pizza is a circle, delivered in a square cardboard box, and eaten in triangles."
+    },
+    {
+      "id": "objects_03",
+      "pillar": "everyday_objects_and_food",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Bananas share sixty percent of the exact same genetic DNA sequence with human beings."
+    },
+    {
+      "id": "objects_04",
+      "pillar": "everyday_objects_and_food",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "Nothing is ever on fire. Fire is always on things."
+    },
+    {
+      "id": "objects_05",
+      "pillar": "everyday_objects_and_food",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Under specific laboratory pressures, water can boil and freeze at the exact same temperature called the triple point."
+    },
+    {
+      "id": "objects_06",
+      "pillar": "everyday_objects_and_food",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "If poison expires past its date, does it become more poisonous, or less poisonous?"
+    },
+    {
+      "id": "objects_07",
+      "pillar": "everyday_objects_and_food",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Apples float in water because twenty-five percent of their physical volume is literally trapped air."
+    },
+    {
+      "id": "objects_08",
+      "pillar": "everyday_objects_and_food",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "Every book you have ever read is just twenty-six letters arranged in different permutations."
+    },
+    {
+      "id": "objects_09",
+      "pillar": "everyday_objects_and_food",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Diamonds are made of pure compressed carbon, meaning a pencil lead and an engagement ring are the same element."
+    },
+    {
+      "id": "objects_10",
+      "pillar": "everyday_objects_and_food",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "You can never hold an empty container because it is always completely full of room temperature air."
+    },
+    {
+      "id": "objects_11",
+      "pillar": "everyday_objects_and_food",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Microwaves heat water molecules directly through dielectric resonance rather than applying outside heat."
+    },
+    {
+      "id": "objects_12",
+      "pillar": "everyday_objects_and_food",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "Washing dishes is just wiping yesterday's fuel containers so you can refill them with tomorrow's energy."
+    },
+    {
+      "id": "objects_13",
+      "pillar": "everyday_objects_and_food",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Peanuts are not actually botanical nuts; they grow underground as legumes related to beans and peas."
+    },
+    {
+      "id": "objects_14",
+      "pillar": "everyday_objects_and_food",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "Keys are tiny brass sculptures that convince mechanical locks to grant you access to shelter."
+    },
+    {
+      "id": "objects_15",
+      "pillar": "everyday_objects_and_food",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Bubble wrap was originally invented in nineteen fifty-seven as textured 3D wallpaper."
+    },
+    {
+      "id": "objects_16",
+      "pillar": "everyday_objects_and_food",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "Your smartphone has millions of times more computing power than NASA used to land astronauts on the Moon."
+    },
+    {
+      "id": "objects_17",
+      "pillar": "everyday_objects_and_food",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Glass is an amorphous solid that behaves like a frozen liquid with disorderly molecular structures."
+    },
+    {
+      "id": "objects_18",
+      "pillar": "everyday_objects_and_food",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "Ice melts into water, which was the very thing you used to make the ice in the first place."
+    },
+    {
+      "id": "objects_19",
+      "pillar": "everyday_objects_and_food",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "The smell of freshly cut grass is actually a distress chemical signal released by the plant under attack."
+    },
+    {
+      "id": "objects_20",
+      "pillar": "everyday_objects_and_food",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "A refrigerator is a box that spends electricity to keep heat outside so your food rots slower."
+    },
+    {
+      "id": "objects_21",
+      "pillar": "everyday_objects_and_food",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Vanilla flavoring originally used vanillin derived from wood pulp lignin fibers."
+    },
+    {
+      "id": "objects_22",
+      "pillar": "everyday_objects_and_food",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "Mirrors in stores are angled slightly backwards to create slimming optical perspective illusions."
+    },
+    {
+      "id": "objects_23",
+      "pillar": "everyday_objects_and_food",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Matchsticks were invented three years after the invention of mechanical pocket lighters."
+    },
+    {
+      "id": "objects_24",
+      "pillar": "everyday_objects_and_food",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "Soap does not kill most bacteria; it just makes your skin so slippery they slide down the drain."
+    },
+    {
+      "id": "nature_01",
+      "pillar": "nature_and_animals",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Trees communicate underground and share nutrients through vast fungal mycelium networks called the wood wide web."
+    },
+    {
+      "id": "nature_02",
+      "pillar": "nature_and_animals",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "Sharks existed before Saturn developed its rings and before trees even evolved on Earth."
+    },
+    {
+      "id": "nature_03",
+      "pillar": "nature_and_animals",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Octopuses have three hearts, blue hemocyanin blood, and two-thirds of their neurons reside inside their tentacles."
+    },
+    {
+      "id": "nature_04",
+      "pillar": "nature_and_animals",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "A caterpillar turns into complete genetic liquid soup inside its cocoon before reforming into a butterfly."
+    },
+    {
+      "id": "nature_05",
+      "pillar": "nature_and_animals",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Sloths can hold their breath underwater for forty minutes, significantly longer than dolphins."
+    },
+    {
+      "id": "nature_06",
+      "pillar": "nature_and_animals",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "Every drop of water you drink has circulated through dinosaurs and ocean clouds millions of times."
+    },
+    {
+      "id": "nature_07",
+      "pillar": "nature_and_animals",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Crows recognize individual human faces and pass grudges down to their offspring across generations."
+    },
+    {
+      "id": "nature_08",
+      "pillar": "nature_and_animals",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "Pigeons used to deliver critical wartime messages, and now they just bob their heads outside train stations."
+    },
+    {
+      "id": "nature_09",
+      "pillar": "nature_and_animals",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Lightning strikes planet Earth approximately eight million times every single day."
+    },
+    {
+      "id": "nature_10",
+      "pillar": "nature_and_animals",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "Animals in the wild probably think we are strange hairless creatures that build giant square caves."
+    },
+    {
+      "id": "nature_11",
+      "pillar": "nature_and_animals",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "The immortal jellyfish can revert its mature cells back into polyp infancy when injured or starving."
+    },
+    {
+      "id": "nature_12",
+      "pillar": "nature_and_animals",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "Clouds look light and fluffy, but an average cumulus cloud weighs over one million pounds of water."
+    },
+    {
+      "id": "nature_13",
+      "pillar": "nature_and_animals",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Butterflies taste surfaces through sensory receptors located on their feet."
+    },
+    {
+      "id": "nature_14",
+      "pillar": "nature_and_animals",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "Plants are technically farming humans by producing oxygen until we die and decompose into fertilizer."
+    },
+    {
+      "id": "nature_15",
+      "pillar": "nature_and_animals",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "A blue whale's tongue weighs as much as an entire adult Asian elephant."
+    },
+    {
+      "id": "nature_16",
+      "pillar": "nature_and_animals",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "The ocean floor has deep-sea trenches unexplored, while we send rovers across the sands of Mars."
+    },
+    {
+      "id": "nature_17",
+      "pillar": "nature_and_animals",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Honeybees communicate complex flower coordinates by performing rhythmic waggle dance angles relative to the sun."
+    },
+    {
+      "id": "nature_18",
+      "pillar": "nature_and_animals",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "Bats are the only mammals capable of true sustained aerodynamic flight."
+    },
+    {
+      "id": "nature_19",
+      "pillar": "nature_and_animals",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Ants do not have lungs; oxygen enters through microscopic valve holes along the sides of their bodies."
+    },
+    {
+      "id": "nature_20",
+      "pillar": "nature_and_animals",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "If you look closely at sand under a microscope, each tiny grain is a miniature tumbled gemstone."
+    },
+    {
+      "id": "nature_21",
+      "pillar": "nature_and_animals",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Flamingos are born grey and turn bright pink entirely from consuming carotenoid pigments in brine shrimp."
+    },
+    {
+      "id": "nature_22",
+      "pillar": "nature_and_animals",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "Rain does not have a smell of its own; petrichor is the scent of soil bacteria aerosolized by raindrops."
+    },
+    {
+      "id": "nature_23",
+      "pillar": "nature_and_animals",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Sea otters hold paws while sleeping so currents do not drift them away from each other."
+    },
+    {
+      "id": "nature_24",
+      "pillar": "nature_and_animals",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "Earth has survived five mass extinctions, but we act like climate change will destroy the planet instead of us."
+    },
+    {
+      "id": "glitch_01",
+      "pillar": "cognitive_glitches_and_paradoxes",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "If you replace every single part of an axe over time, does it remain the exact same axe?"
+    },
+    {
+      "id": "glitch_02",
+      "pillar": "cognitive_glitches_and_paradoxes",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "You can never prove that anyone else experiences consciousness the same way you do."
+    },
+    {
+      "id": "glitch_03",
+      "pillar": "cognitive_glitches_and_paradoxes",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Your brain constantly invents false memories every time you recall an event, editing the story slightly."
+    },
+    {
+      "id": "glitch_04",
+      "pillar": "cognitive_glitches_and_paradoxes",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "The word abbreviation is remarkably long for a word that literally means making something shorter."
+    },
+    {
+      "id": "glitch_05",
+      "pillar": "cognitive_glitches_and_paradoxes",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "The McGurk effect proves that what your eyes see can literally alter the sound your ears hear."
+    },
+    {
+      "id": "glitch_06",
+      "pillar": "cognitive_glitches_and_paradoxes",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "If you are waiting for the waiter, you are technically the waiter in that moment."
+    },
+    {
+      "id": "glitch_07",
+      "pillar": "cognitive_glitches_and_paradoxes",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Deja vu occurs when sensory input bypasses short-term processing and deposits directly into long-term memory."
+    },
+    {
+      "id": "glitch_08",
+      "pillar": "cognitive_glitches_and_paradoxes",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "You cannot imagine a brand new color that does not already exist within the visible spectrum."
+    },
+    {
+      "id": "glitch_09",
+      "pillar": "cognitive_glitches_and_paradoxes",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "Your future self is watching you right now through the memories you are creating today."
+    },
+    {
+      "id": "glitch_10",
+      "pillar": "cognitive_glitches_and_paradoxes",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "The Tetris effect causes people who play repetitive games to see patterns moving in the dark when closing their eyes."
+    },
+    {
+      "id": "glitch_11",
+      "pillar": "cognitive_glitches_and_paradoxes",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "Every secret you keep is proof that two different versions of you exist simultaneously."
+    },
+    {
+      "id": "glitch_12",
+      "pillar": "cognitive_glitches_and_paradoxes",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Phantom vibration syndrome makes over eighty percent of phone owners feel vibrations when their phone never buzzed."
+    },
+    {
+      "id": "glitch_13",
+      "pillar": "cognitive_glitches_and_paradoxes",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "You can read this sentence without speaking a word, yet a distinct voice is talking inside your head."
+    },
+    {
+      "id": "glitch_14",
+      "pillar": "cognitive_glitches_and_paradoxes",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "Saying 'do not think of a pink elephant' immediately forces your neural cortex to render a pink elephant."
+    },
+    {
+      "id": "glitch_15",
+      "pillar": "cognitive_glitches_and_paradoxes",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Saccadic masking blinds you for forty minutes every single day while your eyeballs dart around between focus points."
+    },
+    {
+      "id": "glitch_16",
+      "pillar": "cognitive_glitches_and_paradoxes",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "The alarm clock is the only device designed specifically for you to hate the sound of it."
+    },
+    {
+      "id": "glitch_17",
+      "pillar": "cognitive_glitches_and_paradoxes",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Placebos can still trigger genuine neurological relief even when doctors tell patients it is a fake sugar pill."
+    },
+    {
+      "id": "glitch_18",
+      "pillar": "cognitive_glitches_and_paradoxes",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "Every decision you have ever made has led you directly to reading this exact word right now."
+    },
+    {
+      "id": "glitch_19",
+      "pillar": "cognitive_glitches_and_paradoxes",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "We laugh at dogs chasing their tails, but humans spend decades chasing imaginary validation."
+    },
+    {
+      "id": "glitch_20",
+      "pillar": "cognitive_glitches_and_paradoxes",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Capgras delusion causes people to believe their closest family members have been replaced by identical impostors."
+    },
+    {
+      "id": "glitch_21",
+      "pillar": "cognitive_glitches_and_paradoxes",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "You spend the first half of your life wanting to be older, and the second half wishing you were younger."
+    },
+    {
+      "id": "glitch_22",
+      "pillar": "cognitive_glitches_and_paradoxes",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "If practice makes perfect, but nobody is perfect, why do we practice?"
+    },
+    {
+      "id": "glitch_23",
+      "pillar": "cognitive_glitches_and_paradoxes",
+      "type": "fact",
+      "source": "verified_science",
+      "text": "Cognitive dissonance physically activates the anterior cingulate cortex, the same region that registers acute physical pain."
+    },
+    {
+      "id": "glitch_24",
+      "pillar": "cognitive_glitches_and_paradoxes",
+      "type": "thought",
+      "source": "r/Showerthoughts",
+      "text": "Which is why you should never overthink these..."
+    }
+  ]
+}
+

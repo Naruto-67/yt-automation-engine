@@ -6,9 +6,12 @@ channel:
   language: "en-US"
   voice:
     provider: "kokoro"
-    voice_id: "am_adam" # Flagship Resonant Baritone Kokoro American Male voice (also am_fenrir, am_michael)
+    voice_id: "am_adam" # Primary: Resonant Baritone Kokoro American Male voice
+    alternative_voice_ids:
+      - "am_michael"    # Conversational dynamic American male
+      - "am_fenrir"     # Clear storytelling American male
     fallback_voice_id: "en-US-GuyNeural"
-    speed: 1.0 # Natural 2.8 words/sec delivery (targets 53-56s duration naturally for 145-150 words)
+    speed: 1.0 # 100% natural 1.0x delivery (zero atempo speed distortion)
   branding:
     enabled: true
     watermark_text: "@metopato"
