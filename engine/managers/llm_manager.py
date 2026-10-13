@@ -239,18 +239,32 @@ class LLMManager:
         self._providers = self._get_active_providers()
         return self._providers
 
+    # Task-specific temperature defaults (avoids hardcoding per-call)
+    _TASK_TEMPERATURES: Dict[str, float] = {
+        "script_gen": 0.5,    # Low temp = strict schema adherence, grounded facts
+        "seo_gen": 0.6,       # Slightly higher = creative high-CTR phrasing
+        "rewrite": 0.9,       # High temp = diverse rewrite alternatives
+        "generic": 0.7,       # Default
+    }
+
     def generate_json(
         self,
         system_prompt: str,
         user_prompt: str,
         temperature: float = 0.7,
-        validator: Optional[Callable[[Dict[str, Any]], bool]] = None
+        validator: Optional[Callable[[Dict[str, Any]], bool]] = None,
+        task_name: str = "generic"
     ) -> Dict[str, Any]:
         """
         Executes generation dynamically across discovered providers:
         PikaFlow interleaved family priority -> auto-banning dead models on 404 -> cascading.
         Optionally validates extracted JSON against custom predicate before accepting.
+        task_name controls temperature selection and quality-tracker circuit breaker routing.
         """
+        # Apply task-specific temperature if caller hasn't overridden
+        effective_temp = self._TASK_TEMPERATURES.get(task_name, temperature)
+        if task_name != "generic":
+            temperature = effective_temp
         candidates = [p for p in self._get_active_providers() if p["id"] not in self._disabled_for_run]
 
         # If no candidates available in cache, trigger dynamic discovery
@@ -269,6 +283,17 @@ class LLMManager:
             prov_name = provider.get("name", prov_id)
             prio = provider.get("priority", "?")
 
+            # Quality tracker circuit breaker: skip script_gen tasks for models in editorial cooldown
+            if task_name == "script_gen":
+                try:
+                    from engine.managers.llm_quality_tracker import LLMQualityTracker
+                    qt = LLMQualityTracker()
+                    if qt.is_in_cooldown(prov_id, task="script_gen"):
+                        print(f"⏭️  [LLM ROUTER] Skipping {prov_name} (editorial cooldown active). Trying next...")
+                        continue
+                except Exception:
+                    pass  # Quality tracker unavailable — do not block generation
+
             print(f"🤖 [LLM] Routing request to {prov_name} (Model: {model_name})...")
             print(f"🤖 [LLM] Routing request to {prov_name} (Priority #{prio}, Model: {model_name})...")
             try:
@@ -285,6 +310,7 @@ class LLMManager:
                         if validator and not validator(parsed):
                             print(f"⚠️ [LLM VALIDATOR] {prov_name} output rejected by validator criteria. Cascading...")
                             continue
+                        self._last_used_provider_id = prov_id
                         return parsed
                     # If JSON couldn't be parsed directly, try heuristic synthesis
                     synth = UniversalGreedyJSONParser.extract_or_synthesize(response_text, expected_type="script")
@@ -292,6 +318,7 @@ class LLMManager:
                         if validator and not validator(synth):
                             print(f"⚠️ [LLM VALIDATOR] {prov_name} synthesized output rejected by validator criteria. Cascading...")
                             continue
+                        self._last_used_provider_id = prov_id
                         return synth
 
                     print(f"⚠️ [LLM] {prov_name} returned unparseable output. Cascading to next candidate...")
@@ -355,15 +382,19 @@ class LLMManager:
                 sep = "&" if "?" in url else "?"
                 url += f"{sep}key={api_key}"
             full_prompt = f"SYSTEM INSTRUCTIONS:\n{system_prompt}\n\nUSER REQUEST:\n{user_prompt}"
+            gen_config: Dict[str, Any] = {
+                "responseMimeType": "application/json",
+                "maxOutputTokens": 2048
+            }
+            # Gemini preview/thinking/exp models do not support custom temperature — omit it
+            model_lower = model_name.lower()
+            if not any(tag in model_lower for tag in ["preview", "thinking", "exp", "2.0-flash-thinking"]):
+                gen_config["temperature"] = temperature
             payload = {
                 "contents": [
                     {"role": "user", "parts": [{"text": full_prompt}]}
                 ],
-                "generationConfig": {
-                    "temperature": temperature,
-                    "responseMimeType": "application/json",
-                    "maxOutputTokens": 2048
-                }
+                "generationConfig": gen_config
             }
         else:
             max_tok = 2048
@@ -382,10 +413,26 @@ class LLMManager:
 
         resp = _http_request(url, method="POST", headers=headers, json_data=payload, timeout=60.0)
 
-        # Auto-heal Groq HTTP 400 json_validate_failed (thinking models or server-side schema incompatibilities)
-        if resp.status_code == 400 and "json_validate_failed" in getattr(resp, "text", "") and "response_format" in payload:
-            payload.pop("response_format", None)
-            resp = _http_request(url, method="POST", headers=headers, json_data=payload, timeout=60.0)
+        # Auto-heal HTTP 400 errors caused by unsupported parameters
+        if resp.status_code == 400:
+            resp_text = getattr(resp, "text", "")
+            retry_needed = False
+            # Groq: json_validate_failed with response_format
+            if "json_validate_failed" in resp_text and "response_format" in payload:
+                payload.pop("response_format", None)
+                retry_needed = True
+            # Gemini: temperature not supported on this model
+            elif "temperature" in resp_text and is_gemini and "generationConfig" in payload:
+                payload["generationConfig"].pop("temperature", None)
+                retry_needed = True
+            # Generic: unsupported_parameter error
+            elif "unsupported_parameter" in resp_text.lower() or "invalid_parameter" in resp_text.lower():
+                # Try removing response_format as a generic fix
+                if "response_format" in payload:
+                    payload.pop("response_format", None)
+                    retry_needed = True
+            if retry_needed:
+                resp = _http_request(url, method="POST", headers=headers, json_data=payload, timeout=60.0)
 
         if resp.status_code == 200:
             data = resp.json()

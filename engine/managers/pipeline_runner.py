@@ -483,7 +483,13 @@ def run_spec_stage(video_type: str = "short") -> None:
             return True
 
         validator = validate_short_script if (video_type == "short" and not os.environ.get("PYTEST_CURRENT_TEST")) else None
-        script_data = llm.generate_json(system_prompt, user_prompt, temperature=0.7, validator=validator)
+        script_data = llm.generate_json(
+            system_prompt,
+            user_prompt,
+            temperature=0.7,
+            validator=validator,
+            task_name="script_gen" if video_type == "short" else "generic"
+        )
 
         raw_scenes = script_data.get("scenes", [])
         if not raw_scenes and "chapters" in script_data:
@@ -509,6 +515,45 @@ def run_spec_stage(video_type: str = "short") -> None:
             if not last_text.endswith("..."):
                 raw_scenes[-1]["spoken_text"] = f"{last_text}..."
 
+        # ─── EDITORIAL CRITIC AUDIT (Wall Test + Title Alignment + Hook Check) ────
+        # Runs after calibration to enforce @BrainBlud quality standards.
+        # Never run in pytest to keep unit tests fast and deterministic.
+        if video_type == "short" and not os.environ.get("PYTEST_CURRENT_TEST"):
+            try:
+                from engine.managers.editorial_critic import audit_and_refine_spec
+                # Build seo_data from what we have so far (title may come from script or will be SEO-generated later)
+                _title_from_script = script_data.get("seo", {}).get("title") or script_data.get("title", topic)
+                _seo_for_critic = {"title": _title_from_script}
+                raw_scenes, _seo_for_critic, audit_summary = audit_and_refine_spec(
+                    raw_scenes=raw_scenes,
+                    seo_data=_seo_for_critic,
+                    topic=topic
+                )
+                # If critic corrected the title, update script_data so it flows downstream
+                if _seo_for_critic.get("title") and _seo_for_critic["title"] != _title_from_script:
+                    if "seo" in script_data:
+                        script_data["seo"]["title"] = _seo_for_critic["title"]
+                    elif "title" in script_data:
+                        script_data["title"] = _seo_for_critic["title"]
+
+                # Feed results back to LLM Quality Tracker
+                _active_provider_id = getattr(llm, "_last_used_provider_id", "unknown")
+                try:
+                    from engine.managers.llm_quality_tracker import LLMQualityTracker
+                    qt = LLMQualityTracker()
+                    qt.record_result(
+                        model_id=_active_provider_id,
+                        wall_test_failures=audit_summary.get("wall_test_failures", 0),
+                        wall_test_replacements=audit_summary.get("wall_test_replacements", 0),
+                        passed_first_attempt=True  # Already passed validator to get here
+                    )
+                except Exception as qt_err:
+                    print(f"⚠️  [QUALITY TRACKER] Could not record result: {qt_err}")
+
+            except Exception as critic_err:
+                # Editorial critic is a quality enhancement, not critical path — never block the pipeline
+                print(f"⚠️  [EDITORIAL CRITIC] Audit skipped due to error: {critic_err}")
+
         # ─── THOUGHT-CACHE DEDUPLICATION ──────────────────────────────────────
         # Check each scene against the rolling thought cache (stored in channel_config.yaml).
         # If a spoken line matches a previously used line, ask the LLM to rewrite only that scene.
@@ -525,7 +570,7 @@ def run_spec_stage(video_type: str = "short") -> None:
                     )
                     rewrite_usr = f'Original: "{spoken}"\nRewrite (15 words max, no leading punctuation):'
                     try:
-                        result = llm.generate_json(rewrite_sys, rewrite_usr, temperature=0.9)
+                        result = llm.generate_json(rewrite_sys, rewrite_usr, temperature=0.9, task_name="rewrite")
                         new_line = (result.get("text") or "").strip()
                         new_line = re.sub(r'^["\']|["\']$', "", new_line)
                         if new_line:
@@ -631,7 +676,7 @@ def run_spec_stage(video_type: str = "short") -> None:
             print("🤖 [SEO] Script did not include unified SEO. Generating via secondary SEO prompt...", flush=True)
             seo_cfg = prompts_cfg["seo_gen"]
             seo_user_prompt = seo_cfg["user_template"].format(script_text=full_display_script)
-            seo_data = llm.generate_json(seo_cfg["system_prompt"], seo_user_prompt, temperature=0.2)
+            seo_data = llm.generate_json(seo_cfg["system_prompt"], seo_user_prompt, temperature=0.2, task_name="seo_gen")
 
         if video_type == "long":
             seo_title = seo_data.get("title", f"{topic[:60]}").replace("#shorts", "").strip()
