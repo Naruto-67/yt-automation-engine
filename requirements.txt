@@ -4,7 +4,7 @@ google-auth-httplib2>=0.4.2
 google-auth-oauthlib>=1.4.1
 google-genai>=2.19.0
 requests>=2.34.2
-tenacity>=8.5.0
+tenacity>=9.1.4
 
 # Speech, Media & Schemas
 kokoro>=0.9.4
