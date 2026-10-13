@@ -107,7 +107,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: spec-artifact
           path: output/
@@ -148,11 +148,11 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: spec-artifact
           path: output/
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: clips-manifest
           path: output/
@@ -203,11 +203,11 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: spec-artifact
           path: output/
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: final-video
           path: output/
