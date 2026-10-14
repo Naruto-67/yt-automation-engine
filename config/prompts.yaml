@@ -33,8 +33,8 @@ script_gen:
     Stoner pseudo-philosophy = INSTANT REJECTION.
 
     DUAL LOOP OUTRO MODES (choose the most fitting for the topic):
-    Mode A (Seamless Syntactic Loop): Scene N ends mid-sentence with "..." that links grammatically back into Scene 1.
-    Mode B (Witty Self-Referential Closer): Scene N delivers a deadpan call-to-action (e.g. "If you want to be smarter every day, like and subscribe." OR "If all of you subscribed instantly, I would have more subscribers...").
+    Mode A (Seamless Syntactic Loop): Scene N is a short compilation transition bridge (6-9 words ending in "...") that links grammatically back into Scene 1 (e.g. "And if that didn't mess with your head, remember that..."). CRITICAL: ZERO REPETITION. Never repeat, echo, or paraphrase Scene 1's words in Scene N. Scene 1 will be heard immediately after Scene N when the video loops!
+    Mode B (Witty Self-Referential Closer): Scene N delivers a deadpan call-to-action (e.g. "If you want to be smarter every day, subscribe." OR "If all of you subscribed instantly, I would have more subscribers.").
 
   user_template: |
     TOPIC: {topic}

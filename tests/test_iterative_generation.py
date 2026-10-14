@@ -165,3 +165,37 @@ def test_iterative_generator_chain_full_flow():
     # SEO title is umbrella
     assert "#shorts" in seo["title"]
 
+
+def test_iterative_generator_loop_rejects_hook_repetition():
+    """_generate_loop_outro must reject LLM output that echoes Scene 1 and fall back to curated bridge."""
+    from engine.managers.iterative_script_generator import IterativeScriptGenerator
+    from engine.managers.editorial_critic import check_loop_repeats_hook, COMPILATION_LOOP_BRIDGES
+
+    hook = "Your nose physically cannot close fully during a sneeze, making a perfectly silent one impossible."
+
+    class EchoLLM:
+        _last_used_provider_id = "echo_model"
+        def generate_json(self, *args, **kwargs):
+            # Simulates the flawed LLM response from the reported run
+            return {
+                "spoken_text": "And that is why your nose physically cannot close fully during a sneeze, making a perfectly silent one impossible...",
+                "stock_video_query": "spiral optical illusion hypnotic"
+            }
+
+    generator = IterativeScriptGenerator(llm_manager=EchoLLM())
+    outro = generator._generate_loop_outro(
+        hook_text=hook,
+        scene_num=12,
+        existing_scenes=[],
+        used_queries=[]
+    )
+
+    # Must NOT contain the echoed text
+    assert outro["spoken_text"] != "And that is why your nose physically cannot close fully during a sneeze, making a perfectly silent one impossible..."
+    # Must be one of the curated non-repeating bridges
+    assert outro["spoken_text"] in COMPILATION_LOOP_BRIDGES
+    # Must pass check_loop_repeats_hook
+    repeats, _ = check_loop_repeats_hook(outro["spoken_text"], hook)
+    assert repeats is False
+
+

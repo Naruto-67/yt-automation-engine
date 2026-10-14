@@ -168,3 +168,70 @@ def test_quality_tracker_circuit_breaker_after_two_strikes(tmp_path, monkeypatch
     # Reload from disk to ensure persistence worked
     qt2 = LLMQualityTracker()
     assert qt2.is_in_cooldown("weak_model", task="script_gen") is True
+
+
+# ─── LOOP AUDITOR & HOOK REPETITION TESTS ─────────────────────────────────────
+
+def test_loop_auditor_blocks_hook_repetition():
+    """LoopAuditorSkill and check_loop_repeats_hook must block loop scenes that repeat hook words."""
+    from engine.managers.editorial_critic import LoopAuditorSkill, check_loop_repeats_hook
+
+    hook = "Your nose physically cannot close fully during a sneeze, making a perfectly silent one impossible."
+
+    # Exact echo from real failed run
+    bad_loop_1 = "And that is why your nose physically cannot close fully during a sneeze, making a perfectly silent one impossible..."
+    repeats, reason = check_loop_repeats_hook(bad_loop_1, hook)
+    assert repeats is True
+    assert "repeats hook content words" in reason
+
+    passed, reason_audit = LoopAuditorSkill.audit_loop(bad_loop_1, hook)
+    assert passed is False
+    assert "Loop Audit FAILED" in reason_audit
+
+    # Partial repetition
+    bad_loop_2 = "Which explains why your nose physically cannot close..."
+    repeats_2, _ = check_loop_repeats_hook(bad_loop_2, hook)
+    assert repeats_2 is True
+
+    # 3-word n-gram match
+    bad_loop_3 = "And all because during a sneeze we realize that..."
+    repeats_3, _ = check_loop_repeats_hook(bad_loop_3, hook)
+    assert repeats_3 is True
+
+
+def test_loop_auditor_passes_clean_compilation_bridge():
+    """LoopAuditorSkill must pass clean non-repeating compilation bridges and Mode B closers."""
+    from engine.managers.editorial_critic import LoopAuditorSkill, check_loop_repeats_hook, COMPILATION_LOOP_BRIDGES
+
+    hook = "Your nose physically cannot close fully during a sneeze, making a perfectly silent one impossible."
+
+    for bridge in COMPILATION_LOOP_BRIDGES:
+        repeats, reason = check_loop_repeats_hook(bridge, hook)
+        assert repeats is False, f"Expected clean bridge for '{bridge}', got {reason}"
+        passed, audit_reason = LoopAuditorSkill.audit_loop(bridge, hook)
+        assert passed is True, f"Expected audit PASS for '{bridge}', got {audit_reason}"
+
+    # Mode B closer
+    mode_b = "If you want to be smarter than everyone you know, subscribe."
+    passed_b, _ = LoopAuditorSkill.audit_loop(mode_b, hook)
+    assert passed_b is True
+
+
+def test_loop_auditor_sanitize_loop_replaces_defective_loop():
+    """LoopAuditorSkill.sanitize_loop replaces a repeating loop with a clean bridge."""
+    from engine.managers.editorial_critic import LoopAuditorSkill, check_loop_repeats_hook
+
+    hook = "The only part of your reflection you can lick is your tongue."
+    bad_scene = {
+        "scene_id": 12,
+        "spoken_text": "And that is why the only part of your reflection you can lick is your tongue..."
+    }
+
+    sanitized = LoopAuditorSkill.sanitize_loop(bad_scene, hook_text=hook)
+    assert sanitized["spoken_text"] != bad_scene["spoken_text"]
+    assert sanitized.get("_editorial_replaced") is True
+
+    # Sanitized scene must not repeat hook
+    repeats, _ = check_loop_repeats_hook(sanitized["spoken_text"], hook)
+    assert repeats is False
+

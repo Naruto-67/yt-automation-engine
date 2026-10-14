@@ -333,6 +333,15 @@ def calibrate_and_guard_script(
         deduped_scenes.append(s)
     raw_scenes = deduped_scenes
 
+    # 6b. Guard against Loop Outro repeating Scene 1 Hook
+    if len(raw_scenes) >= 2:
+        from engine.managers.editorial_critic import check_loop_repeats_hook, COMPILATION_LOOP_BRIDGES
+        repeats, reason = check_loop_repeats_hook(raw_scenes[-1].get("spoken_text", ""), raw_scenes[0].get("spoken_text", ""))
+        if repeats or are_thoughts_similar(raw_scenes[-1].get("spoken_text", ""), raw_scenes[0].get("spoken_text", "")):
+            print(f"♻️ [LOOP-DEDUP] Loop outro repeats words from hook ({reason}). Replacing with vetted bridge.", flush=True)
+            import random
+            raw_scenes[-1]["spoken_text"] = random.choice(COMPILATION_LOOP_BRIDGES)
+
     # 7. Seamless circular loop ending
     last_text = raw_scenes[-1]["spoken_text"].rstrip(".!? ")
     if not last_text.endswith("..."):

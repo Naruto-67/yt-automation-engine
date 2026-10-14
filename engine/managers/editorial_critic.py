@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 import json
 import os
+import random
 from typing import List, Dict, Any, Tuple, Optional
 
 
@@ -268,6 +269,104 @@ class ThoughtCompletenessSkill:
                     return False, f"Thought Completeness FAILED: Ends with dangling connector '{ending}'"
         return True, "Thought Completeness PASSED"
 
+# ─── COMPILATION LOOP BRIDGES & LOOP AUDITOR ────────────────────────────────
+COMPILATION_LOOP_BRIDGES = [
+    "And if none of those broke your brain, remember that...",
+    "And if you think that was weird, remember that...",
+    "And if that didn't mess with your head, remember that...",
+    "And if you still think reality makes sense, remember that...",
+    "And before you scroll away, never forget that...",
+    "Which brings us right back to the terrifying realization that...",
+    "And if none of that convinced you, just remember that..."
+]
+
+
+def check_loop_repeats_hook(loop_text: str, hook_text: str) -> Tuple[bool, str]:
+    """
+    Validates that the loop outro does NOT repeat or echo the opening hook.
+    Returns (repeats: bool, reason: str).
+    True means it REPEATS (bad). False means it is CLEAN (good).
+    """
+    if not loop_text or not hook_text:
+        return False, "Empty text"
+
+    bridge_stopwords = {
+        "and", "if", "that", "this", "which", "is", "why", "you", "your",
+        "remember", "never", "all", "of", "to", "the", "a", "an", "so",
+        "for", "with", "but", "not", "what", "how", "just", "it", "are",
+        "was", "were", "be", "been", "these", "those", "we", "us", "our",
+        "back", "right", "into", "from", "by", "in", "on", "at", "as",
+        "do", "did", "does", "can", "could", "would", "should", "one"
+    }
+    hook_tokens = set(re.findall(r"\b\w+\b", hook_text.lower())) - bridge_stopwords
+    loop_tokens = set(re.findall(r"\b\w+\b", loop_text.lower())) - bridge_stopwords
+    overlap = hook_tokens & loop_tokens
+
+    if len(overlap) >= 2:
+        return True, f"Loop repeats hook content words: {sorted(list(overlap))}"
+    if hook_tokens and (len(overlap) / len(hook_tokens)) > 0.12:
+        return True, f"Loop has high hook content overlap: {sorted(list(overlap))}"
+
+    # Check 3-word n-gram matches (catches verbatim chunks even if stopwords are involved)
+    hook_words_clean = re.findall(r"\b\w+\b", hook_text.lower())
+    loop_words_clean = " " + " ".join(re.findall(r"\b\w+\b", loop_text.lower())) + " "
+    for i in range(len(hook_words_clean) - 2):
+        trigram = f" {' '.join(hook_words_clean[i:i+3])} "
+        if trigram in loop_words_clean:
+            return True, f"Loop contains 3-word sequence from hook: '{trigram.strip()}'"
+
+    return False, "Clean loop"
+
+
+class LoopAuditorSkill:
+    """
+    Audits Scene N (Loop Outro) against Scene 1 (Hook).
+    Ensures Scene N NEVER repeats or echoes Scene 1 words or concepts.
+    Also ensures proper ending punctuation.
+    """
+    @staticmethod
+    def audit_loop(loop_text: str, hook_text: str) -> Tuple[bool, str]:
+        repeats, reason = check_loop_repeats_hook(loop_text, hook_text)
+        if repeats:
+            return False, f"Loop Audit FAILED: {reason}"
+
+        text_clean = loop_text.strip()
+        if not (text_clean.endswith("...") or text_clean.endswith(".") or text_clean.endswith("!")):
+            return False, "Loop Audit FAILED: Does not end with valid punctuation"
+
+        if re.search(r"['’]s\.\.\.$", text_clean):
+            return False, "Loop Audit FAILED: Ends on possessive contraction before ellipsis"
+
+        return True, "Loop Audit PASSED"
+
+    @staticmethod
+    def sanitize_loop(
+        scene: Dict[str, Any],
+        hook_text: str,
+        mode_b: bool = False
+    ) -> Dict[str, Any]:
+        """Replaces a defective or repeating loop outro with a vetted compilation bridge."""
+        scene = dict(scene)
+        hook_lower = hook_text.lower().strip()
+        is_q = (
+            hook_text.endswith("?") or
+            hook_lower.startswith(("if ", "why ", "how ", "when ", "what ", "did ", "have ", "ever "))
+        )
+        if mode_b or is_q:
+            scene["spoken_text"] = random.choice([
+                "If you want to be smarter than everyone you know, subscribe.",
+                "If all of you subscribed right now, I would have more subscribers.",
+                "You just spent fifty seconds learning facts that won't help you on an exam.",
+                "Your brain is now holding information it will never use again.",
+                "If you made it this far, your attention span is better than average.",
+                "If you subscribe right now, your phone won't explode tomorrow.",
+                "You are now one minute closer to knowing everything about nothing."
+            ])
+        else:
+            scene["spoken_text"] = random.choice(COMPILATION_LOOP_BRIDGES)
+        scene["_editorial_replaced"] = True
+        return scene
+
 
 def _token_overlap(a: str, b: str) -> float:
     """Calculates Jaccard token overlap between two strings."""
@@ -352,6 +451,7 @@ def audit_and_refine_spec(
         "wall_test_failures": 0,
         "wall_test_replacements": 0,
         "title_status": "not_run",
+        "loop_status": "not_run",
         "original_title": seo_data.get("title", ""),
         "final_title": seo_data.get("title", ""),
     }
@@ -404,6 +504,24 @@ def audit_and_refine_spec(
 
     audit_log["wall_test_failures"] = wall_failures
     audit_log["wall_test_replacements"] = wall_replacements
+
+    # 2b. Loop Auditor: Validate Scene N does NOT repeat Scene 1 hook
+    if len(raw_scenes) >= 2:
+        loop_passed, loop_reason = LoopAuditorSkill.audit_loop(
+            loop_text=raw_scenes[-1].get("spoken_text", ""),
+            hook_text=raw_scenes[0].get("spoken_text", "")
+        )
+        audit_log["loop_status"] = "passed" if loop_passed else f"failed: {loop_reason}"
+        if not loop_passed:
+            print(f"   🚫 Scene {len(raw_scenes)} (Loop Outro): {loop_reason}")
+            raw_scenes[-1] = LoopAuditorSkill.sanitize_loop(
+                scene=raw_scenes[-1],
+                hook_text=raw_scenes[0].get("spoken_text", "")
+            )
+            audit_log["wall_test_replacements"] += 1
+            print(f"   ✅ Loop Outro replaced with vetted bridge: '{raw_scenes[-1]['spoken_text']}'")
+        else:
+            print(f"   ✅ Scene {len(raw_scenes)} (Loop Outro): {loop_reason}")
 
     # 3. Title Truth-in-Packaging + Deduplication
     original_title = seo_data.get("title", "")

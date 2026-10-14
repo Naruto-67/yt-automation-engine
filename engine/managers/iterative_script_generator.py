@@ -27,6 +27,9 @@ from engine.managers.editorial_critic import (
     TitleScriptAlignmentSkill,
     HookAuditorSkill,
     ThoughtCompletenessSkill,
+    LoopAuditorSkill,
+    check_loop_repeats_hook,
+    COMPILATION_LOOP_BRIDGES,
     UMBRELLA_TITLE_TEMPLATES,
     _token_overlap,
     _load_upload_history_titles,
@@ -381,12 +384,18 @@ class IterativeScriptGenerator:
         # Mode A: Syntactic Seamless Loop
         print("   🔁 Scene 1 is declarative — attempting Mode A (Syntactic Circular Loop)...")
         prompt = (
-            f"You write seamless circular outro loops for YouTube Shorts.\n\n"
+            f"You write seamless circular outro loops for YouTube Shorts compilations.\n\n"
             f"The video begins with Scene 1: \"{hook_text}\"\n\n"
-            f"Write the FINAL SCENE of the video (10-14 words).\n"
+            f"Write the FINAL SCENE of the video (6-9 words only).\n"
             f"It MUST end mid-sentence with an ellipsis '...' such that when read seamlessly into Scene 1,\n"
-            f"it forms a single, grammatically perfect sentence.\n"
-            f"CRITICAL: Never end on possessives like \"'s...\" or broken fragments.\n"
+            f"it forms a single, grammatically perfect sentence.\n\n"
+            f"CRITICAL RULES (ABSOLUTE):\n"
+            f"1. ZERO REPETITION: DO NOT repeat, echo, or paraphrase ANY words, subjects, or concepts from Scene 1.\n"
+            f"   Scene 1 will be heard immediately after this scene when the video loops back to the start.\n"
+            f"   Repeating words from Scene 1 completely ruins the loop!\n"
+            f"2. Bridge from compilation: Reference the preceding thoughts (e.g. 'And if that didn't mess with your head, remember that...').\n"
+            f"3. Never end on possessives like \"'s...\" or broken fragments.\n"
+            f"4. Length must be strictly 6 to 9 words.\n"
             f"Return JSON: {{\"spoken_text\": \"...\", \"stock_video_query\": \"...\"}}"
         )
 
@@ -406,18 +415,30 @@ class IterativeScriptGenerator:
                 # Guard against possessives like brain's...
                 if re.search(r"['’]s\.\.\.$", text):
                     continue
+                # Verify loop does NOT repeat hook words
+                repeats, reason = check_loop_repeats_hook(text, hook_text)
+                if repeats:
+                    print(f"   ⚠️ [LOOP OUTRO] Attempt {attempt+1} repeated hook ({reason}). Retrying...")
+                    continue
+                # Length check: Mode A bridge must not be bloated (> 12 words)
+                if len(text.split()) > 12:
+                    print(f"   ⚠️ [LOOP OUTRO] Attempt {attempt+1} too long ({len(text.split())} words). Retrying...")
+                    continue
+
                 return {
                     "scene_id": scene_num,
                     "spoken_text": text,
                     "stock_video_query": self._pick_query(res.get("stock_video_query"), used_queries)
                 }
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"   ⚠️ Loop attempt {attempt+1} failed ({e}).")
 
-        # Fallback to Mode B if Mode A fails
+        # Fallback to curated compilation bridge or Mode B
+        print("   ✅ Selecting curated non-repeating compilation loop bridge.")
+        bridge = random.choice(COMPILATION_LOOP_BRIDGES)
         return {
             "scene_id": scene_num,
-            "spoken_text": random.choice(MODE_B_WITTY_CLOSERS),
+            "spoken_text": bridge,
             "stock_video_query": self._pick_query("soap carving cubes ASMR", used_queries)
         }
 
