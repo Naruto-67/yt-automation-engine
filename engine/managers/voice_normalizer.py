@@ -75,6 +75,12 @@ class VoiceNormalizer:
         if text and text[0].islower():
             text = text[0].upper() + text[1:]
 
+        # 0c. Expand trailing contractions before ellipses to prevent Kokoro pausing on isolated consonants
+        text = re.sub(r"(\w+)['’]s\s*(\.{2,}|…)", r"\1 is...", text)
+        text = re.sub(r"(\w+)['’]re\s*(\.{2,}|…)", r"\1 are...", text)
+        text = re.sub(r"(\w+)['’]ve\s*(\.{2,}|…)", r"\1 have...", text)
+        text = re.sub(r"(\w+)['’]ll\s*(\.{2,}|…)", r"\1 will...", text)
+
         # 1. Expand currency: e.g. $100 -> one hundred dollars
         def replace_currency(match):
             amount = match.group(1).replace(",", "")
@@ -99,6 +105,16 @@ class VoiceNormalizer:
 
         # 3. Expand hashtag ranking: #1 -> number 1
         text = re.sub(r"#(\d+)", r"number \1", text)
+
+        # 3b. Expand formatted numbers with commas (e.g. 10,000 -> ten thousand, 1,000,000 -> one million)
+        def replace_comma_numbers(match):
+            clean_num = match.group(0).replace(",", "")
+            try:
+                return num2words(int(clean_num))
+            except Exception:
+                return match.group(0)
+
+        text = re.sub(r"\b\d{1,3}(?:,\d{3})+\b", replace_comma_numbers, text)
 
         # 4. Expand raw numbers: e.g. 125 -> one hundred and twenty-five
         def replace_numbers(match):
@@ -634,6 +650,7 @@ class VoiceNormalizer:
 
                 for idx, s in enumerate(raw_scenes):
                     p_text = s.get("phonetic_text") or cls.normalize_text(s.get("spoken_text", ""))
+                    s["phonetic_text"] = p_text
                     gen = pipeline(p_text, voice=voice, speed=speed)
                     scene_samples_list = []
                     for item in gen:

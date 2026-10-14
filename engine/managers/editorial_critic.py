@@ -145,13 +145,22 @@ class TitleScriptAlignmentSkill:
             r"why you can('t| never) (perceive|experience|see|feel)",
             r"(nothing|everything) is (real|fake|a lie|an illusion|predictable)",
             r"proves? (reality|existence|the world) is",
+            r"explode your (brain|head|skull|body)",
+            r"kill you (instantly|immediately|in seconds)",
+            r"(end|ruin) your life (instantly|in seconds)",
+            r"will (destroy|liquefy|melt) your (brain|organs)",
         ]
         for pattern in extreme_patterns:
             if re.search(pattern, title_lower):
                 return False, f"Title Truth-in-Packaging FAILED: Contains extreme unproven claim matching '{pattern}'"
 
-        # Count how many scenes actually address the exact title claim
-        # If title names a very specific thing, verify script has multiple supporting facts
+        # Compilation umbrella check: Multi-topic scripts must have umbrella titles
+        if len(scenes) >= 5:
+            umbrella_keywords = ["thoughts", "facts", "tricks", "glitches", "things", "realities", "paradox"]
+            has_umbrella_word = any(kw in title_lower for kw in umbrella_keywords)
+            if not has_umbrella_word:
+                return False, "Title Truth-in-Packaging FAILED: Multi-topic compilation video requires an umbrella title"
+
         return True, "Title Truth-in-Packaging PASSED"
 
     @staticmethod
@@ -235,6 +244,29 @@ class HookAuditorSkill:
             return False, "Hook Audit FAILED: Hook too short (minimum 7 words)"
 
         return True, "Hook Audit PASSED"
+
+
+class ThoughtCompletenessSkill:
+    """
+    Validates that a scene is a single, complete, self-contained thought.
+    Blocks dangling conjunctions, prepositions, and fragmented half-sentences.
+    """
+
+    DANGLING_ENDINGS = [
+        "because", "which means", "and", "so that", "whenever", "due to",
+        "since", "whereas", "such as", "that is why", "leading to", "which is",
+        "as a result of", "in order to"
+    ]
+
+    @staticmethod
+    def audit_completeness(scene_text: str, is_final_scene: bool = False) -> Tuple[bool, str]:
+        """Returns (passed: bool, reason: str)."""
+        text_clean = scene_text.rstrip(".!?…-— ").lower().strip()
+        if not is_final_scene:
+            for ending in ThoughtCompletenessSkill.DANGLING_ENDINGS:
+                if text_clean.endswith(ending):
+                    return False, f"Thought Completeness FAILED: Ends with dangling connector '{ending}'"
+        return True, "Thought Completeness PASSED"
 
 
 def _token_overlap(a: str, b: str) -> float:
@@ -360,7 +392,15 @@ def audit_and_refine_spec(
             if raw_scenes[i].get("_editorial_replaced"):
                 wall_replacements += 1
         else:
-            print(f"   ✅ Scene {i+1}: {reason}")
+            # Check completeness for non-loop scenes
+            passed_c, reason_c = ThoughtCompletenessSkill.audit_completeness(scene.get("spoken_text", ""), is_final_scene=(i == len(raw_scenes) - 1))
+            if not passed_c and i > 0 and i < len(raw_scenes) - 1:
+                print(f"   Scene {i+1}: 🚫 {reason_c}")
+                raw_scenes[i] = CynicalHumanAuditor.sanitize_scene(scene, replacement_thoughts)
+                if raw_scenes[i].get("_editorial_replaced"):
+                    wall_replacements += 1
+            else:
+                print(f"   ✅ Scene {i+1}: {reason}")
 
     audit_log["wall_test_failures"] = wall_failures
     audit_log["wall_test_replacements"] = wall_replacements

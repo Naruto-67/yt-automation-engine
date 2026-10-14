@@ -482,38 +482,65 @@ def run_spec_stage(video_type: str = "short") -> None:
                 return False
             return True
 
-        validator = validate_short_script if (video_type == "short" and not os.environ.get("PYTEST_CURRENT_TEST")) else None
-        script_data = llm.generate_json(
-            system_prompt,
-            user_prompt,
-            temperature=0.7,
-            validator=validator,
-            task_name="script_gen" if video_type == "short" else "generic"
-        )
+        raw_scenes = []
+        script_data = {}
 
-        raw_scenes = script_data.get("scenes", [])
-        if not raw_scenes and "chapters" in script_data:
-            # Flatten scenes from chapters
-            raw_scenes = []
-            for ch in script_data.get("chapters", []):
-                raw_scenes.extend(ch.get("scenes", []))
+        # ─── ITERATIVE SCENE CHAIN GENERATION (ISCG) FOR SHORTS ────────────────
+        if video_type == "short" and not os.environ.get("PYTEST_CURRENT_TEST"):
+            try:
+                from engine.managers.iterative_script_generator import IterativeScriptGenerator
+                from engine.managers.llm_quality_tracker import LLMQualityTracker
+                qt = LLMQualityTracker()
+                generator = IterativeScriptGenerator(llm_manager=llm, quality_tracker=qt)
+                raw_scenes, seo_dict = generator.generate_scene_chain(
+                    topic=topic,
+                    channel_premise=channel_cfg.get("premise", ""),
+                    target_duration=target_duration,
+                    target_words_min=150,
+                    target_words_max=175
+                )
+                script_data = {
+                    "scenes": raw_scenes,
+                    "seo": seo_dict,
+                    "topic": topic
+                }
+            except Exception as iscg_err:
+                print(f"⚠️ [ISCG] Iterative generation failed ({iscg_err}). Falling back to monolithic generation...", flush=True)
+                raw_scenes = []
 
         if not raw_scenes:
-            raise ValueError("LLM generated empty scene array.")
-
-        # Ensure sufficient scenes and words for Shorts in production & test runs
-        if video_type == "short" and not os.environ.get("PYTEST_CURRENT_TEST"):
-            raw_scenes = calibrate_and_guard_script(
-                raw_scenes=raw_scenes,
-                prompt_settings=prompt_settings,
-                target_duration=target_duration
+            validator = validate_short_script if (video_type == "short" and not os.environ.get("PYTEST_CURRENT_TEST")) else None
+            script_data = llm.generate_json(
+                system_prompt,
+                user_prompt,
+                temperature=0.7,
+                validator=validator,
+                task_name="script_gen" if video_type == "short" else "generic"
             )
 
-        # Seamless circular loop for Shorts: Ensure final scene ends with continuation ellipsis '...'
-        if video_type == "short" and raw_scenes:
-            last_text = raw_scenes[-1]["spoken_text"].rstrip(".! ")
-            if not last_text.endswith("..."):
-                raw_scenes[-1]["spoken_text"] = f"{last_text}..."
+            raw_scenes = script_data.get("scenes", [])
+            if not raw_scenes and "chapters" in script_data:
+                # Flatten scenes from chapters
+                raw_scenes = []
+                for ch in script_data.get("chapters", []):
+                    raw_scenes.extend(ch.get("scenes", []))
+
+            if not raw_scenes:
+                raise ValueError("LLM generated empty scene array.")
+
+            # Ensure sufficient scenes and words for Shorts in production & test runs
+            if video_type == "short" and not os.environ.get("PYTEST_CURRENT_TEST"):
+                raw_scenes = calibrate_and_guard_script(
+                    raw_scenes=raw_scenes,
+                    prompt_settings=prompt_settings,
+                    target_duration=target_duration
+                )
+
+            # Seamless circular loop for Shorts: Ensure final scene ends with continuation ellipsis '...'
+            if video_type == "short" and raw_scenes:
+                last_text = raw_scenes[-1]["spoken_text"].rstrip(".! ")
+                if not last_text.endswith("..."):
+                    raw_scenes[-1]["spoken_text"] = f"{last_text}..."
 
         # ─── EDITORIAL CRITIC AUDIT (Wall Test + Title Alignment + Hook Check) ────
         # Runs after calibration to enforce @BrainBlud quality standards.

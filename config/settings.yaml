@@ -45,17 +45,17 @@ api_limits:
 
 # ─── BACKGROUND MUSIC & AUDIO ENGINEERING ────────────────────────────────────
 music:
-  volume: 0.05          # Subtle, chill Lo-Fi backing level beneath clear voiceover
+  volume: 0.08          # Subtle, chill Lo-Fi backing level beneath clear voiceover
   ducking_fade_seconds: 0.15 # 150ms smooth exponential crossfade before punchline silence
   silence_duration_seconds: 1.0 # 1s dead silence before climax
   fade_in_seconds: 1.0
   fade_out_seconds: 1.5
 
 audio_mastering:
-  target_lufs: -13.0
+  target_lufs: -14.0
   loudness_range: 7.0
-  true_peak: -1.0
-  voice_gain: 1.8
+  true_peak: -1.5
+  voice_gain: 1.0
 
 # ─── CAPTION STYLING & HIGH-RETENTION TYPOGRAPHY ──────────────────────────────
 captions:
