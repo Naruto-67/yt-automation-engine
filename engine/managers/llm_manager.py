@@ -276,6 +276,24 @@ class LLMManager:
         if not candidates:
             raise RuntimeError("No viable LLM providers available. Check your API keys and banned_models.json.")
 
+        # High-Capacity Model Routing for Creative Writing & Script Generation
+        # Script generation demands linguistic nuance, deep reasoning, and high parameter capacity.
+        # Filter out low-parameter, distilled, or lite models (e.g. 8b, 27b, lite, mini-code)
+        if task_name == "script_gen":
+            low_param_tags = ["lite", "8b", "7b", "3b", "1b", "27b", "20b", "14b", "9b", "micro", "tiny"]
+            high_capacity = []
+            for p in candidates:
+                m_str = (p.get("model", "") + " " + p.get("id", "")).lower()
+                # Check if model has low parameter indicators
+                is_low = any(
+                    f"-{tag}" in m_str or f"_{tag}" in m_str or f"/{tag}" in m_str or f":{tag}" in m_str or m_str.endswith(tag)
+                    for tag in low_param_tags
+                )
+                if not is_low:
+                    high_capacity.append(p)
+            if high_capacity:
+                candidates = high_capacity
+
         last_error = None
         for provider in candidates:
             prov_id = provider["id"]

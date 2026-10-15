@@ -551,7 +551,16 @@ def run_discovery(force: bool = False) -> Dict[str, Any]:
         if lat <= 0:
             lat = 9999
         # Empirical score: higher reliability and lower latency wins
-        return int((1.0 - s_rate) * 5000 + lat)
+        # Capability Tier Weighting:
+        # Flagship / 70B+ / Flash models get significant priority bonus over small parameter models
+        model_name = (prov.get("model", "") + " " + prov.get("id", "")).lower()
+        tier_bonus = 0
+        if any(tag in model_name for tag in ["70b", "72b", "gemini-3-flash", "gemini-flash", "gemini-pro", "gpt-4o"]):
+            tier_bonus = -2000
+        elif any(tag in model_name for tag in ["lite", "8b", "7b", "3b", "1b", "27b", "20b", "14b", "9b"]):
+            tier_bonus = 2000
+
+        return int((1.0 - s_rate) * 5000 + lat + tier_bonus)
 
     def get_provider_family(p: dict) -> str:
         pid = p.get("id", "").lower()

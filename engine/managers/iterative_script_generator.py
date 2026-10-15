@@ -24,6 +24,8 @@ from typing import List, Dict, Any, Tuple, Optional
 
 from engine.managers.editorial_critic import (
     CynicalHumanAuditor,
+    PureShowerThoughtAuditor,
+    SemanticDeduplicationSkill,
     TitleScriptAlignmentSkill,
     HookAuditorSkill,
     ThoughtCompletenessSkill,
@@ -38,34 +40,35 @@ from engine.managers.editorial_critic import (
 from engine.managers.llm_quality_tracker import LLMQualityTracker
 
 
-# ─── @BRAINBLUD 5 KNOWLEDGE PILLARS ──────────────────────────────────────────
-PILLARS = [
+# ─── @BRAINBLUD 5 SHOWER THOUGHT ANGLES (ZERO TRIVIA FACTS) ───────────────────
+SHOWER_THOUGHT_ANGLES = [
     {
-        "id": "pillar_1",
-        "name": "Human Body & Sensory Paradoxes",
-        "desc": "Perception quirks, reflexes, optical illusions, sensory glitches, biological oddities."
+        "id": "angle_1",
+        "name": "Perception & Sensory Glitches",
+        "desc": "Brain filtering quirks, mirror reflection paradoxes, sight vs reality, biological perception shifts, sensory illusions."
     },
     {
-        "id": "pillar_2",
-        "name": "Everyday Objects, Tech & Architecture",
-        "desc": "Hidden functions of tools, smartphone physics, building design quirks, everyday engineering."
+        "id": "angle_2",
+        "name": "Everyday Objects & Modern Life Ironies",
+        "desc": "Absurd ironies of phones, beds, alarms, keys, clothes, showers, cars, coffee, everyday human routines."
     },
     {
-        "id": "pillar_3",
-        "name": "Human Psychology, Relationships & Social Irony",
-        "desc": "Awkward social behaviors, cognitive biases, memory tricks, societal paradoxes, relatable quirks."
+        "id": "angle_3",
+        "name": "Human Psychology & Social Absurdities",
+        "desc": "Awkward unwritten rules, why we do strange things in public, social masks, sleep vs awake, memory glitches."
     },
     {
-        "id": "pillar_4",
-        "name": "Nature, Animals & Cosmic Realities",
-        "desc": "Animal superpowers, ocean depths, time dilation, planetary physics, nature's engineering."
+        "id": "angle_4",
+        "name": "Existential Shifts & Time Paradoxes",
+        "desc": "Mind-bending realizations about age, history, past/future versions of you, photos, sleep, human existence."
     },
     {
-        "id": "pillar_5",
-        "name": "Language, Logic, Wordplay & Cognitive Glitches",
-        "desc": "Word origins, semantic paradoxes, mathematical curiosities, perspective shifts that break your brain."
+        "id": "angle_5",
+        "name": "Language, Wordplay & Logic Paradoxes",
+        "desc": "Contradictory phrases, self-referential paradoxes, absurd definitions, linguistic bugs that make no sense."
     }
 ]
+PILLARS = SHOWER_THOUGHT_ANGLES  # Backward compatibility alias
 
 # Curated satisfying visual queries for ASMR b-roll
 SATISFYING_VISUAL_QUERIES = [
@@ -211,14 +214,14 @@ class IterativeScriptGenerator:
     def _generate_hook(self, topic: str, channel_premise: str) -> Dict[str, Any]:
         """Generates an undeniable physical reality check hook (Scene 1)."""
         prompt = (
-            f"You are the lead viral scriptwriter for @metopato.\n"
-            f"Topic: {topic}\n\n"
+            f"You are the lead viral scriptwriter for @metopato.\n\n"
             f"Write Scene 1: An irresistible, undeniable in-media-res reality check hook (12-16 words).\n"
             f"CRITICAL RULES:\n"
-            f"1. Freeze the scroll instantly with a physical, sensory, or biological truth.\n"
+            f"1. Freeze the scroll instantly with a mind-bending physical or sensory shower thought.\n"
             f"2. ZERO greetings ('Hey guys', 'Did you know') and ZERO leading punctuation ('...').\n"
-            f"3. Must be testable, relatable, and defensible against a cynical viewer.\n"
-            f"4. Return valid JSON: {{\"spoken_text\": \"...\", \"stock_video_query\": \"...\"}}"
+            f"3. ZERO TRIVIA FACTS: No animal biology (octopuses, whales), no gadget/hardware trivia. Pure r/Showerthoughts cognitive paradox only.\n"
+            f"4. Must be testable, relatable, and defensible against a cynical viewer.\n"
+            f"5. Return valid JSON: {{\"spoken_text\": \"...\", \"stock_video_query\": \"...\"}}"
         )
         for attempt in range(3):
             try:
@@ -236,7 +239,8 @@ class IterativeScriptGenerator:
 
                 hook_ok, _ = HookAuditorSkill.audit_hook(text)
                 wall_ok, _ = CynicalHumanAuditor.audit_text(text)
-                if hook_ok and wall_ok:
+                fact_ok, _ = PureShowerThoughtAuditor.audit_thought(text)
+                if hook_ok and wall_ok and fact_ok:
                     prov_id = getattr(self.llm, "_last_used_provider_id", "unknown")
                     self.qt.record_result(prov_id, wall_test_failures=0, wall_test_replacements=0, passed_first_attempt=True)
                     return {
@@ -273,22 +277,23 @@ class IterativeScriptGenerator:
         recent_titles: List[str],
         used_queries: List[str]
     ) -> Dict[str, Any]:
-        """Generates a single standalone scene strictly under the assigned knowledge pillar."""
+        """Generates a single standalone scene strictly under the assigned shower thought angle."""
         already_used = [s["spoken_text"] for s in existing_scenes]
         already_used_summary = "\n".join(f"- {t}" for t in already_used[-4:])
 
         prompt = (
             f"You write viral @BrainBlud listicles for @metopato.\n\n"
-            f"ASSIGNED KNOWLEDGE DOMAIN: {pillar['name']} ({pillar['desc']})\n\n"
+            f"ASSIGNED ANGLE: {pillar['name']} ({pillar['desc']})\n\n"
             f"ALREADY USED THOUGHTS IN THIS VIDEO (DO NOT REPEAT CONCEPTS):\n"
             f"{already_used_summary}\n\n"
-            f"Generate Scene {scene_num}: EXACTLY ONE standalone, punchy thought (12-16 words).\n"
+            f"Generate Scene {scene_num}: EXACTLY ONE standalone, viral shower thought (12-16 words).\n"
             f"CRITICAL RULES:\n"
             f"1. Must be strictly within '{pillar['name']}'. Never write about the same topic as prior scenes.\n"
-            f"2. Must be a COMPLETE thought. Do NOT end with dangling words like 'because', 'which means', 'and'.\n"
-            f"3. THE WALL TEST: Must be 100% true, defensible, and testable. No fake-deep nihilism or 'nothing is real'.\n"
-            f"4. Expressive cadence: incorporate '?', '!', or '—' for natural voice intonation.\n"
-            f"5. Return valid JSON: {{\"spoken_text\": \"...\", \"stock_video_query\": \"...\"}}"
+            f"2. ABSOLUTE BAN ON TRIVIA FACTS: Do NOT share animal biology, nature trivia, or hardware trivia. Only pure r/Showerthoughts cognitive paradoxes and perspective flips.\n"
+            f"3. Must be a COMPLETE thought. Do NOT end with dangling words like 'because', 'which means', 'and'.\n"
+            f"4. THE WALL TEST: Must be 100% true, defensible, and testable. No fake-deep nihilism or 'nothing is real'.\n"
+            f"5. Expressive cadence: incorporate '?', '!', or '—' for natural voice intonation.\n"
+            f"6. Return valid JSON: {{\"spoken_text\": \"...\", \"stock_video_query\": \"...\"}}"
         )
 
         for attempt in range(3):
@@ -301,6 +306,12 @@ class IterativeScriptGenerator:
                 )
                 text = res.get("spoken_text", "").strip()
                 prov_id = getattr(self.llm, "_last_used_provider_id", "unknown")
+
+                # Pure Shower Thought Check (reject trivia facts)
+                fact_ok, fact_reason = PureShowerThoughtAuditor.audit_thought(text)
+                if not fact_ok:
+                    print(f"   🚫 [PILLAR REJECT] {fact_reason}")
+                    continue
 
                 # Wall Test Check
                 wall_ok, wall_reason = CynicalHumanAuditor.audit_text(text)
@@ -315,10 +326,10 @@ class IterativeScriptGenerator:
                     print(f"   🚫 [PILLAR REJECT] {comp_reason}")
                     continue
 
-                # Intra-Script Deduplication Check
-                is_duplicate = any(_token_overlap(text, prev["spoken_text"]) > 0.35 for prev in existing_scenes)
+                # Advanced Semantic & Subject-Core Deduplication Check
+                is_duplicate, dup_reason = SemanticDeduplicationSkill.is_duplicate(text, existing_scenes)
                 if is_duplicate:
-                    print(f"   🔄 [PILLAR DEDUP] Thought overlaps with earlier scene. Regenerating...")
+                    print(f"   🔄 [PILLAR DEDUP] {dup_reason}. Regenerating...")
                     continue
 
                 # Upload History Dedup Check
@@ -336,9 +347,10 @@ class IterativeScriptGenerator:
                 print(f"   ⚠️ Scene {scene_num} attempt {attempt+1} failed ({e}). Retrying...")
 
         # Curated Fallback
-        vetted = _load_curated_replacements(count=15)
+        vetted = _load_curated_replacements(count=25)
         for cand in vetted:
-            if not any(_token_overlap(cand, prev["spoken_text"]) > 0.30 for prev in existing_scenes):
+            is_dup, _ = SemanticDeduplicationSkill.is_duplicate(cand, existing_scenes)
+            if not is_dup:
                 return {
                     "scene_id": scene_num,
                     "spoken_text": cand,

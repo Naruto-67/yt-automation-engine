@@ -674,7 +674,7 @@ class VoiceNormalizer:
                     if len(scene_samples) > 2400:
                         non_silent = np.where(np.abs(scene_samples) > 0.008)[0]
                         if len(non_silent) > 0:
-                            pad = int(24000 * 0.01)  # 10ms smooth ramp
+                            pad = int(24000 * 0.05)  # 50ms smooth ramp preserving consonant release bursts
                             start_idx = max(0, non_silent[0] - pad)
                             end_idx = min(len(scene_samples), non_silent[-1] + pad + 1)
                             scene_samples = scene_samples[start_idx:end_idx]
@@ -689,7 +689,11 @@ class VoiceNormalizer:
                         all_audio_chunks.append(pause_samples)
                         current_time = round(scene_end + 0.20, 3)
                     else:
-                        current_time = scene_end
+                        # Final scene of video: append 0.45s clean comfort silence tail
+                        # Ensures the last word/syllable decays naturally with zero abrupt cutoff
+                        tail_silence = np.zeros(int(24000 * 0.45), dtype=np.float32)
+                        all_audio_chunks.append(tail_silence)
+                        current_time = round(scene_end + 0.45, 3)
 
                 combined_samples = np.concatenate(all_audio_chunks)
                 total_duration = round(len(combined_samples) / 24000.0, 2)

@@ -9,7 +9,7 @@ script_gen:
     UNIVERSAL RETENTION RULES:
     1. DYNAMIC DURATION CALIBRATION (48-58 SECONDS): Aim for 150 to 180 total spoken words across 11 to 14 scenes (each scene 12-16 words, 3.8-4.8s). Every second counts to guarantee total duration stays strictly between 45s and 59s. Let each thought breathe with natural human conversational cadence.
     2. HOOK (SCENE 1): In media res opening. Irresistible physical, sensory, or perceptual reality check that freezes the scroll instantly. Zero greetings ("Hey guys", "Did you know") and zero leading punctuation ("...").
-    3. BALANCED THOUGHTS & VERIFIED FACTS (SCENES 2 to N-1): Alternate between an astonishing, counter-intuitive true fact and a relatable, perspective-flipping shower thought or cognitive glitch. Never invent fake science or stoner philosophy. Keep every line punchy, clear, and immediately understandable.
+    3. PURE SHOWER THOUGHTS & COGNITIVE PARADOXES (SCENES 2 to N-1): Focus strictly on perspective-flipping Reddit-style shower thoughts, everyday ironies, and cognitive paradoxes. NEVER include trivia science facts (no animal biology, no hardware specs, no textbook trivia). Keep every line relatable, undeniable, and mind-bending.
     4. EXPRESSIVE VOCAL CADENCE & INTONATION: Do NOT end every sentence in a flat period ".". Neural voice synthesis converts punctuation directly into emotion: incorporate 1-2 thought-provoking rhetorical questions ("?"), natural mid-sentence pauses (",", "—"), and emphatic punch ("!"). This drives dynamic pitch modulation, vocal curiosity, and emotional range instead of a monotone drone.
     5. SEAMLESS CIRCULAR LOOP (SCENE N): The final sentence MUST end with an ellipsis "..." so voice intonation remains open and suspended, grammatically fusing directly back into Scene 1 for an infinite replay loop.
     6. BANNED CLICHÉS: Never use: "delve", "testament", "tapestry", "beacon", "game-changer", "in conclusion", "furthermore", or pseudo-philosophical fillers like "the word X is just a construct".
@@ -17,20 +17,18 @@ script_gen:
     8. UNIFIED VIRAL SEO: Provide a high-CTR title (55-80 chars, curiosity hook, 1 emoji, #shorts), engaging description (hook summary + subscriber prompt + top hashtags), and 12-15 targeted tags.
     Output MUST be valid JSON matching the schema.
 
-    MULTI-PILLAR COMPILATION ARCHITECTURE (MANDATORY):
-    Every scene from Scene 3 to Scene N-1 MUST rotate across different knowledge domains (pillars). Never write 2+ consecutive scenes on the same topic:
-    - PILLAR 1: Human Body & Sensory Paradoxes (perception, reflexes, biological quirks)
-    - PILLAR 2: Everyday Objects, Tech & Architecture (tools, buildings, machines, physics)
-    - PILLAR 3: Human Psychology, Relationships & Social Irony (behavior, social norms, age)
-    - PILLAR 4: Nature, Animals & Cosmic Realities (space, biology, physics, time)
-    - PILLAR 5: Language, Logic, Wordplay & Cognitive Glitches (word meanings, paradoxes, math)
+    MULTI-ANGLE SHOWER THOUGHT COMPILATION (MANDATORY):
+    Every scene from Scene 3 to Scene N-1 MUST rotate across different cognitive angles. Never write 2+ consecutive scenes on the same subject:
+    - ANGLE 1: Perception & Sensory Glitches (how your brain filters reality, reflection quirks, sight illusions)
+    - ANGLE 2: Everyday Objects & Modern Life Ironies (phones, alarms, beds, mirrors, showers, routines)
+    - ANGLE 3: Human Psychology & Social Absurdities (awkward human conventions, unwritten rules, memory quirks)
+    - ANGLE 4: Existential Shifts & Time Paradoxes (mind-bending perspective shifts about age, history, sleep, past self)
+    - ANGLE 5: Language, Wordplay & Logic Paradoxes (semantic ironies, self-referential paradoxes, contradictory phrases)
 
-    THE WALL TEST CONSTITUTION (ABSOLUTE RULE):
-    Every single statement MUST be 100% defensible against a cynical, intelligent viewer.
-    NEVER claim physical reality does not exist, that objects vanish when you close your eyes,
-    that nothing is real, that everything is a lie, or that life/reality/existence is an illusion.
-    Every thought must be testable, relatable, and grounded in an undeniable physical, sensory, or social truth.
-    Stoner pseudo-philosophy = INSTANT REJECTION.
+    THE WALL TEST CONSTITUTION & TRIVIA BAN (ABSOLUTE RULE):
+    1. Every single statement MUST be 100% defensible against a cynical, intelligent viewer.
+    2. NEVER claim physical reality does not exist, that objects vanish when you close your eyes, that nothing is real, or that life is an illusion. Stoner pseudo-philosophy = INSTANT REJECTION.
+    3. BAN TRIVIA FACTS: Never output encyclopedic biology facts (octopuses, whales), hardware trivia (padlock holes, elevator sensors), or "Did you know" trivia. Pure shower thoughts only!
 
     DUAL LOOP OUTRO MODES (choose the most fitting for the topic):
     Mode A (Seamless Syntactic Loop): Scene N is a short compilation transition bridge (6-9 words ending in "...") that links grammatically back into Scene 1 (e.g. "And if that didn't mess with your head, remember that..."). CRITICAL: ZERO REPETITION. Never repeat, echo, or paraphrase Scene 1's words in Scene N. Scene 1 will be heard immediately after Scene N when the video loops!
@@ -50,7 +48,7 @@ script_gen:
 
     Write a viral 11 to 14 scene short-form script (150 to 180 total spoken words) for the topic: "{topic}".
     CRITICAL: Generate all scenes sequentially from scene_id 1 through the final loop scene.
-    Alternate between astonishing verified facts and mind-bending everyday perspective shifts!
+    Focus strictly on mind-bending, perspective-flipping shower thoughts (NO trivia science facts)!
     Use expressive punctuation (?, ,, —, !) so the voiceover delivers rich emotional inflection!
     Keep thought_process concise (1 sentence per field).
     

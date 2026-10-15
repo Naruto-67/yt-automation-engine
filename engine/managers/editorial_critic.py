@@ -14,7 +14,7 @@ import re
 import json
 import os
 import random
-from typing import List, Dict, Any, Tuple, Optional
+from typing import List, Dict, Any, Tuple, Optional, Set
 
 
 # ─── THE WALL TEST: BANNED SOLIPSISTIC / NIHILISTIC TROPES ───────────────────
@@ -269,6 +269,141 @@ class ThoughtCompletenessSkill:
                     return False, f"Thought Completeness FAILED: Ends with dangling connector '{ending}'"
         return True, "Thought Completeness PASSED"
 
+
+# ─── PURE SHOWER THOUGHT AUDITOR (PERMANENT TRIVIA FACT BAN) ───────────────────
+
+BANNED_TRIVIA_PATTERNS = [
+    r'^\s*(did you know|ever wonder why|have you ever wondered|have you ever noticed|scientists (say|discovered|found)|research (shows|proves)|studies (show|prove)|fun fact|did you realize|in the \d{4}s|according to)',
+    r'\b(octopuses?|blue whales?|sharks?|dolphins?|elephants?|cheetahs?|penguins?)\b.*(hearts?|neurons?|arms?|lungs?|swim|aorta|speed)',
+    r'\b(trees?|fungi|plants?|mushrooms?)\b.*(underground|fungal|communicate|nutrients?)',
+    r'\b(padlock|elevator buttons?|traffic lights?|escalator)\b.*(tiny hole|drain|pressure sensors?|sensors?)',
+    r'\b(phone(\'s)? compass|magnetometer|gps signal)\b',
+    r'\b(microwave(\'s)? turntable|turntable motor|food(\'s)? inertia)\b'
+]
+
+
+class PureShowerThoughtAuditor:
+    """
+    Validates that a scene is a genuine, pure Reddit-style Shower Thought.
+    Strictly bans encyclopedic science facts, biological trivia, hardware trivia,
+    and elementary school trivia openers ('Did you know', 'Ever wonder why').
+    """
+
+    @staticmethod
+    def audit_thought(text: str) -> Tuple[bool, str]:
+        text_lower = text.lower().strip()
+        for pat in BANNED_TRIVIA_PATTERNS:
+            if re.search(pat, text_lower):
+                return False, f"Trivia Fact BANNED: Contains encyclopedic trivia pattern '{pat}'"
+        return True, "Pure Shower Thought PASSED"
+
+    @staticmethod
+    def sanitize_scene(
+        scene: Dict[str, Any],
+        replacement_thoughts: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """Replaces a trivia fact with a vetted pure shower thought."""
+        passed, reason = PureShowerThoughtAuditor.audit_thought(scene.get("spoken_text", ""))
+        if passed:
+            return scene
+
+        print(f"🚫 [PURE THOUGHT AUDITOR] {reason}")
+        print(f"   Offending text: '{scene.get('spoken_text', '')[:80]}...'")
+
+        if replacement_thoughts:
+            for replacement in replacement_thoughts:
+                passed_r, _ = PureShowerThoughtAuditor.audit_thought(replacement)
+                if passed_r:
+                    print(f"   ✅ Replaced fact with vetted shower thought: '{replacement[:60]}...'")
+                    scene = dict(scene)
+                    scene["spoken_text"] = replacement
+                    scene["_editorial_replaced"] = True
+                    return scene
+
+        fallback = "The brain named itself, recognized itself, and is now questioning that exact realization."
+        scene = dict(scene)
+        scene["spoken_text"] = fallback
+        scene["_editorial_replaced"] = True
+        return scene
+
+
+# ─── SEMANTIC DEDUPLICATION SKILL (SUBJECT-CORE & N-GRAM DE-DUPLICATION) ─────
+
+SEMANTIC_STOPWORDS = {
+    'a', 'an', 'the', 'is', 'are', 'was', 'were', 'it', 'to', 'for', 'of',
+    'in', 'on', 'at', 'by', 'that', 'this', 'you', 'your', 'just', 'so',
+    'be', 'with', 'and', 'or', 'as', 'if', 'its', 'then', 'from', 'we',
+    'our', 'they', 'their', 'he', 'she', 'all', 'any', 'but', 'not', 'can',
+    'will', 'do', 'does', 'did', 'than', 'more', 'far', 'while', 'when',
+    'into', 'until', 'has', 'have', 'had', 'why', 'how', 'what', 'where',
+    'who', 'which', 'could', 'would', 'should', 'been', 'about', 'being',
+    'only', 'actually', 'literally', 'every', 'never', 'always'
+}
+
+
+class SemanticDeduplicationSkill:
+    """
+    Advanced semantic and subject-core deduplicator.
+    Detects when two scenes discuss the same concept even with completely different wording.
+    Prevents duplicates like:
+      - 'Your brain ignores your nose' vs 'Your brain filters your nose'
+      - 'You remember embarrassing moments' vs 'You remember embarrassing moments from years ago'
+    """
+
+    @staticmethod
+    def extract_content_words_and_bigrams(text: str) -> Tuple[Set[str], Set[Tuple[str, str]]]:
+        clean_words = [w.lower() for w in re.findall(r'\b[a-zA-Z]{3,}\b', text)]
+        content = [w for w in clean_words if w not in SEMANTIC_STOPWORDS]
+        bigrams = set()
+        for i in range(len(content) - 1):
+            bigrams.add((content[i], content[i+1]))
+        return set(content), bigrams
+
+    @classmethod
+    def are_semantically_duplicate(cls, text_a: str, text_b: str) -> Tuple[bool, str]:
+        """
+        Returns (is_duplicate: bool, reason: str).
+        """
+        c_a, b_a = cls.extract_content_words_and_bigrams(text_a)
+        c_b, b_b = cls.extract_content_words_and_bigrams(text_b)
+
+        if not c_a or not c_b:
+            return False, "Insufficient content words"
+
+        # 1. Content Bigram Overlap (e.g. ("ignores", "nose"), ("embarrassing", "moments"))
+        common_bigrams = b_a & b_b
+        if common_bigrams:
+            bigram_str = ", ".join(f"{b[0]} {b[1]}" for b in list(common_bigrams)[:3])
+            return True, f"Shared subject bigrams detected: [{bigram_str}]"
+
+        # 2. Content Core Lemmas Overlap (>= 2 shared subject words with high proportional match)
+        common_words = c_a & c_b
+        if len(common_words) >= 3:
+            return True, f"High subject keyword overlap (3+ words): {sorted(list(common_words))}"
+
+        if len(common_words) >= 2:
+            min_len = min(len(c_a), len(c_b))
+            if min_len > 0 and (len(common_words) / min_len) >= 0.35:
+                return True, f"Proportional subject overlap (>=35%): {sorted(list(common_words))}"
+
+        # 3. Tightened Jaccard Threshold (0.25)
+        union_len = len(c_a | c_b)
+        if union_len > 0 and (len(common_words) / union_len) >= 0.25:
+            return True, f"Jaccard content overlap >= 0.25 ({len(common_words)}/{union_len})"
+
+        return False, "Distinct thoughts"
+
+    @classmethod
+    def is_duplicate(cls, candidate_text: str, existing_scenes: List[Dict[str, Any]]) -> Tuple[bool, str]:
+        """Checks candidate text against all existing scenes."""
+        for prev in existing_scenes:
+            prev_text = prev.get("spoken_text", "")
+            dup, reason = cls.are_semantically_duplicate(candidate_text, prev_text)
+            if dup:
+                return True, reason
+        return False, "Unique"
+
+
 # ─── COMPILATION LOOP BRIDGES & LOOP AUDITOR ────────────────────────────────
 COMPILATION_LOOP_BRIDGES = [
     "And if none of those broke your brain, remember that...",
@@ -394,8 +529,8 @@ def _load_upload_history_titles() -> List[str]:
     return []
 
 
-def _load_curated_replacements(count: int = 10) -> List[str]:
-    """Loads vetted thoughts from data/curated_thoughts_and_facts.json for replacement."""
+def _load_curated_replacements(count: int = 20) -> List[str]:
+    """Loads vetted pure shower thoughts (zero trivia facts) from data/curated_thoughts_and_facts.json for replacement."""
     path = os.path.join("data", "curated_thoughts_and_facts.json")
     if not os.path.exists(path):
         return []
@@ -403,23 +538,31 @@ def _load_curated_replacements(count: int = 10) -> List[str]:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         thoughts = []
-        # Flatten across all pillars
+        raw_items = []
         if isinstance(data, dict):
-            for pillar_items in data.values():
-                if isinstance(pillar_items, list):
-                    for item in pillar_items:
-                        if isinstance(item, dict):
-                            text = item.get("text") or item.get("thought") or item.get("fact", "")
-                        elif isinstance(item, str):
-                            text = item
-                        else:
-                            continue
-                        if text:
-                            thoughts.append(text)
+            if "items" in data and isinstance(data["items"], list):
+                raw_items = data["items"]
+            else:
+                for val in data.values():
+                    if isinstance(val, list):
+                        raw_items.extend(val)
         elif isinstance(data, list):
-            for item in data:
-                text = item.get("text") or item.get("thought") or item.get("fact", "") if isinstance(item, dict) else str(item)
-                if text:
+            raw_items = data
+
+        for item in raw_items:
+            if isinstance(item, dict):
+                # Strictly filter for thoughts only; ban facts completely
+                if item.get("type", "").lower() == "fact":
+                    continue
+                text = item.get("text") or item.get("thought", "")
+            elif isinstance(item, str):
+                text = item
+            else:
+                continue
+            if text:
+                p_audit, _ = PureShowerThoughtAuditor.audit_thought(text)
+                w_audit, _ = CynicalHumanAuditor.audit_text(text)
+                if p_audit and w_audit:
                     thoughts.append(text)
         return thoughts[:count]
     except Exception:
@@ -438,7 +581,11 @@ def audit_and_refine_spec(
     Runs the full Editorial Critic suite:
     1. Hook Auditor on Scene 1.
     2. Wall Test (CynicalHumanAuditor) on all scenes.
-    3. Title Truth-in-Packaging + Deduplication.
+    3. Pure Shower Thought Auditor (banning all science/biology/hardware facts).
+    4. Thought Completeness Auditor (banning dangling clauses).
+    5. Semantic Deduplication Skill (preventing duplicate concepts across scenes).
+    6. Loop Auditor on Scene N against Scene 1.
+    7. Title Truth-in-Packaging + Deduplication.
 
     Returns:
         (refined_scenes, refined_seo, audit_summary_dict)
@@ -449,6 +596,8 @@ def audit_and_refine_spec(
     audit_log = {
         "hook_status": "not_run",
         "wall_test_failures": 0,
+        "trivia_fact_failures": 0,
+        "semantic_duplicate_failures": 0,
         "wall_test_replacements": 0,
         "title_status": "not_run",
         "loop_status": "not_run",
@@ -457,18 +606,19 @@ def audit_and_refine_spec(
     }
 
     # Load resources
-    replacement_thoughts = _load_curated_replacements(count=20)
+    replacement_thoughts = _load_curated_replacements(count=40)
     upload_history_titles = _load_upload_history_titles()
 
     print("\n📋 [EDITORIAL CRITIC] Running autonomous quality audit...")
 
     # 1. Hook Auditor: validate Scene 1
-    hook_passed, hook_reason = HookAuditorSkill.audit_hook(raw_scenes[0].get("spoken_text", ""))
+    hook_text = raw_scenes[0].get("spoken_text", "")
+    hook_passed, hook_reason = HookAuditorSkill.audit_hook(hook_text)
     audit_log["hook_status"] = "passed" if hook_passed else f"failed: {hook_reason}"
     if not hook_passed:
         print(f"   🚫 {hook_reason}")
         # Clean the hook — strip leading punctuation and capitalize
-        cleaned = re.sub(r"^[.…\-—\s]+", "", raw_scenes[0]["spoken_text"]).strip()
+        cleaned = re.sub(r"^[.…\-—\s]+", "", hook_text).strip()
         if cleaned and cleaned[0].islower():
             cleaned = cleaned[0].upper() + cleaned[1:]
         raw_scenes[0]["spoken_text"] = cleaned
@@ -476,36 +626,83 @@ def audit_and_refine_spec(
     else:
         print(f"   ✅ Hook: {hook_reason}")
 
-    # 2. Wall Test: audit all scenes (protect Scene 1 hook and last loop scene from replacement)
-    wall_failures = 0
-    wall_replacements = 0
-    for i, scene in enumerate(raw_scenes):
-        passed, reason = CynicalHumanAuditor.audit_text(scene.get("spoken_text", ""))
-        if not passed:
-            wall_failures += 1
-            print(f"   Scene {i+1}: {reason}")
-            # Skip replacing hook or loop scene (they have structural importance)
-            if i == 0 or i == len(raw_scenes) - 1:
-                print(f"   ⚠️  Scene {i+1} is hook/loop — cannot replace, logging only.")
-                continue
-            raw_scenes[i] = CynicalHumanAuditor.sanitize_scene(scene, replacement_thoughts)
-            if raw_scenes[i].get("_editorial_replaced"):
-                wall_replacements += 1
+    # Also check Hook against Trivia Facts & Wall Test
+    fact_passed, fact_reason = PureShowerThoughtAuditor.audit_thought(raw_scenes[0].get("spoken_text", ""))
+    if not fact_passed:
+        audit_log["trivia_fact_failures"] += 1
+        print(f"   Scene 1 (Hook): 🚫 {fact_reason}")
+        raw_scenes[0] = PureShowerThoughtAuditor.sanitize_scene(raw_scenes[0], replacement_thoughts)
+        audit_log["wall_test_replacements"] += 1
+
+    wall_passed, wall_reason = CynicalHumanAuditor.audit_text(raw_scenes[0].get("spoken_text", ""))
+    if not wall_passed:
+        audit_log["wall_test_failures"] += 1
+        print(f"   Scene 1 (Hook): 🚫 {wall_reason}")
+        raw_scenes[0] = CynicalHumanAuditor.sanitize_scene(raw_scenes[0], replacement_thoughts)
+        audit_log["wall_test_replacements"] += 1
+
+    # 2. Audit scenes 2 through N-1 (Middle compilation thoughts)
+    for i in range(1, len(raw_scenes) - 1):
+        scene = raw_scenes[i]
+        text = scene.get("spoken_text", "")
+
+        # A. Trivia Fact Check (ban facts completely)
+        f_passed, f_reason = PureShowerThoughtAuditor.audit_thought(text)
+        if not f_passed:
+            audit_log["trivia_fact_failures"] += 1
+            print(f"   Scene {i+1}: 🚫 {f_reason}")
+            raw_scenes[i] = PureShowerThoughtAuditor.sanitize_scene(scene, replacement_thoughts)
+            audit_log["wall_test_replacements"] += 1
+            text = raw_scenes[i].get("spoken_text", "")
+
+        # B. Wall Test (ban solipsism & fake-deep nihilism)
+        w_passed, w_reason = CynicalHumanAuditor.audit_text(text)
+        if not w_passed:
+            audit_log["wall_test_failures"] += 1
+            print(f"   Scene {i+1}: 🚫 {w_reason}")
+            raw_scenes[i] = CynicalHumanAuditor.sanitize_scene(raw_scenes[i], replacement_thoughts)
+            audit_log["wall_test_replacements"] += 1
+            text = raw_scenes[i].get("spoken_text", "")
+
+        # C. Completeness Check (ban dangling connector endings)
+        c_passed, c_reason = ThoughtCompletenessSkill.audit_completeness(text, is_final_scene=False)
+        if not c_passed:
+            print(f"   Scene {i+1}: 🚫 {c_reason}")
+            raw_scenes[i] = CynicalHumanAuditor.sanitize_scene(raw_scenes[i], replacement_thoughts)
+            audit_log["wall_test_replacements"] += 1
+            text = raw_scenes[i].get("spoken_text", "")
+
+        # D. Semantic Deduplication Check against all preceding scenes
+        is_dup, dup_reason = SemanticDeduplicationSkill.is_duplicate(text, raw_scenes[:i])
+        if is_dup:
+            audit_log["semantic_duplicate_failures"] += 1
+            print(f"   Scene {i+1}: 🚫 Semantic Duplicate ({dup_reason})")
+            # Find an unused replacement that doesn't duplicate any preceding scene
+            found_replacement = False
+            for rep in replacement_thoughts:
+                rep_dup, _ = SemanticDeduplicationSkill.is_duplicate(rep, raw_scenes[:i])
+                if not rep_dup:
+                    raw_scenes[i] = dict(scene)
+                    raw_scenes[i]["spoken_text"] = rep
+                    raw_scenes[i]["_editorial_replaced"] = True
+                    audit_log["wall_test_replacements"] += 1
+                    found_replacement = True
+                    print(f"   ✅ Replaced duplicate with unique thought: '{rep[:60]}...'")
+                    break
+            if not found_replacement:
+                # Fallback unique thought
+                fallback = f"Your shadow has traveled thousands of miles across the Earth, but you'll never see all of it."
+                raw_scenes[i] = dict(scene)
+                raw_scenes[i]["spoken_text"] = fallback
+                raw_scenes[i]["_editorial_replaced"] = True
+                audit_log["wall_test_replacements"] += 1
+
+        if not f_passed or not w_passed or not c_passed or is_dup:
+            pass
         else:
-            # Check completeness for non-loop scenes
-            passed_c, reason_c = ThoughtCompletenessSkill.audit_completeness(scene.get("spoken_text", ""), is_final_scene=(i == len(raw_scenes) - 1))
-            if not passed_c and i > 0 and i < len(raw_scenes) - 1:
-                print(f"   Scene {i+1}: 🚫 {reason_c}")
-                raw_scenes[i] = CynicalHumanAuditor.sanitize_scene(scene, replacement_thoughts)
-                if raw_scenes[i].get("_editorial_replaced"):
-                    wall_replacements += 1
-            else:
-                print(f"   ✅ Scene {i+1}: {reason}")
+            print(f"   ✅ Scene {i+1}: PASSED all quality audits")
 
-    audit_log["wall_test_failures"] = wall_failures
-    audit_log["wall_test_replacements"] = wall_replacements
-
-    # 2b. Loop Auditor: Validate Scene N does NOT repeat Scene 1 hook
+    # 3. Loop Auditor: Validate Scene N does NOT repeat Scene 1 hook
     if len(raw_scenes) >= 2:
         loop_passed, loop_reason = LoopAuditorSkill.audit_loop(
             loop_text=raw_scenes[-1].get("spoken_text", ""),
@@ -523,7 +720,7 @@ def audit_and_refine_spec(
         else:
             print(f"   ✅ Scene {len(raw_scenes)} (Loop Outro): {loop_reason}")
 
-    # 3. Title Truth-in-Packaging + Deduplication
+    # 4. Title Truth-in-Packaging + Deduplication
     original_title = seo_data.get("title", "")
     aligned_title = TitleScriptAlignmentSkill.align_title(
         title=original_title,
@@ -538,7 +735,12 @@ def audit_and_refine_spec(
         audit_log["title_status"] = "passed"
     audit_log["final_title"] = seo_data.get("title", "")
 
-    print(f"\n📋 [EDITORIAL CRITIC] Audit complete: {wall_failures} Wall Test failure(s), {wall_replacements} replacement(s).")
+    total_issues = (
+        audit_log["wall_test_failures"] +
+        audit_log["trivia_fact_failures"] +
+        audit_log["semantic_duplicate_failures"]
+    )
+    print(f"\n📋 [EDITORIAL CRITIC] Audit complete: {total_issues} issue(s) detected, {audit_log['wall_test_replacements']} replacement(s).")
     print(f"   Title: {audit_log['title_status']}")
     print(f"   Final title: '{audit_log['final_title']}'")
 

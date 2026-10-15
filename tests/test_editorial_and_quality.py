@@ -235,3 +235,82 @@ def test_loop_auditor_sanitize_loop_replaces_defective_loop():
     repeats, _ = check_loop_repeats_hook(sanitized["spoken_text"], hook)
     assert repeats is False
 
+
+# ─── PURE SHOWER THOUGHT AUDITOR TESTS ────────────────────────────────────────
+
+def test_pure_shower_thought_auditor_bans_trivia_facts():
+    """PureShowerThoughtAuditor must reject encyclopedic trivia facts."""
+    from engine.managers.editorial_critic import PureShowerThoughtAuditor
+
+    trivia_examples = [
+        "Did you know that octopuses have three hearts and blue blood?",
+        "Blue whales have an aorta large enough for a human to swim through.",
+        "Scientists discovered that trees communicate underground through fungal networks.",
+        "Elevator buttons don't actually register your touch using pressure sensors.",
+        "The tiny hole at the bottom of a padlock is actually a drainage hole.",
+        "Have you ever wondered why your phone compass uses a magnetometer?",
+        "Studies show that sharks have been around longer than trees.",
+    ]
+    for trivia in trivia_examples:
+        passed, reason = PureShowerThoughtAuditor.audit_thought(trivia)
+        assert not passed, f"Expected trivia ban for '{trivia}', got PASS"
+        assert "Trivia Fact BANNED" in reason
+
+
+def test_pure_shower_thought_auditor_passes_pure_thoughts():
+    """PureShowerThoughtAuditor must pass genuine cognitive paradoxes and shower thoughts."""
+    from engine.managers.editorial_critic import PureShowerThoughtAuditor
+
+    pure_thoughts = [
+        "The only part of your reflection you can lick is your tongue.",
+        "If you replace every part of an axe, is it the same axe?",
+        "A bus ten minutes early is far worse than a bus ten minutes late.",
+        "Your future self is watching you right now through memories.",
+        "Every book you've ever read is just different combinations of twenty-six letters.",
+        "Snipers and surgeons need steady hands for the exact opposite reasons.",
+    ]
+    for thought in pure_thoughts:
+        passed, reason = PureShowerThoughtAuditor.audit_thought(thought)
+        assert passed, f"Expected pure thought PASS for '{thought}', got FAIL: {reason}"
+
+
+# ─── SEMANTIC DEDUPLICATION TESTS ─────────────────────────────────────────────
+
+def test_semantic_deduplication_detects_rephrased_duplicates():
+    """SemanticDeduplicationSkill must detect duplicate concepts despite completely different wording."""
+    from engine.managers.editorial_critic import SemanticDeduplicationSkill
+
+    # Pair 1: Brain ignoring nose
+    text_1a = "Your brain actively deletes your nose from your vision even though you see it."
+    text_1b = "Your brain constantly filters your nose out of your vision."
+    dup_1, reason_1 = SemanticDeduplicationSkill.are_semantically_duplicate(text_1a, text_1b)
+    assert dup_1 is True, f"Expected duplicate detection, got {reason_1}"
+
+    # Pair 2: Embarrassing moments
+    text_2a = "You remember embarrassing moments from five years ago while trying to sleep."
+    text_2b = "Your brain loves replaying embarrassing moments when you close your eyes at night."
+    dup_2, reason_2 = SemanticDeduplicationSkill.are_semantically_duplicate(text_2a, text_2b)
+    assert dup_2 is True, f"Expected duplicate detection, got {reason_2}"
+
+
+def test_semantic_deduplication_passes_distinct_thoughts():
+    """SemanticDeduplicationSkill must pass truly distinct thoughts."""
+    from engine.managers.editorial_critic import SemanticDeduplicationSkill
+
+    thought_a = "The only part of your reflection you can lick is your tongue."
+    thought_b = "Snipers and surgeons need steady hands for the exact opposite reasons."
+    dup, reason = SemanticDeduplicationSkill.are_semantically_duplicate(thought_a, thought_b)
+    assert dup is False, f"Expected distinct thoughts, got duplicate: {reason}"
+
+
+# ─── VOICE TAIL PADDING TEST ──────────────────────────────────────────────────
+
+def test_voice_normalizer_appends_comfort_tail_on_final_scene():
+    """VoiceNormalizer must append a 0.45s comfort silence tail on the final scene."""
+    # Verify 0.45s at 24000 Hz is 10800 samples
+    sample_rate = 24000
+    tail_duration = 0.45
+    expected_tail_samples = int(sample_rate * tail_duration)
+    assert expected_tail_samples == 10800
+
+

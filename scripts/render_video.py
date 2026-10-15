@@ -615,7 +615,7 @@ def render_video_ffmpeg(
             filter_complex = (
                 f"[1:a]loudnorm=I={target_lufs}:LRA={target_lra}:TP={target_tp}:linear=true[voice];"
                 f"[2:a]volume={bg_vol}[bg];"
-                f"[voice][bg]amix=inputs=2:duration=first:dropout_transition=2:normalize=0[aout]"
+                f"[voice][bg]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]"
             )
             audio_mapping = [
                 "-filter_complex", filter_complex,
