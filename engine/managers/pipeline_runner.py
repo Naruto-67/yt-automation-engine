@@ -1,7 +1,4 @@
-"""
-engine/managers/pipeline_runner.py — CLI Dispatch Entrypoint for Pika Flow Stages (v2.0)
-Orchestrates Stage 1 (spec), Stage 2 (clips), Stage 3 (editor), and Stage 4 (release).
-"""
+from __future__ import annotations
 
 import os
 import sys
@@ -13,7 +10,7 @@ import hashlib
 import datetime
 import argparse
 import pathlib
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional, Tuple
 
 from engine.logger import StageTimer, PikaStage, logger
 from engine.managers.error_manager import ErrorManager

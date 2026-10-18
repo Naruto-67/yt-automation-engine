@@ -506,7 +506,7 @@
   <!-- ══════════════════════════════════════════════════════════════════════ -->
   <!-- AUTH TOKEN MODAL                                                       -->
   <!-- ══════════════════════════════════════════════════════════════════════ -->
-  <div id="auth-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+  <div id="auth-modal" style="display: none;" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 items-center justify-center p-4">
     <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
       <div class="w-10 h-10 rounded-xl bg-purple-600/20 text-purple-400 flex items-center justify-center mb-1">
         <i data-lucide="shield-check" class="w-6 h-6"></i>
@@ -525,7 +525,7 @@
   <!-- ══════════════════════════════════════════════════════════════════════ -->
   <!-- CLOUD DISPATCH MODAL                                                    -->
   <!-- ══════════════════════════════════════════════════════════════════════ -->
-  <div id="dispatch-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+  <div id="dispatch-modal" style="display: none;" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 items-center justify-center p-4">
     <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-3">
@@ -580,7 +580,7 @@
   <!-- ══════════════════════════════════════════════════════════════════════ -->
   <!-- SETTINGS MODAL (GITHUB TOKEN & API KEYS)                              -->
   <!-- ══════════════════════════════════════════════════════════════════════ -->
-  <div id="settings-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+  <div id="settings-modal" style="display: none;" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 items-center justify-center p-4">
     <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-3">
@@ -632,6 +632,28 @@
 
   <!-- JAVASCRIPT APP LOGIC -->
   <script>
+    // ── Safe Helpers ─────────────────────────────────────────────────────────
+    function safeCreateIcons() {
+      if (typeof lucide !== 'undefined' && lucide && typeof lucide.createIcons === 'function') {
+        try { safeCreateIcons(); } catch (e) { console.warn('lucide icon error:', e); }
+      }
+    }
+    window.safeCreateIcons = safeCreateIcons;
+    if (typeof lucide === 'undefined') {
+      window.lucide = { createIcons: safeCreateIcons };
+    }
+
+    function showModal(id) {
+      const el = document.getElementById(id);
+      if (el) el.style.display = 'flex';
+      safeCreateIcons();
+    }
+
+    function hideModal(id) {
+      const el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    }
+
     // ── Global State ─────────────────────────────────────────────────────────
     let currentTab = 'schedule';
     let studioSession = null;
@@ -651,6 +673,14 @@
         localStorage.setItem('studio_token', urlToken);
         return urlToken;
       }
+      if (window.__STUDIO_SECRET__) {
+        localStorage.setItem('studio_token', window.__STUDIO_SECRET__);
+        return window.__STUDIO_SECRET__;
+      }
+      const match = document.cookie.match(/studio_token=([^;]+)/);
+      if (match && match[1]) {
+        return match[1];
+      }
       return localStorage.getItem('studio_token') || '';
     }
 
@@ -666,7 +696,7 @@
       options.headers = Object.assign({}, getAuthHeaders(), options.headers || {});
       const resp = await fetch(url, options);
       if (resp.status === 401) {
-        document.getElementById('auth-modal').classList.remove('hidden');
+        showModal('auth-modal');
         throw new Error('Unauthorized');
       }
       return resp;
@@ -676,7 +706,7 @@
       const input = document.getElementById('auth-token-input').value.trim();
       if (!input) return;
       localStorage.setItem('studio_token', input);
-      document.getElementById('auth-modal').classList.add('hidden');
+      hideModal('auth-modal');
       location.reload();
     }
 
@@ -708,7 +738,7 @@
         schedBtn.className = 'px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 text-slate-400 hover:text-white';
         loadStudioSession();
       }
-      lucide.createIcons();
+      safeCreateIcons();
     }
 
     // ── Schedule View Logic ──────────────────────────────────────────────────
@@ -819,7 +849,7 @@
           </tr>
         `;
       }).join('');
-      lucide.createIcons();
+      safeCreateIcons();
     }
 
     // ── Autonomous Pipeline Trigger (Cloud Dispatch) ─────────────────────────
@@ -926,18 +956,18 @@
             </tr>
           `;
         }).join('');
-        lucide.createIcons();
+        safeCreateIcons();
       } catch (e) {
         tbody.innerHTML = `<tr><td colspan="5" class="px-6 py-4 text-center text-red-400">Error loading runs: ${e}</td></tr>`;
       }
     }
 
     function openCloudDispatchModal() {
-      document.getElementById('dispatch-modal').classList.remove('hidden');
+      showModal('dispatch-modal');
     }
 
     function closeCloudDispatchModal() {
-      document.getElementById('dispatch-modal').classList.add('hidden');
+      hideModal('dispatch-modal');
     }
 
     async function submitCloudDispatch() {
@@ -949,7 +979,7 @@
 
       btn.disabled = true;
       btn.innerHTML = `<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i><span>Dispatching...</span>`;
-      lucide.createIcons();
+      safeCreateIcons();
 
       try {
         const res = await apiFetch('/api/github/dispatch', {
@@ -969,7 +999,7 @@
       } finally {
         btn.disabled = false;
         btn.innerHTML = `<i data-lucide="send" class="w-4 h-4"></i><span>Launch on GitHub</span>`;
-        lucide.createIcons();
+        safeCreateIcons();
       }
     }
 
@@ -1011,11 +1041,11 @@
     }
 
     function openSettingsModal() {
-      document.getElementById('settings-modal').classList.remove('hidden');
+      showModal('settings-modal');
     }
 
     function closeSettingsModal() {
-      document.getElementById('settings-modal').classList.add('hidden');
+      hideModal('settings-modal');
     }
 
     async function saveCloudSettings() {
@@ -1099,7 +1129,7 @@
         p3.className = 'flex-1 flex items-center gap-3 p-3 rounded-xl bg-emerald-600/10 border border-emerald-500/30 text-emerald-300';
         renderFinalPreview();
       }
-      lucide.createIcons();
+      safeCreateIcons();
     }
 
     async function initNewSpec(isSurprise = false) {
@@ -1109,7 +1139,7 @@
 
       btn.disabled = true;
       btn.innerHTML = `<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i><span>Generating Script...</span>`;
-      lucide.createIcons();
+      safeCreateIcons();
 
       try {
         const res = await apiFetch('/api/studio/init_spec', {
@@ -1129,7 +1159,7 @@
       } finally {
         btn.disabled = false;
         btn.innerHTML = `<i data-lucide="sparkles" class="w-4 h-4"></i><span>Generate 12-Scene Script</span>`;
-        lucide.createIcons();
+        safeCreateIcons();
       }
     }
 
@@ -1209,7 +1239,7 @@
           </div>
         `;
       }).join('');
-      lucide.createIcons();
+      safeCreateIcons();
     }
 
     async function saveSceneEdit(sceneId) {
@@ -1233,7 +1263,7 @@
       const btn = document.getElementById(`btn-recreate-${sceneId}`);
       btn.disabled = true;
       btn.innerHTML = `<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i><span>Recreating...</span>`;
-      lucide.createIcons();
+      safeCreateIcons();
 
       try {
         const res = await apiFetch('/api/studio/recreate_scene', {
@@ -1253,7 +1283,7 @@
       } finally {
         btn.disabled = false;
         btn.innerHTML = `<i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i><span>Recreate</span>`;
-        lucide.createIcons();
+        safeCreateIcons();
       }
     }
 
@@ -1263,7 +1293,7 @@
 
       btn.disabled = true;
       btn.innerHTML = `<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i><span>Synthesizing...</span>`;
-      lucide.createIcons();
+      safeCreateIcons();
 
       try {
         const res = await apiFetch('/api/studio/preview_tts', {
@@ -1275,12 +1305,12 @@
           audio.src = data.audio_url + '&token=' + getStoredToken();
           audio.play();
           btn.innerHTML = `<i data-lucide="volume-x" class="w-3.5 h-3.5 text-emerald-400"></i><span>Playing...</span>`;
-          lucide.createIcons();
+          safeCreateIcons();
         } else {
           alert('TTS failed: ' + data.error);
           btn.innerHTML = `<i data-lucide="volume-2" class="w-3.5 h-3.5 text-purple-400"></i><span>Play Voice</span>`;
           btn.disabled = false;
-          lucide.createIcons();
+          safeCreateIcons();
         }
       } catch (e) {
         alert('TTS preview error: ' + e);
@@ -1292,14 +1322,14 @@
       const btn = document.getElementById(`btn-tts-${sceneId}`);
       btn.disabled = false;
       btn.innerHTML = `<i data-lucide="volume-2" class="w-3.5 h-3.5 text-purple-400"></i><span>Play Voice</span>`;
-      lucide.createIcons();
+      safeCreateIcons();
     }
 
     async function approveScriptAndFetchClips() {
       const btn = document.getElementById('btn-approve-script');
       btn.disabled = true;
       btn.innerHTML = `<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i><span>Matching 9:16 Stock Visuals...</span>`;
-      lucide.createIcons();
+      safeCreateIcons();
 
       try {
         const res = await apiFetch('/api/studio/approve_script', { method: 'POST' });
@@ -1315,7 +1345,7 @@
       } finally {
         btn.disabled = false;
         btn.innerHTML = `<span>Approve Script & Sizing Visuals</span><i data-lucide="arrow-right" class="w-4 h-4"></i>`;
-        lucide.createIcons();
+        safeCreateIcons();
       }
     }
 
@@ -1366,7 +1396,7 @@
           </div>
         `;
       }).join('');
-      lucide.createIcons();
+      safeCreateIcons();
     }
 
     async function rerollSceneClip(sceneId) {
@@ -1491,10 +1521,21 @@
         btn.disabled = false;
         btn.innerHTML = `<i data-lucide="upload-cloud" class="w-5 h-5"></i><span>Approve & Upload to YouTube Schedule</span>`;
       }
+    }
+
+    function restartRender() {
+      if (confirm('Re-render this video? This will return you to the scenes editor to adjust scenes or re-render.')) {
+        if (studioSession) {
+          studioSession.stage = 'scenes_review';
+          syncWizardUI();
+        }
+      }
+    }
+
     async function checkLatestGitHubVideoArtifact() {
       const btn = document.getElementById('btn-fetch-cloud-video');
       btn.innerHTML = `<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i><span>Checking GitHub Actions...</span>`;
-      lucide.createIcons();
+      safeCreateIcons();
       try {
         const res = await apiFetch('/api/github/runs');
         const data = await res.json();
@@ -1509,7 +1550,7 @@
         alert('Error: ' + e);
       } finally {
         btn.innerHTML = `<i data-lucide="cloud-download" class="w-3.5 h-3.5"></i><span>Fetch Latest Video From GitHub Actions</span>`;
-        lucide.createIcons();
+        safeCreateIcons();
       }
     }
 
@@ -1583,7 +1624,7 @@
 
     // ── Initialization ───────────────────────────────────────────────────────
     window.addEventListener('DOMContentLoaded', () => {
-      lucide.createIcons();
+      safeCreateIcons();
       loadScheduleData();
       initWebSocket();
     });

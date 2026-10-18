@@ -100,9 +100,7 @@ async def studio_auth_middleware(request: web.Request, handler):
     # Public paths
     if path == "/" or path.startswith("/static/"):
         response = await handler(request)
-        # If token was supplied in query string, set cookie for seamless persistence
-        req_token = request.query.get("token", "").strip()
-        if req_token and req_token == secret:
+        if isinstance(response, web.StreamResponse):
             response.set_cookie("studio_token", secret, max_age=86400 * 30, httponly=False)
         return response
 
@@ -1199,11 +1197,17 @@ async def handle_ws_logs(request: web.Request) -> web.WebSocketResponse:
 # ─── STATIC HTML PAGE HANDLER ────────────────────────────────────────────────
 
 async def handle_index(request: web.Request) -> web.Response:
-    """Serves index.html single page app."""
+    """Serves index.html single page app with injected studio secret for seamless access."""
     static_file = pathlib.Path(__file__).parent / "static" / "index.html"
     if not static_file.exists():
         return web.Response(text="<h1>TOPATO Studio index.html missing</h1>", content_type="text/html")
-    return web.FileResponse(static_file)
+    secret = get_studio_secret()
+    html_content = static_file.read_text(encoding="utf-8")
+    injected_tag = f'<script>window.__STUDIO_SECRET__ = "{secret}";</script>\n</head>'
+    html_content = html_content.replace("</head>", injected_tag, 1)
+    resp = web.Response(text=html_content, content_type="text/html")
+    resp.set_cookie("studio_token", secret, max_age=86400 * 30, httponly=False)
+    return resp
 
 
 # ─── APP FACTORY & LAUNCHER ──────────────────────────────────────────────────
