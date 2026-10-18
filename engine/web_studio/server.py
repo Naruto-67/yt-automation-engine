@@ -1067,4 +1067,7 @@ def run_studio_server(host: str = "127.0.0.1", port: int = 8765):
     print("🛡️  Auth: Token-protected. Zero external or local-network access.")
     print("=" * 72)
     app = create_studio_app()
-    web.run_app(app, host=host, port=port, print=None)
+    try:
+        web.run_app(app, host=host, port=port, print=None)
+    except (KeyboardInterrupt, SystemExit):
+        print("\n👋 [STUDIO] Gracefully stopped TOPATO Private Studio. See you next time!", flush=True)

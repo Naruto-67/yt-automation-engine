@@ -63,8 +63,12 @@ def main():
         open_browser_delayed(studio_url)
 
     app = create_studio_app()
-    web.run_app(app, host=args.host, port=args.port, print=None)
+    try:
+        web.run_app(app, host=args.host, port=args.port, print=None)
+    except (KeyboardInterrupt, SystemExit):
+        print("\n👋 [STUDIO] Gracefully stopped TOPATO Private Studio. See you next time!", flush=True)
 
 
 if __name__ == "__main__":
     main()
+
