@@ -545,11 +545,14 @@ def run_spec_stage(video_type: str = "short") -> None:
                     target_duration=target_duration
                 )
 
-            # Seamless circular loop for Shorts: Ensure final scene ends with continuation ellipsis '...'
+            # BrainBlud CTA closer for Shorts: Ensure final scene ends cleanly with terminal punctuation
             if video_type == "short" and raw_scenes:
-                last_text = raw_scenes[-1]["spoken_text"].rstrip(".! ")
-                if not last_text.endswith("..."):
-                    raw_scenes[-1]["spoken_text"] = f"{last_text}..."
+                last_text = raw_scenes[-1]["spoken_text"].rstrip("…-— ")
+                if last_text.endswith("..."):
+                    last_text = last_text[:-3].rstrip("…-— ")
+                if not (last_text.endswith(".") or last_text.endswith("!")):
+                    last_text = f"{last_text}."
+                raw_scenes[-1]["spoken_text"] = last_text
 
         # ─── EDITORIAL CRITIC AUDIT (Wall Test + Title Alignment + Hook Check) ────
         # Runs after calibration to enforce @BrainBlud quality standards.

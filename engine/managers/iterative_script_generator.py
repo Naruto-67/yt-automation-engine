@@ -89,16 +89,22 @@ SATISFYING_VISUAL_QUERIES = [
     "glitter slime scoop satisfying"
 ]
 
-# Mode B Witty Deadpan Closers (Proven high-retention engagement closers)
-MODE_B_WITTY_CLOSERS = [
+# BrainBlud CTA Outro Closers (High-retention engagement closers ending in clean punctuation)
+BRAINBLUD_CLOSERS = [
+    "Subscribe for more thoughts that will break your brain.",
     "If you want to be smarter than everyone you know, subscribe.",
     "If all of you subscribed right now, I would have more subscribers.",
-    "You just spent fifty seconds learning facts that won't help you on an exam.",
+    "Subscribe to unlock thoughts nobody told you.",
+    "You just spent fifty seconds learning thoughts that won't help you on an exam.",
     "Your brain is now holding information it will never use again.",
     "If you made it this far, your attention span is better than average.",
     "If you subscribe right now, your phone won't explode tomorrow.",
-    "You are now one minute closer to knowing everything about nothing."
+    "Drop your wildest shower thought below, and subscribe for more.",
+    "Subscribe if you want your recommended feed to make you question reality.",
+    "You are now one minute closer to knowing everything about nothing.",
+    "If you want to question reality every single day, subscribe."
 ]
+MODE_B_WITTY_CLOSERS = BRAINBLUD_CLOSERS  # Backward compatibility alias
 
 # Scene 2 Premise Anchor Templates (The @BrainBlud engaging line)
 PREMISE_ANCHOR_LINES = [
@@ -184,10 +190,9 @@ class IterativeScriptGenerator:
             pillar_idx += 1
             scene_idx += 1
 
-        # ─── STEP 4: LOOP OUTRO ARCHITECT (Scene N) ──────────────────────────
-        print(f"🔁 [ISCG - STEP 4/5] Crafting Loop Outro (Scene {scene_idx})...", flush=True)
-        outro_scene = self._generate_loop_outro(
-            hook_text=hook_scene["spoken_text"],
+        # ─── STEP 4: BRAINBLUD CTA OUTRO ARCHITECT (Scene N) ─────────────────
+        print(f"🎬 [ISCG - STEP 4/5] Crafting BrainBlud CTA Outro (Scene {scene_idx})...", flush=True)
+        outro_scene = self._generate_brainblud_closer(
             scene_num=scene_idx,
             existing_scenes=scenes,
             used_queries=used_queries
@@ -364,95 +369,45 @@ class IterativeScriptGenerator:
             "stock_video_query": self._pick_query(None, used_queries)
         }
 
-    def _generate_loop_outro(
+    def _generate_brainblud_closer(
         self,
-        hook_text: str,
         scene_num: int,
         existing_scenes: List[Dict[str, Any]],
-        used_queries: List[str]
+        used_queries: List[str],
+        hook_text: str = ""
     ) -> Dict[str, Any]:
         """
         Generates Scene N:
-        Inspects Scene 1's grammatical structure:
-        - If Scene 1 is an independent question or condition, syntactic loops fail -> Mode B (witty deadpan closer).
-        - If Scene 1 is declarative, attempts Mode A (syntactic loop with '...').
+        BrainBlud signature call-to-action closer ending in a clean period or exclamation mark.
+        Never ends in dangling ellipses '...'. Completely eliminates trailing audio cutoff.
         """
-        hook_lower = hook_text.lower().strip()
-        is_question_or_condition = (
-            hook_text.endswith("?") or
-            hook_lower.startswith(("if ", "why ", "how ", "when ", "what ", "did ", "have ", "ever "))
-        )
+        already_used = [s.get("spoken_text", "") for s in existing_scenes]
+        available_closers = [c for c in BRAINBLUD_CLOSERS if not any(c.lower() in prev.lower() for prev in already_used)]
+        if not available_closers:
+            available_closers = BRAINBLUD_CLOSERS
 
-        if is_question_or_condition:
-            # Mode B: Witty Self-Referential Deadpan Closer
-            print("   🎭 Scene 1 is question/conditional — applying Mode B (Witty Deadpan Closer).")
-            closer = random.choice(MODE_B_WITTY_CLOSERS)
-            return {
-                "scene_id": scene_num,
-                "spoken_text": closer,
-                "stock_video_query": self._pick_query("soap carving cubes ASMR", used_queries)
-            }
+        chosen_closer = random.choice(available_closers)
+        # Ensure clean terminal punctuation (. or !)
+        chosen_closer = chosen_closer.rstrip(".!?…-— ")
+        chosen_closer = f"{chosen_closer}."
 
-        # Mode A: Syntactic Seamless Loop
-        print("   🔁 Scene 1 is declarative — attempting Mode A (Syntactic Circular Loop)...")
-        prompt = (
-            f"You write seamless circular outro loops for YouTube Shorts compilations.\n\n"
-            f"The video begins with Scene 1: \"{hook_text}\"\n\n"
-            f"Write the FINAL SCENE of the video (6-9 words only).\n"
-            f"It MUST end mid-sentence with an ellipsis '...' such that when read seamlessly into Scene 1,\n"
-            f"it forms a single, grammatically perfect sentence.\n\n"
-            f"CRITICAL RULES (ABSOLUTE):\n"
-            f"1. ZERO REPETITION: DO NOT repeat, echo, or paraphrase ANY words, subjects, or concepts from Scene 1.\n"
-            f"   Scene 1 will be heard immediately after this scene when the video loops back to the start.\n"
-            f"   Repeating words from Scene 1 completely ruins the loop!\n"
-            f"2. Bridge from compilation: Reference the preceding thoughts (e.g. 'And if that didn't mess with your head, remember that...').\n"
-            f"3. Never end on possessives like \"'s...\" or broken fragments.\n"
-            f"4. Length must be strictly 6 to 9 words.\n"
-            f"Return JSON: {{\"spoken_text\": \"...\", \"stock_video_query\": \"...\"}}"
-        )
-
-        for attempt in range(2):
-            try:
-                res = self.llm.generate_json(
-                    system_prompt="Return ONLY a JSON object with 'spoken_text' and 'stock_video_query'.",
-                    user_prompt=prompt,
-                    temperature=0.5,
-                    task_name="script_gen"
-                )
-                text = res.get("spoken_text", "").strip()
-                # Ensure ends with ...
-                text = text.rstrip(".!? ")
-                if not text.endswith("..."):
-                    text = f"{text}..."
-                # Guard against possessives like brain's...
-                if re.search(r"['’]s\.\.\.$", text):
-                    continue
-                # Verify loop does NOT repeat hook words
-                repeats, reason = check_loop_repeats_hook(text, hook_text)
-                if repeats:
-                    print(f"   ⚠️ [LOOP OUTRO] Attempt {attempt+1} repeated hook ({reason}). Retrying...")
-                    continue
-                # Length check: Mode A bridge must not be bloated (> 12 words)
-                if len(text.split()) > 12:
-                    print(f"   ⚠️ [LOOP OUTRO] Attempt {attempt+1} too long ({len(text.split())} words). Retrying...")
-                    continue
-
-                return {
-                    "scene_id": scene_num,
-                    "spoken_text": text,
-                    "stock_video_query": self._pick_query(res.get("stock_video_query"), used_queries)
-                }
-            except Exception as e:
-                print(f"   ⚠️ Loop attempt {attempt+1} failed ({e}).")
-
-        # Fallback to curated compilation bridge or Mode B
-        print("   ✅ Selecting curated non-repeating compilation loop bridge.")
-        bridge = random.choice(COMPILATION_LOOP_BRIDGES)
         return {
             "scene_id": scene_num,
-            "spoken_text": bridge,
+            "spoken_text": chosen_closer,
             "stock_video_query": self._pick_query("soap carving cubes ASMR", used_queries)
         }
+
+    def _generate_loop_outro(
+        self,
+        hook_text: str = "",
+        scene_num: int = 12,
+        existing_scenes: Optional[List[Dict[str, Any]]] = None,
+        used_queries: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """Backward-compatible alias routing to _generate_brainblud_closer."""
+        existing_scenes = existing_scenes or []
+        used_queries = used_queries or []
+        return self._generate_brainblud_closer(scene_num, existing_scenes, used_queries)
 
     def _generate_umbrella_seo(
         self,

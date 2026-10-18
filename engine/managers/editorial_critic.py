@@ -404,16 +404,21 @@ class SemanticDeduplicationSkill:
         return False, "Unique"
 
 
-# ─── COMPILATION LOOP BRIDGES & LOOP AUDITOR ────────────────────────────────
-COMPILATION_LOOP_BRIDGES = [
-    "And if none of those broke your brain, remember that...",
-    "And if you think that was weird, remember that...",
-    "And if that didn't mess with your head, remember that...",
-    "And if you still think reality makes sense, remember that...",
-    "And before you scroll away, never forget that...",
-    "Which brings us right back to the terrifying realization that...",
-    "And if none of that convinced you, just remember that..."
+# ─── BRAINBLUD CLOSERS & LOOP AUDITOR ───────────────────────────────────────
+BRAINBLUD_CLOSERS = [
+    "Subscribe for more thoughts that will break your brain.",
+    "If you want to be smarter than everyone you know, subscribe.",
+    "If all of you subscribed right now, I would have more subscribers.",
+    "Subscribe to unlock thoughts nobody told you.",
+    "You just spent fifty seconds learning thoughts that won't help you on an exam.",
+    "Your brain is now holding information it will never use again.",
+    "If you made it this far, your attention span is better than average.",
+    "If you subscribe right now, your phone won't explode tomorrow.",
+    "Drop your wildest shower thought below, and subscribe for more.",
+    "Subscribe if you want your recommended feed to make you question reality.",
+    "You are now one minute closer to knowing everything about nothing."
 ]
+COMPILATION_LOOP_BRIDGES = BRAINBLUD_CLOSERS  # Backwards compatibility alias
 
 
 def check_loop_repeats_hook(loop_text: str, hook_text: str) -> Tuple[bool, str]:
@@ -455,9 +460,9 @@ def check_loop_repeats_hook(loop_text: str, hook_text: str) -> Tuple[bool, str]:
 
 class LoopAuditorSkill:
     """
-    Audits Scene N (Loop Outro) against Scene 1 (Hook).
+    Audits Scene N (BrainBlud Outro Closer) against Scene 1 (Hook).
     Ensures Scene N NEVER repeats or echoes Scene 1 words or concepts.
-    Also ensures proper ending punctuation.
+    Enforces definitive terminal punctuation ('.' or '!') and rejects dangling ellipses '...'.
     """
     @staticmethod
     def audit_loop(loop_text: str, hook_text: str) -> Tuple[bool, str]:
@@ -466,41 +471,43 @@ class LoopAuditorSkill:
             return False, f"Loop Audit FAILED: {reason}"
 
         text_clean = loop_text.strip()
-        if not (text_clean.endswith("...") or text_clean.endswith(".") or text_clean.endswith("!")):
-            return False, "Loop Audit FAILED: Does not end with valid punctuation"
+        if text_clean.endswith("..."):
+            return False, "Loop Audit FAILED: Ends on dangling ellipsis '...' instead of definitive terminal punctuation ('.' or '!')"
 
-        if re.search(r"['’]s\.\.\.$", text_clean):
-            return False, "Loop Audit FAILED: Ends on possessive contraction before ellipsis"
+        if not (text_clean.endswith(".") or text_clean.endswith("!")):
+            return False, "Loop Audit FAILED: Does not end with valid terminal punctuation ('.' or '!')"
+
+        if re.search(r"['’]s\.$", text_clean):
+            return False, "Loop Audit FAILED: Ends on possessive contraction before period"
 
         return True, "Loop Audit PASSED"
 
     @staticmethod
     def sanitize_loop(
         scene: Dict[str, Any],
-        hook_text: str,
-        mode_b: bool = False
+        hook_text: str = "",
+        mode_b: bool = True
     ) -> Dict[str, Any]:
-        """Replaces a defective or repeating loop outro with a vetted compilation bridge."""
+        """Replaces a defective or repeating outro with a vetted BrainBlud CTA closer."""
         scene = dict(scene)
-        hook_lower = hook_text.lower().strip()
-        is_q = (
-            hook_text.endswith("?") or
-            hook_lower.startswith(("if ", "why ", "how ", "when ", "what ", "did ", "have ", "ever "))
-        )
-        if mode_b or is_q:
-            scene["spoken_text"] = random.choice([
-                "If you want to be smarter than everyone you know, subscribe.",
-                "If all of you subscribed right now, I would have more subscribers.",
-                "You just spent fifty seconds learning facts that won't help you on an exam.",
-                "Your brain is now holding information it will never use again.",
-                "If you made it this far, your attention span is better than average.",
-                "If you subscribe right now, your phone won't explode tomorrow.",
-                "You are now one minute closer to knowing everything about nothing."
-            ])
-        else:
-            scene["spoken_text"] = random.choice(COMPILATION_LOOP_BRIDGES)
+        scene["spoken_text"] = random.choice([
+            "Subscribe for more thoughts that will break your brain.",
+            "If you want to be smarter than everyone you know, subscribe.",
+            "If all of you subscribed right now, I would have more subscribers.",
+            "Subscribe to unlock thoughts nobody told you.",
+            "You just spent fifty seconds learning thoughts that won't help you on an exam.",
+            "Your brain is now holding information it will never use again.",
+            "If you made it this far, your attention span is better than average.",
+            "If you subscribe right now, your phone won't explode tomorrow.",
+            "Drop your wildest shower thought below, and subscribe for more.",
+            "Subscribe if you want your recommended feed to make you question reality.",
+            "You are now one minute closer to knowing everything about nothing."
+        ])
         scene["_editorial_replaced"] = True
         return scene
+
+
+BrainBludCloserAuditorSkill = LoopAuditorSkill  # Modern alias
 
 
 def _token_overlap(a: str, b: str) -> float:

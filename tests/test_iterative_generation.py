@@ -82,38 +82,41 @@ def test_title_alignment_requires_umbrella_for_compilations():
 
 
 def test_iterative_generator_loop_selection():
-    """Loop outro architect must choose Mode B for questions and Mode A for declarative hooks."""
-    from engine.managers.iterative_script_generator import IterativeScriptGenerator, MODE_B_WITTY_CLOSERS
+    """Outro closer architect must generate punchy BrainBlud closers ending in '.' or '!' and never dangling '...'."""
+    from engine.managers.iterative_script_generator import IterativeScriptGenerator, BRAINBLUD_CLOSERS
 
     class DummyLLM:
         _last_used_provider_id = "test_prov"
         def generate_json(self, *args, **kwargs):
             return {
-                "spoken_text": "Because everything in the universe is connected to...",
+                "spoken_text": "Because everything in the universe is connected to.",
                 "stock_video_query": "kinetic sand"
             }
 
     generator = IterativeScriptGenerator(llm_manager=DummyLLM())
 
-    # Question hook -> Must select Mode B (witty closer)
+    # Question hook -> Must select BrainBlud closer
     question_hook = "A single chili pepper can fire up your taste buds for 10 minutes—ever wondered why?"
-    outro_q = generator._generate_loop_outro(
+    outro_q = generator._generate_brainblud_closer(
         hook_text=question_hook,
         scene_num=11,
         existing_scenes=[],
         used_queries=[]
     )
-    assert outro_q["spoken_text"] in MODE_B_WITTY_CLOSERS
+    assert outro_q["spoken_text"] in BRAINBLUD_CLOSERS
+    assert outro_q["spoken_text"].endswith((".", "!"))
 
-    # Declarative hook -> Attempts Mode A (loop ending with ...)
+    # Declarative hook -> Must also select BrainBlud closer ending with . or ! (never ...)
     declarative_hook = "The only part of your reflection you can lick is your tongue."
-    outro_d = generator._generate_loop_outro(
+    outro_d = generator._generate_brainblud_closer(
         hook_text=declarative_hook,
         scene_num=11,
         existing_scenes=[],
         used_queries=[]
     )
-    assert outro_d["spoken_text"].endswith("...")
+    assert outro_d["spoken_text"] in BRAINBLUD_CLOSERS
+    assert outro_d["spoken_text"].endswith((".", "!"))
+    assert not outro_d["spoken_text"].endswith("...")
 
 
 def test_iterative_generator_chain_full_flow():

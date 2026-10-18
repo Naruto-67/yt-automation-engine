@@ -24,7 +24,34 @@ import json
 import time
 import random
 import traceback
-import requests
+try:
+    import requests
+except ImportError:
+    import urllib.request
+    import urllib.error
+
+    class _RequestsFallback:
+        @staticmethod
+        def post(url, json=None, timeout=10):
+            data = json.dumps(json or {}).encode("utf-8")
+            req = urllib.request.Request(
+                url,
+                data=data,
+                headers={"Content-Type": "application/json", "User-Agent": "TOPATO-DiscordBot/1.0"}
+            )
+            class _Resp:
+                def __init__(self, code, text=""):
+                    self.status_code = code
+                    self.text = text
+                def json(self):
+                    return json.loads(self.text or "{}")
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    return _Resp(resp.status, resp.read().decode("utf-8"))
+            except urllib.error.HTTPError as e:
+                return _Resp(e.code, e.read().decode("utf-8", errors="replace"))
+
+    requests = _RequestsFallback()
 from datetime import datetime, timezone
 
 # ── Active channel state ──────────────────────────────────────────────────────

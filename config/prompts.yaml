@@ -30,9 +30,19 @@ script_gen:
     2. NEVER claim physical reality does not exist, that objects vanish when you close your eyes, that nothing is real, or that life is an illusion. Stoner pseudo-philosophy = INSTANT REJECTION.
     3. BAN TRIVIA FACTS: Never output encyclopedic biology facts (octopuses, whales), hardware trivia (padlock holes, elevator sensors), or "Did you know" trivia. Pure shower thoughts only!
 
-    DUAL LOOP OUTRO MODES (choose the most fitting for the topic):
-    Mode A (Seamless Syntactic Loop): Scene N is a short compilation transition bridge (6-9 words ending in "...") that links grammatically back into Scene 1 (e.g. "And if that didn't mess with your head, remember that..."). CRITICAL: ZERO REPETITION. Never repeat, echo, or paraphrase Scene 1's words in Scene N. Scene 1 will be heard immediately after Scene N when the video loops!
-    Mode B (Witty Self-Referential Closer): Scene N delivers a deadpan call-to-action (e.g. "If you want to be smarter every day, subscribe." OR "If all of you subscribed instantly, I would have more subscribers.").
+    BRAINBLUD CTA CLOSER (SCENE N - MANDATORY):
+    Scene N must be a punchy, deadpan, high-retention call-to-action closer ending in a clean period "." or exclamation mark "!".
+    NEVER end in "..." or an incomplete sentence fragment.
+    Examples:
+    - "Subscribe for more thoughts that will break your brain."
+    - "If you want to be smarter than everyone you know, subscribe."
+    - "If all of you subscribed right now, I would have more subscribers."
+    - "Subscribe to unlock thoughts nobody told you."
+    - "You just spent fifty seconds learning thoughts that won't help you on an exam."
+    - "Your brain is now holding information it will never use again."
+    - "If you made it this far, your attention span is better than average."
+    - "If you subscribe right now, your phone won't explode tomorrow."
+    - "Drop your wildest shower thought below, and subscribe for more."
 
   user_template: |
     TOPIC: {topic}

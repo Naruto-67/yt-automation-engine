@@ -7,7 +7,59 @@ while maintaining backward-compatible data classes for database/guardian operati
 from typing import List, Optional, Dict, Any
 from enum import Enum
 from datetime import datetime, timezone
-from pydantic import BaseModel, Field
+try:
+    from pydantic import BaseModel, Field
+except ImportError:
+    class BaseModel:
+        def __init__(self, **kwargs):
+            hints = getattr(self.__class__, "__annotations__", {})
+            for k, v in kwargs.items():
+                hint = hints.get(k)
+                if isinstance(v, dict) and isinstance(hint, type) and issubclass(hint, BaseModel):
+                    v = hint(**v)
+                elif isinstance(v, list) and hasattr(hint, "__origin__") and hint.__origin__ is list:
+                    args = getattr(hint, "__args__", ())
+                    if args and isinstance(args[0], type) and issubclass(args[0], BaseModel):
+                        v = [args[0](**item) if isinstance(item, dict) else item for item in v]
+                setattr(self, k, v)
+            for k in dir(self.__class__):
+                if not k.startswith("_") and k not in kwargs:
+                    val = getattr(self.__class__, k)
+                    if callable(val) and hasattr(val, "_is_mock_field"):
+                        setattr(self, k, val())
+                    elif not callable(val):
+                        setattr(self, k, val)
+
+        def dict(self):
+            res = {}
+            for k, v in self.__dict__.items():
+                if not k.startswith("_"):
+                    if isinstance(v, list):
+                        res[k] = [item.dict() if hasattr(item, "dict") else item for item in v]
+                    elif hasattr(v, "dict"):
+                        res[k] = v.dict()
+                    else:
+                        res[k] = v
+            return res
+
+        def model_dump(self):
+            return self.dict()
+
+        def model_dump_json(self, indent=None):
+            import json
+            return json.dumps(self.dict(), indent=indent)
+
+        @classmethod
+        def model_validate_json(cls, json_str):
+            import json
+            return cls(**json.loads(json_str))
+
+    def Field(default=None, default_factory=None, **kwargs):
+        if default_factory is not None:
+            func = lambda: default_factory()
+            func._is_mock_field = True
+            return func
+        return default
 
 
 # ─── V2.0 SINGLE-CHANNEL STOCK VIDEO CONTRACTS ───────────────────────────────
