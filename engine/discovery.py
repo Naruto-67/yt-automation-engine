@@ -609,7 +609,10 @@ def run_discovery(force: bool = False) -> Dict[str, Any]:
         if not prov.get("deprecated", False) and prov.get("model") not in banned_models
     ]
 
-    _save_providers(final_providers)
+    if final_providers:
+        _save_providers(final_providers)
+    else:
+        print("⚠️ [DISCOVERY] Zero active models passed health probes. Preserving existing baseline providers.")
     _save_performance(performance)
 
     print("\n" + "=" * 80)

@@ -22,6 +22,11 @@ on:
         required: false
         default: false
         type: boolean
+      custom_topic:
+        description: 'Custom topic for the video (optional)'
+        required: false
+        default: ''
+        type: string
 
 concurrency:
   group: production-pipeline
@@ -88,6 +93,7 @@ jobs:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
           GHOST_ENGINE_ENABLED: ${{ vars.GHOST_ENGINE_ENABLED || 'test' }}
           TEST_MODE: ${{ inputs.test_mode && 'true' || 'false' }}
+          CUSTOM_TOPIC: ${{ inputs.custom_topic }}
         run: python -m engine.managers.pipeline_runner --stage spec --type ${{ inputs.video_type || 'short' }} ${{ inputs.test_mode && '--test-mode' || '' }}
       - name: Upload Spec Artifact
         uses: actions/upload-artifact@v7

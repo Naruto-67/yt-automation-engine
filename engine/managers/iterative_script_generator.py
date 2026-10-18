@@ -269,7 +269,39 @@ class IterativeScriptGenerator:
 
     def _generate_premise_anchor(self, topic: str, hook_text: str = "", used_queries: Optional[List[str]] = None) -> Dict[str, Any]:
         """Generates Scene 2: The viral premise anchor line matching the on-screen Title Card."""
-        # Pick least-used high-impact premise anchor line
+        prompt = (
+            f"You are the lead viral scriptwriter for @metopato.\n\n"
+            f"Video Topic: '{topic}'\n"
+            f"Scene 1 Hook: '{hook_text}'\n\n"
+            f"Write Scene 2: The high-curiosity premise anchor line (6-12 words).\n"
+            f"This line immediately follows the opening hook and frames the entire compilation.\n"
+            f"RULES:\n"
+            f"1. Must be high-curiosity, witty, and directly anchor the viewer into the upcoming thoughts.\n"
+            f"2. Examples of great premise anchors:\n"
+            f"   - 'Here are shower thoughts that will completely reset your perception.'\n"
+            f"   - 'These mind-bending shower thoughts will break your daily autopilot.'\n"
+            f"   - 'Shower thoughts nobody told you that are completely true.'\n"
+            f"3. Return valid JSON: {{\"spoken_text\": \"...\", \"stock_video_query\": \"...\"}}"
+        )
+        for attempt in range(2):
+            try:
+                res = self.llm.generate_json(
+                    system_prompt="Return ONLY a JSON object with 'spoken_text' and 'stock_video_query'.",
+                    user_prompt=prompt,
+                    temperature=0.6,
+                    task_name="script_gen"
+                )
+                text = res.get("spoken_text", "").strip()
+                if text and 5 <= len(text.split()) <= 16:
+                    return {
+                        "scene_id": 2,
+                        "spoken_text": text,
+                        "stock_video_query": self._pick_query(res.get("stock_video_query") or "kinetic sand squishing satisfying", used_queries)
+                    }
+            except Exception:
+                pass
+
+        # Emergency Fallback: Pick from curated premise anchor lines
         anchor_line = random.choice(PREMISE_ANCHOR_LINES)
         return {
             "scene_id": 2,
@@ -404,12 +436,52 @@ class IterativeScriptGenerator:
         Never ends in dangling ellipses '...'. Completely eliminates trailing audio cutoff.
         """
         already_used = [s.get("spoken_text", "") for s in existing_scenes]
+        already_used_summary = "\n".join(f"- {t}" for t in already_used[-3:])
+
+        prompt = (
+            f"You write the final scene for a viral @BrainBlud Short for @metopato.\n\n"
+            f"Prior thoughts covered in this Short:\n{already_used_summary}\n\n"
+            f"Write Scene {scene_num}: The final BrainBlud-style witty, deadpan call-to-action closer (8-14 words).\n"
+            f"RULES:\n"
+            f"1. Self-referential, humorous, or perspective-flipping call-to-action.\n"
+            f"2. MUST end with definitive terminal punctuation (a period '.' or exclamation mark '!').\n"
+            f"3. ZERO trailing ellipses '...' and ZERO dangling words ('which means', 'because').\n"
+            f"4. Examples of the style:\n"
+            f"   - 'If you want to get slightly smarter every single day, subscribe now.'\n"
+            f"   - 'If all of you subscribed right now, this channel would have more subscribers.'\n"
+            f"   - 'Subscribe if you want your brain to hurt in the best way possible.'\n"
+            f"5. Return valid JSON: {{\"spoken_text\": \"...\", \"stock_video_query\": \"...\"}}"
+        )
+
+        for attempt in range(2):
+            try:
+                res = self.llm.generate_json(
+                    system_prompt="Return ONLY a JSON object with 'spoken_text' and 'stock_video_query'.",
+                    user_prompt=prompt,
+                    temperature=0.7,
+                    task_name="script_gen"
+                )
+                text = res.get("spoken_text", "").strip()
+                # Clean terminal punctuation
+                text = re.sub(r"[.…\-—\s]+$", "", text).strip()
+                lower = text.lower()
+                is_dangling = any(lower.startswith(w) for w in ["because", "which means", "and ", "so ", "but "])
+                if text and 6 <= len(text.split()) <= 18 and not is_dangling:
+                    text = f"{text}."
+                    return {
+                        "scene_id": scene_num,
+                        "spoken_text": text,
+                        "stock_video_query": self._pick_query(res.get("stock_video_query") or "soap carving cubes ASMR", used_queries)
+                    }
+            except Exception:
+                pass
+
+        # Curated Fallback
         available_closers = [c for c in BRAINBLUD_CLOSERS if not any(c.lower() in prev.lower() for prev in already_used)]
         if not available_closers:
             available_closers = BRAINBLUD_CLOSERS
 
         chosen_closer = random.choice(available_closers)
-        # Ensure clean terminal punctuation (. or !)
         chosen_closer = chosen_closer.rstrip(".!?…-— ")
         chosen_closer = f"{chosen_closer}."
 

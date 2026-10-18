@@ -43,6 +43,19 @@ from engine.managers.stock_video_manager import StockVideoManager, SHORTS_VISUAL
 from engine.managers.youtube_manager import YouTubeManager, is_test_mode
 from engine.managers.llm_manager import LLMManager
 
+try:
+    import dotenv
+    dotenv.load_dotenv(override=False)
+except Exception:
+    pass
+
+from engine.managers.github_actions_manager import (
+    GitHubActionsManager,
+    get_github_token,
+    get_github_repo,
+    save_env_settings
+)
+
 # ─── SECURITY & AUTHENTICATION ────────────────────────────────────────────────
 
 _STUDIO_SECRET_FILE = pathlib.Path(".studio_secret")
@@ -358,47 +371,237 @@ async def handle_update_schedule(request: web.Request) -> web.Response:
     })
 
 
-# ─── API HANDLERS: AUTONOMOUS PIPELINE ────────────────────────────────────────
+# ─── API HANDLERS: GITHUB ACTIONS CLOUD ENGINE (ZERO LOCAL RUNS) ─────────────
 
-async def _run_autonomous_pipeline_task(topic: Optional[str] = None):
-    global _pipeline_status
-    _pipeline_status["is_running"] = True
-    _pipeline_status["start_time"] = time.time()
-    _pipeline_status["topic"] = topic or "Autonomous Reddit Thought"
-    _pipeline_status["current_stage"] = "spec_generation"
-    _pipeline_status["error"] = None
+async def handle_get_github_status(request: web.Request) -> web.Response:
+    """Returns current GitHub connection status and repository details."""
+    gh = GitHubActionsManager()
+    status = gh.get_auth_status()
+    return web.json_response({"success": True, "github": status})
+
+
+async def handle_save_github_settings(request: web.Request) -> web.Response:
+    """
+    Saves environment variables to local .env and updates runtime os.environ.
+    Enables user to set GITHUB_TOKEN, GEMINI_API_KEY, GROQ_API_KEY without leaving the UI.
+    """
+    data = await request.json()
+    allowed_keys = [
+        "GITHUB_TOKEN", "GH_PAT", "GITHUB_REPOSITORY",
+        "GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY",
+        "PEXELS_API_KEY", "STUDIO_SECRET_KEY"
+    ]
+    updates = {}
+    for key in allowed_keys:
+        if key in data:
+            updates[key] = str(data[key]).strip()
+
+    result = save_env_settings(updates)
+    print(f"🔑 [STUDIO] Updated environment settings: {result.get('keys')}", flush=True)
+
+    # Re-run LLM discovery with new keys
+    try:
+        from engine.discovery import run_discovery
+        run_discovery(force=True)
+    except Exception:
+        pass
+
+    return web.json_response({
+        "success": True,
+        "message": "Environment settings updated successfully",
+        "result": result
+    })
+
+
+async def handle_dispatch_github_workflow(request: web.Request) -> web.Response:
+    """
+    Dispatches master_pipeline.yml on GitHub Actions in the cloud.
+    Executes heavy generation, TTS, stock matching, FFmpeg rendering, and upload.
+    ZERO local heavy computing required.
+    """
+    data = await request.json() if request.can_read_body else {}
+    video_type = data.get("video_type", "short")
+    test_mode = bool(data.get("test_mode", False))
+    custom_topic = data.get("custom_topic", "").strip()
+
+    gh = GitHubActionsManager()
+    if not gh.is_configured():
+        return web.json_response({
+            "success": False,
+            "error": "GitHub Personal Access Token (PAT) not configured. Please set your GITHUB_TOKEN in Settings."
+        }, status=400)
 
     try:
-        from engine.managers.pipeline_runner import PipelineRunner
-        print(f"\n🚀 [STUDIO] Launching Autonomous TOPATO Pipeline (Topic: '{_pipeline_status['topic']}')...")
-        runner = PipelineRunner()
-        # Run in thread pool to avoid blocking async event loop
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, runner.run_daily_short, topic)
-        _pipeline_status["current_stage"] = "completed"
-        print(f"🎉 [STUDIO] Autonomous TOPATO Pipeline completed successfully!")
+        res = await loop.run_in_executor(
+            None,
+            gh.dispatch_master_pipeline,
+            video_type,
+            test_mode,
+            custom_topic
+        )
+        print(f"🚀 [STUDIO] Dispatched run to GitHub Actions in the cloud! (Topic: '{custom_topic or 'Automatic'}', Mode: {'Test' if test_mode else 'Prod'})", flush=True)
+        return web.json_response({
+            "success": True,
+            "message": "Production pipeline dispatched to GitHub Actions in the cloud.",
+            "dispatch": res
+        })
     except Exception as e:
-        _pipeline_status["current_stage"] = "error"
-        _pipeline_status["error"] = str(e)
-        print(f"❌ [STUDIO] Autonomous Pipeline failed: {e}\n{traceback.format_exc()}")
-    finally:
-        _pipeline_status["is_running"] = False
+        print(f"❌ [STUDIO] GitHub Actions dispatch failed: {e}", flush=True)
+        return web.json_response({"success": False, "error": str(e)}, status=500)
 
+
+async def handle_list_github_runs(request: web.Request) -> web.Response:
+    """Lists recent runs of master_pipeline.yml on GitHub Actions."""
+    gh = GitHubActionsManager()
+    if not gh.is_configured():
+        return web.json_response({"success": True, "configured": False, "runs": []})
+    try:
+        loop = asyncio.get_event_loop()
+        runs = await loop.run_in_executor(None, gh.list_workflow_runs, 10)
+        return web.json_response({"success": True, "configured": True, "runs": runs})
+    except Exception as e:
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
+async def handle_get_github_run(request: web.Request) -> web.Response:
+    """Returns details and job steps of a specific GitHub Actions run."""
+    run_id = int(request.match_info.get("run_id", 0))
+    gh = GitHubActionsManager()
+    try:
+        loop = asyncio.get_event_loop()
+        details = await loop.run_in_executor(None, gh.get_run_details, run_id)
+        artifacts = await loop.run_in_executor(None, gh.list_run_artifacts, run_id)
+        return web.json_response({"success": True, "run": details, "artifacts": artifacts})
+    except Exception as e:
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
+async def handle_fetch_github_video(request: web.Request) -> web.Response:
+    """
+    Downloads final-video artifact from completed GitHub Actions run into output/
+    so it can be previewed immediately in the studio video player.
+    """
+    run_id = int(request.match_info.get("run_id", 0))
+    gh = GitHubActionsManager()
+    try:
+        loop = asyncio.get_event_loop()
+        artifacts = await loop.run_in_executor(None, gh.list_run_artifacts, run_id)
+        target = next((a for a in artifacts if a["name"] == "final-video"), None)
+        if not target:
+            return web.json_response({
+                "success": False,
+                "error": "final-video artifact is not yet available for this run (run may still be rendering)."
+            }, status=404)
+
+        extracted = await loop.run_in_executor(None, gh.download_and_extract_artifact, target["id"], "output")
+        print(f"📦 [STUDIO] Downloaded and unpacked video artifact from GitHub Actions: {extracted}", flush=True)
+        return web.json_response({
+            "success": True,
+            "message": "Rendered video downloaded from GitHub Actions successfully.",
+            "files": extracted,
+            "preview_url": f"/api/studio/preview_render?token={get_studio_secret()}"
+        })
+    except Exception as e:
+        print(f"❌ [STUDIO] Failed to download artifact: {e}", flush=True)
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
+async def handle_fetch_github_spec(request: web.Request) -> web.Response:
+    """
+    Downloads spec-artifact from a completed/in-progress GitHub Actions run into output/,
+    loads spec.json into the active studio session, and populates Stage 1
+    so the user can inspect/edit the 12 scenes without running anything locally.
+    """
+    run_id = int(request.match_info.get("run_id", 0))
+    gh = GitHubActionsManager()
+    try:
+        loop = asyncio.get_event_loop()
+        artifacts = await loop.run_in_executor(None, gh.list_run_artifacts, run_id)
+        target = next((a for a in artifacts if a["name"] == "spec-artifact"), None)
+        if not target:
+            return web.json_response({
+                "success": False,
+                "error": "spec-artifact is not yet available for this run (Stage 1 may still be generating)."
+            }, status=404)
+
+        extracted = await loop.run_in_executor(None, gh.download_and_extract_artifact, target["id"], "output")
+        spec_path = pathlib.Path("output/spec.json")
+        if not spec_path.exists():
+            return web.json_response({"success": False, "error": "spec.json not found in downloaded artifact"}, status=404)
+
+        with open(spec_path, "r", encoding="utf-8") as f:
+            spec_data = json.load(f)
+
+        raw_scenes = spec_data.get("scenes", [])
+        formatted_scenes = []
+        for s in raw_scenes:
+            if isinstance(s, dict):
+                formatted_scenes.append(s)
+            elif hasattr(s, "model_dump"):
+                formatted_scenes.append(s.model_dump())
+
+        async with _session.lock:
+            _session.reset()
+            _session.topic = spec_data.get("topic", "")
+            _session.scenes = formatted_scenes
+            _session.seo = spec_data.get("seo", {})
+            _session.stage = "script_review"
+            _session.status = "ready"
+            _session.premise_line = formatted_scenes[1].get("spoken_text", "") if len(formatted_scenes) > 1 else ""
+
+        print(f"📋 [STUDIO] Successfully loaded cloud spec ({len(formatted_scenes)} scenes) from Run #{run_id} into Studio Wizard!", flush=True)
+        return web.json_response({
+            "success": True,
+            "message": f"Loaded {len(formatted_scenes)} scenes from GitHub Actions Run #{run_id}.",
+            "session": _session.to_dict()
+        })
+    except Exception as e:
+        print(f"❌ [STUDIO] Failed to load spec artifact: {e}", flush=True)
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
+# ─── API HANDLERS: AUTONOMOUS DISPATCH ────────────────────────────────────────
 
 async def handle_start_autonomous_pipeline(request: web.Request) -> web.Response:
-    """Triggers an autonomous pipeline run in the background."""
-    global _pipeline_task
-    if _pipeline_status["is_running"]:
-        return web.json_response({"success": False, "error": "A pipeline run is already in progress"}, status=409)
-
+    """
+    Autonomous Pipeline Trigger:
+    Dispatches directly to GitHub Actions in the cloud. Zero local processing.
+    """
     data = await request.json() if request.can_read_body else {}
-    custom_topic = data.get("topic", "").strip() or None
+    custom_topic = data.get("topic", "").strip()
+    video_type = data.get("video_type", "short")
+    test_mode = bool(data.get("test_mode", False))
 
-    _pipeline_task = asyncio.create_task(_run_autonomous_pipeline_task(custom_topic))
-    return web.json_response({"success": True, "message": "Autonomous pipeline started"})
+    gh = GitHubActionsManager()
+    if not gh.is_configured():
+        return web.json_response({
+            "success": False,
+            "error": "GitHub Personal Access Token (PAT) not configured. Add your GITHUB_TOKEN in Settings to dispatch runs to GitHub Actions."
+        }, status=400)
+
+    try:
+        loop = asyncio.get_event_loop()
+        res = await loop.run_in_executor(
+            None,
+            gh.dispatch_master_pipeline,
+            video_type,
+            test_mode,
+            custom_topic
+        )
+        print(f"🚀 [STUDIO] Dispatched autonomous pipeline to GitHub Actions! (Topic: '{custom_topic or 'Auto'}')", flush=True)
+        return web.json_response({
+            "success": True,
+            "message": "Autonomous pipeline dispatched to GitHub Actions in cloud. Check runs timeline.",
+            "dispatch": res
+        })
+    except Exception as e:
+        print(f"❌ [STUDIO] GitHub Actions dispatch failed: {e}", flush=True)
+        return web.json_response({"success": False, "error": str(e)}, status=500)
 
 
 async def handle_get_pipeline_status(request: web.Request) -> web.Response:
+    """Returns local engine status or latest cloud run overview."""
     elapsed = round(time.time() - _pipeline_status["start_time"], 1) if _pipeline_status["is_running"] else 0.0
     return web.json_response({
         "success": True,
@@ -1028,9 +1231,18 @@ def create_studio_app() -> web.Application:
     app.router.add_get("/api/schedule", handle_get_schedule)
     app.router.add_post("/api/schedule/update", handle_update_schedule)
 
-    # Autonomous Pipeline
+    # Autonomous Pipeline & GitHub Actions Cloud Dispatch
     app.router.add_post("/api/pipeline/start_autonomous", handle_start_autonomous_pipeline)
     app.router.add_get("/api/pipeline/status", handle_get_pipeline_status)
+
+    # GitHub Actions Cloud Engine (Zero Local Heavy Computing)
+    app.router.add_get("/api/github/status", handle_get_github_status)
+    app.router.add_post("/api/github/settings", handle_save_github_settings)
+    app.router.add_post("/api/github/dispatch", handle_dispatch_github_workflow)
+    app.router.add_get("/api/github/runs", handle_list_github_runs)
+    app.router.add_get("/api/github/runs/{run_id}", handle_get_github_run)
+    app.router.add_post("/api/github/runs/{run_id}/fetch_video", handle_fetch_github_video)
+    app.router.add_post("/api/github/runs/{run_id}/fetch_spec", handle_fetch_github_spec)
 
     # Interactive Studio Wizard
     app.router.add_get("/api/studio/session", handle_get_studio_session)

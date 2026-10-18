@@ -222,3 +222,144 @@ def test_studio_init_spec_and_recreate_scene(monkeypatch):
             await client.close()
 
     run_async(_test())
+
+
+def test_github_status_and_settings_update(tmp_path, monkeypatch):
+    """Verifies GitHub Actions status query and environment settings saving."""
+    import engine.managers.github_actions_manager as gam
+    monkeypatch.setattr(gam, "_ENV_FILE", tmp_path / ".env")
+
+    async def _test():
+        secret_token = get_studio_secret()
+        client = await _make_client()
+        headers = {"X-Studio-Token": secret_token}
+        try:
+            # 1. Status without token
+            resp = await client.get("/api/github/status", headers=headers)
+            assert resp.status == 200
+            data = await resp.json()
+            assert data["success"] is True
+            assert "github" in data
+
+            # 2. Save settings
+            resp_save = await client.post("/api/github/settings", headers=headers, json={
+                "GITHUB_TOKEN": "ghp_mocktesttoken12345",
+                "GEMINI_API_KEY": "AIzaSyMockKeyForTest"
+            })
+            assert resp_save.status == 200
+            save_data = await resp_save.json()
+            assert save_data["success"] is True
+            assert "GITHUB_TOKEN" in save_data["result"]["keys"]
+
+            # 3. Check status with mocked auth
+            monkeypatch.setattr(gam.GitHubActionsManager, "get_auth_status", lambda self: {
+                "authenticated": True,
+                "user": "Naruto-67",
+                "repo": "Naruto-67/yt-automation-engine",
+                "message": "Connected as @Naruto-67"
+            })
+            resp_authed = await client.get("/api/github/status", headers=headers)
+            data_authed = await resp_authed.json()
+            assert data_authed["github"]["authenticated"] is True
+            assert data_authed["github"]["user"] == "Naruto-67"
+        finally:
+            await client.close()
+
+    run_async(_test())
+
+
+def test_github_cloud_dispatch_and_runs_listing(monkeypatch):
+    """Verifies workflow dispatch and runs listing routes."""
+    import engine.managers.github_actions_manager as gam
+
+    monkeypatch.setattr(gam.GitHubActionsManager, "is_configured", lambda self: True)
+    monkeypatch.setattr(gam.GitHubActionsManager, "dispatch_master_pipeline", lambda self, *args, **kwargs: {
+        "dispatched": True,
+        "repo": "Naruto-67/yt-automation-engine",
+        "workflow": "master_pipeline.yml"
+    })
+    monkeypatch.setattr(gam.GitHubActionsManager, "list_workflow_runs", lambda self, limit=10: [
+        {"id": 123456, "status": "completed", "conclusion": "success", "event": "workflow_dispatch"}
+    ])
+
+    async def _test():
+        secret_token = get_studio_secret()
+        client = await _make_client()
+        headers = {"X-Studio-Token": secret_token}
+        try:
+            # 1. Dispatch workflow
+            resp_disp = await client.post("/api/github/dispatch", headers=headers, json={
+                "video_type": "short",
+                "test_mode": True,
+                "custom_topic": "Testing Cloud Dispatch"
+            })
+            assert resp_disp.status == 200
+            disp_data = await resp_disp.json()
+            assert disp_data["success"] is True
+            assert disp_data["dispatch"]["dispatched"] is True
+
+            # 2. List runs
+            resp_runs = await client.get("/api/github/runs", headers=headers)
+            assert resp_runs.status == 200
+            runs_data = await resp_runs.json()
+            assert runs_data["success"] is True
+            assert len(runs_data["runs"]) == 1
+            assert runs_data["runs"][0]["id"] == 123456
+
+            # 3. Autonomous pipeline dispatch
+            resp_auto = await client.post("/api/pipeline/start_autonomous", headers=headers, json={
+                "topic": "Brain Glitches"
+            })
+            assert resp_auto.status == 200
+            auto_data = await resp_auto.json()
+            assert auto_data["success"] is True
+        finally:
+            await client.close()
+
+    run_async(_test())
+
+
+def test_github_artifact_fetching(monkeypatch, tmp_path):
+    """Verifies downloading and loading spec artifact from GitHub Actions run."""
+    import engine.managers.github_actions_manager as gam
+
+    # Mock artifacts list
+    monkeypatch.setattr(gam.GitHubActionsManager, "list_run_artifacts", lambda self, run_id: [
+        {"id": 999, "name": "spec-artifact", "size_in_bytes": 1024, "expired": False}
+    ])
+
+    # Mock extract
+    def mock_extract(self, artifact_id, dest_dir):
+        os.makedirs(dest_dir, exist_ok=True)
+        spec_file = os.path.join(dest_dir, "spec.json")
+        with open(spec_file, "w", encoding="utf-8") as f:
+            json.dump({
+                "topic": "Curiosity Facts",
+                "scenes": [
+                    {"scene_id": 1, "spoken_text": "Scene 1 Hook.", "stock_video_query": "space"},
+                    {"scene_id": 2, "spoken_text": "Scene 2 Premise.", "stock_video_query": "clock"}
+                ],
+                "seo": {"title": "Curiosity Facts That Blow Minds 🤯 #shorts"}
+            }, f)
+        return [spec_file]
+
+    monkeypatch.setattr(gam.GitHubActionsManager, "download_and_extract_artifact", mock_extract)
+
+    async def _test():
+        secret_token = get_studio_secret()
+        client = await _make_client()
+        headers = {"X-Studio-Token": secret_token}
+        try:
+            resp = await client.post("/api/github/runs/123456/fetch_spec", headers=headers)
+            assert resp.status == 200
+            data = await resp.json()
+            assert data["success"] is True
+            assert "Loaded 2 scenes" in data["message"]
+            assert data["session"]["topic"] == "Curiosity Facts"
+            assert len(data["session"]["scenes"]) == 2
+        finally:
+            await client.close()
+
+    run_async(_test())
+
+

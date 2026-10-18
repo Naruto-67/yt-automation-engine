@@ -356,7 +356,7 @@ def calibrate_and_guard_script(
     return raw_scenes
 
 
-def run_spec_stage(video_type: str = "short") -> None:
+def run_spec_stage(video_type: str = "short", custom_topic: Optional[str] = None) -> None:
     """Executes Stage 1: 🚀 Init & Spec Generation."""
     full_channel_cfg = load_yaml("config/channel_config.yaml")
     channel_cfg = full_channel_cfg["channel"]
@@ -394,6 +394,12 @@ def run_spec_stage(video_type: str = "short") -> None:
             topic = topic_info["topic"]
             source = topic_info.get("source", "trend")
         script_cfg = prompts_cfg["script_gen"]
+
+    custom_override = (custom_topic or os.environ.get("CUSTOM_TOPIC", "")).strip()
+    if custom_override:
+        topic = custom_override
+        source = "custom_dispatch"
+        print(f"🎯 [SPEC] Using custom topic override: '{topic}'", flush=True)
 
     with StageTimer(PikaStage.SPEC, topic=topic):
         print(f"🎯 [SPEC] Topic: '{topic}' (Source: {source}, Format: {sub_format}, Type: {video_type})")
@@ -833,6 +839,7 @@ def main():
     parser.add_argument("--stage", required=True, choices=["spec", "clips", "editor", "release"], help="Stage to execute")
     parser.add_argument("--type", default="short", choices=["short", "long"], help="Video profile type")
     parser.add_argument("--test-mode", action="store_true", help="Run in test mode (bypasses YouTube upload and database updates)")
+    parser.add_argument("--topic", default=None, help="Custom topic to override automatic topic discovery")
     args = parser.parse_args()
 
     if args.test_mode and os.environ.get("TEST_MODE") != "true":
@@ -841,7 +848,7 @@ def main():
 
     try:
         if args.stage == "spec":
-            run_spec_stage(video_type=args.type)
+            run_spec_stage(video_type=args.type, custom_topic=args.topic)
         elif args.stage == "clips":
             from engine.managers.stock_video_manager import run_clips_stage
             run_clips_stage()
