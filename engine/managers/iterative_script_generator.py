@@ -126,7 +126,10 @@ class IterativeScriptGenerator:
     Constructs high-retention Shorts scripts one scene at a time with real-time gating.
     """
 
-    def __init__(self, llm_manager: Any, quality_tracker: Optional[LLMQualityTracker] = None):
+    def __init__(self, llm_manager: Optional[Any] = None, quality_tracker: Optional[LLMQualityTracker] = None):
+        if llm_manager is None:
+            from engine.managers.llm_manager import LLMManager
+            llm_manager = LLMManager()
         self.llm = llm_manager
         self.qt = quality_tracker or LLMQualityTracker()
 
@@ -216,7 +219,7 @@ class IterativeScriptGenerator:
 
     # ─── INTERNAL SCENE GENERATORS ───────────────────────────────────────────
 
-    def _generate_hook(self, topic: str, channel_premise: str) -> Dict[str, Any]:
+    def _generate_hook(self, topic: str, channel_premise: str = "", used_queries: Optional[List[str]] = None) -> Dict[str, Any]:
         """Generates an undeniable physical reality check hook (Scene 1)."""
         prompt = (
             f"You are the lead viral scriptwriter for @metopato.\n\n"
@@ -251,7 +254,7 @@ class IterativeScriptGenerator:
                     return {
                         "scene_id": 1,
                         "spoken_text": text,
-                        "stock_video_query": self._pick_query(res.get("stock_video_query"))
+                        "stock_video_query": self._pick_query(res.get("stock_video_query"), used_queries)
                     }
             except Exception as e:
                 print(f"   ⚠️ Hook attempt {attempt+1} failed ({e}). Retrying...")
@@ -261,18 +264,20 @@ class IterativeScriptGenerator:
         return {
             "scene_id": 1,
             "spoken_text": fallback_hook,
-            "stock_video_query": "resin lathe turning wood polishing"
+            "stock_video_query": self._pick_query("resin lathe turning wood polishing", used_queries)
         }
 
-    def _generate_premise_anchor(self, topic: str, hook_text: str) -> Dict[str, Any]:
+    def _generate_premise_anchor(self, topic: str, hook_text: str = "", used_queries: Optional[List[str]] = None) -> Dict[str, Any]:
         """Generates Scene 2: The viral premise anchor line matching the on-screen Title Card."""
         # Pick least-used high-impact premise anchor line
         anchor_line = random.choice(PREMISE_ANCHOR_LINES)
         return {
             "scene_id": 2,
             "spoken_text": anchor_line,
-            "stock_video_query": "kinetic sand squishing satisfying"
+            "stock_video_query": self._pick_query("kinetic sand squishing satisfying", used_queries)
         }
+
+    _generate_premise_card = _generate_premise_anchor  # Studio wizard alias
 
     def _generate_pillar_scene(
         self,
@@ -368,6 +373,23 @@ class IterativeScriptGenerator:
             "spoken_text": "A bus ten minutes early is far worse than a bus ten minutes late.",
             "stock_video_query": self._pick_query(None, used_queries)
         }
+
+    def _generate_single_pillar_scene(
+        self,
+        scene_num: int,
+        pillar: Dict[str, str],
+        topic: str = "",
+        existing_scenes: Optional[List[Dict[str, Any]]] = None,
+        used_queries: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """Convenience method for recreating a single pillar scene in the studio wizard."""
+        return self._generate_pillar_scene(
+            pillar=pillar,
+            scene_num=scene_num,
+            existing_scenes=existing_scenes or [],
+            recent_titles=_load_upload_history_titles(),
+            used_queries=used_queries or []
+        )
 
     def _generate_brainblud_closer(
         self,

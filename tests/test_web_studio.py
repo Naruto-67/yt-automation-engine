@@ -156,3 +156,69 @@ def test_studio_session_lifecycle():
             await client.close()
 
     run_async(_test())
+
+
+def test_studio_init_spec_and_recreate_scene(monkeypatch):
+    """Verifies POST /api/studio/init_spec and POST /api/studio/recreate_scene work end-to-end."""
+    class MockStudioLLM:
+        _last_used_provider_id = "test_studio_model"
+        def __init__(self):
+            self.call_count = 0
+
+        def generate_json(self, system_prompt, user_prompt, **kwargs):
+            self.call_count += 1
+            if "Scene 1:" in user_prompt:
+                return {
+                    "spoken_text": "The only part of your reflection you can lick is your tongue.",
+                    "stock_video_query": "soap carving cubes ASMR"
+                }
+            return {
+                "spoken_text": f"Grounded realization number {self.call_count} that is completely true.",
+                "stock_video_query": "kinetic sand squishing satisfying"
+            }
+
+    import engine.web_studio.server as server_module
+    monkeypatch.setattr(server_module, "LLMManager", MockStudioLLM)
+
+    async def _test():
+        secret_token = get_studio_secret()
+        client = await _make_client()
+        headers = {"X-Studio-Token": secret_token}
+        try:
+            # 1. Init spec
+            resp = await client.post("/api/studio/init_spec", headers=headers, json={"topic": "Mind Bending Paradoxes"})
+            assert resp.status == 200
+            data = await resp.json()
+            assert data["success"] is True
+            assert "session" in data
+            assert len(data["session"]["scenes"]) >= 3
+
+            # 2. Recreate Scene 1 (Hook)
+            resp_rec1 = await client.post("/api/studio/recreate_scene", headers=headers, json={"scene_id": 1})
+            assert resp_rec1.status == 200
+            data_rec1 = await resp_rec1.json()
+            assert data_rec1["success"] is True
+
+            # 3. Recreate Scene 2 (Premise)
+            resp_rec2 = await client.post("/api/studio/recreate_scene", headers=headers, json={"scene_id": 2})
+            assert resp_rec2.status == 200
+            data_rec2 = await resp_rec2.json()
+            assert data_rec2["success"] is True
+
+            # 4. Recreate Scene 3 (Body Thought)
+            resp_rec3 = await client.post("/api/studio/recreate_scene", headers=headers, json={"scene_id": 3})
+            assert resp_rec3.status == 200
+            data_rec3 = await resp_rec3.json()
+            assert data_rec3["success"] is True
+
+            # 5. Recreate Last Scene (BrainBlud Closer)
+            total = len(data["session"]["scenes"])
+            resp_rec_last = await client.post("/api/studio/recreate_scene", headers=headers, json={"scene_id": total})
+            assert resp_rec_last.status == 200
+            data_last = await resp_rec_last.json()
+            assert data_last["success"] is True
+            assert data_last["scene"]["spoken_text"].endswith((".", "!"))
+        finally:
+            await client.close()
+
+    run_async(_test())

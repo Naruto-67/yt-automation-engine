@@ -41,6 +41,7 @@ from engine.managers.editorial_critic import (
 from engine.managers.voice_normalizer import VoiceNormalizer
 from engine.managers.stock_video_manager import StockVideoManager, SHORTS_VISUAL_TAXONOMY
 from engine.managers.youtube_manager import YouTubeManager, is_test_mode
+from engine.managers.llm_manager import LLMManager
 
 # ─── SECURITY & AUTHENTICATION ────────────────────────────────────────────────
 
@@ -448,10 +449,11 @@ async def handle_init_spec(request: web.Request) -> web.Response:
 
     try:
         loop = asyncio.get_event_loop()
-        generator = IterativeScriptGenerator()
+        llm = LLMManager()
+        generator = IterativeScriptGenerator(llm_manager=llm)
 
         print(f"🎬 [STUDIO WIZARD] Generating 12-scene BrainBlud script chain for topic: '{topic}'...")
-        scenes, seo = await loop.run_in_executor(None, generator.generate_scene_chain, topic, 12)
+        scenes, seo = await loop.run_in_executor(None, generator.generate_scene_chain, topic)
 
         # Run Editorial Critic
         scenes, seo, audit_summary = audit_and_refine_spec(scenes, seo, topic)
@@ -528,13 +530,14 @@ async def handle_recreate_scene(request: web.Request) -> web.Response:
         used_queries = [s.get("stock_video_query") for s in other_scenes if s.get("stock_video_query")]
 
     loop = asyncio.get_event_loop()
-    generator = IterativeScriptGenerator()
+    llm = LLMManager()
+    generator = IterativeScriptGenerator(llm_manager=llm)
 
     try:
         new_scene = None
         if scene_id == 1:
             # Recreate Hook
-            new_scene = await loop.run_in_executor(None, generator._generate_hook, _session.topic, used_queries)
+            new_scene = await loop.run_in_executor(None, generator._generate_hook, _session.topic, "", used_queries)
         elif scene_id == 2:
             # Recreate Premise Card
             hook_text = _session.scenes[0].get("spoken_text", "")
