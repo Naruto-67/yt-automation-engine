@@ -194,11 +194,6 @@ class TopicInspector:
     @classmethod
     def record_topic_usage(cls, topic: str, summary: str = "", niche: str = "shower_thoughts") -> None:
         """Records a topic in persistent history to enforce anti-repetition cooldown."""
-        is_test = os.environ.get("TEST_MODE", "").lower() in ("true", "1")
-        if is_test:
-            print(f"🧪 [TEST MODE] Skipping persistent topic history logging for '{topic[:40]}...' (preserving for production).", flush=True)
-            return
-
         registry = cls.load_registry()
         topics_list = registry.setdefault("used_topics", [])
         if any(item.get("topic") == topic for item in topics_list[-5:]):
