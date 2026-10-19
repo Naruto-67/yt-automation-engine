@@ -19,20 +19,20 @@ from engine.managers.llm_manager import LLMManager
 VIRAL_SHORTS_THEMES = [
     "Shower thoughts that will completely ruin your perception of reality",
     "Uncomfortable shower thoughts that will keep you awake tonight",
-    "Shower thoughts that feel like glitches in the simulation",
+    "Shower thoughts that feel illegal to know",
     "Mind-bending psychological facts that sound completely fake",
     "Shower thoughts you should never overthink right before sleep",
     "Weird psychological facts that will mess with your head",
-    "Shower thoughts that prove human perception is a biological simulation",
+    "Shower thoughts that sound fake but are 100% true",
     "Mind-blowing shower thoughts that make too much sense",
     "Brain glitches that feel illegal to know",
     "Shower thoughts that break the laws of common sense",
     "Disturbing psychological facts about the human mind",
-    "Shower thoughts that will give you an existential crisis",
+    "Shower thoughts that break your daily autopilot",
     "Cognitive paradoxes that will break your brain",
     "Shower thoughts that prove reality is stranger than anything you can imagine",
     "Unsettling thoughts you will never be able to unthink",
-    "Shower thoughts that will make you question your own existence",
+    "Shower thoughts that nobody told you",
     "Psychological brain glitches you experience without realizing",
     "Shower thoughts that are terrifying if you think about them",
     "Facts about the human mind that feel like cheat codes",
@@ -194,6 +194,11 @@ class TopicInspector:
     @classmethod
     def record_topic_usage(cls, topic: str, summary: str = "", niche: str = "shower_thoughts") -> None:
         """Records a topic in persistent history to enforce anti-repetition cooldown."""
+        is_test = os.environ.get("TEST_MODE", "").lower() in ("true", "1")
+        if is_test:
+            print(f"🧪 [TEST MODE] Skipping persistent topic history logging for '{topic[:40]}...' (preserving for production).", flush=True)
+            return
+
         registry = cls.load_registry()
         topics_list = registry.setdefault("used_topics", [])
         if any(item.get("topic") == topic for item in topics_list[-5:]):
@@ -225,6 +230,8 @@ class TopicInspector:
         candidates = self._fetch_candidates(niche=niche, video_type=video_type)
         random.shuffle(candidates)
 
+        is_test = os.environ.get("TEST_MODE", "").lower() in ("true", "1")
+
         for candidate in candidates:
             # 1. Anti-repetition check
             if self.is_topic_recent(candidate):
@@ -235,7 +242,8 @@ class TopicInspector:
             fact_check_result = self._fact_check(candidate, niche=niche)
             if fact_check_result.get("verified", False):
                 print(f"✅ [TOPIC GATE] Verified topic passed: '{candidate[:60]}...'")
-                self.record_topic_usage(candidate, fact_check_result.get("summary", candidate), niche=niche)
+                if not is_test:
+                    self.record_topic_usage(candidate, fact_check_result.get("summary", candidate), niche=niche)
                 return {
                     "topic": candidate,
                     "verified_summary": fact_check_result.get("summary", candidate),
@@ -253,7 +261,8 @@ class TopicInspector:
             fallback = random.choice(target_pool)
 
         print(f"🛡️ [TOPIC GATE] Using verified evergreen topic: '{fallback[:60]}...'")
-        self.record_topic_usage(fallback, fallback, niche=niche)
+        if not is_test:
+            self.record_topic_usage(fallback, fallback, niche=niche)
         return {"topic": fallback, "verified_summary": fallback, "source": "curated_evergreen"}
 
     def fetch_youtube_trends(self, category_ids: Optional[List[int]] = None) -> List[str]:

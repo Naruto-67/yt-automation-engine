@@ -416,7 +416,8 @@ BRAINBLUD_CLOSERS = [
     "If you subscribe right now, your phone won't explode tomorrow.",
     "Drop your wildest shower thought below, and subscribe for more.",
     "Subscribe if you want your recommended feed to make you question reality.",
-    "You are now one minute closer to knowing everything about nothing."
+    "You are now one minute closer to knowing everything about nothing.",
+    "If you want to question reality every single day, subscribe."
 ]
 COMPILATION_LOOP_BRIDGES = BRAINBLUD_CLOSERS  # Backwards compatibility alias
 

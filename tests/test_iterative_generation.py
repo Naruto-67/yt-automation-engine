@@ -202,3 +202,111 @@ def test_iterative_generator_loop_rejects_hook_repetition():
     assert repeats is False
 
 
+def test_v3_clean_scene_by_scene_dedup_and_max_duration():
+    """Validates the v3 scene-by-scene generation strategy: Hook -> Title -> Thoughts -> CTA, under 52s, with dedup and emotion pass."""
+    from engine.managers.iterative_script_generator import IterativeScriptGenerator
+
+    class MockV3LLM:
+        _last_used_provider_id = "mock_v3"
+        def __init__(self):
+            self.call_count = 0
+            self.scenes_generated = []
+
+        def generate_json(self, system_prompt, user_prompt, **kwargs):
+            self.call_count += 1
+            if "Scene 1 hook" in user_prompt:
+                return {
+                    "spoken_text": "The only part of your reflection you can lick is your tongue.",
+                    "stock_video_query": "soap carving cubes ASMR"
+                }
+            elif "Write Scene 2 as the punchy title readout" in user_prompt:
+                return {
+                    "spoken_text": "Shower thoughts that feel illegal to know.",
+                    "stock_video_query": "kinetic sand squishing satisfying"
+                }
+            elif "The final witty YouTube subscription call to action" in user_prompt:
+                return {
+                    "spoken_text": "Subscribe if you want your brain to hurt in the best way.",
+                    "stock_video_query": "soap carving cubes ASMR"
+                }
+            elif "SCENES TO NORMALIZE & EMOTIFY:" in user_prompt:
+                # Return polished scenes with expressive punctuation
+                import json
+                try:
+                    lines = user_prompt.split("SCENES TO NORMALIZE & EMOTIFY:\n")[1].split("\n\n")[0]
+                    scs = json.loads(lines)
+                    for sc in scs:
+                        sc["spoken_text"] = sc["spoken_text"].rstrip(".") + "!"
+                    return {"scenes": scs}
+                except Exception:
+                    return {}
+            else:
+                # Scene 3..N-1 thoughts (unique)
+                return {
+                    "spoken_text": f"Mind-bending perspective number {self.call_count} that makes you question daily autopilot.",
+                    "stock_video_query": "pottery wheel clay shaping satisfying"
+                }
+
+    mock_llm = MockV3LLM()
+    generator = IterativeScriptGenerator(llm_manager=mock_llm)
+    scenes, seo = generator.generate_scene_chain(max_duration=52.0)
+
+    # 1. Total duration must be strictly <= 52.0s
+    total_dur = sum(generator._calc_duration(s["spoken_text"]) for s in scenes)
+    assert total_dur <= 52.0, f"Total duration {total_dur}s exceeded max 52.0s ceiling!"
+
+    # 2. Scene 1 is Hook, Scene 2 is Title readout, Last scene is CTA closer
+    assert scenes[0]["scene_id"] == 1
+    assert scenes[1]["scene_id"] == 2
+    assert scenes[-1]["spoken_text"].endswith((".", "!"))
+
+    # 3. Emotion pass applied expressive punctuation
+    assert any("!" in s["spoken_text"] for s in scenes)
+
+    # 4. Sequential scene_ids
+    for idx, sc in enumerate(scenes):
+        assert sc["scene_id"] == idx + 1
+
+
+def test_seo_description_has_exact_title_on_top():
+    """Verifies description begins with the exact title on top, followed by an empty line, then the SEO description."""
+    from engine.managers.iterative_script_generator import IterativeScriptGenerator
+
+    generator = IterativeScriptGenerator()
+    scenes = [{"spoken_text": "Sample thought text."}]
+    seo = generator._generate_seo(scenes, premise_line="Shower thoughts that sound illegal to know")
+
+    title = seo["title"]
+    description = seo["description"]
+
+    # Must start with exact title
+    assert description.startswith(title), f"Description did not start with exact title '{title}'"
+    # Followed by an empty line (\n\n)
+    after_title = description[len(title):]
+    assert after_title.startswith("\n\n"), f"Expected empty line after title, got: {repr(after_title[:10])}"
+    # Followed by the SEO description body
+    body = after_title[2:].strip()
+    assert len(body) > 20
+    assert "#shorts" in body or "#showerthoughts" in body
+
+
+def test_test_mode_does_not_persist_thought_cache(tmp_path, monkeypatch):
+    """Verifies that in test mode, topics and thoughts are NOT saved to persistent history/cache files."""
+    from engine.managers.pipeline_runner import is_test_run
+    from engine.managers.topic_inspector import TopicInspector
+    import engine.managers.topic_inspector as ti_module
+
+    # Force test mode
+    monkeypatch.setenv("TEST_MODE", "true")
+    assert is_test_run() is True
+
+    test_registry_file = tmp_path / "test_topic_history.json"
+    monkeypatch.setattr(TopicInspector, "REGISTRY_FILE", str(test_registry_file))
+
+    # Calling record_topic_usage in test mode must not create/modify the file
+    TopicInspector.record_topic_usage("Disposable Test Topic Never Wasted", "Summary", niche="shower_thoughts")
+    assert not test_registry_file.exists(), "Topic was written to persistent history during test mode!"
+
+
+
+

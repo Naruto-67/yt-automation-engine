@@ -216,6 +216,10 @@ class StockVideoManager:
     @classmethod
     def record_clip_usage(cls, video_id: str, provider: str, query: str) -> None:
         """Records a video clip ID in persistent history to enforce cooldown."""
+        is_test = os.environ.get("TEST_MODE", "").lower() in ("true", "1")
+        if is_test:
+            return
+
         registry = cls.load_registry()
         registry.setdefault("used_clips", {})[str(video_id)] = {
             "timestamp": time.time(),

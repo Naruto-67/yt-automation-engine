@@ -1235,7 +1235,7 @@ def test_calculate_collision_free_publish_time_collision_advance(monkeypatch):
         "items": [{"contentDetails": {"videoId": "vid_1"}}]
     }
     mock_yt.videos().list().execute.return_value = {
-        "items": [{"status": {"publishAt": f"{target_today}T18:00:00Z"}}]
+        "items": [{"status": {"publishAt": f"{target_today}T{h:02d}:00:00Z"}} for h in [1, 14, 18, 22]]
     }
     
     pub_iso = mgr.calculate_collision_free_publish_time(mock_yt)

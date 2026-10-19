@@ -1,0 +1,1150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TOPATO Engine — Complete Function-Level System Graph Web</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    :root {
+      --bg: #070a12;
+      --card-bg: rgba(13, 20, 36, 0.94);
+      --border: rgba(255, 255, 255, 0.08);
+      --text: #e2e8f0;
+      --muted: #8b9bb4;
+    }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+      overflow: hidden;
+      user-select: none;
+    }
+    .grid-bg {
+      background-image: 
+        radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.05) 1px, transparent 0);
+      background-size: 32px 32px;
+    }
+    @keyframes pulse-ring {
+      0% { transform: scale(0.95); opacity: 0.9; }
+      50% { transform: scale(1.18); opacity: 0.3; }
+      100% { transform: scale(0.95); opacity: 0.9; }
+    }
+    .active-pulse {
+      animation: pulse-ring 2.2s infinite ease-in-out;
+    }
+    @keyframes dash {
+      to { stroke-dashoffset: -24; }
+    }
+    .animated-edge {
+      animation: dash 1.2s linear infinite;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 9999px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.3);
+    }
+  </style>
+</head>
+<body class="w-screen h-screen m-0 p-0 flex flex-col grid-bg">
+
+  <!-- ══════════════════════════════════════════════════════════════════════════ -->
+  <!-- TOP CONTROL & SEARCH HEADER                                               -->
+  <!-- ══════════════════════════════════════════════════════════════════════════ -->
+  <header class="h-16 border-b border-white/10 bg-slate-950/90 backdrop-blur-md px-6 flex items-center justify-between z-30 shrink-0">
+    <div class="flex items-center gap-4">
+      <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-purple-600 via-indigo-600 to-cyan-500 flex items-center justify-center font-black text-white text-lg shadow-lg shadow-purple-500/30">
+        T
+      </div>
+      <div>
+        <div class="flex items-center gap-2.5">
+          <h1 class="text-sm font-bold tracking-tight text-white">TOPATO Engine — Deep Function & Route Graph Web</h1>
+          <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">7 Columns • 45+ Functions</span>
+        </div>
+        <p class="text-[11px] text-slate-400">Aligned Architectural Map • Every Method, Caller, Callee & Issue Route</p>
+      </div>
+    </div>
+
+    <!-- Center: Search & Level-Of-Detail Toggle -->
+    <div class="flex items-center gap-3">
+      <!-- Search Bar -->
+      <div class="relative w-64">
+        <input id="graph-search" type="text" oninput="handleSearch(this.value)" placeholder="Search function, file, or concept..." class="w-full bg-slate-900 border border-white/10 focus:border-purple-500/60 rounded-xl px-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none transition">
+        <span class="absolute right-2.5 top-2 text-[10px] text-slate-500 font-mono">⌘F</span>
+      </div>
+
+      <!-- Level of Detail Toggle -->
+      <div class="flex items-center bg-slate-900 border border-white/10 rounded-xl p-0.5 text-xs">
+        <button id="lod-modules" onclick="setLOD('modules')" class="px-3 py-1 rounded-lg text-slate-400 hover:text-white transition font-medium">Modules</button>
+        <button id="lod-functions" onclick="setLOD('functions')" class="px-3 py-1 rounded-lg bg-purple-600 text-white font-semibold transition shadow-sm">All Functions</button>
+      </div>
+
+      <!-- Issue Route Tracer Dropdown -->
+      <div class="flex items-center gap-1.5 bg-slate-900 border border-purple-500/40 rounded-xl px-3 py-1 shadow-md shadow-purple-900/20">
+        <span class="text-[11px] font-bold text-purple-300 flex items-center gap-1">
+          <span class="w-1.5 h-1.5 rounded-full bg-purple-400 animate-ping"></span>
+          Issue:
+        </span>
+        <select id="issue-route-select" onchange="traceIssueRoute(this.value)" class="bg-transparent text-xs text-white font-medium focus:outline-none cursor-pointer max-w-[200px]">
+          <option value="none" class="bg-slate-900 text-slate-300">-- Trace Trouble Route --</option>
+          <option value="script_weird" class="bg-slate-900 text-purple-300">🚨 Scripts complex / weird / hallucinations</option>
+          <option value="audio_clipping" class="bg-slate-900 text-amber-300">🔊 Voiceover harsh / clipping / monotone</option>
+          <option value="broll_fail" class="bg-slate-900 text-cyan-300">🎬 Visuals missing / Pexels 429 rate limit</option>
+          <option value="github_ci_fail" class="bg-slate-900 text-red-300">☁️ GitHub Actions cloud render fails</option>
+          <option value="model_cooldown" class="bg-slate-900 text-yellow-300">🤖 LLM 400 error / 24h quarantine cooldown</option>
+          <option value="youtube_auth_fail" class="bg-slate-900 text-emerald-300">📤 YouTube upload 401 unauthorized</option>
+        </select>
+        <button onclick="resetGraphView()" class="text-[10px] px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded font-medium transition" title="Reset view">Reset</button>
+      </div>
+
+      <!-- View Controls -->
+      <div class="flex items-center bg-slate-900 border border-white/10 rounded-xl p-1 gap-1">
+        <button onclick="zoomBy(1.15)" class="w-7 h-7 rounded-lg hover:bg-white/10 flex items-center justify-center text-slate-300 font-bold" title="Zoom In">+</button>
+        <button onclick="zoomBy(0.85)" class="w-7 h-7 rounded-lg hover:bg-white/10 flex items-center justify-center text-slate-300 font-bold" title="Zoom Out">−</button>
+        <button onclick="realignGrid()" class="px-2.5 h-7 rounded-lg hover:bg-white/10 flex items-center justify-center text-xs text-slate-300 font-semibold" title="Re-align Grid Layout">Align</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ══════════════════════════════════════════════════════════════════════════ -->
+  <!-- COLUMN HEADERS BANNER (ALIGNED STAGES)                                    -->
+  <!-- ══════════════════════════════════════════════════════════════════════════ -->
+  <div id="column-headers-banner" class="h-10 bg-slate-950/70 border-b border-white/5 flex items-center px-6 z-20 shrink-0 text-xs font-semibold text-slate-400 overflow-hidden">
+    <!-- Headers synchronized with canvas pan/zoom -->
+    <div id="column-headers-inner" class="flex gap-16 transition-transform">
+      <div class="w-[340px] flex items-center gap-2 text-indigo-400"><span class="w-2 h-2 rounded-full bg-indigo-500"></span>STAGE 0: Triggers & Dispatch</div>
+      <div class="w-[340px] flex items-center gap-2 text-fuchsia-400"><span class="w-2 h-2 rounded-full bg-fuchsia-500"></span>STAGE 1A: Topic & Grounding</div>
+      <div class="w-[340px] flex items-center gap-2 text-purple-400"><span class="w-2 h-2 rounded-full bg-purple-500"></span>STAGE 1B: Script Gen & LLM Router</div>
+      <div class="w-[340px] flex items-center gap-2 text-rose-400"><span class="w-2 h-2 rounded-full bg-rose-500"></span>STAGE 1C: Editorial Critic & Quality</div>
+      <div class="w-[340px] flex items-center gap-2 text-amber-400"><span class="w-2 h-2 rounded-full bg-amber-500"></span>STAGE 2: Voiceover & Audio Mastering</div>
+      <div class="w-[340px] flex items-center gap-2 text-cyan-400"><span class="w-2 h-2 rounded-full bg-cyan-500"></span>STAGE 3: Visuals & B-Roll Sourcing</div>
+      <div class="w-[340px] flex items-center gap-2 text-emerald-400"><span class="w-2 h-2 rounded-full bg-emerald-500"></span>STAGE 4: Video Compositing & Release</div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════════ -->
+  <!-- MAIN GRAPH INTERACTIVE VIEWPORT                                          -->
+  <!-- ══════════════════════════════════════════════════════════════════════════ -->
+  <main class="relative flex-1 w-full h-full overflow-hidden">
+    <!-- SVG Canvas for Edges, Curved Connectors & Glows -->
+    <svg id="graph-svg" class="absolute inset-0 w-full h-full pointer-events-none z-0">
+      <defs>
+        <linearGradient id="edge-grad-default" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#4f46e5" stop-opacity="0.3"/>
+          <stop offset="100%" stop-color="#9333ea" stop-opacity="0.3"/>
+        </linearGradient>
+        <marker id="arrow-default" viewBox="0 0 10 10" refX="22" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 1 L 9 5 L 0 9 z" fill="#6366f1" opacity="0.6"/>
+        </marker>
+        <marker id="arrow-active" viewBox="0 0 10 10" refX="22" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 1 L 9 5 L 0 9 z" fill="#38bdf8"/>
+        </marker>
+        <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur stdDeviation="3.5" result="blur" />
+          <feComposite in="SourceGraphic" in2="blur" operator="over" />
+        </filter>
+      </defs>
+      <g id="edges-group"></g>
+    </svg>
+
+    <!-- HTML Nodes Container (Transforms with Pan/Zoom) -->
+    <div id="nodes-container" class="absolute inset-0 w-full h-full z-10 pointer-events-auto">
+      <!-- Generated via JS -->
+    </div>
+
+    <!-- ════════════════════════════════════════════════════════════════════════ -->
+    <!-- RIGHT SLIDE-OVER FUNCTION INSPECTOR SHEET                               -->
+    <!-- ════════════════════════════════════════════════════════════════════════ -->
+    <div id="node-drawer" class="absolute top-4 right-4 bottom-4 w-[420px] bg-slate-900/98 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl p-6 z-30 flex flex-col justify-between transform translate-x-[110%] transition-transform duration-300 ease-out custom-scrollbar overflow-y-auto">
+      <div class="space-y-4">
+        <!-- Drawer Header -->
+        <div class="flex items-start justify-between">
+          <div class="space-y-1">
+            <div class="flex items-center gap-2">
+              <span id="drawer-type" class="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide uppercase bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                FUNCTION
+              </span>
+              <span id="drawer-subsystem" class="text-[11px] font-semibold text-slate-400">STAGE 1</span>
+            </div>
+            <h2 id="drawer-title" class="text-base font-bold text-white tracking-tight font-mono">function_name()</h2>
+          </div>
+          <button onclick="closeDrawer()" class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition">
+            ✕
+          </button>
+        </div>
+
+        <!-- Signature Box -->
+        <div class="space-y-1 bg-slate-950 p-3 rounded-xl border border-white/10">
+          <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Function Signature</span>
+          <pre id="drawer-sig" class="font-mono text-xs text-purple-300 overflow-x-auto whitespace-pre-wrap select-all">def func(arg: type) -> type:</pre>
+        </div>
+
+        <p id="drawer-desc" class="text-xs text-slate-300 leading-relaxed">
+          Function description goes here.
+        </p>
+
+        <!-- Source File & Line Range -->
+        <div class="space-y-1 bg-slate-950/70 p-3 rounded-xl border border-white/5">
+          <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Source Location</span>
+          <div class="font-mono text-xs text-indigo-300 truncate" id="drawer-file">engine/...</div>
+        </div>
+
+        <!-- Inbound Callers & Outbound Callees -->
+        <div class="grid grid-cols-2 gap-2 text-xs">
+          <div class="bg-slate-950/70 p-2.5 rounded-xl border border-white/5 space-y-1">
+            <span class="text-[10px] font-bold uppercase text-slate-400">Called By (Inbound)</span>
+            <div id="drawer-inbound" class="text-slate-300 space-y-1 font-mono text-[11px]">None</div>
+          </div>
+          <div class="bg-slate-950/70 p-2.5 rounded-xl border border-white/5 space-y-1">
+            <span class="text-[10px] font-bold uppercase text-slate-400">Calls (Outbound)</span>
+            <div id="drawer-outbound" class="text-slate-300 space-y-1 font-mono text-[11px]">None</div>
+          </div>
+        </div>
+
+        <!-- Failure Modes / Common Issues -->
+        <div class="space-y-2">
+          <span class="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+            <span>⚠️</span> Known Failure Modes & Diagnostic Path
+          </span>
+          <div id="drawer-issues" class="text-xs text-slate-300 bg-amber-500/5 border border-amber-500/20 p-3 rounded-xl space-y-2 leading-relaxed">
+            No specific issues listed.
+          </div>
+        </div>
+
+        <!-- Test Command -->
+        <div class="space-y-1.5">
+          <span class="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+            <span>🛠️</span> Instant Verification Command
+          </span>
+          <pre id="drawer-cmd" class="text-[11px] font-mono bg-slate-950 p-2.5 rounded-xl border border-white/10 text-emerald-300 overflow-x-auto select-all">python -m pytest</pre>
+        </div>
+      </div>
+
+      <div class="pt-4 border-t border-white/10 text-center">
+        <span class="text-[11px] text-slate-400">Click any connected caller/callee to trace the pipeline</span>
+      </div>
+    </div>
+  </main>
+
+  <!-- ══════════════════════════════════════════════════════════════════════════ -->
+  <!-- COMPLETE FUNCTION DATA & ALIGNED GRAPH ENGINE                             -->
+  <!-- ══════════════════════════════════════════════════════════════════════════ -->
+  <script>
+    // ── 7-Column Layout Metrics ────────────────────────────────────────────────
+    const COL_WIDTH = 340;
+    const COL_GAP = 60;
+    const START_X = 60;
+    const START_Y = 40;
+    const NODE_SPACING_Y = 16;
+
+    // ── Complete System Functions & Nodes Catalog ──────────────────────────────
+    const RAW_NODES = [
+      // ══════════════════════════════════════════════════════════════════════════
+      // COLUMN 0: TRIGGERS & DISPATCH (X: 0)
+      // ══════════════════════════════════════════════════════════════════════════
+      {
+        id: 'web_studio_server',
+        name: 'WebStudio: aiohttp App Server',
+        type: 'class',
+        col: 0,
+        file: 'engine/web_studio/server.py',
+        sig: 'class WebStudioServer / run_app(host="127.0.0.1", port=8765)',
+        desc: 'Local browser control tower (http://127.0.0.1:8765). Automatically sets studio_token cookie and injects secret on index load.',
+        inbound: ['User Browser (Port 8765)'],
+        outbound: ['api_init_spec', 'api_github_dispatch', 'api_approve_upload'],
+        issues: '• 401 Unauthorized: Cookie handshake auto-injects __STUDIO_SECRET__.<br>• Port conflict: change via --port arg.',
+        cmd: 'python scripts/run_studio.py',
+        functions: ['handle_index', 'studio_auth_middleware', 'handle_ws_logs']
+      },
+      {
+        id: 'api_github_dispatch',
+        name: 'api_github_dispatch()',
+        type: 'function',
+        col: 0,
+        file: 'engine/web_studio/server.py',
+        sig: 'async def api_github_dispatch(request: web.Request) -> web.Response',
+        desc: 'Triggers remote execution on GitHub Actions Ubuntu runners using repository dispatch event. Completely frees local CPU/GPU.',
+        inbound: ['web_studio_server'],
+        outbound: ['gh_workflow_pipeline'],
+        issues: '• Missing GitHub PAT: user can set PAT in Web Studio Settings modal.',
+        cmd: 'python -m pytest tests/test_web_studio.py -k dispatch'
+      },
+      {
+        id: 'gh_workflow_pipeline',
+        name: 'master_pipeline.yml (Cloud Runner)',
+        type: 'workflow',
+        col: 0,
+        file: '.github/workflows/master_pipeline.yml',
+        sig: 'workflow_dispatch / schedule(cron) on ubuntu-24.04',
+        desc: 'Cloud CI/CD execution pipeline. Installs Kokoro, FFmpeg, runs all 4 stages, and uploads rendered MP4s as downloadable workflow artifacts.',
+        inbound: ['api_github_dispatch', 'Scheduled Cron'],
+        outbound: ['cli_run_spec_stage', 'cli_run_clips_stage', 'cli_run_editor_stage', 'cli_run_release_stage'],
+        issues: '• Optional import NameError: resolved via __future__ annotations.<br>• Secrets missing: check repo secrets.',
+        cmd: 'gh workflow view master_pipeline.yml'
+      },
+      {
+        id: 'cli_pipeline_runner',
+        name: 'pipeline_runner.py (CLI Orchestrator)',
+        type: 'class',
+        col: 0,
+        file: 'engine/managers/pipeline_runner.py',
+        sig: 'python -m engine.managers.pipeline_runner --stage spec|clips|editor|release',
+        desc: 'Master CLI dispatch coordinator managing data exchange between all 4 stages via JSON spec files in output/.',
+        inbound: ['gh_workflow_pipeline', 'Local Terminal'],
+        outbound: ['cli_run_spec_stage', 'cli_run_clips_stage', 'cli_run_editor_stage', 'cli_run_release_stage'],
+        issues: '• State desync: stage files written to output/spec_output.json.',
+        cmd: 'python -m engine.managers.pipeline_runner --stage spec --test-mode'
+      },
+
+      // ══════════════════════════════════════════════════════════════════════════
+      // COLUMN 1: STAGE 1A: TOPIC & GROUNDING (X: 1)
+      // ══════════════════════════════════════════════════════════════════════════
+      {
+        id: 'competitor_spy_get_surge',
+        name: 'CompetitorSpy.get_surge_topic()',
+        type: 'function',
+        col: 1,
+        file: 'engine/managers/competitor_spy.py',
+        sig: 'def get_surge_topic(competitors: List[Dict]) -> Optional[Dict[str, Any]]',
+        desc: 'Scrapes competitor channels (e.g., @BrainBlud) to detect velocity spikes and high-CTR viral topic formats.',
+        inbound: ['cli_run_spec_stage'],
+        outbound: ['topic_inspector_discover'],
+        issues: '• Scraping blocked: falls back to TopicInspector vault discovery automatically.',
+        cmd: 'python -m pytest tests/test_v2_managers.py -k competitor'
+      },
+      {
+        id: 'topic_inspector_discover',
+        name: 'TopicInspector.discover_verified_topic()',
+        type: 'function',
+        col: 1,
+        file: 'engine/managers/topic_inspector.py',
+        sig: 'def discover_verified_topic(niche: str, video_type: str) -> Dict[str, Any]',
+        desc: 'Picks fresh topic from Reddit r/Showerthoughts or curated themes, ensuring zero overlap with memory/topic_history.json.',
+        inbound: ['competitor_spy_get_surge', 'cli_run_spec_stage'],
+        outbound: ['topic_inspector_get_grounding', 'prompt_user_template'],
+        issues: '• Stale topics: checks Jaccard token overlap against last 50 topics.',
+        cmd: 'python -m pytest tests/test_v2_managers.py -k topic'
+      },
+      {
+        id: 'topic_inspector_get_grounding',
+        name: 'TopicInspector.get_grounding_references()',
+        type: 'function',
+        col: 1,
+        file: 'engine/managers/topic_inspector.py',
+        sig: 'def get_grounding_references(count: int = 5) -> List[Dict[str, str]]',
+        desc: 'Samples verified real-world facts/thoughts from data/curated_thoughts_and_facts.json across 5 cognitive angles.',
+        inbound: ['topic_inspector_discover'],
+        outbound: ['prompt_user_template'],
+        issues: '• Hallucination prevention: injects concrete verified human facts into LLM context.',
+        cmd: 'python -c "from engine.managers.topic_inspector import TopicInspector; print(len(TopicInspector.get_grounding_references(5)))"'
+      },
+      {
+        id: 'jaccard_dedup',
+        name: 'are_thoughts_similar() [Jaccard]',
+        type: 'function',
+        col: 1,
+        file: 'engine/managers/pipeline_runner.py',
+        sig: 'def are_thoughts_similar(text_a: str, text_b: str, threshold: float = 0.45) -> bool',
+        desc: 'Calculates word token intersection over union (ignoring stopwords) to block semantic duplicates and 1-word variants.',
+        inbound: ['cli_run_spec_stage', 'calibrate_guard'],
+        outbound: ['calibrate_guard'],
+        issues: '• False duplicates: stopwords filtered out to avoid false rejections.',
+        cmd: 'python -m pytest tests/test_v2_managers.py -k similar'
+      },
+
+      // ══════════════════════════════════════════════════════════════════════════
+      // COLUMN 2: STAGE 1B: SCRIPT GEN & LLM ROUTER (X: 2)
+      // ══════════════════════════════════════════════════════════════════════════
+      {
+        id: 'prompts_config',
+        name: 'config/prompts.yaml',
+        type: 'config',
+        col: 2,
+        file: 'config/prompts.yaml',
+        sig: 'YAML: script_gen.system_prompt + user_template',
+        desc: 'Mandates 11-14 scenes (150-180 spoken words, 50-58s duration), 5-angle rotation, Wall Test rules, and witty CTA closers.',
+        inbound: ['topic_inspector_discover'],
+        outbound: ['llm_manager_generate_json', 'iterative_generator_full'],
+        issues: '• Scripts too complex/weird: contradictory instructions (e.g. ellipsis loop vs punchy CTA) or prompt bloat.',
+        cmd: 'python -c "import yaml; yaml.safe_load(open(\'config/prompts.yaml\'))"'
+      },
+      {
+        id: 'llm_manager_generate_json',
+        name: 'LLMManager.generate_json()',
+        type: 'function',
+        col: 2,
+        file: 'engine/managers/llm_manager.py',
+        sig: 'def generate_json(system_prompt, user_prompt, task_name="script_gen") -> Dict',
+        desc: 'Multi-provider failover router (Gemini 2.5 Flash -> Groq LLaMA 3.3 70B -> OpenRouter -> GitHub Models). Enforces task temperature (0.5).',
+        inbound: ['prompts_config', 'cli_run_spec_stage', 'iterative_generator_full'],
+        outbound: ['llm_strip_params', 'iterative_generator_full'],
+        issues: '• Provider 404/rate limit: automatically cascades to next available free provider in cascade.',
+        cmd: 'python -m pytest tests/test_llm_router.py'
+      },
+      {
+        id: 'llm_strip_params',
+        name: 'LLMManager._execute_provider_call()',
+        type: 'function',
+        col: 2,
+        file: 'engine/managers/llm_manager.py',
+        sig: 'def _execute_provider_call(provider, payload, ...) -> Response',
+        desc: 'Auto-heals provider 400 errors: strips temperature on Gemini preview/thinking models and removes response_format on Groq.',
+        inbound: ['llm_manager_generate_json'],
+        outbound: ['iterative_generator_full'],
+        issues: '• HTTP 400 invalid_parameter: dynamically sanitized in auto-healing retry block.',
+        cmd: 'python -m pytest tests/test_llm_router.py -k auto_heal'
+      },
+      {
+        id: 'iterative_generator_full',
+        name: 'IterativeScriptGenerator.generate_scene_chain()',
+        type: 'function',
+        col: 2,
+        file: 'engine/managers/iterative_script_generator.py',
+        sig: 'def generate_scene_chain(max_duration: float = 52.0) -> Tuple[List[Dict], Dict]',
+        desc: 'Executes v3.0 scene-by-scene generation: S1 (Hook) -> S2 (Title Readout) -> S3..N-1 (Thoughts & Facts) -> SN (Witty CTA), with per-scene dedup, duration guard (max 52s), and AI emotion pass for Kokoro TTS.',
+        inbound: ['llm_manager_generate_json', 'prompts_config'],
+        outbound: ['editorial_critic_master', 'voice_normalizer_synthesize'],
+        issues: '• Duration overflow: strictly capped <= 52.0s. Monotone voiceover: normalized with expressive punctuation (? ! , — .).',
+        cmd: 'python -m pytest tests/test_iterative_generation.py -k v3'
+      },
+      {
+        id: 'calibrate_guard',
+        name: 'calibrate_and_guard_script()',
+        type: 'function',
+        col: 2,
+        file: 'engine/managers/pipeline_runner.py',
+        sig: 'def calibrate_and_guard_script(raw_scenes, target_duration) -> List[Dict]',
+        desc: 'Pads or trims scenes to guarantee strict 45-59s Short duration. Injects curated thoughts if LLM returned fewer than 11 scenes.',
+        inbound: ['iterative_generator_full', 'jaccard_dedup'],
+        outbound: ['editorial_critic_master'],
+        issues: '• Shorts too short/long: enforces minimum 150 words and maximum 180 words.',
+        cmd: 'python -m pytest tests/test_discovery_calibration.py'
+      },
+
+      // ══════════════════════════════════════════════════════════════════════════
+      // COLUMN 3: STAGE 1C: EDITORIAL CRITIC & QUALITY (X: 3)
+      // ══════════════════════════════════════════════════════════════════════════
+      {
+        id: 'wall_test_auditor',
+        name: 'CynicalHumanAuditor.audit_text() [Wall Test]',
+        type: 'function',
+        col: 3,
+        file: 'engine/managers/editorial_critic.py',
+        sig: 'def audit_text(text: str) -> Tuple[bool, str]',
+        desc: 'The Wall Test: Flags and blocks solipsistic / nihilistic phrases ("world doesn\'t exist when you close your eyes", "nothing is real").',
+        inbound: ['editorial_critic_master'],
+        outbound: ['wall_test_sanitize', 'llm_quality_tracker_record'],
+        issues: '• Viewer backlash on fake-deep nihilism: rejected and replaced with defensible physical reality.',
+        cmd: 'python -m pytest tests/test_editorial_and_quality.py -k wall_test'
+      },
+      {
+        id: 'wall_test_sanitize',
+        name: 'CynicalHumanAuditor.sanitize_scene()',
+        type: 'function',
+        col: 3,
+        file: 'engine/managers/editorial_critic.py',
+        sig: 'def sanitize_scene(scene: Dict, replacement_thoughts: List[str]) -> Dict',
+        desc: 'Replaces offending solipsistic scene text with a pre-vetted perspective shift from data/curated_thoughts_and_facts.json.',
+        inbound: ['wall_test_auditor'],
+        outbound: ['editorial_critic_master'],
+        issues: '• Scene text replacement: marks scene with _editorial_replaced flag.',
+        cmd: 'python -m pytest tests/test_editorial_and_quality.py -k sanitize'
+      },
+      {
+        id: 'hook_auditor',
+        name: 'HookAuditorSkill.audit_hook()',
+        type: 'function',
+        col: 3,
+        file: 'engine/managers/editorial_critic.py',
+        sig: 'def audit_hook(scene_text: str) -> Tuple[bool, str]',
+        desc: '3-Second Reality Check: Scene 1 must be undeniable and in-media-res. Strips banned openers ("Did you know", "Hey guys") and leading punctuation.',
+        inbound: ['editorial_critic_master'],
+        outbound: ['editorial_critic_master'],
+        issues: '• Slow openings: guarantees immediate engagement without filler.',
+        cmd: 'python -m pytest tests/test_editorial_and_quality.py -k hook'
+      },
+      {
+        id: 'title_alignment',
+        name: 'TitleScriptAlignmentSkill.align_title()',
+        type: 'function',
+        col: 3,
+        file: 'engine/managers/editorial_critic.py',
+        sig: 'def align_title(title: str, scenes: List[Dict]) -> str',
+        desc: 'Truth-in-Packaging: Replaces single-claim extreme clickbait with high-CTR umbrella compilation titles (e.g. "Shower Thoughts That Blow Minds 🤯 #shorts").',
+        inbound: ['editorial_critic_master'],
+        outbound: ['editorial_critic_master'],
+        issues: '• Disconnected titles: prevents viewer disappointment by aligning title with multi-scene listicle format.',
+        cmd: 'python -m pytest tests/test_editorial_and_quality.py -k title'
+      },
+      {
+        id: 'editorial_critic_master',
+        name: 'audit_and_refine_spec() [Master Critic]',
+        type: 'function',
+        col: 3,
+        file: 'engine/managers/editorial_critic.py',
+        sig: 'def audit_and_refine_spec(raw_scenes, seo_data, topic) -> (scenes, seo, log)',
+        desc: 'Master quality hook called right after script calibration in pipeline_runner.py. Runs Hook, Wall Test, and Title Alignment.',
+        inbound: ['calibrate_guard'],
+        outbound: ['wall_test_auditor', 'hook_auditor', 'title_alignment', 'llm_quality_tracker_record', 'kokoro_synthesize'],
+        issues: '• Unaudited scripts: runs automatically before TTS voice synthesis.',
+        cmd: 'python -m pytest tests/test_editorial_and_quality.py -k full_pipeline'
+      },
+      {
+        id: 'llm_quality_tracker_record',
+        name: 'LLMQualityTracker.record_result()',
+        type: 'function',
+        col: 3,
+        file: 'engine/managers/llm_quality_tracker.py',
+        sig: 'def record_result(model_id, wall_failures, wall_replacements, passed_first) -> None',
+        desc: 'Rewards model (+0.05) or penalizes (-0.15). If a model fails twice consecutively, triggers a 24-hour quarantine cooldown for script generation.',
+        inbound: ['editorial_critic_master'],
+        outbound: ['llm_manager_generate_json'],
+        issues: '• Quarantined models: auto-skipped by LLM router during cooldown window.',
+        cmd: 'python -m pytest tests/test_editorial_and_quality.py -k quality_tracker'
+      },
+
+      // ══════════════════════════════════════════════════════════════════════════
+      // COLUMN 4: STAGE 2: VOICEOVER & AUDIO MASTERING (X: 4)
+      // ══════════════════════════════════════════════════════════════════════════
+      {
+        id: 'kokoro_synthesize',
+        name: 'KokoroTTS.synthesize_speech()',
+        type: 'function',
+        col: 4,
+        file: 'scripts/generate_voice.py',
+        sig: 'def synthesize_speech(text: str, output_path: str, voice: str) -> str',
+        desc: 'High-speed neural TTS running on Kokoro-82M. Converts punctuation (?, !, —, ...) into expressive vocal inflection and curiosity cadence.',
+        inbound: ['editorial_critic_master', 'cli_run_spec_stage'],
+        outbound: ['voice_normalizer_master', 'caption_aligner_whisper'],
+        issues: '• Monotone audio: ensure prompt injects commas and rhetorical questions.<br>• Torch install: runs in cloud runner.',
+        cmd: 'python -m pytest tests/test_v2_managers.py -k voice'
+      },
+      {
+        id: 'voice_normalizer_master',
+        name: 'VoiceNormalizer.normalize_loudness()',
+        type: 'function',
+        col: 4,
+        file: 'engine/managers/voice_normalizer.py',
+        sig: 'def normalize_loudness(audio_path, target_lufs=-14.0) -> str',
+        desc: 'EBU R128 integrated loudness normalization locked strictly to -14.0 LUFS with -1.0 dB true-peak ceiling. Zero clipping.',
+        inbound: ['kokoro_synthesize'],
+        outbound: ['ffmpeg_compositor'],
+        issues: '• Audio clipping / harsh spikes: multi-band compressor tames dynamics.',
+        cmd: 'python -m pytest tests/test_v2_managers.py -k normalizer'
+      },
+      {
+        id: 'caption_aligner_whisper',
+        name: 'CaptionAligner.align_scene_audio()',
+        type: 'function',
+        col: 4,
+        file: 'engine/managers/caption_aligner.py',
+        sig: 'def align_scene_audio(audio_path, text) -> List[WordTimestamp]',
+        desc: 'Uses OpenAI Whisper millisecond alignment to extract exact start/end timestamps for every spoken word.',
+        inbound: ['kokoro_synthesize'],
+        outbound: ['caption_generate_ass'],
+        issues: '• Desynced words: word tokens mapped strictly to actual audio duration.',
+        cmd: 'python -m pytest tests/test_v2_managers.py -k caption'
+      },
+      {
+        id: 'caption_generate_ass',
+        name: 'CaptionAligner.generate_ass_subtitles()',
+        type: 'function',
+        col: 4,
+        file: 'engine/managers/caption_aligner.py',
+        sig: 'def generate_ass_subtitles(timestamps) -> str',
+        desc: 'Generates styled ASS subtitle file with animated active-word scale-bounce (115% size) and custom neon fill color.',
+        inbound: ['caption_aligner_whisper'],
+        outbound: ['ffmpeg_compositor'],
+        issues: '• Subtitle styling: font size and positioning optimized for 9:16 mobile screen.',
+        cmd: 'python -m pytest tests/test_v2_managers.py -k ass'
+      },
+      {
+        id: 'music_manager_duck',
+        name: 'MusicManager.apply_smart_ducking()',
+        type: 'function',
+        col: 4,
+        file: 'engine/managers/music_manager.py',
+        sig: 'def apply_smart_ducking(music_path, speech_path) -> str',
+        desc: 'Intelligent sidechain audio ducking: lowers background music by -18 dB during speech and raises volume during dramatic pauses.',
+        inbound: ['cli_run_editor_stage'],
+        outbound: ['ffmpeg_compositor'],
+        issues: '• Music drowning voice: sidechain compressor guarantees vocal intelligibility.',
+        cmd: 'python -m pytest tests/test_v2_managers.py -k music'
+      },
+
+      // ══════════════════════════════════════════════════════════════════════════
+      // COLUMN 5: STAGE 3: VISUALS & B-ROLL SOURCING (X: 5)
+      // ══════════════════════════════════════════════════════════════════════════
+      {
+        id: 'stock_video_fetch',
+        name: 'StockVideoManager.fetch_clip_for_query()',
+        type: 'function',
+        col: 5,
+        file: 'engine/managers/stock_video_manager.py',
+        sig: 'def fetch_clip_for_query(query: str, orientation="portrait") -> str',
+        desc: 'Queries Pexels HD Video API for vertical satisfying clips (soap cutting, kinetic sand, hydraulic press). Caches MP4s locally.',
+        inbound: ['cli_run_clips_stage'],
+        outbound: ['broll_vault_fallback', 'ffmpeg_crop_scale'],
+        issues: '• 429 Rate limit: auto-switches to offline B-roll vault.',
+        cmd: 'python -m pytest tests/test_v2_managers.py -k stock'
+      },
+      {
+        id: 'broll_vault_fallback',
+        name: 'StockVideoManager.get_vault_fallback()',
+        type: 'function',
+        col: 5,
+        file: 'engine/managers/stock_video_manager.py',
+        sig: 'def get_vault_fallback(scene_id: int) -> str',
+        desc: 'Pulls pre-verified satisfying HD video loops from assets/broll_vault/ (gaming, satisfying) when API is unavailable.',
+        inbound: ['stock_video_fetch'],
+        outbound: ['ffmpeg_crop_scale'],
+        issues: '• Offline safety: guarantees pipeline never fails even with zero internet or exhausted API keys.',
+        cmd: 'dir assets/broll_vault'
+      },
+      {
+        id: 'ffmpeg_crop_scale',
+        name: 'StockVideoManager.crop_and_scale_916()',
+        type: 'function',
+        col: 5,
+        file: 'engine/managers/stock_video_manager.py',
+        sig: 'def crop_and_scale_916(input_video, target_w=1080, target_h=1920) -> str',
+        desc: 'Center-crops and scales any input video into vertical 1080x1920 (9:16 portrait) with smooth frame rate conversion.',
+        inbound: ['stock_video_fetch', 'broll_vault_fallback'],
+        outbound: ['ffmpeg_compositor'],
+        issues: '• Black bars / pillarboxing: forced center crop ensures 100% full-screen mobile immersion.',
+        cmd: 'python -m pytest tests/test_v2_managers.py -k crop'
+      },
+
+      // ══════════════════════════════════════════════════════════════════════════
+      // COLUMN 6: STAGE 4: VIDEO COMPOSITING & RELEASE (X: 6)
+      // ══════════════════════════════════════════════════════════════════════════
+      {
+        id: 'ffmpeg_compositor',
+        name: 'render_video.py (FFmpeg Compositor)',
+        type: 'function',
+        col: 6,
+        file: 'scripts/render_video.py',
+        sig: 'def render_short(spec_data: Dict, output_path: str) -> str',
+        desc: 'Master FFmpeg assembly: concatenates scene B-roll, overlays animated bouncing ASS subtitles, mixes ducked audio and sound effects.',
+        inbound: ['voice_normalizer_master', 'caption_generate_ass', 'music_manager_duck', 'ffmpeg_crop_scale'],
+        outbound: ['youtube_upload', 'web_studio_server'],
+        issues: '• Render crashes: execute on cloud runner to utilize multi-core CPU and avoid local system lag.',
+        cmd: 'python -m pytest tests/test_video_renderer.py'
+      },
+      {
+        id: 'youtube_upload',
+        name: 'YouTubeManager.upload_short()',
+        type: 'function',
+        col: 6,
+        file: 'engine/managers/youtube_manager.py',
+        sig: 'def upload_short(video_path, title, desc, tags, publish_at) -> Dict',
+        desc: 'Stage 4: Authenticates via YouTube Data API v3 (DPAPI / OAuth2), uploads video as private/scheduled, and sets high-CTR metadata.',
+        inbound: ['ffmpeg_compositor', 'timing_intel_calc'],
+        outbound: ['youtube_set_comment', 'timing_intel_calc'],
+        issues: '• 401 Unauthorized: token expired; refresh credentials in Web Studio.',
+        cmd: 'python -m pytest tests/test_v2_managers.py -k youtube'
+      },
+      {
+        id: 'youtube_set_comment',
+        name: 'YouTubeManager.set_pinned_comment()',
+        type: 'function',
+        col: 6,
+        file: 'engine/managers/youtube_manager.py',
+        sig: 'def set_pinned_comment(video_id: str, comment_text: str) -> bool',
+        desc: 'Posts and pins a high-engagement subscriber prompt comment to boost initial audience comment velocity.',
+        inbound: ['youtube_upload'],
+        outbound: ['timing_intel_calc'],
+        issues: '• Comment permissions: requires channel owner credentials.',
+        cmd: 'python -m pytest tests/test_v2_managers.py -k comment'
+      },
+      {
+        id: 'timing_intel_calc',
+        name: 'TimingIntelligence.get_next_slot()',
+        type: 'function',
+        col: 6,
+        file: 'memory/timing_intelligence.json',
+        sig: 'JSON + def calculate_next_slot(current_queue: List) -> datetime',
+        desc: 'Schedules uploads across peak global engagement hours (14:00, 18:00, 22:00 UTC) with mandatory 6.0hr spacing.',
+        inbound: ['youtube_upload'],
+        outbound: ['youtube_upload'],
+        issues: '• Self-cannibalization: prevents releasing videos too close together.',
+        cmd: 'python -c "import json; print(json.load(open(\'memory/timing_intelligence.json\'))[\'ranked_hours\'])"'
+      }
+    ];
+
+    // ── Function-Level Edge Connections (Caller -> Callee) ──────────────────────
+    const RAW_EDGES = [
+      { from: 'web_studio_server', to: 'api_github_dispatch' },
+      { from: 'api_github_dispatch', to: 'gh_workflow_pipeline' },
+      { from: 'gh_workflow_pipeline', to: 'cli_pipeline_runner' },
+      { from: 'cli_pipeline_runner', to: 'competitor_spy_get_surge' },
+      { from: 'cli_pipeline_runner', to: 'topic_inspector_discover' },
+      { from: 'competitor_spy_get_surge', to: 'topic_inspector_discover' },
+      { from: 'topic_inspector_discover', to: 'topic_inspector_get_grounding' },
+      { from: 'topic_inspector_discover', to: 'prompts_config' },
+      { from: 'topic_inspector_get_grounding', to: 'prompts_config' },
+      { from: 'prompts_config', to: 'llm_manager_generate_json' },
+      { from: 'llm_manager_generate_json', to: 'llm_strip_params' },
+      { from: 'llm_strip_params', to: 'iterative_generator_full' },
+      { from: 'iterative_generator_full', to: 'jaccard_dedup' },
+      { from: 'jaccard_dedup', to: 'calibrate_guard' },
+      { from: 'iterative_generator_full', to: 'calibrate_guard' },
+      { from: 'calibrate_guard', to: 'editorial_critic_master' },
+      { from: 'editorial_critic_master', to: 'wall_test_auditor' },
+      { from: 'wall_test_auditor', to: 'wall_test_sanitize' },
+      { from: 'editorial_critic_master', to: 'hook_auditor' },
+      { from: 'editorial_critic_master', to: 'title_alignment' },
+      { from: 'editorial_critic_master', to: 'llm_quality_tracker_record' },
+      { from: 'llm_quality_tracker_record', to: 'llm_manager_generate_json' },
+      { from: 'editorial_critic_master', to: 'kokoro_synthesize' },
+      { from: 'kokoro_synthesize', to: 'voice_normalizer_master' },
+      { from: 'kokoro_synthesize', to: 'caption_aligner_whisper' },
+      { from: 'caption_aligner_whisper', to: 'caption_generate_ass' },
+      { from: 'cli_pipeline_runner', to: 'music_manager_duck' },
+      { from: 'cli_pipeline_runner', to: 'stock_video_fetch' },
+      { from: 'stock_video_fetch', to: 'broll_vault_fallback' },
+      { from: 'stock_video_fetch', to: 'ffmpeg_crop_scale' },
+      { from: 'broll_vault_fallback', to: 'ffmpeg_crop_scale' },
+      { from: 'voice_normalizer_master', to: 'ffmpeg_compositor' },
+      { from: 'caption_generate_ass', to: 'ffmpeg_compositor' },
+      { from: 'music_manager_duck', to: 'ffmpeg_compositor' },
+      { from: 'ffmpeg_crop_scale', to: 'ffmpeg_compositor' },
+      { from: 'ffmpeg_compositor', to: 'youtube_upload' },
+      { from: 'ffmpeg_compositor', to: 'web_studio_server' },
+      { from: 'youtube_upload', to: 'youtube_set_comment' },
+      { from: 'timing_intel_calc', to: 'youtube_upload' }
+    ];
+
+    // ── Pre-mapped Trouble Routes ──────────────────────────────────────────────
+    const TROUBLE_ROUTES = {
+      script_weird: {
+        title: "Scripts Are Too Complex, Weird, or Disconnected",
+        nodes: ['prompts_config', 'llm_manager_generate_json', 'llm_strip_params', 'iterative_generator_full', 'calibrate_guard', 'editorial_critic_master', 'wall_test_auditor', 'llm_quality_tracker_record'],
+        diagnostic: `
+          <div class="space-y-2">
+            <p class="font-bold text-purple-300">Exact Root Cause Identified:</p>
+            <p>1. <b>Contradictory Ending Rules in <code>config/prompts.yaml</code>:</b><br>
+               Line 14 mandated: <i>'MUST end with ellipsis (...) for circular loop'</i>.<br>
+               Line 34 mandated: <i>'Must end in period (.) or (!). NEVER end in (...)'</i>.<br>
+               Small LLMs produce bizarre Frankenstein phrasing trying to resolve both.</p>
+            <p>2. <b>Prompt Over-Engineering:</b> 5 angles + retention rules + duration rules + JSON schema creates cognitive overload. Simplify prompts to conversational, punchy tone.</p>
+            <p>3. <b>Temperature Tuning:</b> Ensure <code>llm_manager.py</code> locks <code>script_gen</code> to temperature <b>0.5</b> to stop hallucinating.</p>
+          </div>
+        `
+      },
+      audio_clipping: {
+        title: "Audio Clipping, Harsh Volume Spikes, or TTS Monotone",
+        nodes: ['kokoro_synthesize', 'voice_normalizer_master', 'caption_aligner_whisper', 'music_manager_duck', 'ffmpeg_compositor'],
+        diagnostic: `
+          <div class="space-y-2">
+            <p class="font-bold text-amber-300">Exact Root Cause Identified:</p>
+            <p>1. <b>Punctuation Modulation:</b> Kokoro requires commas (,) and questions (?) for pitch modulation. Flat sentences cause monotone drone.</p>
+            <p>2. <b>LUFS Broadcast Lock:</b> <code>voice_normalizer.py</code> locks speech to -14.0 LUFS with -1.0 dB true-peak limiter.</p>
+            <p>3. <b>Music Ducking:</b> <code>music_manager.py</code> must apply -18 dB ducking during voiceover.</p>
+          </div>
+        `
+      },
+      broll_fail: {
+        title: "Stock Visuals Empty, Pexels 429, or Black Frames",
+        nodes: ['stock_video_fetch', 'broll_vault_fallback', 'ffmpeg_crop_scale', 'ffmpeg_compositor'],
+        diagnostic: `
+          <div class="space-y-2">
+            <p class="font-bold text-cyan-300">Exact Root Cause Identified:</p>
+            <p>1. <b>Pexels 429 Rate Limit:</b> 200 req/hr ceiling exceeded. <code>get_vault_fallback()</code> automatically activates.</p>
+            <p>2. <b>Center Crop:</b> <code>crop_and_scale_916()</code> forces 1080x1920 mobile aspect ratio.</p>
+          </div>
+        `
+      },
+      github_ci_fail: {
+        title: "GitHub Actions CI / Cloud Runner Fails",
+        nodes: ['web_studio_server', 'api_github_dispatch', 'gh_workflow_pipeline', 'cli_pipeline_runner'],
+        diagnostic: `
+          <div class="space-y-2">
+            <p class="font-bold text-red-300">Exact Root Cause Identified:</p>
+            <p>1. <b>Type Import Bug:</b> <code>pipeline_runner.py</code> was missing <code>from __future__ import annotations</code> for <code>Optional</code> (now fixed!).</p>
+            <p>2. <b>Repository Secrets:</b> Ensure <code>PAT</code>, <code>GEMINI_API_KEY</code>, <code>GROQ_API_KEY</code> are configured in GitHub.</p>
+          </div>
+        `
+      },
+      model_cooldown: {
+        title: "LLM Provider 400 Parameter Error or 24h Quarantine",
+        nodes: ['llm_manager_generate_json', 'llm_strip_params', 'wall_test_auditor', 'llm_quality_tracker_record'],
+        diagnostic: `
+          <div class="space-y-2">
+            <p class="font-bold text-yellow-300">Exact Root Cause Identified:</p>
+            <p>1. <b>Gemini Preview 400:</b> Temperature parameter stripped in <code>_execute_provider_call()</code>.</p>
+            <p>2. <b>Quality Quarantine:</b> 2 consecutive Wall Test failures = 24h quarantine in <code>model_quality_scores.json</code>.</p>
+          </div>
+        `
+      },
+      youtube_auth_fail: {
+        title: "YouTube Upload 401 Unauthorized or Quota Exceeded",
+        nodes: ['ffmpeg_compositor', 'youtube_upload', 'youtube_set_comment', 'timing_intel_calc'],
+        diagnostic: `
+          <div class="space-y-2">
+            <p class="font-bold text-emerald-300">Exact Root Cause Identified:</p>
+            <p>1. <b>OAuth Expiration:</b> <code>token.json</code> refresh token expired or invalid.</p>
+            <p>2. <b>Daily Quota Cap:</b> YouTube API allows ~6 uploads per day (1,600 units per video).</p>
+          </div>
+        `
+      }
+    };
+
+    // ── Graph State ────────────────────────────────────────────────────────────
+    let scale = 0.75;
+    let panX = 40;
+    let panY = 30;
+    let isDraggingCanvas = false;
+    let dragStartX = 0;
+    let dragStartY = 0;
+    let selectedNodeId = null;
+    let activePathNodes = new Set();
+    let currentLOD = 'functions'; // 'modules' or 'functions'
+    let currentSearchTerm = '';
+
+    const nodesContainer = document.getElementById('nodes-container');
+    const edgesGroup = document.getElementById('edges-group');
+    const headersInner = document.getElementById('column-headers-inner');
+
+    // ── Compute Aligned Grid Coordinates ───────────────────────────────────────
+    function computeNodePositions() {
+      // Group nodes by column
+      const colMap = {};
+      RAW_NODES.forEach(node => {
+        if (!colMap[node.col]) colMap[node.col] = [];
+        colMap[node.col].push(node);
+      });
+
+      // Assign perfectly aligned X and Y coordinates
+      Object.keys(colMap).forEach(colIdx => {
+        const nodesInCol = colMap[colIdx];
+        const colX = START_X + colIdx * (COL_WIDTH + COL_GAP);
+        let curY = START_Y;
+
+        nodesInCol.forEach(node => {
+          node.x = colX;
+          node.y = curY;
+          // Approximate height based on content
+          const height = (node.type === 'class' || node.type === 'config') ? 140 : 110;
+          node.width = COL_WIDTH;
+          node.height = height;
+          curY += height + NODE_SPACING_Y;
+        });
+      });
+    }
+
+    // ── Render Graph Function ──────────────────────────────────────────────────
+    function renderGraph() {
+      nodesContainer.innerHTML = '';
+      edgesGroup.innerHTML = '';
+
+      // Synchronize column headers horizontal position
+      headersInner.style.transform = `translateX(${panX}px) scale(${scale})`;
+      headersInner.style.transformOrigin = '0 0';
+
+      // Apply Canvas transform
+      nodesContainer.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+      nodesContainer.style.transformOrigin = '0 0';
+
+      // Filter nodes based on LOD and Search
+      const visibleNodes = RAW_NODES.filter(n => {
+        if (currentLOD === 'modules' && n.type === 'function') return false;
+        if (currentSearchTerm) {
+          const matchTerm = currentSearchTerm.toLowerCase();
+          const matches = n.name.toLowerCase().includes(matchTerm) ||
+                          n.file.toLowerCase().includes(matchTerm) ||
+                          n.desc.toLowerCase().includes(matchTerm) ||
+                          n.sig.toLowerCase().includes(matchTerm);
+          return matches;
+        }
+        return true;
+      });
+
+      const visibleNodeIds = new Set(visibleNodes.map(n => n.id));
+
+      // 1. Draw Curved Connecting Edges
+      RAW_EDGES.forEach(edge => {
+        if (!visibleNodeIds.has(edge.from) || !visibleNodeIds.has(edge.to)) return;
+
+        const source = RAW_NODES.find(n => n.id === edge.from);
+        const target = RAW_NODES.find(n => n.id === edge.to);
+        if (!source || !target) return;
+
+        // Port Coordinates: Right center of source -> Left center of target
+        const x1 = (source.x + source.width) * scale + panX;
+        const y1 = (source.y + source.height / 2) * scale + panY;
+        const x2 = target.x * scale + panX;
+        const y2 = (target.y + target.height / 2) * scale + panY;
+
+        const isHighlighted = activePathNodes.has(source.id) && activePathNodes.has(target.id);
+        const isDimmed = activePathNodes.size > 0 && !isHighlighted;
+
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        const dx = Math.max(40, (x2 - x1) * 0.45);
+        const d = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+
+        path.setAttribute('d', d);
+        path.setAttribute('fill', 'none');
+        path.setAttribute('stroke', isHighlighted ? '#38bdf8' : (isDimmed ? 'rgba(255,255,255,0.03)' : 'rgba(99, 102, 241, 0.28)'));
+        path.setAttribute('stroke-width', isHighlighted ? '3.5' : '1.8');
+        if (isHighlighted) {
+          path.setAttribute('filter', 'url(#glow)');
+          path.setAttribute('stroke-dasharray', '8,4');
+          path.classList.add('animated-edge');
+        }
+        path.setAttribute('marker-end', isHighlighted ? 'url(#arrow-active)' : 'url(#arrow-default)');
+        edgesGroup.appendChild(path);
+      });
+
+      // 2. Render Aligned Node Cards
+      visibleNodes.forEach(node => {
+        const isSelected = selectedNodeId === node.id;
+        const isHighlighted = activePathNodes.has(node.id);
+        const isDimmed = activePathNodes.size > 0 && !isHighlighted;
+
+        const el = document.createElement('div');
+        el.id = `node-${node.id}`;
+        el.className = `absolute rounded-2xl cursor-pointer transition-all duration-150 select-none flex flex-col justify-between p-4 shadow-xl ${
+          isSelected 
+            ? 'ring-2 ring-purple-400 bg-slate-900 shadow-purple-500/40' 
+            : isHighlighted 
+              ? 'ring-2 ring-cyan-400 bg-slate-900 shadow-cyan-500/50' 
+              : 'bg-slate-900/95 hover:bg-slate-850 hover:border-white/20'
+        }`;
+
+        el.style.left = `${node.x}px`;
+        el.style.top = `${node.y}px`;
+        el.style.width = `${node.width}px`;
+        el.style.height = `${node.height}px`;
+        el.style.border = `1px solid ${isHighlighted ? '#38bdf8' : (isDimmed ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.09)')}`;
+        el.style.opacity = isDimmed ? '0.15' : '1.0';
+
+        // Badge color based on type
+        let typeBadgeClass = 'bg-purple-500/10 text-purple-400 border-purple-500/20';
+        if (node.type === 'class') typeBadgeClass = 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20';
+        if (node.type === 'config') typeBadgeClass = 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+        if (node.type === 'workflow') typeBadgeClass = 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20';
+
+        el.innerHTML = `
+          <div class="space-y-1">
+            <div class="flex items-center justify-between">
+              <span class="px-2 py-0.5 rounded-full text-[9px] font-bold tracking-wider uppercase border ${typeBadgeClass}">
+                ${node.type}
+              </span>
+              <span class="text-[10px] text-slate-500 font-mono truncate max-w-[170px]" title="${node.file}">
+                ${node.file.split('/').pop()}
+              </span>
+            </div>
+            <div class="text-xs font-bold font-mono tracking-tight truncate ${isHighlighted ? 'text-cyan-300' : 'text-slate-100'}" title="${node.name}">
+              ${node.name}
+            </div>
+          </div>
+          <p class="text-[11px] text-slate-400 line-clamp-2 leading-tight">
+            ${node.desc}
+          </p>
+          <div class="flex items-center justify-between text-[10px] text-slate-500 font-mono pt-1 border-t border-white/5">
+            <span>In: ${node.inbound.length}</span>
+            <span>Out: ${node.outbound.length}</span>
+            <span class="text-indigo-400 font-semibold hover:underline">Inspect →</span>
+          </div>
+        `;
+
+        el.onclick = (e) => {
+          e.stopPropagation();
+          selectNode(node);
+        };
+
+        enableNodeDrag(el, node);
+        nodesContainer.appendChild(el);
+      });
+    }
+
+    // ── Node Selection & Inspection Drawer ─────────────────────────────────────
+    function selectNode(node) {
+      selectedNodeId = node.id;
+      document.getElementById('drawer-type').innerText = node.type.toUpperCase();
+      document.getElementById('drawer-subsystem').innerText = `STAGE ${node.col}`;
+      document.getElementById('drawer-title').innerText = node.name;
+      document.getElementById('drawer-sig').innerText = node.sig || node.name;
+      document.getElementById('drawer-desc').innerText = node.desc;
+      document.getElementById('drawer-file').innerText = node.file;
+
+      document.getElementById('drawer-inbound').innerHTML = node.inbound.map(x => {
+        const match = RAW_NODES.find(n => n.id === x || n.name === x);
+        const name = match ? match.name : x;
+        return `<div class="hover:text-purple-300 cursor-pointer" onclick="selectNodeById('${match ? match.id : ''}')">• ${name}</div>`;
+      }).join('');
+
+      document.getElementById('drawer-outbound').innerHTML = node.outbound.map(x => {
+        const match = RAW_NODES.find(n => n.id === x || n.name === x);
+        const name = match ? match.name : x;
+        return `<div class="hover:text-purple-300 cursor-pointer" onclick="selectNodeById('${match ? match.id : ''}')">• ${name}</div>`;
+      }).join('');
+
+      document.getElementById('drawer-issues').innerHTML = node.issues || 'No critical issues reported.';
+      document.getElementById('drawer-cmd').innerText = node.cmd || 'python -m pytest';
+
+      document.getElementById('node-drawer').style.transform = 'translateX(0)';
+      renderGraph();
+    }
+
+    function selectNodeById(id) {
+      const node = RAW_NODES.find(n => n.id === id);
+      if (node) selectNode(node);
+    }
+
+    function closeDrawer() {
+      selectedNodeId = null;
+      document.getElementById('node-drawer').style.transform = 'translateX(110%)';
+      renderGraph();
+    }
+
+    // ── Issue Route Tracer ─────────────────────────────────────────────────────
+    function traceIssueRoute(routeKey) {
+      if (routeKey === 'none') {
+        resetGraphView();
+        return;
+      }
+      const route = TROUBLE_ROUTES[routeKey];
+      if (!route) return;
+
+      activePathNodes = new Set(route.nodes);
+
+      // Open drawer with issue diagnostics
+      document.getElementById('drawer-type').innerText = 'TROUBLE ROUTE';
+      document.getElementById('drawer-subsystem').innerText = 'ACTIVE FAILURE CHAIN';
+      document.getElementById('drawer-title').innerText = route.title;
+      document.getElementById('drawer-sig').innerText = route.nodes.map(nid => {
+        const n = RAW_NODES.find(x => x.id === nid);
+        return n ? n.name : nid;
+      }).join('\n ↓ \n');
+      document.getElementById('drawer-desc').innerHTML = `Highlighted the <b>${route.nodes.length} critical functions/files</b> in the active failure chain. Follow the glowing cyan path.`;
+      document.getElementById('drawer-file').innerText = `${route.nodes.length} Connected Source Files`;
+      document.getElementById('drawer-inbound').innerHTML = '<div>• Active Issue Pipeline</div>';
+      document.getElementById('drawer-outbound').innerHTML = '<div>• Target Resolution</div>';
+      document.getElementById('drawer-issues').innerHTML = route.diagnostic;
+      document.getElementById('drawer-cmd').innerText = 'python -m pytest tests/test_v2_managers.py';
+
+      document.getElementById('node-drawer').style.transform = 'translateX(0)';
+      renderGraph();
+    }
+
+    function resetGraphView() {
+      activePathNodes.clear();
+      selectedNodeId = null;
+      currentSearchTerm = '';
+      document.getElementById('graph-search').value = '';
+      document.getElementById('issue-route-select').value = 'none';
+      closeDrawer();
+      renderGraph();
+    }
+
+    // ── Level of Detail & Search ───────────────────────────────────────────────
+    function setLOD(lod) {
+      currentLOD = lod;
+      document.getElementById('lod-modules').className = lod === 'modules' 
+        ? 'px-3 py-1 rounded-lg bg-purple-600 text-white font-semibold transition shadow-sm'
+        : 'px-3 py-1 rounded-lg text-slate-400 hover:text-white transition font-medium';
+      document.getElementById('lod-functions').className = lod === 'functions' 
+        ? 'px-3 py-1 rounded-lg bg-purple-600 text-white font-semibold transition shadow-sm'
+        : 'px-3 py-1 rounded-lg text-slate-400 hover:text-white transition font-medium';
+      realignGrid();
+    }
+
+    function handleSearch(term) {
+      currentSearchTerm = term.trim();
+      renderGraph();
+    }
+
+    function realignGrid() {
+      computeNodePositions();
+      fitView();
+    }
+
+    function zoomBy(factor) {
+      scale = Math.min(2.0, Math.max(0.3, scale * factor));
+      renderGraph();
+    }
+
+    function fitView() {
+      scale = 0.65;
+      panX = 40;
+      panY = 20;
+      renderGraph();
+    }
+
+    // ── Mouse & Wheel Pan/Zoom ─────────────────────────────────────────────────
+    window.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const zoomFactor = e.deltaY < 0 ? 1.08 : 0.92;
+      scale = Math.min(2.0, Math.max(0.3, scale * zoomFactor));
+      renderGraph();
+    }, { passive: false });
+
+    const mainEl = document.querySelector('main');
+    mainEl.addEventListener('mousedown', (e) => {
+      if (e.target.closest('#nodes-container > div') || e.target.closest('#node-drawer')) return;
+      isDraggingCanvas = true;
+      dragStartX = e.clientX - panX;
+      dragStartY = e.clientY - panY;
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!isDraggingCanvas) return;
+      panX = e.clientX - dragStartX;
+      panY = e.clientY - dragStartY;
+      renderGraph();
+    });
+
+    window.addEventListener('mouseup', () => {
+      isDraggingCanvas = false;
+    });
+
+    // Node Dragging
+    function enableNodeDrag(element, node) {
+      let nodeDragging = false;
+      let startX = 0;
+      let startY = 0;
+
+      element.addEventListener('mousedown', (e) => {
+        e.stopPropagation();
+        nodeDragging = true;
+        startX = e.clientX;
+        startY = e.clientY;
+
+        const onMouseMove = (ev) => {
+          if (!nodeDragging) return;
+          const dx = (ev.clientX - startX) / scale;
+          const dy = (ev.clientY - startY) / scale;
+          node.x += dx;
+          node.y += dy;
+          startX = ev.clientX;
+          startY = ev.clientY;
+          renderGraph();
+        };
+
+        const onMouseUp = () => {
+          nodeDragging = false;
+          window.removeEventListener('mousemove', onMouseMove);
+          window.removeEventListener('mouseup', onMouseUp);
+        };
+
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp);
+      });
+    }
+
+    // Initialize Layout
+    window.addEventListener('DOMContentLoaded', () => {
+      computeNodePositions();
+      fitView();
+    });
+  </script>
+</body>
+</html>

@@ -45,6 +45,14 @@ _CHANNEL_CONFIG_PATH = "config/channel_config.yaml"
 _MEMORY_THOUGHT_CACHE_PATH = os.path.join("memory", "thought_cache.json")
 
 
+def is_test_run() -> bool:
+    """Returns True if running in test mode."""
+    return (
+        os.environ.get("TEST_MODE", "").lower() in ("true", "1") or
+        os.environ.get("GHOST_ENGINE_ENABLED", "").lower() == "test"
+    )
+
+
 def _hash_line(line: str) -> str:
     """SHA-256 hash of a normalised spoken line (stripped, lowercased, no punctuation)."""
     normalised = re.sub(r"[^\w\s]", "", line.strip().lower())
@@ -383,7 +391,8 @@ def run_spec_stage(video_type: str = "short", custom_topic: Optional[str] = None
         if surge and not inspector.is_topic_recent(surge.get("title", "")):
             topic = surge.get("title")
             source = "competitor_surge"
-            inspector.record_topic_usage(topic, topic, niche=channel_cfg.get("niche", "shower_thoughts"))
+            if not is_test_run():
+                inspector.record_topic_usage(topic, topic, niche=channel_cfg.get("niche", "shower_thoughts"))
         else:
             if surge:
                 print(f"🔄 [COMPETITOR SPY] Surge topic '{surge.get('title', '')}' was already used recently. Discovering fresh topic...")
@@ -598,8 +607,9 @@ def run_spec_stage(video_type: str = "short", custom_topic: Optional[str] = None
 
         # ─── THOUGHT-CACHE DEDUPLICATION ──────────────────────────────────────
         # Check each scene against the rolling thought cache (stored in channel_config.yaml).
-        # If a spoken line matches a previously used line, ask the LLM to rewrite only that scene.
-        if not os.environ.get("PYTEST_CURRENT_TEST"):
+        # In production runs, if a spoken line matches a previously used line, rewrite it.
+        # NEVER persist test scenes to the cache during test runs or unit tests so thoughts/facts are not wasted!
+        if not is_test_run() and not os.environ.get("PYTEST_CURRENT_TEST"):
             for scene in raw_scenes:
                 spoken = scene.get("spoken_text", "")
                 if spoken and _is_duplicate(spoken, thought_cfg):
@@ -619,7 +629,8 @@ def run_spec_stage(video_type: str = "short", custom_topic: Optional[str] = None
                             scene["spoken_text"] = new_line
                     except Exception as e:
                         print(f"⚠️  [THOUGHT CACHE] Rewrite failed ({e}). Keeping original.", flush=True)
-            # Register all final lines in cache and persist
+
+            # Register all final lines in cache and persist ONLY in production
             for scene in raw_scenes:
                 _add_to_cache(scene.get("spoken_text", ""), thought_cfg)
             try:
@@ -632,6 +643,8 @@ def run_spec_stage(video_type: str = "short", custom_topic: Optional[str] = None
                 _save_yaml(_CHANNEL_CONFIG_PATH, full_channel_cfg)
             except Exception as e:
                 print(f"⚠️  [THOUGHT CACHE] Could not persist cache to channel_config.yaml: {e}", flush=True)
+        else:
+            print("🧪 [TEST MODE] Skipping thought cache persistence so test thoughts/facts are not added to duplicate list or wasted.", flush=True)
 
         # 3. Normalize for Phonetic TTS & Extract Word Boundaries
         for s in raw_scenes:
@@ -770,6 +783,12 @@ def run_spec_stage(video_type: str = "short", custom_topic: Optional[str] = None
                     seen_tags.add(t_lower)
                     merged_tags.append(t_clean)
             seo_tags = merged_tags
+
+        # Exact title on top of the description always, followed by an empty line, then the SEO description
+        clean_desc = seo_desc.strip()
+        if clean_desc.startswith(seo_title):
+            clean_desc = clean_desc[len(seo_title):].strip()
+        seo_desc = f"{seo_title}\n\n{clean_desc}"
 
         seo = SEOMetadata(
             title=seo_title,
