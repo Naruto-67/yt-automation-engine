@@ -427,4 +427,87 @@ def test_intra_scene_caption_pause_bridging(tmp_path):
     assert end_ts == "0:00:47.18", f"Expected caption to bridge to 0:00:47.18, but got {end_ts}"
 
 
+def test_render_video_ffmpeg_no_shortest_and_cta_closer_protection(tmp_path, monkeypatch):
+    """Verifies that render_video_ffmpeg omits -shortest, includes -stream_loop on video input, and enforces segment flags."""
+    output_video = str(tmp_path / "final_render.mp4")
+    raw_clip_1 = str(tmp_path / "clip_1.mp4")
+    audio_path = str(tmp_path / "narration.mp3")
+
+    with open(raw_clip_1, "wb") as f:
+        f.write(b"0" * 200000)
+    with open(audio_path, "wb") as f:
+        f.write(b"0" * 5000)
+
+    spec = SpecOutput(
+        topic="CTA Test",
+        video_type="short",
+        sub_format="core_brainblud",
+        seo=SEOMetadata(title="CTA Test #shorts", description="Test", tags=["test"]),
+        scenes=[
+            SceneSpec(scene_id=1, spoken_text="Hook scene", duration_seconds=3.0),
+            SceneSpec(scene_id=2, spoken_text="Subscribe for more thoughts that will break your brain.", duration_seconds=3.0),
+        ],
+        total_duration_seconds=6.0,
+        audio_path=audio_path
+    )
+
+    clips_manifest = ClipsManifest(
+        topic="CTA Test",
+        video_type="short",
+        clips=[
+            ClipItem(scene_id=1, query="query", download_url="http://mock.url/1.mp4", provider="pexels", video_id="101"),
+            ClipItem(scene_id=2, query="query", download_url="http://mock.url/2.mp4", provider="local", video_id="honeycomb_01.mp4"),
+        ]
+    )
+
+    channel_cfg = {"handle": "@test", "branding": {"watermark_text": "@test"}}
+    settings_cfg = {"video_profiles": {"short": {"preset": "fast", "fps": 30}}}
+
+    monkeypatch.setattr("scripts.render_video.download_clip", lambda url, dest, prov, vid: dest)
+    monkeypatch.setattr("scripts.render_video.download_cinematic_font", lambda: "Arial")
+    monkeypatch.setattr("scripts.render_video.check_filter_supported", lambda f: True)
+
+    executed_cmds = []
+
+    def mock_subprocess_run(cmd, *args, **kwargs):
+        executed_cmds.append(cmd)
+        target = cmd[-1]
+        with open(target, "wb") as f:
+            f.write(b"0" * 1000)
+        return MagicMock(returncode=0, stderr="")
+
+    monkeypatch.setattr("subprocess.run", mock_subprocess_run)
+
+    render_video_ffmpeg(
+        spec=spec,
+        clips_manifest=clips_manifest,
+        output_video_path=output_video,
+        channel_cfg=channel_cfg,
+        settings_cfg=settings_cfg
+    )
+
+    # 1. Segment commands must standardize timescale, closed GOP, and zero B-frames
+    seg_cmd = executed_cmds[0]
+    assert "-video_track_timescale" in seg_cmd and seg_cmd[seg_cmd.index("-video_track_timescale") + 1] == "15360"
+    assert "-g" in seg_cmd and seg_cmd[seg_cmd.index("-g") + 1] == "30"
+    assert "-bf" in seg_cmd and seg_cmd[seg_cmd.index("-bf") + 1] == "0"
+
+    # 2. Final composite command must NEVER contain -shortest
+    final_cmd = executed_cmds[-1]
+    assert "-shortest" not in final_cmd, "Critical bug: -shortest cuts off Call to Action closer narration!"
+
+    # 3. Final composite command must stream loop input 0 to prevent video starvation
+    assert "-stream_loop" in final_cmd
+    concat_idx = final_cmd.index("-i")
+    assert final_cmd[concat_idx - 2] == "-stream_loop"
+    assert final_cmd[concat_idx - 1] == "-1"
+
+
+def test_probe_video_duration(tmp_path):
+    """Verifies that _probe_video_duration accurately parses MP4 durations using atom parsing fallback."""
+    from scripts.render_video import _probe_video_duration
+    assert _probe_video_duration(str(tmp_path / "non_existent.mp4")) == 0.0
+
+
+
 

@@ -368,8 +368,6 @@ class IterativeScriptGenerator:
             "stock_video_query": self._pick_query("kinetic sand squishing satisfying", used_queries)
         }
 
-    _generate_premise_card = _generate_premise_anchor  # Studio wizard alias
-
     def _generate_random_thought(
         self,
         scene_num: int,

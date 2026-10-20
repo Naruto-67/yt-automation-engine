@@ -249,33 +249,6 @@
       // COLUMN 0: TRIGGERS & DISPATCH (X: 0)
       // ══════════════════════════════════════════════════════════════════════════
       {
-        id: 'web_studio_server',
-        name: 'WebStudio: aiohttp App Server',
-        type: 'class',
-        col: 0,
-        file: 'engine/web_studio/server.py',
-        sig: 'class WebStudioServer / run_app(host="127.0.0.1", port=8765)',
-        desc: 'Local browser control tower (http://127.0.0.1:8765). Automatically sets studio_token cookie and injects secret on index load.',
-        inbound: ['User Browser (Port 8765)'],
-        outbound: ['api_init_spec', 'api_github_dispatch', 'api_approve_upload'],
-        issues: '• 401 Unauthorized: Cookie handshake auto-injects __STUDIO_SECRET__.<br>• Port conflict: change via --port arg.',
-        cmd: 'python scripts/run_studio.py',
-        functions: ['handle_index', 'studio_auth_middleware', 'handle_ws_logs']
-      },
-      {
-        id: 'api_github_dispatch',
-        name: 'api_github_dispatch()',
-        type: 'function',
-        col: 0,
-        file: 'engine/web_studio/server.py',
-        sig: 'async def api_github_dispatch(request: web.Request) -> web.Response',
-        desc: 'Triggers remote execution on GitHub Actions Ubuntu runners using repository dispatch event. Completely frees local CPU/GPU.',
-        inbound: ['web_studio_server'],
-        outbound: ['gh_workflow_pipeline'],
-        issues: '• Missing GitHub PAT: user can set PAT in Web Studio Settings modal.',
-        cmd: 'python -m pytest tests/test_web_studio.py -k dispatch'
-      },
-      {
         id: 'gh_workflow_pipeline',
         name: 'master_pipeline.yml (Cloud Runner)',
         type: 'workflow',
@@ -283,7 +256,7 @@
         file: '.github/workflows/master_pipeline.yml',
         sig: 'workflow_dispatch / schedule(cron) on ubuntu-24.04',
         desc: 'Cloud CI/CD execution pipeline. Installs Kokoro, FFmpeg, runs all 4 stages, and uploads rendered MP4s as downloadable workflow artifacts.',
-        inbound: ['api_github_dispatch', 'Scheduled Cron'],
+        inbound: ['Manual Dispatch', 'Scheduled Cron'],
         outbound: ['cli_run_spec_stage', 'cli_run_clips_stage', 'cli_run_editor_stage', 'cli_run_release_stage'],
         issues: '• Optional import NameError: resolved via __future__ annotations.<br>• Secrets missing: check repo secrets.',
         cmd: 'gh workflow view master_pipeline.yml'
@@ -633,7 +606,7 @@
         sig: 'def render_short(spec_data: Dict, output_path: str) -> str',
         desc: 'Master FFmpeg assembly: concatenates scene B-roll, overlays animated bouncing ASS subtitles, mixes ducked audio and sound effects.',
         inbound: ['voice_normalizer_master', 'caption_generate_ass', 'music_manager_duck', 'ffmpeg_crop_scale'],
-        outbound: ['youtube_upload', 'web_studio_server'],
+        outbound: ['youtube_upload'],
         issues: '• Render crashes: execute on cloud runner to utilize multi-core CPU and avoid local system lag.',
         cmd: 'python -m pytest tests/test_video_renderer.py'
       },
@@ -647,7 +620,7 @@
         desc: 'Stage 4: Authenticates via YouTube Data API v3 (DPAPI / OAuth2), uploads video as private/scheduled, and sets high-CTR metadata.',
         inbound: ['ffmpeg_compositor', 'timing_intel_calc'],
         outbound: ['youtube_set_comment', 'timing_intel_calc'],
-        issues: '• 401 Unauthorized: token expired; refresh credentials in Web Studio.',
+        issues: '• 401 Unauthorized: token expired; refresh credentials in config/client_secrets.json.',
         cmd: 'python -m pytest tests/test_v2_managers.py -k youtube'
       },
       {
@@ -680,8 +653,6 @@
 
     // ── Function-Level Edge Connections (Caller -> Callee) ──────────────────────
     const RAW_EDGES = [
-      { from: 'web_studio_server', to: 'api_github_dispatch' },
-      { from: 'api_github_dispatch', to: 'gh_workflow_pipeline' },
       { from: 'gh_workflow_pipeline', to: 'cli_pipeline_runner' },
       { from: 'cli_pipeline_runner', to: 'competitor_spy_get_surge' },
       { from: 'cli_pipeline_runner', to: 'topic_inspector_discover' },
@@ -716,7 +687,6 @@
       { from: 'music_manager_duck', to: 'ffmpeg_compositor' },
       { from: 'ffmpeg_crop_scale', to: 'ffmpeg_compositor' },
       { from: 'ffmpeg_compositor', to: 'youtube_upload' },
-      { from: 'ffmpeg_compositor', to: 'web_studio_server' },
       { from: 'youtube_upload', to: 'youtube_set_comment' },
       { from: 'timing_intel_calc', to: 'youtube_upload' }
     ];
@@ -763,7 +733,7 @@
       },
       github_ci_fail: {
         title: "GitHub Actions CI / Cloud Runner Fails",
-        nodes: ['web_studio_server', 'api_github_dispatch', 'gh_workflow_pipeline', 'cli_pipeline_runner'],
+        nodes: ['gh_workflow_pipeline', 'cli_pipeline_runner'],
         diagnostic: `
           <div class="space-y-2">
             <p class="font-bold text-red-300">Exact Root Cause Identified:</p>

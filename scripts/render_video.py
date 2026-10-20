@@ -85,6 +85,49 @@ def check_filter_supported(filter_name: str) -> bool:
         return False
 
 
+def _probe_video_duration(file_path: str) -> float:
+    """Probes the exact duration of an MP4/video file in seconds."""
+    if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
+        return 0.0
+    # Try ffprobe
+    try:
+        res = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", file_path],
+            capture_output=True, text=True, timeout=10
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            return float(res.stdout.strip())
+    except Exception:
+        pass
+    # Fallback to ffmpeg -i inspection
+    try:
+        res = subprocess.run(["ffmpeg", "-i", file_path], capture_output=True, text=True, timeout=10)
+        for line in res.stderr.splitlines():
+            if "Duration:" in line:
+                dur_str = line.split("Duration:")[1].split(",")[0].strip()
+                h, m, s = dur_str.split(":")
+                return float(h) * 3600 + float(m) * 60 + float(s)
+    except Exception:
+        pass
+    # Pure Python MP4 atom inspection fallback
+    try:
+        import struct
+        with open(file_path, "rb") as f:
+            content = f.read()
+        idx = content.find(b"mvhd")
+        if idx != -1:
+            ver = content[idx + 4]
+            if ver == 0:
+                ts, dur = struct.unpack(">II", content[idx + 16:idx + 24])
+            else:
+                ts, dur = struct.unpack(">IQ", content[idx + 24:idx + 36])
+            if ts > 0:
+                return round(dur / ts, 2)
+    except Exception:
+        pass
+    return 0.0
+
+
 
 def download_cinematic_font(preferred_path: Optional[str] = "assets/fonts/ZY-Resolve.ttf") -> str:
     """
@@ -495,6 +538,10 @@ def render_video_ffmpeg(
             "-preset", preset,
             "-crf", "22",
             "-pix_fmt", "yuv420p",
+            "-video_track_timescale", "15360",
+            "-g", "30",
+            "-keyint_min", "30",
+            "-bf", "0",
             "-an",
             seg_output
         ]
@@ -534,6 +581,29 @@ def render_video_ffmpeg(
 
     concat_elapsed = round(time.time() - concat_start, 2)
     print(f"  ✅ Concat completed in {concat_elapsed}s", flush=True)
+
+    # Verify concatenated video covers target duration; if stream-copy dropped any trailing segments, re-encode concat
+    if not os.environ.get("PYTEST_CURRENT_TEST"):
+        probed_dur = _probe_video_duration(concat_base)
+        if probed_dur > 0 and probed_dur < (total_duration - 0.5):
+            print(f"⚠️ [RENDERER] Stream-copy concat duration ({probed_dur:.1f}s) is shorter than target ({total_duration:.1f}s). Re-encoding concat to guarantee complete video...", flush=True)
+            reencode_cmd = [
+                "ffmpeg", "-y",
+                "-f", "concat",
+                "-safe", "0",
+                "-i", concat_list_file,
+                "-c:v", "libx264",
+                "-preset", "ultrafast",
+                "-crf", "22",
+                "-pix_fmt", "yuv420p",
+                "-an",
+                concat_base
+            ]
+            re_res = subprocess.run(reencode_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, timeout=120)
+            if re_res.returncode == 0:
+                print(f"  ✅ Re-encoded concat fallback completed successfully.", flush=True)
+            else:
+                print(f"  ⚠️ Re-encode fallback returned {re_res.returncode}; continuing with stream-copy result.", flush=True)
 
     # ─── STAGE 3: COMPOSITE AUDIO, SUBTITLES & WATERMARK ──────────────────────
     print(f"🎨 [RENDERER - STEP 3/3] Compositing audio, subtitles & watermark (target: {total_duration:.1f}s)...", flush=True)
@@ -591,6 +661,10 @@ def render_video_ffmpeg(
         elif not os.path.exists(ass_path):
             print(f"⚠️ [RENDERER] Subtitle file '{ass_path}' not found — skipping burnt subtitles.", flush=True)
 
+    # Ensure video track extends smoothly with tpad clone if video runs slightly short
+    if check_filter_supported("tpad"):
+        vf_filters.append("tpad=stop_mode=clone:stop_duration=5")
+
     vf_arg = ["-vf", ",".join(vf_filters)] if vf_filters else []
 
     # Audio mastering and background Lo-Fi music mixing
@@ -623,8 +697,7 @@ def render_video_ffmpeg(
                 "-map", "[aout]",
                 "-c:a", "aac",
                 "-b:a", "192k",
-                "-ar", "44100",
-                "-shortest"
+                "-ar", "44100"
             ]
             print(f"🎵 [RENDERER] Mixing mastered narration (target {target_lufs} LUFS) with Lo-Fi background music ({os.path.basename(bg_music_path)} @ vol={bg_vol})...", flush=True)
         else:
@@ -635,8 +708,7 @@ def render_video_ffmpeg(
                 "-map", "[aout]",
                 "-c:a", "aac",
                 "-b:a", "192k",
-                "-ar", "44100",
-                "-shortest"
+                "-ar", "44100"
             ]
             print(f"🎙️ [RENDERER] Mastering narration to broadcast loudness ({target_lufs} LUFS)...", flush=True)
     else:
@@ -647,6 +719,7 @@ def render_video_ffmpeg(
 
     comp_cmd = [
         "ffmpeg", "-y",
+        "-stream_loop", "-1",
         "-i", concat_base,
         *audio_inputs,
         *vf_arg,
