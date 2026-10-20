@@ -75,7 +75,7 @@ class SceneSpec(BaseModel):
     """Specification for an individual scene in the generated video."""
     scene_id: int
     spoken_text: str = Field(..., description="Display text used for on-screen captions")
-    phonetic_text: str = Field(..., description="Sanitized phonetic text fed into TTS")
+    phonetic_text: str = Field(default="", description="Sanitized phonetic text fed into TTS")
     stock_video_query: str = Field(default="abstract background", description="Semantic search query for stock video APIs")
     duration_seconds: float = Field(default=0.0, description="Measured duration of audio in seconds")
     word_timestamps: List[WordTimestamp] = Field(default_factory=list, description="Word-by-word timing")

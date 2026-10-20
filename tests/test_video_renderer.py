@@ -444,8 +444,8 @@ def test_render_video_ffmpeg_no_shortest_and_cta_closer_protection(tmp_path, mon
         sub_format="core_brainblud",
         seo=SEOMetadata(title="CTA Test #shorts", description="Test", tags=["test"]),
         scenes=[
-            SceneSpec(scene_id=1, spoken_text="Hook scene", duration_seconds=3.0),
-            SceneSpec(scene_id=2, spoken_text="Subscribe for more thoughts that will break your brain.", duration_seconds=3.0),
+            SceneSpec(scene_id=1, spoken_text="Hook scene", phonetic_text="Hook scene", duration_seconds=3.0),
+            SceneSpec(scene_id=2, spoken_text="Subscribe for more thoughts that will break your brain.", phonetic_text="Subscribe for more thoughts that will break your brain.", duration_seconds=3.0),
         ],
         total_duration_seconds=6.0,
         audio_path=audio_path
