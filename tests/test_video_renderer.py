@@ -502,6 +502,11 @@ def test_render_video_ffmpeg_no_shortest_and_cta_closer_protection(tmp_path, mon
     assert final_cmd[concat_idx - 2] == "-stream_loop"
     assert final_cmd[concat_idx - 1] == "-1"
 
+    # 4. Final composite command must pad voice input with apad=pad_dur=4 to prevent loudnorm EOF truncation
+    fc_idx = final_cmd.index("-filter_complex")
+    fc_str = final_cmd[fc_idx + 1]
+    assert "apad=pad_dur=4" in fc_str, "Voice input must be padded with apad=pad_dur=4 to prevent loudnorm lookahead EOF truncation!"
+
 
 def test_probe_video_duration(tmp_path):
     """Verifies that _probe_video_duration accurately parses MP4 durations using atom parsing fallback."""

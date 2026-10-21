@@ -749,10 +749,12 @@ def render_video_ffmpeg(
 
     bg_music_path = MusicManager.get_or_create_lofi_track(duration=total_duration, mood="lofi_chill")
 
-    # Build subtle whoosh transition SFX track peaking right at scene cuts
+    # Build subtle whoosh transition SFX track peaking right at intermediate scene cuts
+    # (Exclude cut into the final loop scene to ensure the circular bridge spoken text remains intimate and crystal clear)
     cut_timestamps = []
     curr_t = 0.0
-    for dur in scene_durations[:-1]:
+    whoosh_cuts = scene_durations[:-2] if len(scene_durations) > 2 else scene_durations[:-1]
+    for dur in whoosh_cuts:
         curr_t += dur
         cut_timestamps.append(round(curr_t, 2))
 
@@ -777,7 +779,7 @@ def render_video_ffmpeg(
         if has_bg and has_whoosh:
             audio_inputs.extend(["-stream_loop", "-1", "-i", bg_music_path, "-i", whoosh_track_path])
             filter_complex = (
-                f"[1:a]loudnorm=I={target_lufs}:LRA={target_lra}:TP={target_tp}:linear=true[voice];"
+                f"[1:a]apad=pad_dur=4,loudnorm=I={target_lufs}:LRA={target_lra}:TP={target_tp}:linear=true[voice];"
                 f"[2:a]volume={bg_vol}[bg];"
                 f"[3:a]volume=0.20[sfx];"
                 f"[voice][bg][sfx]amix=inputs=3:duration=first:dropout_transition=0:normalize=0[aout]"
@@ -786,7 +788,7 @@ def render_video_ffmpeg(
         elif has_bg:
             audio_inputs.extend(["-stream_loop", "-1", "-i", bg_music_path])
             filter_complex = (
-                f"[1:a]loudnorm=I={target_lufs}:LRA={target_lra}:TP={target_tp}:linear=true[voice];"
+                f"[1:a]apad=pad_dur=4,loudnorm=I={target_lufs}:LRA={target_lra}:TP={target_tp}:linear=true[voice];"
                 f"[2:a]volume={bg_vol}[bg];"
                 f"[voice][bg]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]"
             )
@@ -794,13 +796,13 @@ def render_video_ffmpeg(
         elif has_whoosh:
             audio_inputs.extend(["-i", whoosh_track_path])
             filter_complex = (
-                f"[1:a]loudnorm=I={target_lufs}:LRA={target_lra}:TP={target_tp}:linear=true[voice];"
+                f"[1:a]apad=pad_dur=4,loudnorm=I={target_lufs}:LRA={target_lra}:TP={target_tp}:linear=true[voice];"
                 f"[2:a]volume=0.20[sfx];"
                 f"[voice][sfx]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]"
             )
             print(f"🎵 [RENDERER] Mixing mastered narration with whoosh transition SFX ({len(cut_timestamps)} cuts)...", flush=True)
         else:
-            filter_complex = f"[1:a]loudnorm=I={target_lufs}:LRA={target_lra}:TP={target_tp}:linear=true[aout]"
+            filter_complex = f"[1:a]apad=pad_dur=4,loudnorm=I={target_lufs}:LRA={target_lra}:TP={target_tp}:linear=true[aout]"
             print(f"🎙️ [RENDERER] Mastering narration to broadcast loudness ({target_lufs} LUFS)...", flush=True)
 
         audio_mapping = [
