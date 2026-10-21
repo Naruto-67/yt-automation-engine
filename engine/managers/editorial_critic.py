@@ -318,7 +318,7 @@ class ThoughtCompletenessSkill:
 # ─── PURE SHOWER THOUGHT AUDITOR (PERMANENT TRIVIA FACT BAN) ───────────────────
 
 BANNED_TRIVIA_PATTERNS = [
-    r'^\s*(did you know|ever wonder why|have you ever wondered|have you ever noticed|scientists (say|discovered|found)|research (shows|proves)|studies (show|prove)|fun fact|did you realize|in the \d{4}s|according to)',
+    r'^\s*(did you know that|did you know|have you ever noticed that|have you ever noticed|fun fact:?|did you realize)',
     r'\b(octopuses?|blue whales?|sharks?|dolphins?|elephants?|cheetahs?|penguins?)\b.*(hearts?|neurons?|arms?|lungs?|swim|aorta|speed)',
     r'\b(trees?|fungi|plants?|mushrooms?)\b.*(underground|fungal|communicate|nutrients?)',
     r'\b(padlock|elevator buttons?|traffic lights?|escalator)\b.*(tiny hole|drain|pressure sensors?|sensors?)',
@@ -710,14 +710,26 @@ def audit_and_refine_spec(
         scene = raw_scenes[i]
         text = scene.get("spoken_text", "")
 
-        # A. Trivia Fact Check (ban facts completely)
+        # A. Trivia Fact Check: strip cheap kindergarten openers instead of nuking legitimate thoughts
         f_passed, f_reason = PureShowerThoughtAuditor.audit_thought(text)
         if not f_passed:
             audit_log["trivia_fact_failures"] += 1
             print(f"   Scene {i+1}: 🚫 {f_reason}")
-            raw_scenes[i] = PureShowerThoughtAuditor.sanitize_scene(scene, replacement_thoughts)
-            audit_log["wall_test_replacements"] += 1
-            text = raw_scenes[i].get("spoken_text", "")
+            # If scene starts with a cheap opener (e.g. 'Did you know'), clean the opener to preserve the thought
+            cleaned_text = re.sub(r'^\s*(did you know that|did you know|fun fact:?|have you ever noticed that|have you ever noticed|did you realize)\s*', '', text, flags=re.IGNORECASE).strip()
+            if cleaned_text and cleaned_text[0].islower():
+                cleaned_text = cleaned_text[0].upper() + cleaned_text[1:]
+            
+            p_check, _ = PureShowerThoughtAuditor.audit_thought(cleaned_text)
+            if p_check or i >= len(raw_scenes) - 2:
+                # Retain the cleaned thought, especially for penultimate scene to preserve circular loop continuity
+                print(f"   ✅ Cleaned opener to preserve narrative flow: '{cleaned_text[:60]}...'")
+                raw_scenes[i]["spoken_text"] = cleaned_text
+                text = cleaned_text
+            else:
+                raw_scenes[i] = PureShowerThoughtAuditor.sanitize_scene(scene, replacement_thoughts)
+                audit_log["wall_test_replacements"] += 1
+                text = raw_scenes[i].get("spoken_text", "")
 
         # B. Wall Test (ban solipsism & fake-deep nihilism)
         w_passed, w_reason = CynicalHumanAuditor.audit_text(text)

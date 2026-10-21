@@ -624,18 +624,29 @@ class VoiceNormalizer:
                     cls._cached_kokoro_pipeline = KPipeline(lang_code=lang_code, repo_id="hexgrad/Kokoro-82M")
 
                 gen = cls._cached_kokoro_pipeline(p_text, voice=voice, speed=speed)
-                total_samples = 0
+                all_samples = []
                 for item in gen:
                     if item and len(item) > 2 and item[2] is not None:
                         audio = item[2]
-                        if hasattr(audio, "shape") and len(audio.shape) > 0:
-                            total_samples += audio.shape[0]
-                        elif hasattr(audio, "__len__"):
-                            total_samples += len(audio)
+                        if hasattr(audio, "cpu"):
+                            smp = audio.cpu().numpy()
+                        elif hasattr(audio, "numpy"):
+                            smp = audio.numpy()
+                        else:
+                            smp = np.array(audio, dtype=np.float32)
+                        if len(smp) > 0:
+                            all_samples.append(smp)
 
-                if total_samples > 0:
-                    # 24kHz sample rate + 0.12s pause allowance
-                    return round((total_samples / 24000.0) + 0.12, 2)
+                if all_samples:
+                    samples = np.concatenate(all_samples)
+                    if len(samples) > 2400:
+                        non_silent = np.where(np.abs(samples) > 0.008)[0]
+                        if len(non_silent) > 0:
+                            pad = int(24000 * 0.05)  # 50ms smooth ramp
+                            start_idx = max(0, non_silent[0] - pad)
+                            end_idx = min(len(samples), non_silent[-1] + pad + 1)
+                            samples = samples[start_idx:end_idx]
+                    return round((len(samples) / 24000.0) + 0.12, 2)
         except Exception:
             pass
 

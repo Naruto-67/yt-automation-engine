@@ -719,11 +719,12 @@ def run_discovery(force: bool = False) -> Dict[str, Any]:
         print(f"  {status_sym} Priority #{prov.get('priority'):2d} [Tier {tier}]: {prov.get('name', 'Unknown'):35s} (Model: {prov.get('model', 'N/A')})")
     print("=" * 80 + "\n")
 
-    logger.success(f"✅ [DISCOVERY COMPLETE] Ranked {len(final_providers)} active models dynamically across {len(families)} provider families (banned {len(banned_models)} models).")
+    all_families = {get_provider_family(p) for p in final_providers}
+    logger.success(f"✅ [DISCOVERY COMPLETE] Ranked {len(final_providers)} active models dynamically across {len(all_families)} provider families (banned {len(banned_models)} models).")
     return {
         "status": "SUCCESS",
         "active_models_count": len(final_providers),
-        "families_count": len(families),
+        "families_count": len(all_families),
         "banned_count": len(banned_models),
         "providers": [p["name"] for p in final_providers]
     }

@@ -254,7 +254,7 @@ def test_pure_shower_thought_auditor_bans_trivia_facts():
         "Elevator buttons don't actually register your touch using pressure sensors.",
         "The tiny hole at the bottom of a padlock is actually a drainage hole.",
         "Have you ever wondered why your phone compass uses a magnetometer?",
-        "Studies show that sharks have been around longer than trees.",
+        "Did you know that sharks have been around longer than trees?",
     ]
     for trivia in trivia_examples:
         passed, reason = PureShowerThoughtAuditor.audit_thought(trivia)
@@ -273,6 +273,7 @@ def test_pure_shower_thought_auditor_passes_pure_thoughts():
         "Your future self is watching you right now through memories.",
         "Every book you've ever read is just different combinations of twenty-six letters.",
         "Snipers and surgeons need steady hands for the exact opposite reasons.",
+        "Scientists say the startle response shares circuitry with our ancient predator detection system.",
     ]
     for thought in pure_thoughts:
         passed, reason = PureShowerThoughtAuditor.audit_thought(thought)

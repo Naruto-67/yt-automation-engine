@@ -12,6 +12,10 @@ triplet_anchor_scenes:
     2. "penultimate_scene": A compelling, mind-bending thought or fact (10-14 words) that serves as the final standalone fact before the loop.
     3. "loop_scene": A closing bridge sentence (6-12 words) that logically and grammatically transitions FROM "penultimate_scene" AND flows seamlessly right back into the opening words of "hook_scene", ending with "..."!
 
+    CRITICAL RULES:
+    - Never start with generic filler: "Did you know", "Fun fact", "Ever wonder why". State mind-bending truths directly.
+    - "loop_scene" MUST end with "..." and grammatically flow directly into the exact opening words of "hook_scene".
+
     Example of seamless 3-sentence circular anchoring:
     Hook: "You have never actually seen your own face, only reflections and photos."
     Penultimate: "Every mirror you purchase is technically used since someone had to test it."
