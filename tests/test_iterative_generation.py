@@ -120,7 +120,7 @@ def test_iterative_generator_loop_selection():
 
 
 def test_iterative_generator_chain_full_flow():
-    """generate_scene_chain constructs an 11+ scene script rotating through pillars."""
+    """generate_scene_chain constructs a high-retention circular script under 32s."""
     from engine.managers.iterative_script_generator import IterativeScriptGenerator, PILLARS
 
     class MockChainLLM:
@@ -130,42 +130,57 @@ def test_iterative_generator_chain_full_flow():
 
         def generate_json(self, system_prompt, user_prompt, **kwargs):
             self.call_count += 1
-            if "Scene 1:" in user_prompt:
+            if "Scene 1 hook thought and a Final Scene loopback bridge" in user_prompt:
                 return {
-                    "spoken_text": "The only part of your reflection you can lick is your tongue.",
-                    "stock_video_query": "soap carving cubes ASMR"
+                    "hook_scene": {
+                        "spoken_text": "You have never actually seen your own face, only reflections and photos.",
+                        "stock_video_query": "soap carving cubes ASMR"
+                    },
+                    "loop_outro_scene": {
+                        "spoken_text": "Which means the only reason you recognize yourself is because...",
+                        "stock_video_query": "resin lathe turning wood polishing"
+                    }
                 }
-            elif "ASSIGNED KNOWLEDGE DOMAIN:" in user_prompt:
-                # Return distinct thoughts
+            elif "SCENES TO NORMALIZE & EMOTIFY:" in user_prompt:
+                import json
+                try:
+                    lines = user_prompt.split("SCENES TO NORMALIZE & EMOTIFY:\n")[1].split("\n\n")[0]
+                    scs = json.loads(lines)
+                    return {"scenes": scs}
+                except Exception:
+                    return {}
+            elif "optimized YouTube metadata" in user_prompt:
                 return {
-                    "spoken_text": f"Astonishing perspective shift number {self.call_count} that breaks your thinking.",
-                    "stock_video_query": "pottery wheel clay shaping satisfying"
-                }
-            elif "seamless circular outro" in user_prompt:
-                return {
-                    "spoken_text": "Which proves that when you look into glass...",
-                    "stock_video_query": "sand pendulum harmonograph geometric"
+                    "title": "Shower Thoughts That Blow Minds 🤯 #shorts",
+                    "description": "Shower Thoughts That Blow Minds 🤯 #shorts\n\nDeep realizations.\n\n#shorts",
+                    "tags": ["shower thoughts", "psychology", "shorts"]
                 }
             return {
-                "spoken_text": "Valid thought text that meets all standards.",
-                "stock_video_query": "kinetic sand"
+                "spoken_text": f"Astonishing perspective shift number {self.call_count} that breaks your thinking.",
+                "stock_video_query": "pottery wheel clay shaping satisfying"
             }
 
     mock_llm = MockChainLLM()
     generator = IterativeScriptGenerator(llm_manager=mock_llm)
     scenes, seo = generator.generate_scene_chain(
         topic="Mind Bending Thoughts",
-        target_duration=55,
-        target_words_min=140,
-        target_words_max=175
+        max_duration=32.0
     )
 
-    assert len(scenes) >= 10
+    # High-retention circular short: 4 to 7 scenes total
+    assert 4 <= len(scenes) <= 7
     # Scene 1 is Hook
     assert scenes[0]["scene_id"] == 1
-    # Scene 2 is Premise Anchor
+    assert "face" in scenes[0]["spoken_text"].lower()
+    # Scene 2 is a genuine thought, NOT a category title readout
     assert scenes[1]["scene_id"] == 2
-    # SEO title is umbrella
+    assert "shower thoughts that" not in scenes[1]["spoken_text"].lower()
+    # Final Scene is Loop Outro Anchor
+    assert scenes[-1]["spoken_text"].endswith("...") or scenes[-1]["spoken_text"].endswith((".", "!"))
+    # Total duration strictly <= 32.0s
+    total_dur = sum(generator._calc_duration(s["spoken_text"]) for s in scenes)
+    assert total_dur <= 32.0
+    # SEO title has #shorts
     assert "#shorts" in seo["title"]
 
 
@@ -202,35 +217,29 @@ def test_iterative_generator_loop_rejects_hook_repetition():
     assert repeats is False
 
 
-def test_v3_clean_scene_by_scene_dedup_and_max_duration():
-    """Validates the v3 scene-by-scene generation strategy: Hook -> Title -> Thoughts -> CTA, under 52s, with dedup and emotion pass."""
+def test_v4_circular_loop_scene_by_scene():
+    """Validates the v4 circular loop generation: Paired Hook/Loop -> Thoughts -> Loop Outro, under 32s, with dedup and emotion pass."""
     from engine.managers.iterative_script_generator import IterativeScriptGenerator
 
-    class MockV3LLM:
-        _last_used_provider_id = "mock_v3"
+    class MockV4LLM:
+        _last_used_provider_id = "mock_v4"
         def __init__(self):
             self.call_count = 0
-            self.scenes_generated = []
 
         def generate_json(self, system_prompt, user_prompt, **kwargs):
             self.call_count += 1
-            if "Scene 1 hook" in user_prompt:
+            if "Scene 1 hook thought and a Final Scene loopback bridge" in user_prompt:
                 return {
-                    "spoken_text": "The only part of your reflection you can lick is your tongue.",
-                    "stock_video_query": "soap carving cubes ASMR"
-                }
-            elif "Write Scene 2 as the punchy title readout" in user_prompt:
-                return {
-                    "spoken_text": "Shower thoughts that feel illegal to know.",
-                    "stock_video_query": "kinetic sand squishing satisfying"
-                }
-            elif "The final witty YouTube subscription call to action" in user_prompt:
-                return {
-                    "spoken_text": "Subscribe if you want your brain to hurt in the best way.",
-                    "stock_video_query": "soap carving cubes ASMR"
+                    "hook_scene": {
+                        "spoken_text": "The only part of your reflection you can lick is your tongue.",
+                        "stock_video_query": "soap carving cubes ASMR"
+                    },
+                    "loop_outro_scene": {
+                        "spoken_text": "And the reason you are tempted to test that right now is because...",
+                        "stock_video_query": "resin lathe turning wood polishing"
+                    }
                 }
             elif "SCENES TO NORMALIZE & EMOTIFY:" in user_prompt:
-                # Return polished scenes with expressive punctuation
                 import json
                 try:
                     lines = user_prompt.split("SCENES TO NORMALIZE & EMOTIFY:\n")[1].split("\n\n")[0]
@@ -240,25 +249,31 @@ def test_v3_clean_scene_by_scene_dedup_and_max_duration():
                     return {"scenes": scs}
                 except Exception:
                     return {}
-            else:
-                # Scene 3..N-1 thoughts (unique)
+            elif "optimized YouTube metadata" in user_prompt:
                 return {
-                    "spoken_text": f"Mind-bending perspective number {self.call_count} that makes you question daily autopilot.",
+                    "title": "Mind Glitches You Experience Daily 🤯 #shorts",
+                    "description": "Mind Glitches You Experience Daily 🤯 #shorts\n\nDaily cognitive shifts.\n\n#shorts",
+                    "tags": ["mind glitches", "shower thoughts", "shorts"]
+                }
+            else:
+                return {
+                    "spoken_text": f"Mind-bending perspective number {self.call_count} that resets your daily perception.",
                     "stock_video_query": "pottery wheel clay shaping satisfying"
                 }
 
-    mock_llm = MockV3LLM()
+    mock_llm = MockV4LLM()
     generator = IterativeScriptGenerator(llm_manager=mock_llm)
-    scenes, seo = generator.generate_scene_chain(max_duration=52.0)
+    scenes, seo = generator.generate_scene_chain(max_duration=32.0)
 
-    # 1. Total duration must be strictly <= 52.0s
+    # 1. Total duration must be strictly <= 32.0s
     total_dur = sum(generator._calc_duration(s["spoken_text"]) for s in scenes)
-    assert total_dur <= 52.0, f"Total duration {total_dur}s exceeded max 52.0s ceiling!"
+    assert total_dur <= 32.0, f"Total duration {total_dur}s exceeded max 32.0s ceiling!"
 
-    # 2. Scene 1 is Hook, Scene 2 is Title readout, Last scene is CTA closer
+    # 2. Scene 1 is Hook, Scene 2 is a genuine thought, Last scene is Loop Outro
     assert scenes[0]["scene_id"] == 1
+    assert "lick" in scenes[0]["spoken_text"].lower()
     assert scenes[1]["scene_id"] == 2
-    assert scenes[-1]["spoken_text"].endswith((".", "!"))
+    assert "shower thoughts that" not in scenes[1]["spoken_text"].lower()
 
     # 3. Emotion pass applied expressive punctuation
     assert any("!" in s["spoken_text"] for s in scenes)
@@ -266,6 +281,47 @@ def test_v3_clean_scene_by_scene_dedup_and_max_duration():
     # 4. Sequential scene_ids
     for idx, sc in enumerate(scenes):
         assert sc["scene_id"] == idx + 1
+
+
+def test_cliche_auditor_blocks_expanded_tropes():
+    """CynicalHumanAuditor must block all forensic clichés: alarm clock, rehearsals, oldest you've been, etc."""
+    from engine.managers.editorial_critic import CynicalHumanAuditor
+
+    cliche_examples = [
+        "Your alarm clock screams because it wakes you up to punish you.",
+        "You are constantly rehearsing conversations in your head that will never happen.",
+        "You are now the oldest you've ever been and the youngest you'll ever be.",
+        "You are now manually breathing and cannot stop thinking about it.",
+        "Your stomach lining replaces itself every four days so it doesn't digest itself.",
+        "Hot water freezes faster than cold water due to the Mpemba effect.",
+        "Cracking your knuckles gives you arthritis according to myths.",
+    ]
+    for text in cliche_examples:
+        passed, reason = CynicalHumanAuditor.audit_text(text)
+        assert not passed, f"Expected FAIL for cliché: '{text}'"
+        assert "Cliché Audit FAILED" in reason
+
+
+def test_whoosh_transition_sfx_track(tmp_path):
+    """Verifies that generate_transition_whoosh_track creates a valid WAV file at cut timestamps."""
+    from scripts.render_video import generate_transition_whoosh_track
+    import wave
+
+    output_wav = str(tmp_path / "test_whoosh_track.wav")
+    cuts = [4.5, 9.2, 14.8]
+    res = generate_transition_whoosh_track(
+        cut_timestamps=cuts,
+        total_duration=20.0,
+        output_path=output_wav,
+        whoosh_sfx_path="assets/audio/sfx/whoosh.wav",
+        ducking_factor=0.20
+    )
+    assert res == output_wav
+    assert os.path.exists(output_wav)
+    with wave.open(output_wav, "rb") as w:
+        assert w.getnchannels() == 2
+        assert w.getframerate() == 44100
+        assert w.getnframes() > 44100 * 19
 
 
 def test_seo_description_has_exact_title_on_top():

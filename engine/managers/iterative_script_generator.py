@@ -1,15 +1,17 @@
 """
-engine/managers/iterative_script_generator.py — Clean Scene-by-Scene Script Generator (v3.0)
+engine/managers/iterative_script_generator.py — High-Retention Circular Script Generator (v4.0)
 
-Implements the user's direct, unbloated compilation strategy:
-1. Scene 1: Engaging random Reddit thought / intriguing fact (Hook).
-2. Scene 2: Video title readout / compilation premise line.
-3. Scenes 3 to N-1: Standalone random Reddit thoughts and logical everyday facts.
-   Generated 1 scene per LLM call until estimated duration approaches 50s (max 52s).
-4. Scene N: Punchy, witty call to action closer.
-5. Normalization & Emotion Pass: Sends the assembled script to AI to add expressive
-   punctuation (.!?—,) so Kokoro neural TTS synthesizes rich human emotional inflection.
-6. Per-scene deduplication checks across every step.
+Implements the high-voltage retention architecture:
+1. Step 1 (Paired Anchor Generation): Generates Scene 1 (Hook) and the Final Scene (Loopback Outro)
+   TOGETHER in a single LLM call. This guarantees a grammatically and logically airtight infinite loop.
+2. Step 2 (Middle Fast-Paced Thoughts): Generates standalone random Reddit thoughts and logical everyday facts
+   one by one, checking for duplicates, solipsism, and overused clichés across all scenes.
+   Continues until total audio duration reaches 25–32s.
+3. Step 3 (Assembly & Duration Guard): Assembles [Scene 1, Scene 2, Scene 3, ..., Final Loop Outro].
+   Enforces strict duration ceiling (max 32.0s).
+4. Step 4 (Normalization & Emotion Pass): Polishes punctuation (?, !, ,, —, .) for Kokoro neural TTS.
+5. Step 5 (Dynamic Video-Specific SEO): Generates unique high-CTR title, custom description starting
+   with {title}\n\n{description}, and tags tailored to the actual script.
 """
 
 from __future__ import annotations
@@ -57,13 +59,40 @@ SATISFYING_VISUAL_QUERIES = [
     "glitter slime scoop satisfying"
 ]
 
-# Witty, high-retention call-to-action closers (Mode B BrainBlud style)
+# Vetted circular paired anchors (Hook -> Loop Outro) for fallback situations
+PAIRED_CIRCULAR_FALLBACKS = [
+    (
+        "You have never actually seen your own face, only reflections and photos.",
+        "Which means the only reason you recognize yourself is because..."
+    ),
+    (
+        "The brain named itself, recognized itself, and is now questioning that exact fact.",
+        "And the wildest part is that this whole realization only happens when..."
+    ),
+    (
+        "The only part of your reflection you can actually lick is your tongue.",
+        "And you will probably test that right now just to prove that..."
+    ),
+    (
+        "Your future self is currently watching you right now through your memories.",
+        "So make sure you don't do something embarrassing, especially since..."
+    ),
+    (
+        "Nothing is ever completely on fire, fire is just on things.",
+        "Which sounds completely absurd until you remember that..."
+    ),
+    (
+        "Every single person you see in your dreams has a face you've encountered in real life.",
+        "Which means when you wake up, you are always returning to a world where..."
+    )
+]
+
+# Witty, high-retention call-to-action closers (Legacy BrainBlud style fallback)
 BRAINBLUD_CLOSERS = [
     "Subscribe for more thoughts that will break your brain.",
     "If you want to be smarter than everyone you know, subscribe.",
     "If all of you subscribed right now, I would have more subscribers.",
     "Subscribe to unlock thoughts nobody told you.",
-    "You just spent fifty seconds learning thoughts that won't help you on an exam.",
     "Your brain is now holding information it will never use again.",
     "If you made it this far, your attention span is better than average.",
     "If you subscribe right now, your phone won't explode tomorrow.",
@@ -74,7 +103,7 @@ BRAINBLUD_CLOSERS = [
 ]
 MODE_B_WITTY_CLOSERS = BRAINBLUD_CLOSERS  # Backward compatibility alias
 
-# Scene 2 Premise Anchor Templates
+# Legacy Scene 2 Premise Anchor Templates (kept for backwards compatibility tests)
 PREMISE_ANCHOR_LINES = [
     "Shower thoughts that will break your brain.",
     "Shower thoughts nobody told you.",
@@ -87,7 +116,6 @@ PREMISE_ANCHOR_LINES = [
     "Unsettling thoughts that sound fake but are 100% true."
 ]
 
-# Backward compatibility alias for pillar rotation
 PILLARS = [
     {"name": "Mind-Bending Thought", "desc": "Relatable random Reddit thought or logical fact"}
 ]
@@ -95,7 +123,8 @@ PILLARS = [
 
 class IterativeScriptGenerator:
     """
-    Clean, Scene-by-Scene Script Generator with Duration Budgeting and Normalization.
+    High-Retention Circular Script Generator with Paired Hook-Loop Generation,
+    Duration Budgeting (25-32s), and Dynamic SEO.
     """
 
     def __init__(self, llm_manager: Optional[Any] = None, quality_tracker: Optional[LLMQualityTracker] = None):
@@ -131,9 +160,15 @@ class IterativeScriptGenerator:
         """
         Validates thought uniqueness against existing scenes in this video
         and recent upload history using both token overlap and semantic deduplication.
+        Also blocks solipsism and overused clichés.
         """
         if not text or not text.strip():
             return True, "Empty text"
+
+        # Check solipsism and overused clichés
+        passed_wall, wall_reason = CynicalHumanAuditor.audit_text(text)
+        if not passed_wall:
+            return True, wall_reason
 
         # Check semantic and token-level deduplication against existing scenes
         if existing_scenes:
@@ -161,59 +196,58 @@ class IterativeScriptGenerator:
     def generate_scene_chain(
         self,
         topic: str = "",
-        max_duration: float = 52.0,
+        max_duration: float = 32.0,
         target_duration: Optional[int] = None,
         **kwargs
     ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
         """
-        Executes the clean scene-by-scene script generation:
-        1. Scene 1: Engaging random Reddit thought / fact (Hook) -> duplicate check.
-        2. Scene 2: Video title readout / compilation framing hook -> duplicate check.
-        3. Scenes 3 to N-1: Random relatable Reddit thoughts and logical everyday facts -> duplicate check per scene.
-           Stops when cumulative duration approaches 50s (max 52s hard limit).
-        4. Scene N: Call-to-action closer -> duplicate check.
-        5. Strict Duration Guard: Guarantees cumulative duration <= max_duration (52.0s).
-        6. Normalization Pass: Adds expressive emotional punctuation (.!?,—) for Kokoro TTS.
-        7. SEO Generation: High-CTR umbrella title and metadata.
+        Executes the high-retention circular script generation (v4.0):
+        1. Step 1: Paired Anchor Generation:
+           Generates Scene 1 (Hook) and the Final Scene (Loopback Outro) together in one LLM call.
+           This locks in a grammatically and logically seamless circular loop back to Scene 1.
+        2. Step 2: Middle Thoughts:
+           Generates standalone random Reddit thoughts and logical everyday facts one-by-one.
+           Checked for duplicates, solipsism, and overused clichés across all scenes.
+           Continues until total duration target (25-32s) is reached.
+        3. Step 3: Script Assembly:
+           Assembles [Scene 1, Scene 2, Scene 3, ..., Final Loop Scene].
+           Strict Duration Guard ensures total duration <= max_duration (32.0s).
+        4. Step 4: Normalization & Emotion Pass:
+           Adds expressive punctuation (? ! , . —) so Kokoro TTS synthesizes natural human inflection.
+        5. Step 5: Dynamic Video-Specific SEO:
+           Generates unique high-CTR title, custom description formatted as {title}\n\n{description}, and tags.
         """
-        print(f"\n🧠 [ISCG v3.0] Generating script scene-by-scene (Duration budget: max {max_duration}s)...")
+        print(f"\n🧠 [ISCG v4.0] Generating circular loop script (Duration budget: max {max_duration}s)...")
         recent_titles = _load_upload_history_titles()
         scenes: List[Dict[str, Any]] = []
         used_queries: List[str] = []
         current_duration = 0.0
 
-        # ─── STEP 1: SCENE 1 (HOOK) ──────────────────────────────────────────
-        print("🎯 [STEP 1] Generating Scene 1 (Engaging Hook Thought/Fact)...", flush=True)
-        hook_scene = self._generate_hook(used_queries=used_queries, recent_titles=recent_titles)
-        scenes.append(hook_scene)
-        used_queries.append(hook_scene["stock_video_query"])
-        current_duration += self._calc_duration(hook_scene["spoken_text"])
-        print(f"   ✅ Scene 1 (Checked for duplicates): '{hook_scene['spoken_text']}' (~{self._calc_duration(hook_scene['spoken_text'])}s)")
-
-        # ─── STEP 2: SCENE 2 (TITLE READOUT / PREMISE) ───────────────────────
-        print("🎬 [STEP 2] Generating Scene 2 (Title Readout / Compilation Framing)...", flush=True)
-        premise_scene = self._generate_premise_anchor(
-            hook_text=hook_scene["spoken_text"],
-            existing_scenes=scenes,
+        # ─── STEP 1: PAIRED ANCHORS (HOOK & LOOPBACK OUTRO) ───────────────────
+        print("🎯 [STEP 1] Generating Paired Anchors (Scene 1 Hook & Final Loopback Outro)...", flush=True)
+        hook_scene, loop_scene = self._generate_paired_anchors(
+            topic=topic,
             used_queries=used_queries,
             recent_titles=recent_titles
         )
-        scenes.append(premise_scene)
-        used_queries.append(premise_scene["stock_video_query"])
-        current_duration += self._calc_duration(premise_scene["spoken_text"])
-        print(f"   ✅ Scene 2 (Checked for duplicates): '{premise_scene['spoken_text']}' (~{self._calc_duration(premise_scene['spoken_text'])}s)")
+        scenes.append(hook_scene)
+        used_queries.append(hook_scene["stock_video_query"])
+        current_duration += self._calc_duration(hook_scene["spoken_text"])
+        loop_dur = self._calc_duration(loop_scene["spoken_text"])
+        print(f"   ✅ Scene 1 (Hook): '{hook_scene['spoken_text']}' (~{self._calc_duration(hook_scene['spoken_text'])}s)")
+        print(f"   ✅ Final Scene (Loop Outro Anchor): '{loop_scene['spoken_text']}' (~{loop_dur}s)")
 
-        # ─── STEP 3: SCENES 3 to N-1 (RANDOM RELATABLE THOUGHTS & FACTS) ─────
-        # We target staying under 50.0s so adding CTA closer leaves the final video strictly below 52s
-        target_duration_limit = min(50.0, max_duration - 2.0)
-        print(f"🔄 [STEP 3] Generating random thoughts & facts until ~{target_duration_limit}s (Max ceiling: {max_duration}s)...", flush=True)
-        scene_num = 3
+        # ─── STEP 2: MIDDLE THOUGHTS (FAST-PACED, NO CATEGORICAL SLOTS) ───────
+        target_duration_limit = min(max_duration - loop_dur, 28.0)
+        print(f"🔄 [STEP 2] Generating fast-paced middle thoughts until ~{target_duration_limit:.1f}s (Max ceiling: {max_duration}s)...", flush=True)
+        scene_num = 2
 
-        while (current_duration + 4.2 + 3.2 <= target_duration_limit) and scene_num <= 14:
+        max_scenes_limit = 6 if max_duration <= 35.0 else 14
+        while (current_duration + 4.0 <= target_duration_limit) and scene_num <= max_scenes_limit:
             print(f"   Generating Scene {scene_num} (current: {current_duration:.1f}s)...", flush=True)
             scene = self._generate_random_thought(
                 scene_num=scene_num,
-                existing_scenes=scenes,
+                existing_scenes=scenes + [loop_scene],
                 used_queries=used_queries,
                 recent_titles=recent_titles
             )
@@ -224,44 +258,110 @@ class IterativeScriptGenerator:
             print(f"   ✅ Scene {scene_num} (Checked for duplicates): '{scene['spoken_text'][:60]}...' (+{sc_dur}s | cumulative: {current_duration:.1f}s)")
             scene_num += 1
 
-        # ─── STEP 4: SCENE N (CALL TO ACTION CLOSER) ─────────────────────────
-        print(f"🎬 [STEP 4] Crafting Final Scene {scene_num} (Call to Action Closer)...", flush=True)
-        cta_scene = self._generate_cta_closer(
-            scene_num=scene_num,
-            existing_scenes=scenes,
-            used_queries=used_queries,
-            recent_titles=recent_titles
-        )
-        scenes.append(cta_scene)
-        used_queries.append(cta_scene["stock_video_query"])
-        current_duration += self._calc_duration(cta_scene["spoken_text"])
-        print(f"   ✅ Scene {scene_num} (CTA - Checked for duplicates): '{cta_scene['spoken_text']}' (+{self._calc_duration(cta_scene['spoken_text'])}s)")
+        # ─── STEP 3: APPEND FINAL LOOP OUTRO SCENE ────────────────────────────
+        loop_scene["scene_id"] = scene_num
+        scenes.append(loop_scene)
+        used_queries.append(loop_scene["stock_video_query"])
+        current_duration += loop_dur
+        print(f"   ✅ Appended Final Scene {scene_num} (Loop Outro): '{loop_scene['spoken_text']}' (Total est: {current_duration:.1f}s)")
 
-        # ─── DURATION GUARD: STRICTLY ENFORCE MAX DURATION (52.0s) ───────────
+        # ─── DURATION GUARD: STRICTLY ENFORCE MAX DURATION (32.0s) ────────────
         while len(scenes) > 3 and sum(self._calc_duration(s.get("spoken_text", "")) for s in scenes) > max_duration:
-            popped = scenes.pop(-2)  # Remove the last thought scene before the CTA closer
-            print(f"   ✂️ [DURATION GUARD] Popped Scene {popped.get('scene_id')} ('{popped.get('spoken_text', '')[:40]}...') to strictly enforce max {max_duration}s ceiling.")
+            popped = scenes.pop(-2)  # Remove the last middle thought before the loop closer
+            print(f"   ✂️ [DURATION GUARD] Popped Scene {popped.get('scene_id')} ('{popped.get('spoken_text', '')[:40]}...') to enforce max {max_duration}s ceiling.")
 
         # Re-index scene_id sequentially
         for i, sc in enumerate(scenes):
             sc["scene_id"] = i + 1
 
-        # ─── STEP 5: NORMALIZATION & EMOTION PASS (KOKORO AUDIO POLISHER) ────
-        print("🎭 [STEP 5] Running Normalization & Emotion Pass for Kokoro TTS...", flush=True)
+        # ─── STEP 4: NORMALIZATION & EMOTION PASS (KOKORO AUDIO POLISHER) ────
+        print("🎭 [STEP 4] Running Normalization & Emotion Pass for Kokoro TTS...", flush=True)
         scenes = self._normalize_and_emotify_script(scenes)
 
         total_words = sum(len(s.get("spoken_text", "").split()) for s in scenes)
         final_est_duration = sum(self._calc_duration(s.get("spoken_text", "")) for s in scenes)
         print(f"🎯 [SCRIPT ASSEMBLED] {len(scenes)} scenes, {total_words} words (~{final_est_duration:.1f}s audio, strictly ≤ {max_duration}s).")
 
-        # ─── STEP 6: SEO METADATA GENERATION ─────────────────────────────────
-        print("🏷️  [STEP 6] Generating High-CTR SEO Metadata...", flush=True)
-        seo_data = self._generate_seo(scenes=scenes, premise_line=premise_scene["spoken_text"], recent_titles=recent_titles)
+        # ─── STEP 5: DYNAMIC SEO METADATA GENERATION ──────────────────────────
+        print("🏷️  [STEP 5] Generating Dynamic, Video-Specific SEO Metadata...", flush=True)
+        seo_data = self._generate_seo(scenes=scenes, recent_titles=recent_titles)
         print(f"   ✅ Title: '{seo_data.get('title')}'")
 
         return scenes, seo_data
 
     # ─── INDIVIDUAL SCENE GENERATION METHODS ──────────────────────────────────
+
+    def _generate_paired_anchors(
+        self,
+        topic: str = "",
+        used_queries: Optional[List[str]] = None,
+        recent_titles: Optional[List[str]] = None
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """
+        Generates Scene 1 (Hook) and the Final Scene (Loopback Outro) TOGETHER in a single LLM call.
+        This guarantees the closing sentence grammatically and logically flows back into the opening hook.
+        """
+        sys_prompt = self.prompts.get("paired_anchor_scene", {}).get(
+            "system_prompt",
+            "You write viral YouTube Shorts with infinite loop potential. Generate TWO scenes that together create a seamless circular loop: 'hook_scene' (10-14 words) and 'loop_outro_scene' (6-12 words). Return ONLY valid JSON."
+        )
+        user_prompt = "Generate a viral Scene 1 hook thought and a Final Scene loopback bridge that flows seamlessly back into the hook's opening words."
+        if topic and topic.strip():
+            user_prompt += f" Theme/Vibe: {topic.strip()}."
+
+        for attempt in range(3):
+            try:
+                res = self.llm.generate_json(
+                    system_prompt=sys_prompt,
+                    user_prompt=user_prompt,
+                    temperature=0.6,
+                    task_name="script_gen"
+                )
+                hook_data = res.get("hook_scene", {})
+                loop_data = res.get("loop_outro_scene", {})
+
+                hook_text = hook_data.get("spoken_text", "").strip()
+                loop_text = loop_data.get("spoken_text", "").strip()
+
+                hook_text = re.sub(r"^[.…\-—\s]+", "", hook_text).strip()
+                if hook_text and hook_text[0].islower():
+                    hook_text = hook_text[0].upper() + hook_text[1:]
+
+                is_dup_h, reason_h = self._is_duplicate_thought(hook_text, [], recent_titles)
+                is_dup_l, reason_l = self._is_duplicate_thought(loop_text, [{"scene_id": 1, "spoken_text": hook_text}], recent_titles)
+
+                if is_dup_h or is_dup_l:
+                    print(f"   🔄 [DEDUP CHECK] Anchor duplicate detected (hook: {reason_h}, loop: {reason_l}). Retrying...")
+                    continue
+
+                if hook_text and loop_text and len(hook_text.split()) >= 6 and len(loop_text.split()) >= 4:
+                    hook_scene = {
+                        "scene_id": 1,
+                        "spoken_text": hook_text,
+                        "stock_video_query": self._pick_query(hook_data.get("stock_video_query"), used_queries)
+                    }
+                    loop_scene = {
+                        "scene_id": None,
+                        "spoken_text": loop_text,
+                        "stock_video_query": self._pick_query(loop_data.get("stock_video_query"), used_queries)
+                    }
+                    return hook_scene, loop_scene
+            except Exception as e:
+                print(f"   ⚠️ Paired anchor attempt {attempt+1} failed: {e}")
+
+        # Vetted circular fallback pair
+        pair = random.choice(PAIRED_CIRCULAR_FALLBACKS)
+        hook_scene = {
+            "scene_id": 1,
+            "spoken_text": pair[0],
+            "stock_video_query": self._pick_query("soap carving cubes ASMR", used_queries)
+        }
+        loop_scene = {
+            "scene_id": None,
+            "spoken_text": pair[1],
+            "stock_video_query": self._pick_query("resin lathe turning wood polishing", used_queries)
+        }
+        return hook_scene, loop_scene
 
     def _generate_hook(
         self,
@@ -288,7 +388,6 @@ class IterativeScriptGenerator:
                     task_name="script_gen"
                 )
                 text = res.get("spoken_text", "").strip()
-                # Clean leading punctuation
                 text = re.sub(r"^[.…\-—\s]+", "", text).strip()
                 if text and text[0].islower():
                     text = text[0].upper() + text[1:]
@@ -325,8 +424,7 @@ class IterativeScriptGenerator:
         *args,
         **kwargs
     ) -> Dict[str, Any]:
-        """Generates Scene 2: Video title readout / compilation premise framing with duplicate check."""
-        # Handle cases where hook_text was passed as first arg
+        """Legacy helper kept for backwards compatibility tests."""
         if not hook_text and topic and len(topic.split()) > 3:
             hook_text = topic
         sys_prompt = self.prompts.get("title_scene", {}).get(
@@ -348,7 +446,6 @@ class IterativeScriptGenerator:
 
                 is_dup, reason = self._is_duplicate_thought(text, existing_scenes or [], recent_titles)
                 if is_dup:
-                    print(f"   🔄 [DEDUP CHECK] Scene 2 duplicate detected ({reason}). Retrying...")
                     continue
 
                 if text and 4 <= len(text.split()) <= 14:
@@ -360,7 +457,6 @@ class IterativeScriptGenerator:
             except Exception:
                 pass
 
-        # Vetted fallback premise anchor
         anchor = random.choice(PREMISE_ANCHOR_LINES)
         return {
             "scene_id": 2,
@@ -377,13 +473,13 @@ class IterativeScriptGenerator:
     ) -> Dict[str, Any]:
         """Generates a single standalone random Reddit thought or logical everyday fact."""
         already_used = [s.get("spoken_text", "") for s in existing_scenes]
-        already_used_summary = "\n".join(f"- {t}" for t in already_used[-4:])
+        already_used_summary = "\n".join(f"- {t}" for t in already_used[-6:])
 
         sys_prompt = self.prompts.get("thought_scene", {}).get(
             "system_prompt",
-            "Give me ONE standalone, mind-bending random Reddit thought or logical fact that makes you stop and think. Simple and relatable, 10-15 words. Return ONLY JSON with 'spoken_text' and 'stock_video_query'."
+            "Give me ONE standalone, mind-bending random Reddit thought or logical fact that makes you stop and think. Simple and relatable, 10-14 words. Return ONLY JSON with 'spoken_text' and 'stock_video_query'."
         )
-        user_prompt = f"ALREADY USED THOUGHTS IN THIS VIDEO:\n{already_used_summary}\n\nGenerate Scene {scene_num}: Exactly one standalone thought or logical everyday fact (10-15 words)."
+        user_prompt = f"ALREADY USED THOUGHTS IN THIS VIDEO:\n{already_used_summary}\n\nGenerate Scene {scene_num}: Exactly one standalone thought or logical everyday fact (10-14 words)."
 
         for attempt in range(3):
             try:
@@ -394,15 +490,14 @@ class IterativeScriptGenerator:
                     task_name="script_gen"
                 )
                 text = res.get("spoken_text", "").strip()
-                # Clean leading punctuation
                 text = re.sub(r"^[.…\-—\s]+", "", text).strip()
 
                 is_dup, reason = self._is_duplicate_thought(text, existing_scenes, recent_titles)
                 if is_dup:
-                    print(f"   🔄 [DEDUP CHECK] Duplicate detected: {reason}. Retrying...")
+                    print(f"   🔄 [DEDUP CHECK] Duplicate/cliché detected: {reason}. Retrying...")
                     continue
 
-                if text and 8 <= len(text.split()) <= 18:
+                if text and 7 <= len(text.split()) <= 18:
                     return {
                         "scene_id": scene_num,
                         "spoken_text": text,
@@ -446,7 +541,7 @@ class IterativeScriptGenerator:
         *args,
         **kwargs
     ) -> Dict[str, Any]:
-        """Generates Scene N: Punchy, witty call to action closer ending cleanly in a period or exclamation mark with duplicate check."""
+        """Legacy call-to-action closer generator kept for backward compatibility."""
         sys_prompt = self.prompts.get("cta_closer", {}).get(
             "system_prompt",
             "Give me ONE short, witty, deadpan call to action to subscribe. 6-12 words. End with clean period or exclamation mark. Return ONLY JSON with 'spoken_text' and 'stock_video_query'."
@@ -462,12 +557,10 @@ class IterativeScriptGenerator:
                     task_name="script_gen"
                 )
                 text = res.get("spoken_text", "").strip()
-                # Clean punctuation and ensure clean period/exclamation mark
                 text = re.sub(r"[.…\-—\s]+$", "", text).strip()
 
                 is_dup, reason = self._is_duplicate_thought(text, existing_scenes, recent_titles)
                 if is_dup:
-                    print(f"   🔄 [DEDUP CHECK] CTA closer duplicate detected ({reason}). Retrying...")
                     continue
 
                 if text and 5 <= len(text.split()) <= 16:
@@ -481,7 +574,6 @@ class IterativeScriptGenerator:
             except Exception:
                 pass
 
-        # Curated fallback
         already_used = [s.get("spoken_text", "") for s in existing_scenes]
         available_closers = [c for c in BRAINBLUD_CLOSERS if not any(c.lower() in prev.lower() for prev in already_used)]
         chosen = random.choice(available_closers or BRAINBLUD_CLOSERS)
@@ -522,7 +614,6 @@ class IterativeScriptGenerator:
                 for orig_s, polished_s in zip(scenes, polished_list):
                     if isinstance(polished_s, dict) and polished_s.get("spoken_text"):
                         new_text = polished_s["spoken_text"].strip()
-                        # Sanity check: don't accept if word count collapsed
                         if len(new_text.split()) >= len(orig_s["spoken_text"].split()) * 0.7:
                             orig_s["spoken_text"] = new_text
                 print(f"   ✅ [EMOTION PASS] Successfully enhanced {len(scenes)} scenes with expressive punctuation.")
@@ -538,29 +629,88 @@ class IterativeScriptGenerator:
         premise_line: str = "",
         recent_titles: Optional[List[str]] = None
     ) -> Dict[str, Any]:
-        """Generates unified umbrella compilation SEO matching the multi-thought script."""
-        aligned_title = TitleScriptAlignmentSkill.align_title(
-            title=f"{premise_line.rstrip('.!?')} 🤯 #shorts",
-            scenes=scenes,
-            upload_history_titles=recent_titles or []
-        )
+        """Generates dynamic, video-specific SEO based on the assembled script."""
+        full_script = "\n".join(f"Scene {s.get('scene_id')}: {s.get('spoken_text', '')}" for s in scenes)
 
-        base_description = (
-            "Mind-bending shower thoughts and psychological realizations that reset your daily perception.\n\n"
-            "Subscribe to @metopato for daily perspective shifts!\n\n"
-            "#showerthoughts #psychology #deepthoughts #mindblowing #shorts"
+        sys_prompt = self.prompts.get("seo_gen", {}).get(
+            "system_prompt",
+            "Generate high-CTR YouTube Shorts metadata tailored to the specific video script provided. Output valid JSON with 'title', 'description', 'tags'."
         )
-        # Exact title on top always, followed by an empty line, then the SEO description
-        full_description = f"{aligned_title}\n\n{base_description}"
+        user_prompt = f"Generate optimized YouTube metadata for this compilation script:\n{full_script}"
 
-        return {
-            "title": aligned_title,
-            "description": full_description,
-            "tags": [
-                "shower thoughts", "mind blowing facts", "psychology", "paradoxes",
-                "brain glitches", "deep thoughts", "shorts", "topato", "facts", "satisfying"
-            ]
-        }
+        try:
+            res = self.llm.generate_json(
+                system_prompt=sys_prompt,
+                user_prompt=user_prompt,
+                temperature=0.3,
+                task_name="seo_gen"
+            )
+            raw_title = res.get("title", "").strip()
+            raw_desc = res.get("description", "").strip()
+            tags = res.get("tags", [])
+            if not isinstance(tags, list) or not tags:
+                tags = [
+                    "shower thoughts", "mind blowing facts", "psychology", "deep thoughts",
+                    "brain glitches", "shorts", "relatable", "facts", "satisfying"
+                ]
+
+            if raw_title:
+                if "#shorts" not in raw_title.lower():
+                    raw_title = f"{raw_title.rstrip('.!?')} 🤯 #shorts"
+                aligned_title = TitleScriptAlignmentSkill.align_title(
+                    title=raw_title,
+                    scenes=scenes,
+                    upload_history_titles=recent_titles or []
+                )
+            else:
+                aligned_title = TitleScriptAlignmentSkill.align_title(
+                    title="Shower Thoughts That Blow Minds 🤯 #shorts",
+                    scenes=scenes,
+                    upload_history_titles=recent_titles or []
+                )
+
+            # Strip any repeated title from description body
+            clean_desc = raw_desc
+            if clean_desc.startswith(aligned_title):
+                clean_desc = clean_desc[len(aligned_title):].strip()
+            elif raw_title and clean_desc.startswith(raw_title):
+                clean_desc = clean_desc[len(raw_title):].strip()
+
+            if not clean_desc or len(clean_desc) < 25:
+                clean_desc = (
+                    "Mind-bending shower thoughts and psychological realizations that reset your perception of reality.\n\n"
+                    "Subscribe to @metopato for daily perspective shifts!\n\n"
+                    "#showerthoughts #psychology #deepthoughts #mindblowing #shorts"
+                )
+
+            # Exact title on top always, followed by an empty line, then the SEO description
+            full_description = f"{aligned_title}\n\n{clean_desc}"
+
+            return {
+                "title": aligned_title,
+                "description": full_description,
+                "tags": [str(t).strip() for t in tags if str(t).strip()]
+            }
+        except Exception as e:
+            print(f"⚠️ [SEO] Dynamic SEO generation failed: {e}. Falling back to rule-based SEO.")
+            aligned_title = TitleScriptAlignmentSkill.align_title(
+                title="Shower Thoughts That Blow Minds 🤯 #shorts",
+                scenes=scenes,
+                upload_history_titles=recent_titles or []
+            )
+            base_description = (
+                "Mind-bending shower thoughts and psychological realizations that reset your daily perception.\n\n"
+                "Subscribe to @metopato for daily perspective shifts!\n\n"
+                "#showerthoughts #psychology #deepthoughts #mindblowing #shorts"
+            )
+            return {
+                "title": aligned_title,
+                "description": f"{aligned_title}\n\n{base_description}",
+                "tags": [
+                    "shower thoughts", "mind blowing facts", "psychology", "paradoxes",
+                    "brain glitches", "deep thoughts", "shorts", "topato", "facts", "satisfying"
+                ]
+            }
 
     _generate_umbrella_seo = _generate_seo  # Backward compatibility alias
 

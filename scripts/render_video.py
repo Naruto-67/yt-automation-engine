@@ -368,6 +368,72 @@ def download_clip(url: str, output_path: str, provider: str, video_id: str) -> s
     return output_path
 
 
+def generate_transition_whoosh_track(
+    cut_timestamps: List[float],
+    total_duration: float,
+    output_path: str,
+    whoosh_sfx_path: str = "assets/audio/sfx/whoosh.wav",
+    ducking_factor: float = 0.20
+) -> Optional[str]:
+    """
+    Builds a seamless multichannel WAV containing subtle whoosh SFX triggered
+    at each scene transition point (t_cut - 0.20s) to peak on the visual frame cut.
+    Uses pure Python standard library (wave + struct), zero external dependencies.
+    """
+    if not os.path.exists(whoosh_sfx_path) or not cut_timestamps or total_duration <= 0:
+        return None
+
+    try:
+        import wave
+        import struct
+
+        with wave.open(whoosh_sfx_path, "rb") as w:
+            nchannels = w.getnchannels()
+            sampwidth = w.getsampwidth()
+            framerate = w.getframerate()
+            nframes = w.getnframes()
+            whoosh_bytes = w.readframes(nframes)
+
+        if sampwidth != 2 or nchannels != 2:
+            return None
+
+        # Unpack 16-bit stereo samples
+        whoosh_samples = struct.unpack(f"<{len(whoosh_bytes)//2}h", whoosh_bytes)
+        ducked_whoosh = [int(s * ducking_factor) for s in whoosh_samples]
+        whoosh_sample_count = len(ducked_whoosh) // 2  # per-channel frame count
+
+        total_frames = int(total_duration * framerate) + framerate
+        buffer = [0] * (total_frames * 2)
+
+        for cut_t in cut_timestamps:
+            # Place whoosh starting 0.20s before cut so whoosh peaks right at the cut
+            start_t = max(0.0, cut_t - 0.20)
+            start_frame = int(start_t * framerate)
+
+            for f_idx in range(whoosh_sample_count):
+                target_frame = start_frame + f_idx
+                if target_frame >= total_frames:
+                    break
+                b_idx_l = target_frame * 2
+                buffer[b_idx_l] = max(-32768, min(32767, buffer[b_idx_l] + ducked_whoosh[f_idx * 2]))
+                b_idx_r = target_frame * 2 + 1
+                buffer[b_idx_r] = max(-32768, min(32767, buffer[b_idx_r] + ducked_whoosh[f_idx * 2 + 1]))
+
+        os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+        packed_data = struct.pack(f"<{len(buffer)}h", *buffer)
+
+        with wave.open(output_path, "wb") as out_w:
+            out_w.setnchannels(2)
+            out_w.setsampwidth(2)
+            out_w.setframerate(framerate)
+            out_w.writeframes(packed_data)
+
+        return output_path
+    except Exception as e:
+        print(f"⚠️ [SFX] Could not build whoosh transition track: {e}", flush=True)
+        return None
+
+
 def render_video_ffmpeg(
     spec: SpecOutput,
     clips_manifest: ClipsManifest,
@@ -679,38 +745,68 @@ def render_video_ffmpeg(
 
     bg_music_path = MusicManager.get_or_create_lofi_track(duration=total_duration, mood="lofi_chill")
 
+    # Build subtle whoosh transition SFX track peaking right at scene cuts
+    cut_timestamps = []
+    curr_t = 0.0
+    for dur in scene_durations[:-1]:
+        curr_t += dur
+        cut_timestamps.append(round(curr_t, 2))
+
+    whoosh_sfx_path = "assets/audio/sfx/whoosh.wav"
+    whoosh_track_path = os.path.join(temp_dir, "transition_whooshes.wav")
+    whoosh_ready = generate_transition_whoosh_track(
+        cut_timestamps=cut_timestamps,
+        total_duration=total_duration,
+        output_path=whoosh_track_path,
+        whoosh_sfx_path=whoosh_sfx_path,
+        ducking_factor=0.20
+    )
+
     audio_inputs = []
     audio_mapping = []
 
     if os.path.exists(narration_path) and os.path.getsize(narration_path) > 1000:
         audio_inputs = ["-i", narration_path]
-        if bg_music_path and os.path.exists(bg_music_path) and os.path.getsize(bg_music_path) > 4096:
+        has_bg = bool(bg_music_path and os.path.exists(bg_music_path) and os.path.getsize(bg_music_path) > 4096)
+        has_whoosh = bool(whoosh_ready and os.path.exists(whoosh_track_path) and os.path.getsize(whoosh_track_path) > 1000)
+
+        if has_bg and has_whoosh:
+            audio_inputs.extend(["-stream_loop", "-1", "-i", bg_music_path, "-i", whoosh_track_path])
+            filter_complex = (
+                f"[1:a]loudnorm=I={target_lufs}:LRA={target_lra}:TP={target_tp}:linear=true[voice];"
+                f"[2:a]volume={bg_vol}[bg];"
+                f"[3:a]volume=0.20[sfx];"
+                f"[voice][bg][sfx]amix=inputs=3:duration=first:dropout_transition=0:normalize=0[aout]"
+            )
+            print(f"🎵 [RENDERER] Mixing mastered narration (target {target_lufs} LUFS) with Lo-Fi background music and whoosh transition SFX ({len(cut_timestamps)} cuts)...", flush=True)
+        elif has_bg:
             audio_inputs.extend(["-stream_loop", "-1", "-i", bg_music_path])
             filter_complex = (
                 f"[1:a]loudnorm=I={target_lufs}:LRA={target_lra}:TP={target_tp}:linear=true[voice];"
                 f"[2:a]volume={bg_vol}[bg];"
                 f"[voice][bg]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]"
             )
-            audio_mapping = [
-                "-filter_complex", filter_complex,
-                "-map", "0:v",
-                "-map", "[aout]",
-                "-c:a", "aac",
-                "-b:a", "192k",
-                "-ar", "44100"
-            ]
             print(f"🎵 [RENDERER] Mixing mastered narration (target {target_lufs} LUFS) with Lo-Fi background music ({os.path.basename(bg_music_path)} @ vol={bg_vol})...", flush=True)
+        elif has_whoosh:
+            audio_inputs.extend(["-i", whoosh_track_path])
+            filter_complex = (
+                f"[1:a]loudnorm=I={target_lufs}:LRA={target_lra}:TP={target_tp}:linear=true[voice];"
+                f"[2:a]volume=0.20[sfx];"
+                f"[voice][sfx]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]"
+            )
+            print(f"🎵 [RENDERER] Mixing mastered narration with whoosh transition SFX ({len(cut_timestamps)} cuts)...", flush=True)
         else:
             filter_complex = f"[1:a]loudnorm=I={target_lufs}:LRA={target_lra}:TP={target_tp}:linear=true[aout]"
-            audio_mapping = [
-                "-filter_complex", filter_complex,
-                "-map", "0:v",
-                "-map", "[aout]",
-                "-c:a", "aac",
-                "-b:a", "192k",
-                "-ar", "44100"
-            ]
             print(f"🎙️ [RENDERER] Mastering narration to broadcast loudness ({target_lufs} LUFS)...", flush=True)
+
+        audio_mapping = [
+            "-filter_complex", filter_complex,
+            "-map", "0:v",
+            "-map", "[aout]",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-ar", "44100"
+        ]
     else:
         print(f"⚠️ [RENDERER] Narration file '{narration_path}' not found — rendering without audio.", flush=True)
         audio_mapping = ["-map", "0:v"]

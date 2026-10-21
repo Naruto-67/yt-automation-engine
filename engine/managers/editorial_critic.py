@@ -38,17 +38,59 @@ SOLIPSISM_BANNED_PHRASES = [
     "you cannot experience",
     "you will never experience",
     "will never experience",
-    "never experience",
+    "never experience anything",
     "never actually experience",
-    "will never actually",
-    "never actually",
+    "will never actually experience",
     "nothing is ever real",
     "reality is just",
     "existence is just",
     "consciousness is just a",
     "life is just a simulation",
     "the present moment doesn't",
-    "you never actually",
+    "you never actually exist",
+]
+
+# ─── BANNED OVERUSED TRIVIA / CLICHÉ TROPES ────────────────────────────────────
+# These tropes are heavily overused across AI Shorts and trigger content fatigue.
+CLICHE_BANNED_PHRASES = [
+    # Alarm clock paradox
+    "alarm clock",
+    "alarm screams",
+    "wakes you up to punish you",
+    "device you set hoping it fail",
+    "only device you set hoping",
+    # Conversation rehearsals
+    "rehearsing conversations",
+    "rehearse conversations",
+    "fake arguments in the shower",
+    "arguments in your head",
+    "conversations in your head",
+    # Age paradox clichés
+    "oldest you've ever been",
+    "youngest you'll ever be",
+    "oldest you have ever been",
+    "youngest you will ever be",
+    # Autopilot / somatic traps
+    "manual breathing",
+    "manually breathing",
+    "manual blinking",
+    "manually blinking",
+    "tongue doesn't fit comfortably",
+    "tongue does not fit comfortably",
+    "swallowing your own saliva",
+    # Generic biology trivia clichés
+    "stomach lining",
+    "stomach acid",
+    "replaces its own lining",
+    "stomach from digesting itself",
+    "hot water freezes faster",
+    "mpemba effect",
+    "freezes faster than cold water",
+    "cracking your knuckles gives you arthritis",
+    "cracking knuckles gives you arthritis",
+    "popcorn steam",
+    "smell of rain is called petrichor",
+    "petrichor",
 ]
 
 # Umbrella compilation title templates — proven @BrainBlud formats
@@ -85,6 +127,9 @@ class CynicalHumanAuditor:
         for phrase in SOLIPSISM_BANNED_PHRASES:
             if phrase in text_lower:
                 return False, f"Wall Test FAILED: Contains banned solipsistic phrase: '{phrase}'"
+        for phrase in CLICHE_BANNED_PHRASES:
+            if phrase in text_lower:
+                return False, f"Cliché Audit FAILED: Contains overused trope: '{phrase}'"
         return True, "Wall Test PASSED"
 
     @staticmethod

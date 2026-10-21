@@ -1,9 +1,34 @@
-# config/prompts.yaml — Clean, Direct, High-Retention Prompts (v3.0)
-version: "3.0.0"
+# config/prompts.yaml — Clean, Direct, High-Retention Prompts (v3.1)
+version: "3.1.0"
 
 # ─── SCENE-BY-SCENE SHORT-FORM ENGINE ─────────────────────────────────────────
 
-# Scene 1: High-Curiosity Hook
+# Step 1: Paired Hook & Circular Loopback Outro (Anchor Generation)
+paired_anchor_scene:
+  system_prompt: |
+    You write viral YouTube Shorts with infinite loop potential.
+    Generate TWO scenes that together create a seamless circular loop:
+    1. "hook_scene": An engaging, scroll-stopping Reddit shower thought or intriguing fact (10-14 words).
+    2. "loop_outro_scene": A closing thought (6-12 words) whose ending phrase flows naturally, grammatically, and logically right back into the opening words of the hook!
+
+    Example of seamless looping:
+    Hook: "You've never actually seen your own face, only reflections and photos."
+    Loop Outro: "Which means the only reason you recognize yourself is because..."
+    (Notice how "because..." loops directly back into "You've never actually seen...")
+
+    Return ONLY a valid JSON object:
+    {
+      "hook_scene": {
+        "spoken_text": "Engaging hook thought or fact here...",
+        "stock_video_query": "soap carving cubes ASMR"
+      },
+      "loop_outro_scene": {
+        "spoken_text": "Closing bridge that naturally loops into the hook...",
+        "stock_video_query": "resin lathe turning wood polishing"
+      }
+    }
+
+# Scene 1: High-Curiosity Hook (Legacy single-call fallback)
 hook_scene:
   system_prompt: |
     You write viral YouTube Shorts hooks.
@@ -27,13 +52,13 @@ title_scene:
       "stock_video_query": "satisfying ASMR query"
     }
 
-# Scene 3 to N-1: Standalone Relatable Reddit Thoughts / Logical Facts
+# Middle Scenes: Standalone Relatable Reddit Thoughts / Logical Facts
 thought_scene:
   system_prompt: |
     You write viral compilation shower thoughts and everyday facts.
     Give me ONE standalone, mind-bending random Reddit thought or logical fact that makes you stop and think.
     It must be simple, relatable, easy to understand, and completely different from previous thoughts.
-    Keep it between 10 and 15 words.
+    Keep it between 10 and 14 words.
     Return ONLY a valid JSON object:
     {
       "spoken_text": "Standalone thought or fact here...",
@@ -66,16 +91,27 @@ script_polish:
       ]
     }
 
-# ─── UNIFIED SEO GENERATOR ────────────────────────────────────────────────────
+# ─── DYNAMIC VIDEO-SPECIFIC SEO GENERATOR ──────────────────────────────────────
 seo_gen:
   system_prompt: |
-    You generate high-CTR YouTube Shorts metadata.
-    Create a compelling umbrella compilation title (55-75 chars with 1 emoji and #shorts), an engaging description, and 10-14 relevant tags based on the video scenes.
-    The description MUST ALWAYS start with the exact title on the first line, followed by an empty line, then the SEO description and hashtags.
-    Return ONLY a valid JSON object:
+    You generate high-CTR, highly optimized YouTube Shorts metadata tailored to the specific video script provided.
+    Create:
+    1. "title": A viral, curiosity-inducing compilation title (50-65 chars) ending with 1 emoji and #shorts.
+    2. "description": An engaging description customized to the specific thoughts in the script.
+       CRITICAL FORMAT RULE: The description MUST start with the exact title on the first line, followed by an empty line, then the SEO description and hashtags:
+       {title}
+
+       {video-specific SEO description highlighting the exact realizations from this video}
+
+       Subscribe to @metopato for daily perspective shifts!
+
+       #showerthoughts #psychology #deepthoughts #mindblowing #shorts
+    3. "tags": 10-14 high-ranking, specific tags relevant to the thoughts in the script.
+
+    Return ONLY a valid JSON object matching this schema:
     {
       "title": "Shower Thoughts That Feel Illegal To Know 🤯 #shorts",
-      "description": "Shower Thoughts That Feel Illegal To Know 🤯 #shorts\n\nMind-bending shower thoughts and psychological realizations that reset your perception of reality.\n\nSubscribe for daily mind-bending shifts!\n\n#showerthoughts #psychology #deepthoughts #shorts",
+      "description": "Shower Thoughts That Feel Illegal To Know 🤯 #shorts\n\nMind-bending shower thoughts and psychological realizations that reset your perception of reality.\n\nSubscribe to @metopato for daily perspective shifts!\n\n#showerthoughts #psychology #deepthoughts #shorts",
       "tags": ["shower thoughts", "mind blowing facts", "brain glitches", "deep thoughts", "psychology", "shorts"]
     }
   user_template: |
