@@ -368,6 +368,22 @@ class StockVideoManager:
         # Prioritize matching archetype pool if non-empty, otherwise use all eligible clips
         pool = matched_pool if matched_pool else eligible
 
+        # Ensure category diversity: track archetypes already used in this video based on exclude
+        used_archetypes = set()
+        for ex in exclude:
+            ex_lower = ex.lower()
+            for arch in archetype_keywords:
+                if arch in ex_lower:
+                    used_archetypes.add(arch)
+
+        # Prioritize candidate clips whose category/archetype has NOT yet been used in this video
+        diverse_pool = [
+            p for p in pool
+            if not any(arch in os.path.basename(p).lower() for arch in used_archetypes)
+        ]
+        if diverse_pool:
+            pool = diverse_pool
+
         # Apply 30-day cooldown
         cooldown_pool = [p for p in pool if not self.is_clip_recent(os.path.basename(p))]
 

@@ -595,6 +595,53 @@ class VoiceNormalizer:
 
     _original_synthesize_sync = synthesize_sync.__func__
 
+    _cached_kokoro_pipeline = None
+
+    @classmethod
+    def measure_duration_quick(
+        cls,
+        text: str,
+        voice: str = "am_adam",
+        speed: float = 1.02
+    ) -> float:
+        """
+        Lightweight empirical audio duration measurement.
+        Runs fast in-memory Kokoro synthesis when available, otherwise falls back
+        to calibrated speaking rate math.
+        """
+        if not text or not text.strip():
+            return 0.0
+
+        p_text = cls.normalize_text(text)
+        words_count = max(1, len(p_text.split()))
+
+        try:
+            if cls.is_kokoro_voice(voice):
+                import numpy as np
+                from kokoro import KPipeline
+                lang_code = cls.detect_lang_code(voice)
+                if cls._cached_kokoro_pipeline is None:
+                    cls._cached_kokoro_pipeline = KPipeline(lang_code=lang_code, repo_id="hexgrad/Kokoro-82M")
+
+                gen = cls._cached_kokoro_pipeline(p_text, voice=voice, speed=speed)
+                total_samples = 0
+                for item in gen:
+                    if item and len(item) > 2 and item[2] is not None:
+                        audio = item[2]
+                        if hasattr(audio, "shape") and len(audio.shape) > 0:
+                            total_samples += audio.shape[0]
+                        elif hasattr(audio, "__len__"):
+                            total_samples += len(audio)
+
+                if total_samples > 0:
+                    # 24kHz sample rate + 0.12s pause allowance
+                    return round((total_samples / 24000.0) + 0.12, 2)
+        except Exception:
+            pass
+
+        # Calibrated fallback: ~3.2 words per second at 1.02x + 0.12s pause
+        return round((words_count / (3.2 * max(0.5, speed))) + 0.12, 2)
+
     @classmethod
     def synthesize_scenes_sync(
         cls,
@@ -646,7 +693,7 @@ class VoiceNormalizer:
                 all_audio_chunks = []
                 scene_boundaries: List[Tuple[float, float]] = []
                 current_time = 0.0
-                pause_samples = np.zeros(int(24000 * 0.20), dtype=np.float32)
+                pause_samples = np.zeros(int(24000 * 0.12), dtype=np.float32)
 
                 for idx, s in enumerate(raw_scenes):
                     p_text = s.get("phonetic_text") or cls.normalize_text(s.get("spoken_text", ""))
@@ -687,7 +734,7 @@ class VoiceNormalizer:
                     all_audio_chunks.append(scene_samples)
                     if idx < num_scenes - 1:
                         all_audio_chunks.append(pause_samples)
-                        current_time = round(scene_end + 0.20, 3)
+                        current_time = round(scene_end + 0.12, 3)
                     else:
                         # Final scene of video: append 0.45s clean comfort silence tail
                         # Ensures the last word/syllable decays naturally with zero abrupt cutoff

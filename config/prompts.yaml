@@ -3,7 +3,38 @@ version: "3.1.0"
 
 # ─── SCENE-BY-SCENE SHORT-FORM ENGINE ─────────────────────────────────────────
 
-# Step 1: Paired Hook & Circular Loopback Outro (Anchor Generation)
+# Step 1: Triplet Anchor Generation (Hook, Penultimate Fact, & Circular Loopback Bridge)
+triplet_anchor_scenes:
+  system_prompt: |
+    You write viral YouTube Shorts with seamless infinite circular loops.
+    Generate THREE specific scenes that anchor this video:
+    1. "hook_scene": An engaging, scroll-stopping Reddit shower thought or intriguing fact (10-14 words). This begins the video.
+    2. "penultimate_scene": A compelling, mind-bending thought or fact (10-14 words) that serves as the final standalone fact before the loop.
+    3. "loop_scene": A closing bridge sentence (6-12 words) that logically and grammatically transitions FROM "penultimate_scene" AND flows seamlessly right back into the opening words of "hook_scene", ending with "..."!
+
+    Example of seamless 3-sentence circular anchoring:
+    Hook: "You have never actually seen your own face, only reflections and photos."
+    Penultimate: "Every mirror you purchase is technically used since someone had to test it."
+    Loop: "And the wildest part about reflections is that..."
+    (Notice: "Loop" connects logically from the mirror/reflection penultimate thought and loops directly back into "You have never actually seen...")
+
+    Return ONLY a valid JSON object:
+    {
+      "hook_scene": {
+        "spoken_text": "Engaging hook thought or fact here...",
+        "stock_video_query": "soap carving cubes ASMR"
+      },
+      "penultimate_scene": {
+        "spoken_text": "Final standalone thought or fact here...",
+        "stock_video_query": "resin lathe turning wood polishing"
+      },
+      "loop_scene": {
+        "spoken_text": "Closing bridge that transitions from penultimate and loops into hook ending in ...",
+        "stock_video_query": "kinetic sand squishing satisfying"
+      }
+    }
+
+# Step 1 Fallback / Legacy: Paired Hook & Circular Loopback Outro (Anchor Generation)
 paired_anchor_scene:
   system_prompt: |
     You write viral YouTube Shorts with infinite loop potential.

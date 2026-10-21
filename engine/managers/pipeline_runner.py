@@ -640,6 +640,12 @@ def run_spec_stage(video_type: str = "short", custom_topic: Optional[str] = None
             except Exception as e:
                 print(f"⚠️  [THOUGHT CACHE] Could not persist cache to memory: {e}", flush=True)
             try:
+                from engine.managers.iterative_script_generator import save_past_spoken_thoughts
+                spoken_lines = [s.get("spoken_text", "") for s in raw_scenes if s.get("spoken_text")]
+                save_past_spoken_thoughts(spoken_lines)
+            except Exception as e:
+                print(f"⚠️  [MEMORY] Could not persist to past_spoken_thoughts.json: {e}", flush=True)
+            try:
                 _save_yaml(_CHANNEL_CONFIG_PATH, full_channel_cfg)
             except Exception as e:
                 print(f"⚠️  [THOUGHT CACHE] Could not persist cache to channel_config.yaml: {e}", flush=True)
@@ -658,7 +664,7 @@ def run_spec_stage(video_type: str = "short", custom_topic: Optional[str] = None
         voice_cfg = channel_cfg.get("voice", {})
         voice_id = voice_cfg.get("voice_id", "am_adam")
         voice_provider = voice_cfg.get("provider", "kokoro")
-        voice_speed = float(voice_cfg.get("speed", 0.92))
+        voice_speed = float(voice_cfg.get("speed", 1.02))
         
         print(f"🎙️ [TTS] Synthesizing narration with {voice_provider} (voice: {voice_id}, speed: {voice_speed:.2f})...")
         total_duration, word_timestamps, scene_cut_durations, scene_word_slices = VoiceNormalizer.synthesize_scenes_sync(

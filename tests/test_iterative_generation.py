@@ -367,3 +367,110 @@ def test_test_mode_does_not_persist_thought_cache(monkeypatch):
 
 
 
+
+
+def test_iscg_v4_1_triplet_anchors_and_audio_duration():
+    """Validates ISCG v4.1 triplet anchor generation, audio duration loop, and phonetic synchronization."""
+    from engine.managers.iterative_script_generator import IterativeScriptGenerator
+    from engine.managers.voice_normalizer import VoiceNormalizer
+
+    class MockTripletLLM:
+        _last_used_provider_id = "triplet_model"
+        def __init__(self):
+            self.call_count = 0
+            self.prompts_received = []
+
+        def generate_json(self, system_prompt, user_prompt, **kwargs):
+            self.call_count += 1
+            self.prompts_received.append(user_prompt)
+
+            if "Scene 1 hook thought and a Final Scene loopback bridge" in user_prompt:
+                return {
+                    "hook_scene": {
+                        "spoken_text": "The brain named itself, recognized itself, and is now questioning that exact fact.",
+                        "stock_video_query": "soap carving cubes ASMR"
+                    },
+                    "penultimate_scene": {
+                        "spoken_text": "Every single mirror you purchase is technically used since someone had to test it.",
+                        "stock_video_query": "resin lathe turning wood polishing"
+                    },
+                    "loop_scene": {
+                        "spoken_text": "And the wildest part about reflections is that...",
+                        "stock_video_query": "kinetic sand squishing satisfying"
+                    }
+                }
+            elif "SCENES TO NORMALIZE & EMOTIFY:" in user_prompt:
+                import json
+                try:
+                    lines = user_prompt.split("SCENES TO NORMALIZE & EMOTIFY:\n")[1].split("\n\n")[0]
+                    scs = json.loads(lines)
+                    for sc in scs:
+                        sc["spoken_text"] = sc["spoken_text"].rstrip(".") + "!"
+                    scs[-1]["spoken_text"] = "And the wildest part about reflections is that..."
+                    return {"scenes": scs}
+                except Exception:
+                    return {}
+            elif "optimized YouTube metadata" in user_prompt:
+                return {
+                    "title": "Mind Glitches You Experience Daily 🤯 #shorts",
+                    "description": "Mind Glitches You Experience Daily 🤯 #shorts\n\nDaily cognitive shifts.\n\n#shorts",
+                    "tags": ["mind glitches", "shower thoughts", "shorts"]
+                }
+            else:
+                return {
+                    "spoken_text": f"Astonishing perspective shift number {self.call_count} that breaks your thinking.",
+                    "stock_video_query": "pottery wheel clay shaping satisfying"
+                }
+
+    mock_llm = MockTripletLLM()
+    generator = IterativeScriptGenerator(llm_manager=mock_llm)
+    scenes, seo = generator.generate_scene_chain(max_duration=35.0)
+
+    # 1. Total scenes >= 5
+    assert len(scenes) >= 5
+
+    # 2. Scene 1 is Hook, Scene N-1 is Penultimate Fact, Scene N is Loop Bridge
+    assert scenes[0]["scene_id"] == 1
+    assert "brain" in scenes[0]["spoken_text"].lower()
+    assert "mirror" in scenes[-2]["spoken_text"].lower()
+    assert scenes[-1]["spoken_text"].endswith("...")
+    assert "reflections" in scenes[-1]["spoken_text"].lower()
+
+    # 3. All scenes have strictly synchronized phonetic_text
+    for sc in scenes:
+        assert "phonetic_text" in sc
+        assert sc["phonetic_text"] == VoiceNormalizer.normalize_text(sc["spoken_text"])
+
+    # 4. Total duration crossed 30s
+    total_dur = sum(VoiceNormalizer.measure_duration_quick(s["spoken_text"]) for s in scenes)
+    assert total_dur >= 30.0
+    assert total_dur <= 35.0
+
+
+def test_past_spoken_thoughts_deduplication():
+    """Validates that thoughts present in memory/past_spoken_thoughts.json are rejected."""
+    from engine.managers.iterative_script_generator import IterativeScriptGenerator
+
+    generator = IterativeScriptGenerator()
+    past_thoughts = [
+        "Your shadow is proof that light traveled ninety-three million miles to be blocked by you.",
+        "You have never actually seen your own face, only reflections, screens, and photographs."
+    ]
+
+    # Exact or high token overlap must be rejected
+    is_dup, reason = generator._is_duplicate_thought(
+        "Your shadow is proof that light traveled ninety-three million miles to be blocked by you.",
+        existing_scenes=[],
+        past_thoughts=past_thoughts
+    )
+    assert is_dup is True
+    assert "past video thought" in reason
+
+    # Clean novel thought must pass
+    is_clean, clean_reason = generator._is_duplicate_thought(
+        "A bus arriving ten minutes early is far more inconvenient than one ten minutes late.",
+        existing_scenes=[],
+        past_thoughts=past_thoughts
+    )
+    assert is_clean is False
+    assert clean_reason == "Clean"

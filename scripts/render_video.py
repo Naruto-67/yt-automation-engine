@@ -487,9 +487,12 @@ def render_video_ffmpeg(
         raise ValueError("No video clips available in clips manifest to render.")
 
     # 2. Audio & Target Duration Resolution
-    narration_path = spec.audio_path or os.path.join("output", "narration.mp3")
-    if not os.path.exists(narration_path) and os.path.exists(os.path.join("output", "narration.wav")):
-        narration_path = os.path.join("output", "narration.wav")
+    # Prioritize master uncompressed narration.wav if available
+    wav_master = os.path.join("output", "narration.wav")
+    if os.path.exists(wav_master):
+        narration_path = wav_master
+    else:
+        narration_path = spec.audio_path or os.path.join("output", "narration.mp3")
 
     total_duration = spec.total_duration_seconds or sum(s.duration_seconds for s in spec.scenes)
     audio_duration = 0.0
@@ -511,7 +514,8 @@ def render_video_ffmpeg(
             pass
 
     if audio_duration > 0.0:
-        total_duration = audio_duration
+        # Guarantee 0.35s comfort audio tail buffer so the final loop sentence decays naturally without abrupt cutoff
+        total_duration = round(audio_duration + 0.35, 2)
     elif not total_duration or total_duration <= 0.0:
         total_duration = 30.0
 

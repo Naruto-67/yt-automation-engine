@@ -216,6 +216,11 @@ def test_loop_auditor_passes_clean_compilation_bridge():
     passed_b, _ = LoopAuditorSkill.audit_loop(mode_b, hook)
     assert passed_b is True
 
+    # Circular loopback bridge ending in ellipsis
+    circ_bridge = "And the reason you don't notice it is simply because..."
+    passed_circ, reason_circ = LoopAuditorSkill.audit_loop(circ_bridge, hook)
+    assert passed_circ is True, f"Expected circular loopback bridge to PASS, got {reason_circ}"
+
 
 def test_loop_auditor_sanitize_loop_replaces_defective_loop():
     """LoopAuditorSkill.sanitize_loop replaces a repeating loop with a clean bridge."""

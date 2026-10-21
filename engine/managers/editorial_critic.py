@@ -482,7 +482,8 @@ def check_loop_repeats_hook(loop_text: str, hook_text: str) -> Tuple[bool, str]:
         "for", "with", "but", "not", "what", "how", "just", "it", "are",
         "was", "were", "be", "been", "these", "those", "we", "us", "our",
         "back", "right", "into", "from", "by", "in", "on", "at", "as",
-        "do", "did", "does", "can", "could", "would", "should", "one"
+        "do", "did", "does", "can", "could", "would", "should", "one", "only",
+        "even", "more", "most", "about", "there", "then"
     }
     hook_tokens = set(re.findall(r"\b\w+\b", hook_text.lower())) - bridge_stopwords
     loop_tokens = set(re.findall(r"\b\w+\b", loop_text.lower())) - bridge_stopwords
@@ -490,7 +491,7 @@ def check_loop_repeats_hook(loop_text: str, hook_text: str) -> Tuple[bool, str]:
 
     if len(overlap) >= 2:
         return True, f"Loop repeats hook content words: {sorted(list(overlap))}"
-    if hook_tokens and (len(overlap) / len(hook_tokens)) > 0.12:
+    if hook_tokens and len(overlap) >= 2 and (len(overlap) / len(hook_tokens)) > 0.12:
         return True, f"Loop has high hook content overlap: {sorted(list(overlap))}"
 
     # Check 3-word n-gram matches (catches verbatim chunks even if stopwords are involved)
@@ -517,6 +518,13 @@ class LoopAuditorSkill:
             return False, f"Loop Audit FAILED: {reason}"
 
         text_clean = loop_text.strip()
+        # Whitelist circular loopback bridges (ending in ellipsis or trailing conjunction bridging to hook)
+        is_circular_bridge = text_clean.endswith("...") or any(
+            text_clean.lower().endswith(w) for w in [" because", " since", " that", " when", " by", " where"]
+        )
+        if is_circular_bridge and len(text_clean.split()) >= 4:
+            return True, "Circular Loopback Bridge PASSED"
+
         if text_clean.endswith("..."):
             return False, "Loop Audit FAILED: Ends on dangling ellipsis '...' instead of definitive terminal punctuation ('.' or '!')"
 
@@ -536,7 +544,7 @@ class LoopAuditorSkill:
     ) -> Dict[str, Any]:
         """Replaces a defective or repeating outro with a vetted BrainBlud CTA closer."""
         scene = dict(scene)
-        scene["spoken_text"] = random.choice([
+        chosen = random.choice([
             "Subscribe for more thoughts that will break your brain.",
             "If you want to be smarter than everyone you know, subscribe.",
             "If all of you subscribed right now, I would have more subscribers.",
@@ -549,6 +557,9 @@ class LoopAuditorSkill:
             "Subscribe if you want your recommended feed to make you question reality.",
             "You are now one minute closer to knowing everything about nothing."
         ])
+        scene["spoken_text"] = chosen
+        # CRITICAL: Always keep phonetic_text synchronized to prevent audio/subtitle split-brain desync
+        scene["phonetic_text"] = chosen
         scene["_editorial_replaced"] = True
         return scene
 
@@ -737,6 +748,7 @@ def audit_and_refine_spec(
                 if not rep_dup:
                     raw_scenes[i] = dict(scene)
                     raw_scenes[i]["spoken_text"] = rep
+                    raw_scenes[i]["phonetic_text"] = rep
                     raw_scenes[i]["_editorial_replaced"] = True
                     audit_log["wall_test_replacements"] += 1
                     found_replacement = True
@@ -747,6 +759,7 @@ def audit_and_refine_spec(
                 fallback = f"Your shadow has traveled thousands of miles across the Earth, but you'll never see all of it."
                 raw_scenes[i] = dict(scene)
                 raw_scenes[i]["spoken_text"] = fallback
+                raw_scenes[i]["phonetic_text"] = fallback
                 raw_scenes[i]["_editorial_replaced"] = True
                 audit_log["wall_test_replacements"] += 1
 

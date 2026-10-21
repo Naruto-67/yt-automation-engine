@@ -11,7 +11,7 @@ channel:
       - "am_michael"    # Conversational dynamic American male
       - "am_fenrir"     # Clear storytelling American male
     fallback_voice_id: "en-US-GuyNeural"
-    speed: 1.0 # 100% natural 1.0x delivery (zero atempo speed distortion)
+    speed: 1.02 # Crisp, punchy 1.02x delivery (Kokoro neural TTS)
   branding:
     enabled: true
     watermark_text: "@metopato"
