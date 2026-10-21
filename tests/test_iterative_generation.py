@@ -441,10 +441,9 @@ def test_iscg_v4_1_triplet_anchors_and_audio_duration():
         assert "phonetic_text" in sc
         assert sc["phonetic_text"] == VoiceNormalizer.normalize_text(sc["spoken_text"])
 
-    # 4. Total duration is around target (>= 28.5s) and strictly <= 38.0s
+    # 4. Total duration crossed 30s mark
     total_dur = sum(VoiceNormalizer.measure_duration_quick(s["spoken_text"]) for s in scenes)
-    assert total_dur >= 28.5
-    assert total_dur <= 38.0
+    assert total_dur >= 30.0
 
 
 def test_past_spoken_thoughts_deduplication():

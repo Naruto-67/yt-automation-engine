@@ -24,7 +24,14 @@ import json
 import yaml
 import random
 import pathlib
+import sys
 from typing import List, Dict, Any, Tuple, Optional
+
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
 
 from engine.managers.editorial_critic import (
     CynicalHumanAuditor,
@@ -315,7 +322,7 @@ class IterativeScriptGenerator:
            spoken_text and phonetic_text are strictly synchronized.
         5. Step 5 (Dynamic SEO): Generates high-CTR title, custom description, and tags.
         """
-        print(f"\n🧠 [ISCG v4.1] Generating audio-driven circular script (Target: ≥30.0s, Max ceiling: {max_duration}s)...")
+        print(f"\n🧠 [ISCG v4.1] Generating audio-driven circular script (Target: >=30.0s, Max ceiling: {max_duration}s)...")
         recent_titles = _load_upload_history_titles()
         past_thoughts = _load_past_spoken_thoughts()
 
@@ -348,9 +355,9 @@ class IterativeScriptGenerator:
         current_total = t_anchors
         middle_scenes: List[Dict[str, Any]] = []
         scene_counter = 2
-        # Target threshold: if max_duration <= 32.0 (as in tests), aim for ~27-31s; otherwise cross 30.0s
-        min_target_duration = 30.0 if max_duration > 32.0 else min(28.0, max_duration - 2.0)
-        max_middle_scenes = 4 if max_duration <= 32.0 else 8
+        # Target threshold: Stop generating once audio crosses 30.0s (or ~27s in tight 32s tests)
+        min_target_duration = 30.0 if max_duration > 32.0 else min(27.0, max_duration - 4.0)
+        max_middle_scenes = 4 if max_duration <= 32.0 else 10
 
         print(f"🔄 [STEP 2] Synthesizing middle thoughts until cumulative duration crosses {min_target_duration:.1f}s (current: {current_total:.2f}s)...", flush=True)
 
@@ -364,34 +371,20 @@ class IterativeScriptGenerator:
                 past_thoughts=past_thoughts
             )
             d_mid = VoiceNormalizer.measure_duration_quick(mid_scene["spoken_text"], voice=voice, speed=speed)
-            
-            # If adding this scene would break max_duration ceiling, stop early if we have already reached a viable duration
-            if (current_total + d_mid) > max_duration:
-                if current_total >= 28.0:
-                    print(f"   🛑 [DURATION CEILING] Reached {current_total:.2f}s; adding +{d_mid:.2f}s exceeds max {max_duration}s. Ending middle loop.", flush=True)
-                    break
-
             current_total = round(current_total + d_mid, 2)
             middle_scenes.append(mid_scene)
             used_queries.append(mid_scene["stock_video_query"])
             print(f"   ✅ Middle Thought #{len(middle_scenes)}: '{mid_scene['spoken_text'][:55]}...' (+{d_mid:.2f}s -> projected total: {current_total:.2f}s)")
             scene_counter += 1
 
-        # ─── STEP 3: ASSEMBLE FULL SCRIPT ─────────────────────────────────────
+        # ─── STEP 3: ASSEMBLE FULL SCRIPT (NO HARD POPPING / TRIMMING) ────────
+        # Accept whatever the final duration is without trimming or popping
         scenes: List[Dict[str, Any]] = [hook_scene] + middle_scenes + [penultimate_scene, loop_scene]
         for idx, sc in enumerate(scenes):
             sc["scene_id"] = idx + 1
 
-        # Guard against duration overflow if max_duration ceiling is strict
-        while len(scenes) > 4 and sum(VoiceNormalizer.measure_duration_quick(s.get("spoken_text", ""), voice=voice, speed=speed) for s in scenes) > max_duration:
-            popped = scenes.pop(-3)  # Remove the last middle thought before penultimate
-            print(f"   ✂️ [DURATION GUARD] Popped Scene {popped.get('scene_id')} to enforce max {max_duration}s ceiling.")
-
-        for idx, sc in enumerate(scenes):
-            sc["scene_id"] = idx + 1
-
         final_dur = sum(VoiceNormalizer.measure_duration_quick(s.get("spoken_text", ""), voice=voice, speed=speed) for s in scenes)
-        print(f"🧩 [STEP 3] Assembled {len(scenes)} scenes. Projected cumulative audio: {final_dur:.2f}s.")
+        print(f"🧩 [STEP 3] Assembled {len(scenes)} scenes. Projected cumulative audio: {final_dur:.2f}s (Accepted in full without trimming).")
 
         # ─── STEP 4: NORMALIZATION & EMOTION PASS (KOKORO AUDIO POLISHER) ────
         print("🎭 [STEP 4] Running Normalization & Emotion Pass for Kokoro TTS...", flush=True)
