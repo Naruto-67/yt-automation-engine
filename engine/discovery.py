@@ -380,13 +380,17 @@ def _health_check(provider: Dict[str, Any]) -> Dict[str, Any]:
     test_prompt = 'Output valid JSON only with keys "status" ("pass") and "scenes" (array with 1 object: {"scene_id": 1, "spoken_text": "verification test"}).'
 
     if is_gemini:
+        gen_config: Dict[str, Any] = {
+            "responseMimeType": "application/json",
+            "maxOutputTokens": 1024
+        }
+        model_lower = str(provider.get("model", "")).lower()
+        # Thinking, preview, and experimental Gemini models reject custom temperature
+        if not any(tag in model_lower for tag in ["preview", "thinking", "exp", "3-flash", "3.7", "3.8"]):
+            gen_config["temperature"] = 0.1
         payload = {
             "contents": [{"role": "user", "parts": [{"text": test_prompt}]}],
-            "generationConfig": {
-                "temperature": 0.1,
-                "responseMimeType": "application/json",
-                "maxOutputTokens": 150
-            }
+            "generationConfig": gen_config
         }
     elif is_openai_compat:
         payload = {
@@ -395,7 +399,7 @@ def _health_check(provider: Dict[str, Any]) -> Dict[str, Any]:
                 {"role": "system", "content": "You are a JSON evaluator. Output valid JSON only with no conversational text."},
                 {"role": "user", "content": test_prompt}
             ],
-            "max_tokens": 150,
+            "max_tokens": 1024,
             "temperature": 0.1
         }
         if "openrouter" not in provider.get("base_url", "") or not str(provider.get("model", "")).endswith(":free"):
@@ -420,17 +424,29 @@ def _health_check(provider: Dict[str, Any]) -> Dict[str, Any]:
         headers["HTTP-Referer"] = "https://github.com/Naruto-67/yt-automation-engine"
         headers["X-Title"] = "YT Automation Engine"
 
+    # Give thinking and reasoning models sufficient working space to deliberate and emit JSON
+    probe_timeout = 25.0
+
     try:
         start = time.time()
-        resp = _http_request(url, method="POST", headers=headers, json_data=payload, timeout=8.0)
+        resp = _http_request(url, method="POST", headers=headers, json_data=payload, timeout=probe_timeout)
         latency = int((time.time() - start) * 1000)
 
-        # Retry once without response_format if Groq returns 400 json_validate_failed
-        if resp.status_code == 400 and "json_validate_failed" in getattr(resp, "text", "") and "response_format" in payload:
-            payload.pop("response_format", None)
-            start = time.time()
-            resp = _http_request(url, method="POST", headers=headers, json_data=payload, timeout=8.0)
-            latency = int((time.time() - start) * 1000)
+        # Auto-heal HTTP 400 errors caused by unsupported parameters on thinking/preview models
+        if resp.status_code == 400:
+            resp_text = getattr(resp, "text", "")
+            retry_needed = False
+            if "json_validate_failed" in resp_text and "response_format" in payload:
+                payload.pop("response_format", None)
+                retry_needed = True
+            elif "temperature" in resp_text and is_gemini and "generationConfig" in payload:
+                payload["generationConfig"].pop("temperature", None)
+                retry_needed = True
+
+            if retry_needed:
+                start = time.time()
+                resp = _http_request(url, method="POST", headers=headers, json_data=payload, timeout=probe_timeout)
+                latency = int((time.time() - start) * 1000)
 
         if resp.status_code == 200:
             raw_text = ""
@@ -439,15 +455,16 @@ def _health_check(provider: Dict[str, Any]) -> Dict[str, Any]:
                     cands = resp.json().get("candidates", [])
                     if cands and "content" in cands[0]:
                         parts = cands[0]["content"].get("parts", [])
-                        if parts and "text" in parts[0]:
-                            raw_text = parts[0]["text"]
+                        text_parts = [p["text"] for p in parts if "text" in p]
+                        raw_text = "\n".join(text_parts)
                 except Exception:
                     pass
             elif is_openai_compat:
                 try:
                     choices = resp.json().get("choices", [])
                     if choices and "message" in choices[0]:
-                        raw_text = choices[0]["message"].get("content", "")
+                        msg = choices[0]["message"]
+                        raw_text = msg.get("content", "") or ""
                 except Exception:
                     pass
             else:

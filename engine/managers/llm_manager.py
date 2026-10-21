@@ -277,19 +277,24 @@ class LLMManager:
             raise RuntimeError("No viable LLM providers available. Check your API keys and banned_models.json.")
 
         # High-Capacity Model Routing for Creative Writing & Script Generation
-        # Script generation demands linguistic nuance, deep reasoning, and high parameter capacity.
-        # Filter out low-parameter, distilled, or lite models (e.g. 8b, 27b, lite, mini-code)
+        # Filter out tiny sub-8B edge/distilled models on third-party aggregators.
+        # Note: Flagship Google Gemini models (including Flash-Lite) and Groq 27B+ models
+        # have superior reasoning capacity and must never be disqualified.
         if task_name == "script_gen":
-            low_param_tags = ["lite", "8b", "7b", "3b", "1b", "27b", "20b", "14b", "9b", "micro", "tiny"]
+            tiny_edge_tags = ["3b", "2b", "1b", "mini-code", "micro", "tiny", "lfm-2.5-2.6b"]
             high_capacity = []
             for p in candidates:
                 m_str = (p.get("model", "") + " " + p.get("id", "")).lower()
-                # Check if model has low parameter indicators
-                is_low = any(
+                # Google Gemini models are always high capacity regardless of 'lite' branding
+                if "gemini" in m_str:
+                    high_capacity.append(p)
+                    continue
+                # For other providers, filter out tiny sub-8B edge models
+                is_tiny = any(
                     f"-{tag}" in m_str or f"_{tag}" in m_str or f"/{tag}" in m_str or f":{tag}" in m_str or m_str.endswith(tag)
-                    for tag in low_param_tags
+                    for tag in tiny_edge_tags
                 )
-                if not is_low:
+                if not is_tiny:
                     high_capacity.append(p)
             if high_capacity:
                 candidates = high_capacity
@@ -459,14 +464,16 @@ class LLMManager:
                     candidates = data.get("candidates", [])
                     if candidates and "content" in candidates[0]:
                         parts = candidates[0]["content"].get("parts", [])
-                        if parts and "text" in parts[0]:
-                            return parts[0]["text"]
+                        text_parts = [p["text"] for p in parts if "text" in p]
+                        if text_parts:
+                            return "\n".join(text_parts)
                 except Exception as ex:
                     raise RuntimeError(f"Gemini response parsing error: {ex}")
             else:
                 choices = data.get("choices", [])
                 if choices and "message" in choices[0]:
-                    return choices[0]["message"].get("content", "")
+                    msg = choices[0]["message"]
+                    return msg.get("content", "") or msg.get("reasoning_content", "") or ""
             return resp.text
 
         # Error response

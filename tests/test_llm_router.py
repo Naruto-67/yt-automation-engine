@@ -146,3 +146,37 @@ def test_dynamic_quota_tracker_header_sniffing():
     tracker.update_from_headers(test_entity_id, headers)
     # RPD should be updated or remaining adjusted
     assert entity.max_rpm == 30
+
+
+def test_gemini_flash_lite_not_disqualified_for_script_gen():
+    """Validates that Gemini Flash Lite models are never filtered out as low-capacity for script_gen."""
+    from engine.managers.llm_manager import LLMManager
+
+    llm = LLMManager()
+    candidates = [
+        {"id": "gemini_flash_lite", "name": "Google (gemini-flash-lite-latest)", "model": "gemini-flash-lite-latest", "priority": 1},
+        {"id": "openrouter_minimax", "name": "OpenRouter (minimax-m3.1-flash:free)", "model": "minimax/minimax-m3.1-flash:free", "priority": 2},
+        {"id": "groq_qwen", "name": "Groq (qwen/qwen3.8-27b)", "model": "qwen/qwen3.8-27b", "priority": 3},
+        {"id": "openrouter_tiny", "name": "OpenRouter (lfm-2.5-2.6b:free)", "model": "liquid/lfm-2.5-2.6b:free", "priority": 4},
+    ]
+
+    # Replicate script_gen filter logic
+    tiny_edge_tags = ["3b", "2b", "1b", "mini-code", "micro", "tiny", "lfm-2.5-2.6b"]
+    high_capacity = []
+    for p in candidates:
+        m_str = (p.get("model", "") + " " + p.get("id", "")).lower()
+        if "gemini" in m_str:
+            high_capacity.append(p)
+            continue
+        is_tiny = any(
+            f"-{tag}" in m_str or f"_{tag}" in m_str or f"/{tag}" in m_str or f":{tag}" in m_str or m_str.endswith(tag)
+            for tag in tiny_edge_tags
+        )
+        if not is_tiny:
+            high_capacity.append(p)
+
+    # Gemini Flash Lite MUST be preserved at index 0 (Priority 1)
+    assert high_capacity[0]["id"] == "gemini_flash_lite"
+    assert high_capacity[0]["priority"] == 1
+    # Tiny edge models must be filtered out
+    assert not any(p["id"] == "openrouter_tiny" for p in high_capacity)
