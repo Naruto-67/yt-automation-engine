@@ -305,8 +305,6 @@ class IterativeScriptGenerator:
     def generate_scene_chain(
         self,
         topic: str = "",
-        max_duration: float = 34.0,
-        target_duration: Optional[int] = None,
         voice: str = "am_adam",
         speed: float = 1.02,
         **kwargs
@@ -316,13 +314,14 @@ class IterativeScriptGenerator:
         1. Step 1 (Triplet Anchors): Generates Scene 1 (Hook), Penultimate Scene (Final Fact),
            and Final Scene (Circular Loop Bridge) together. Measures empirical audio duration (T_anchors).
         2. Step 2 (Audio-Driven Middle Thoughts): Generates standalone thoughts one-by-one, measuring
-           empirical Kokoro speech duration on each thought. Loops until cumulative duration crosses 30s.
+           empirical Kokoro speech duration on each thought. Loops until cumulative duration reaches >= 30.0s.
         3. Step 3 (Script Assembly): Assembles [Hook, Middle Thoughts..., Penultimate Fact, Final Loop Scene].
+           Accepts whatever final duration results naturally without hard min/max clamping or trimming.
         4. Step 4 (Normalization & Emotion Pass): Polishes punctuation for Kokoro neural TTS and ensures
            spoken_text and phonetic_text are strictly synchronized.
         5. Step 5 (Dynamic SEO): Generates high-CTR title, custom description, and tags.
         """
-        print(f"\n🧠 [ISCG v4.1] Generating audio-driven circular script (Target: >=30.0s, Max ceiling: {max_duration}s)...")
+        print(f"\n🧠 [ISCG v4.1] Generating audio-driven circular script (Natural stop filter at >= 30.0s, no hard min/max clamping)...")
         recent_titles = _load_upload_history_titles()
         past_thoughts = _load_past_spoken_thoughts()
 
@@ -355,13 +354,14 @@ class IterativeScriptGenerator:
         current_total = t_anchors
         middle_scenes: List[Dict[str, Any]] = []
         scene_counter = 2
-        # Target threshold: Stop generating once audio crosses 30.0s (or ~27s in tight 32s tests)
-        min_target_duration = 30.0 if max_duration > 32.0 else min(27.0, max_duration - 4.0)
-        max_middle_scenes = 4 if max_duration <= 32.0 else 10
+        # Natural filter: Generate middle thoughts until cumulative audio crosses 30.0s,
+        # then stop and accept whatever final duration is produced (no hard min/max clamping or popping).
+        stop_threshold = 30.0
+        max_middle_scenes = 15
 
-        print(f"🔄 [STEP 2] Synthesizing middle thoughts until cumulative duration crosses {min_target_duration:.1f}s (current: {current_total:.2f}s)...", flush=True)
+        print(f"🔄 [STEP 2] Synthesizing middle thoughts until cumulative duration reaches >= {stop_threshold:.1f}s (current: {current_total:.2f}s)...", flush=True)
 
-        while (current_total < min_target_duration) and len(middle_scenes) < max_middle_scenes:
+        while (current_total < stop_threshold) and len(middle_scenes) < max_middle_scenes:
             print(f"   Generating Middle Thought #{len(middle_scenes)+1} (projected total: {current_total:.2f}s)...", flush=True)
             mid_scene = self._generate_random_thought(
                 scene_num=scene_counter,

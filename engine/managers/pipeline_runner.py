@@ -515,10 +515,7 @@ def run_spec_stage(video_type: str = "short", custom_topic: Optional[str] = None
                 generator = IterativeScriptGenerator(llm_manager=llm, quality_tracker=qt)
                 raw_scenes, seo_dict = generator.generate_scene_chain(
                     topic=topic,
-                    channel_premise=channel_cfg.get("premise", ""),
-                    target_duration=target_duration,
-                    target_words_min=150,
-                    target_words_max=175
+                    channel_premise=channel_cfg.get("premise", "")
                 )
                 script_data = {
                     "scenes": raw_scenes,

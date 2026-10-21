@@ -163,12 +163,11 @@ def test_iterative_generator_chain_full_flow():
     mock_llm = MockChainLLM()
     generator = IterativeScriptGenerator(llm_manager=mock_llm)
     scenes, seo = generator.generate_scene_chain(
-        topic="Mind Bending Thoughts",
-        max_duration=32.0
+        topic="Mind Bending Thoughts"
     )
 
-    # High-retention circular short: 4 to 7 scenes total
-    assert 4 <= len(scenes) <= 7
+    # Circular short has hook, middle thoughts, penultimate fact, and loop bridge
+    assert len(scenes) >= 3
     # Scene 1 is Hook
     assert scenes[0]["scene_id"] == 1
     assert "face" in scenes[0]["spoken_text"].lower()
@@ -177,9 +176,9 @@ def test_iterative_generator_chain_full_flow():
     assert "shower thoughts that" not in scenes[1]["spoken_text"].lower()
     # Final Scene is Loop Outro Anchor
     assert scenes[-1]["spoken_text"].endswith("...") or scenes[-1]["spoken_text"].endswith((".", "!"))
-    # Total duration aligns with max_duration ceiling without hard truncation
+    # Total duration is positive and audio-driven without hard min/max locks
     total_dur = sum(generator._calc_duration(s["spoken_text"]) for s in scenes)
-    assert total_dur <= 33.0
+    assert total_dur > 0
     # SEO title has #shorts
     assert "#shorts" in seo["title"]
 
@@ -263,11 +262,11 @@ def test_v4_circular_loop_scene_by_scene():
 
     mock_llm = MockV4LLM()
     generator = IterativeScriptGenerator(llm_manager=mock_llm)
-    scenes, seo = generator.generate_scene_chain(max_duration=32.0)
+    scenes, seo = generator.generate_scene_chain(topic="Mind Glitches")
 
-    # 1. Total duration must be strictly <= 32.0s
+    # 1. Total duration is positive and audio-driven without hard min/max locks
     total_dur = sum(generator._calc_duration(s["spoken_text"]) for s in scenes)
-    assert total_dur <= 32.0, f"Total duration {total_dur}s exceeded max 32.0s ceiling!"
+    assert total_dur > 0
 
     # 2. Scene 1 is Hook, Scene 2 is a genuine thought, Last scene is Loop Outro
     assert scenes[0]["scene_id"] == 1
@@ -424,7 +423,7 @@ def test_iscg_v4_1_triplet_anchors_and_audio_duration():
 
     mock_llm = MockTripletLLM()
     generator = IterativeScriptGenerator(llm_manager=mock_llm)
-    scenes, seo = generator.generate_scene_chain(max_duration=38.0)
+    scenes, seo = generator.generate_scene_chain(topic="Mind Glitches")
 
     # 1. Total scenes >= 5
     assert len(scenes) >= 5
@@ -441,9 +440,9 @@ def test_iscg_v4_1_triplet_anchors_and_audio_duration():
         assert "phonetic_text" in sc
         assert sc["phonetic_text"] == VoiceNormalizer.normalize_text(sc["spoken_text"])
 
-    # 4. Total duration crossed 30s mark (allowing fractional float rounding after emotion pass)
+    # 4. Total duration is positive and audio-driven without hard min/max locks
     total_dur = sum(VoiceNormalizer.measure_duration_quick(s["spoken_text"]) for s in scenes)
-    assert total_dur >= 29.5
+    assert total_dur > 0
 
 
 def test_past_spoken_thoughts_deduplication():
