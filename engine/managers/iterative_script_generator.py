@@ -365,9 +365,11 @@ class IterativeScriptGenerator:
             )
             d_mid = VoiceNormalizer.measure_duration_quick(mid_scene["spoken_text"], voice=voice, speed=speed)
             
-            # If adding this scene would break max_duration ceiling when max_duration is tight (<= 32s), stop early
-            if max_duration <= 32.0 and (current_total + d_mid) > max_duration:
-                break
+            # If adding this scene would break max_duration ceiling, stop early if we have already reached a viable duration
+            if (current_total + d_mid) > max_duration:
+                if current_total >= 28.0:
+                    print(f"   🛑 [DURATION CEILING] Reached {current_total:.2f}s; adding +{d_mid:.2f}s exceeds max {max_duration}s. Ending middle loop.", flush=True)
+                    break
 
             current_total = round(current_total + d_mid, 2)
             middle_scenes.append(mid_scene)
