@@ -39,6 +39,7 @@ BANNED_MODALITY_PATTERNS = [
     r"inkling", r"lyria", r"banana", r"deep-research", r"antigravity",
     r"computer-use", r"customtools", r"content-safety",
     r"allam",
+    r"mini-code", r"-code\b", r"coder\b", r"code-instruct\b",
 ]
 
 # Initial legacy seeds
@@ -201,6 +202,61 @@ def is_model_allowed(model_name: str, banned: Set[str]) -> bool:
         if b.lower() == lowered:
             return False
     return True
+
+
+def get_provider_family(provider: Dict[str, Any]) -> str:
+    """Identifies the core LLM provider family (google, groq, openrouter, openai, other)."""
+    pid = str(provider.get("id", "")).lower()
+    burl = str(provider.get("base_url", "")).lower()
+    if "gemini" in pid or "generativelanguage" in burl:
+        return "google"
+    elif "groq" in pid or "groq.com" in burl:
+        return "groq"
+    elif "openrouter" in pid or "openrouter" in burl or pid.startswith("or_"):
+        return "openrouter"
+    elif "openai" in pid or "api.openai.com" in burl:
+        return "openai"
+    return "other"
+
+
+def get_model_tier(model_name: str, family: str = "") -> int:
+    """
+    Classifies models into 3 capability tiers based on real-world benchmark performance:
+      - Tier 1 (Frontier & Heavy Reasoning / Thinking):
+          Gemini Flash & Pro flagship, Llama 70B+, GPT-OSS 120B, Nemotron 550B/70B, GPT-4o, Claude 3.5/3.7, DeepSeek R1/V3.
+      - Tier 2 (Workhorses & Fast Direct APIs):
+          Gemini Flash-Lite, Llama 8B, Qwen 27B, GPT-OSS 20B, Gemma 31B/27B.
+      - Tier 3 (Public Third-Party Free Community Queues / Experimental Fallbacks):
+          OpenRouter :free models, micro models (<4B) on proxy queues.
+    """
+    ml = (model_name or "").lower()
+
+    # Tier 3: Public 3rd-party community free queues or micro distilled models
+    if ":free" in ml or "openrouter/free" in ml:
+        return 3
+    if family == "openrouter" and any(tag in ml for tag in ["1b", "2b", "3b"]):
+        return 3
+
+    # Tier 1: Frontier & Thinking / Heavy Reasoning
+    # Direct Google flagship & thinking models (excluding lightweight 'lite' models)
+    if family == "google" or "gemini" in ml:
+        is_lite = "lite" in ml
+        if not is_lite and any(tag in ml for tag in [
+            "gemini-4", "gemini-3.8", "gemini-3.7", "gemini-3.6", "gemini-3.5",
+            "gemini-3", "gemini-flash", "gemini-pro", "gemini-exp"
+        ]):
+            return 1
+
+    # Heavy parameter / Frontier models across Groq, OpenAI, or direct paid providers
+    if any(tag in ml for tag in [
+        "70b", "72b", "120b", "550b", "nemotron",
+        "gpt-4o", "claude-3-7", "claude-3-5", "deepseek-r1", "deepseek-v3",
+        "o1", "o3", "o4"
+    ]):
+        return 1
+
+    # Tier 2: Lightning workhorses (Flash-Lite, 8B, 27B, 20B, etc.)
+    return 2
 
 
 def _refresh_model_ids(providers: List[Dict[str, Any]], banned_models: Set[str]) -> List[Dict[str, Any]]:
@@ -555,65 +611,86 @@ def run_discovery(force: bool = False) -> Dict[str, Any]:
             else:
                 print(f"    ⛔ Disabled (low success rate): {p['name']}")
 
-    # Empirical Ranking based solely on live test results (Zero Hardcoding)
+    # Empirical Ranking based on Capability Tier, Reliability, and Deliberation-Aware Latency
     def perf_rank(item):
         prov, res = item
         if not prov.get("enabled", True) or prov.get("deprecated", False) or prov.get("model") in banned_models:
             return 999999
         if not res.get("ok"):
             return 800000 + res.get("latency_ms", 9999)
+
+        model_name = prov.get("model", "")
+        family = get_provider_family(prov)
+        tier = get_model_tier(model_name, family)
+
+        # Base score establishes strict separation between capability tiers:
+        # Tier 1 (Frontier/Thinking): ~500 - 1,500
+        # Tier 2 (Workhorses): ~9,500 - 12,500
+        # Tier 3 (3rd-Party Free Queues): ~30,000+
+        base_score = 1000 if tier == 1 else (10000 if tier == 2 else 30000)
+
         p_perf = performance.get("providers", {}).get(prov["id"], {})
         s_rate = p_perf.get("success_rate", 1.0)
         lat = res.get("latency_ms", 9999)
         if lat <= 0:
             lat = 9999
-        # Empirical score: higher reliability and lower latency wins
-        # Capability Tier Weighting:
-        # Flagship / 70B+ / Flash models get significant priority bonus over small parameter models
-        model_name = (prov.get("model", "") + " " + prov.get("id", "")).lower()
-        tier_bonus = 0
-        if any(tag in model_name for tag in ["70b", "72b", "gemini-3-flash", "gemini-flash", "gemini-pro", "gpt-4o"]):
-            tier_bonus = -2000
-        elif any(tag in model_name for tag in ["lite", "8b", "7b", "3b", "1b", "27b", "20b", "14b", "9b"]):
-            tier_bonus = 2000
 
-        return int((1.0 - s_rate) * 5000 + lat + tier_bonus)
+        # Deliberation-aware latency handling:
+        # Tier 1 thinking models deliberate (3s-15s) to reason and generate superior tokens.
+        # We do NOT penalize deliberation time as network latency.
+        if tier == 1:
+            effective_lat = (min(lat, 3000) // 10) + (lat // 1000)
+        else:
+            effective_lat = min(lat, 5000) // 2
 
-    def get_provider_family(p: dict) -> str:
-        pid = p.get("id", "").lower()
-        burl = p.get("base_url", "").lower()
-        if "gemini" in pid or "generativelanguage" in burl:
-            return "google"
-        elif "groq" in pid or "groq.com" in burl:
-            return "groq"
-        elif "openrouter" in pid or "openrouter" in burl or pid.startswith("or_"):
-            return "openrouter"
-        elif "openai" in pid or "api.openai.com" in burl:
-            return "openai"
-        return "other"
+        # Empirical reliability penalty
+        reliability_penalty = int((1.0 - s_rate) * 5000)
+
+        # Direct provider bonus: Commercial SLAs (Google, Groq, OpenAI) take priority over proxy aggregators
+        provider_bonus = -500 if family in ("google", "groq", "openai") else 0
+
+        return base_score + reliability_penalty + effective_lat + provider_bonus
 
     text_items = [(p, r) for p, r in tested_results if p.get("type") == "text"]
 
-    families: Dict[str, list] = {}
-    for item in text_items:
-        fam = get_provider_family(item[0])
-        families.setdefault(fam, []).append(item)
-
-    for fam in families:
-        families[fam].sort(key=perf_rank)
-
-    # Interleave across provider families
+    # Tier-Aware Interleaving:
+    # Group candidates by capability Tier (1, 2, 3), and within each tier,
+    # interleave provider families according to empirical performance.
+    # This guarantees Tier 1 (thinking/frontier) models occupy top priority slots
+    # before Tier 2 workhorses or Tier 3 free fallbacks are assigned.
     interleaved_text_items = []
-    family_order = sorted(
-        families.keys(),
-        key=lambda f: perf_rank(families[f][0]) if families[f] else 999999
-    )
 
-    max_len = max(len(items) for items in families.values()) if families else 0
-    for idx in range(max_len):
-        for fam in family_order:
-            if idx < len(families[fam]):
-                interleaved_text_items.append(families[fam][idx])
+    tiered_items: Dict[int, list] = {1: [], 2: [], 3: []}
+    for item in text_items:
+        prov, _ = item
+        fam = get_provider_family(prov)
+        tier = get_model_tier(prov.get("model", ""), fam)
+        tiered_items.setdefault(tier, []).append(item)
+
+    for tier_num in sorted(tiered_items.keys()):
+        tier_list = tiered_items[tier_num]
+        if not tier_list:
+            continue
+
+        tier_families: Dict[str, list] = {}
+        for item in tier_list:
+            fam = get_provider_family(item[0])
+            tier_families.setdefault(fam, []).append(item)
+
+        for fam in tier_families:
+            tier_families[fam].sort(key=perf_rank)
+
+        # Family order within this tier determined by the best model in each family
+        tier_family_order = sorted(
+            tier_families.keys(),
+            key=lambda f: perf_rank(tier_families[f][0]) if tier_families[f] else 999999
+        )
+
+        max_len = max(len(items) for items in tier_families.values()) if tier_families else 0
+        for idx in range(max_len):
+            for fam in tier_family_order:
+                if idx < len(tier_families[fam]):
+                    interleaved_text_items.append(tier_families[fam][idx])
 
     final_providers = []
     for rank, (prov, _) in enumerate(interleaved_text_items, start=1):
@@ -637,7 +714,9 @@ def run_discovery(force: bool = False) -> Dict[str, Any]:
     print("=" * 80)
     for prov in sorted(final_providers, key=lambda x: x.get("priority", 99)):
         status_sym = "🟢" if prov.get("enabled", True) else "⚪"
-        print(f"  {status_sym} Priority #{prov.get('priority'):2d}: {prov.get('name', 'Unknown'):35s} (Model: {prov.get('model', 'N/A')})")
+        fam = get_provider_family(prov)
+        tier = get_model_tier(prov.get("model", ""), fam)
+        print(f"  {status_sym} Priority #{prov.get('priority'):2d} [Tier {tier}]: {prov.get('name', 'Unknown'):35s} (Model: {prov.get('model', 'N/A')})")
     print("=" * 80 + "\n")
 
     logger.success(f"✅ [DISCOVERY COMPLETE] Ranked {len(final_providers)} active models dynamically across {len(families)} provider families (banned {len(banned_models)} models).")

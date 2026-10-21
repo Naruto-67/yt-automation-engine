@@ -29,6 +29,10 @@ def test_banned_modality_patterns():
     assert not is_modality_allowed("thinkingmachines/inkling-small:free")
     assert not is_modality_allowed("google/veo-2-video-gen")
     assert not is_modality_allowed("stability/imagen-3-generate")
+    # Code-only models banned from narrative scriptwriting
+    assert not is_modality_allowed("cohere/north-mini-code:free")
+    assert not is_modality_allowed("qwen2.5-coder-32b")
+    assert not is_modality_allowed("deepseek-coder-6.7b")
 
     # Allowed text LLM modalities
     assert is_modality_allowed("gemini-3.8-flash")
@@ -155,6 +159,77 @@ def test_benchmark_calibration_and_persistence(tmp_path):
 
     finally:
         dd.REGISTRY_PATH = orig_path
+
+
+def test_capability_tier_classification():
+    """Verifies that discovery correctly assigns models to Tier 1, Tier 2, or Tier 3."""
+    from engine.discovery import get_model_tier
+
+    # Tier 1: Frontier & Thinking / Heavy Reasoning
+    assert get_model_tier("gemini-3.6-flash", "google") == 1
+    assert get_model_tier("gemini-3.5-flash", "google") == 1
+    assert get_model_tier("gemini-3-flash-preview", "google") == 1
+    assert get_model_tier("gemini-flash-latest", "google") == 1
+    assert get_model_tier("gemini-pro-latest", "google") == 1
+    assert get_model_tier("openai/gpt-oss-120b", "groq") == 1
+    assert get_model_tier("nemotron-3-ultra-550b", "groq") == 1
+    assert get_model_tier("llama-3.3-70b-versatile", "groq") == 1
+
+    # Tier 2: High-speed Workhorses & Direct APIs
+    assert get_model_tier("gemini-flash-lite-latest", "google") == 2
+    assert get_model_tier("gemini-3.5-flash-lite", "google") == 2
+    assert get_model_tier("gemini-3.1-flash-lite", "google") == 2
+    assert get_model_tier("qwen3.8-27b", "groq") == 2
+    assert get_model_tier("llama-3.1-8b-instant", "groq") == 2
+    assert get_model_tier("gpt-oss-20b", "groq") == 2
+
+    # Tier 3: Third-party Free Community Queues
+    assert get_model_tier("minimax/minimax-m3.1-flash:free", "openrouter") == 3
+    assert get_model_tier("openrouter/free", "openrouter") == 3
+    assert get_model_tier("meta-llama/llama-3.3-70b-instruct:free", "openrouter") == 3
+
+
+def test_tier_aware_ranking_and_deliberation_preservation():
+    """Verifies that thinking models with 7-13s deliberation still rank above fast lightweight models."""
+    from engine.discovery import get_model_tier, get_provider_family
+
+    # Simulate discovery candidate scoring logic
+    def compute_score(prov, res, perf):
+        model_name = prov.get("model", "")
+        family = get_provider_family(prov)
+        tier = get_model_tier(model_name, family)
+        base_score = 1000 if tier == 1 else (10000 if tier == 2 else 30000)
+        s_rate = perf.get("success_rate", 1.0)
+        lat = res.get("latency_ms", 9999)
+        if tier == 1:
+            effective_lat = (min(lat, 3000) // 10) + (lat // 1000)
+        else:
+            effective_lat = min(lat, 5000) // 2
+        reliability_penalty = int((1.0 - s_rate) * 5000)
+        provider_bonus = -500 if family in ("google", "groq", "openai") else 0
+        return base_score + reliability_penalty + effective_lat + provider_bonus
+
+    thinking_model = {"id": "gemini_3_6_flash", "model": "gemini-3.6-flash", "base_url": "https://generativelanguage.googleapis.com"}
+    thinking_res = {"ok": True, "latency_ms": 13129}
+    thinking_perf = {"success_rate": 1.0}
+
+    fast_lite_model = {"id": "gemini_flash_lite", "model": "gemini-flash-lite-latest", "base_url": "https://generativelanguage.googleapis.com"}
+    fast_lite_res = {"ok": True, "latency_ms": 622}
+    fast_lite_perf = {"success_rate": 1.0}
+
+    free_community_model = {"id": "or_minimax", "model": "minimax/minimax-m3.1-flash:free", "base_url": "https://openrouter.ai"}
+    free_community_res = {"ok": True, "latency_ms": 800}
+    free_community_perf = {"success_rate": 1.0}
+
+    score_thinking = compute_score(thinking_model, thinking_res, thinking_perf)
+    score_lite = compute_score(fast_lite_model, fast_lite_res, fast_lite_perf)
+    score_free = compute_score(free_community_model, free_community_res, free_community_perf)
+
+    # Lower score is better
+    # Thinking Tier 1 (~813) must beat Fast Lite Tier 2 (~9811)
+    assert score_thinking < score_lite, f"Thinking model score {score_thinking} must beat fast lite {score_lite}"
+    # Fast Lite Tier 2 (~9811) must beat OpenRouter Free Tier 3 (~30400)
+    assert score_lite < score_free, f"Fast lite score {score_lite} must beat free fallback {score_free}"
 
 
 if __name__ == "__main__":
