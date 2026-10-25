@@ -905,6 +905,7 @@ def run_spec_stage(video_type: str = "short", custom_topic: Optional[str] = None
             scene_factuality_rewrite_counts: Dict[int, int] = {}
             final_factuality_report = None
             final_factuality_decision = None
+            rewrote_any = False
 
             while True:
                 # 1. Inspect the candidate scene chain
@@ -938,7 +939,7 @@ def run_spec_stage(video_type: str = "short", custom_topic: Optional[str] = None
                     )
 
                 # 3. Perform targeted rewrites for eligible affected scenes
-                rewrote_any = False
+                rewrote_this_pass = False
                 for s_id, c_rec in scenes_to_rewrite:
                     scene_idx = s_id - 1
                     scene_factuality_rewrite_counts[s_id] = scene_factuality_rewrite_counts.get(s_id, 0) + 1
@@ -955,9 +956,10 @@ def run_spec_stage(video_type: str = "short", custom_topic: Optional[str] = None
                     )
                     if revised_sc:
                         raw_scenes[scene_idx] = revised_sc
+                        rewrote_this_pass = True
                         rewrote_any = True
 
-                if not rewrote_any:
+                if not rewrote_this_pass:
                     raise ValueError(
                         f"Claim Inspector rejected script ({decision.value}): {decision_reason}"
                     )

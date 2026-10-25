@@ -1590,8 +1590,8 @@ def test_apply_prompt_rules_to_config_propagates_to_seo_gen():
 def test_pipeline_runner_refreshes_seo_after_factuality_rewrite(monkeypatch, tmp_path):
     """Phase 10C: If Claim Inspector rewrites a scene for factuality, pipeline_runner
     refreshes SEO metadata against the verified scenes rather than retaining stale metadata."""
-    from engine.managers.pipeline_runner import run_spec_stage
-    from engine.managers.claim_inspector import ClaimDecision, FactualityDecision, ClaimRecord
+    from engine.managers.pipeline_runner import run_spec_stage, FactualityPolicyStatus
+    from engine.managers.claim_inspector import ClaimRecord
 
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
 
@@ -1639,19 +1639,31 @@ def test_pipeline_runner_refreshes_seo_after_factuality_rewrite(monkeypatch, tmp
 
     # Claim inspector flags Scene 2 and triggers rewrite
     fake_record = ClaimRecord(
-        claim_text="Tachyons travel at 1000 times light speed.",
+        claim_id="claim_2_1",
+        scene_id=2,
+        original_text="Tachyons travel at 1000 times light speed.",
+        extracted_proposition="Tachyons travel at 1000 times light speed.",
         category="empirical_fact",
         verification_status="disputed",
         confidence_score=0.2,
         policy_action="rewrite",
         scene_index=1
     )
-    fake_decision = FactualityDecision(
-        decision=ClaimDecision.REVISE_REQUIRED,
-        reason="Disputed claim requires rewrite",
-        records=[fake_record]
-    )
-    monkeypatch.setattr("engine.managers.pipeline_runner.evaluate_shorts_factuality_policy", lambda scenes, **kw: fake_decision)
+    policy_calls_1 = [0]
+    def fake_evaluate_policy_1(report):
+        policy_calls_1[0] += 1
+        if policy_calls_1[0] == 1:
+            return (
+                FactualityPolicyStatus.REJECTED_CONTRADICTION,
+                "Disputed claim requires rewrite",
+                [(2, fake_record)]
+            )
+        return (
+            FactualityPolicyStatus.PASSED,
+            "Script passed factuality verification",
+            []
+        )
+    monkeypatch.setattr("engine.managers.pipeline_runner.evaluate_shorts_factuality_policy", fake_evaluate_policy_1)
 
     # Rewrite replaces scene 2 with verified factual line
     factual_scene_2 = {"scene_id": 2, "spoken_text": "Even information cannot travel faster than the cosmic speed of light.", "stock_video_query": "galaxy"}
@@ -1693,8 +1705,8 @@ def test_pipeline_runner_factuality_rewrite_seo_refresh_failure_safe_policy(monk
     """Phase 10C.1: If SEO refresh fails after factuality rewrites, pipeline_runner applies
     an explicit safe policy: generates script-grounded fallback metadata derived strictly from
     the verified final scenes and flags the limitation, never silently retaining pre-rewrite claims."""
-    from engine.managers.pipeline_runner import run_spec_stage
-    from engine.managers.claim_inspector import ClaimDecision, FactualityDecision, ClaimRecord
+    from engine.managers.pipeline_runner import run_spec_stage, FactualityPolicyStatus
+    from engine.managers.claim_inspector import ClaimRecord
 
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
 
@@ -1742,19 +1754,31 @@ def test_pipeline_runner_factuality_rewrite_seo_refresh_failure_safe_policy(monk
 
     # Claim inspector flags Scene 2 and triggers rewrite
     fake_record = ClaimRecord(
-        claim_text="Tachyons travel at 1000 times light speed.",
+        claim_id="claim_2_1",
+        scene_id=2,
+        original_text="Tachyons travel at 1000 times light speed.",
+        extracted_proposition="Tachyons travel at 1000 times light speed.",
         category="empirical_fact",
         verification_status="disputed",
         confidence_score=0.2,
         policy_action="rewrite",
         scene_index=1
     )
-    fake_decision = FactualityDecision(
-        decision=ClaimDecision.REVISE_REQUIRED,
-        reason="Disputed claim requires rewrite",
-        records=[fake_record]
-    )
-    monkeypatch.setattr("engine.managers.pipeline_runner.evaluate_shorts_factuality_policy", lambda scenes, **kw: fake_decision)
+    policy_calls_1 = [0]
+    def fake_evaluate_policy_1(report):
+        policy_calls_1[0] += 1
+        if policy_calls_1[0] == 1:
+            return (
+                FactualityPolicyStatus.REJECTED_CONTRADICTION,
+                "Disputed claim requires rewrite",
+                [(2, fake_record)]
+            )
+        return (
+            FactualityPolicyStatus.PASSED,
+            "Script passed factuality verification",
+            []
+        )
+    monkeypatch.setattr("engine.managers.pipeline_runner.evaluate_shorts_factuality_policy", fake_evaluate_policy_1)
 
     # Rewrite replaces scene 2 with verified factual line
     factual_scene_2 = {"scene_id": 2, "spoken_text": "Even information cannot travel faster than the cosmic speed of light.", "stock_video_query": "galaxy"}

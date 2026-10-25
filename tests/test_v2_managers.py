@@ -1976,7 +1976,7 @@ def test_editorial_gate_rejects_thought_cache_duplicate(monkeypatch, tmp_path):
 
     # Mock editorial critic to approve the script
     critic_called = []
-    def mock_audit(raw_scenes, seo_data, topic, llm_manager):
+    def mock_audit(raw_scenes, seo_data, topic, llm_manager=None, *args, **kwargs):
         critic_called.append(True)
         return raw_scenes, seo_data, {"status": "passed", "unresolved_failures": 0}
 
@@ -2110,7 +2110,7 @@ def test_editorial_gate_rejection_halts_spec_generation(monkeypatch, tmp_path):
                         lambda **kw: (10.0, [], [5.0, 5.0], [[], []]))
 
     # Mock editorial critic returning explicit rejection
-    def mock_audit_rejected(raw_scenes, seo_data, topic, llm_manager):
+    def mock_audit_rejected(raw_scenes, seo_data, topic, llm_manager=None, *args, **kwargs):
         return raw_scenes, seo_data, {"status": "rejected", "unresolved_failures": 2}
 
     monkeypatch.setattr("engine.managers.editorial_critic.audit_and_refine_spec", mock_audit_rejected)
@@ -2336,7 +2336,7 @@ def test_shorts_successful_iscg_runs_editorial_and_thought_cache(monkeypatch, tm
     )
 
     critic_called = []
-    def mock_audit(raw_scenes, seo_data, topic, llm_manager):
+    def mock_audit(raw_scenes, seo_data, topic, llm_manager=None, *args, **kwargs):
         critic_called.append(True)
         return raw_scenes, seo_data, {"status": "passed", "unresolved_failures": 0}
 
@@ -3570,7 +3570,7 @@ def test_shorts_critic_rewrite_after_factuality_triggers_reinspection(monkeypatc
 
     # Mock editorial critic to rewrite scene 2 on its second run
     critic_runs = [0]
-    def mock_audit(raw_scenes, seo_data, topic, llm_manager):
+    def mock_audit(raw_scenes, seo_data, topic, llm_manager=None, *args, **kwargs):
         critic_runs[0] += 1
         if critic_runs[0] > 1:
             # Critic further refines scene 2
@@ -3841,7 +3841,7 @@ def test_shorts_claim_inspection_model_assessed_contradiction_triggers_rewrite_a
 
     # Track Critic runs
     critic_runs = [0]
-    def mock_audit(raw_scenes, seo_data, topic, llm_manager):
+    def mock_audit(raw_scenes, seo_data, topic, llm_manager=None, *args, **kwargs):
         critic_runs[0] += 1
         return raw_scenes, seo_data, {"status": "passed", "unresolved_failures": 0}
 

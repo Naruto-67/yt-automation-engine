@@ -1513,6 +1513,28 @@ class EditorialCritic:
         )
 
     @staticmethod
+    def audit_and_refine_spec(
+        raw_scenes: List[Dict[str, Any]],
+        seo_data: Dict[str, Any],
+        topic: str,
+        llm_manager: Optional[Any] = None,
+        channel_premise: str = "",
+        prompts_cfg: Optional[Dict[str, Any]] = None
+    ) -> Tuple[List[Dict[str, Any]], Dict[str, Any], Dict[str, Any]]:
+        """
+        Audits and refines an entire multi-scene script spec using revision-first editing.
+        Exposes audit_and_refine_spec on EditorialCritic for interface compatibility.
+        """
+        return audit_and_refine_spec(
+            raw_scenes=raw_scenes,
+            seo_data=seo_data,
+            topic=topic,
+            llm_manager=llm_manager,
+            channel_premise=channel_premise,
+            prompts_cfg=prompts_cfg
+        )
+
+    @staticmethod
     def audit_and_refine_scene(
         scene: Dict[str, Any],
         defect_reason: str,

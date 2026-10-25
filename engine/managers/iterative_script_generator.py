@@ -39,7 +39,9 @@ from engine.managers.editorial_critic import (
     TitleScriptAlignmentSkill,
     HookAuditorSkill,
     ThoughtCompletenessSkill,
+    LoopAuditorSkill,
     check_loop_repeats_hook,
+    is_valid_circular_bridge,
     COMPILATION_LOOP_BRIDGES,
     UMBRELLA_TITLE_TEMPLATES,
     _token_overlap,
@@ -388,7 +390,7 @@ def synchronize_seo_description_header(
     description: Any,
     old_title: Any,
     new_title: Any
-) -> str:
+) -> Any:
     """
     Synchronizes the first-line title header of a Shorts SEO description when
     editorial alignment modifies the title.
@@ -398,8 +400,10 @@ def synchronize_seo_description_header(
     exactly as-is. If the first line does not match old_title, or if either value
     is missing/invalid, returns the description unchanged.
     """
-    if not isinstance(description, str) or not description.strip():
-        return description if isinstance(description, str) else ""
+    if not isinstance(description, str):
+        return description
+    if not description.strip():
+        return description
     if not isinstance(new_title, str) or not new_title.strip():
         return description
     if not isinstance(old_title, str) or not old_title.strip():

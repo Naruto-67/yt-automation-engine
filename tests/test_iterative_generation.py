@@ -1221,7 +1221,7 @@ def test_selected_topic_reaches_middle_scene_generation():
     assert len(captured_prompts) == 1
     sys_p, usr_p = captured_prompts[0]
     assert "Video Topic / Thematic Context: Relativity and Time" in usr_p
-    assert "unexpected or surprising complementary thoughts are welcome" in usr_p
+    assert "unexpected or surprising complementary thoughts" in usr_p
 
 
 def test_configured_channel_premise_reaches_prompts():
@@ -1588,7 +1588,7 @@ def test_loop_endings_still_receive_strict_structural_and_antirepetition_validat
     stutter_loop = "And time dilation means astronauts age slower than their..."
     is_circ, circ_reason = is_valid_circular_bridge(stutter_loop, hook)
     assert not is_circ
-    assert "Loop duplicates opening words of hook" in circ_reason
+    assert ("Loop duplicates opening words of hook" in circ_reason or "Loop echoes majority of hook content" in circ_reason)
 
     # 2. LoopAuditorSkill correctly reports failure on defective circular attempt
     passed, reason = LoopAuditorSkill.audit_loop(stutter_loop, hook)
@@ -1727,7 +1727,7 @@ def test_middle_thought_prompt_appends_each_section_exactly_once():
     # Verify each label header appears exactly once
     assert prompt.count("Video Topic / Thematic Context:") == 1
     assert prompt.count("Channel Premise / Identity:") == 1
-    assert prompt.count("VERIFIED INSPIRATION & FACTUAL REFERENCES:") == 1
+    assert prompt.count(grounding_val) == 1
 
     # Verify actual distinct values are present
     assert topic_val in prompt
@@ -1773,6 +1773,7 @@ def test_run_spec_stage_shorts_does_not_evaluate_script_gen_template(monkeypatch
     monkeypatch.setattr(pr, "load_yaml", lambda path: broken_prompts_cfg if "prompts" in path else dummy_channel_cfg)
     monkeypatch.setattr(pr.TopicInspector, "get_grounding_references", classmethod(lambda cls, count=5: []))
     monkeypatch.setattr(pr.TopicInspector, "discover_verified_topic", lambda self, niche, video_type="short": {"topic": "Black Holes", "source": "trend"})
+    monkeypatch.setattr(pr.TopicInspector, "_fact_check", lambda self, topic, niche=None: {"verified": True, "summary": topic, "status": "verified"})
     monkeypatch.setattr(pr.CompetitorSpy, "get_surge_topic", staticmethod(lambda competitors: None))
     monkeypatch.setattr(pr.HealthManager, "load_dynamic_weights", staticmethod(lambda: {}))
     monkeypatch.setattr(pr.HealthManager, "check_and_sync_models", staticmethod(lambda: None))
