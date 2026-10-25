@@ -514,5 +514,209 @@ def test_probe_video_duration(tmp_path):
     assert _probe_video_duration(str(tmp_path / "non_existent.mp4")) == 0.0
 
 
+def test_find_ffmpeg_bin_custom_path_selection(tmp_path, monkeypatch):
+    """Verifies that find_ffmpeg_bin returns the path specified by FFMPEG_BINARY when the file exists."""
+    from scripts.render_video import find_ffmpeg_bin
+    dummy_ffmpeg = tmp_path / "custom_ffmpeg.exe"
+    dummy_ffmpeg.write_bytes(b"dummy")
+
+    monkeypatch.setenv("FFMPEG_BINARY", str(dummy_ffmpeg))
+    resolved = find_ffmpeg_bin()
+    assert resolved == str(dummy_ffmpeg)
 
 
+def test_find_ffmpeg_bin_path_selection(monkeypatch):
+    """Verifies that find_ffmpeg_bin falls back to shutil.which('ffmpeg') when FFMPEG_BINARY is unset."""
+    from scripts.render_video import find_ffmpeg_bin
+    import shutil
+
+    monkeypatch.delenv("FFMPEG_BINARY", raising=False)
+    monkeypatch.setattr(shutil, "which", lambda cmd: "/usr/local/bin/ffmpeg" if cmd == "ffmpeg" else None)
+    resolved = find_ffmpeg_bin()
+    assert resolved == "/usr/local/bin/ffmpeg"
+
+
+def test_find_ffmpeg_bin_invalid_config_raises_actionable_error(monkeypatch):
+    """Verifies that find_ffmpeg_bin raises FileNotFoundError with actionable instructions when FFMPEG_BINARY does not exist."""
+    from scripts.render_video import find_ffmpeg_bin
+
+    nonexistent_path = "C:/invalid/path/to/ffmpeg.exe"
+    monkeypatch.setenv("FFMPEG_BINARY", nonexistent_path)
+    with pytest.raises(FileNotFoundError) as exc_info:
+        find_ffmpeg_bin()
+
+    assert "Configured FFMPEG_BINARY does not exist" in str(exc_info.value)
+    assert nonexistent_path in str(exc_info.value)
+    assert "unset FFMPEG_BINARY" in str(exc_info.value)
+
+
+def test_render_video_ffmpeg_uses_custom_ffmpeg_binary(tmp_path, monkeypatch):
+    """Verifies that render_video_ffmpeg uses the resolved FFMPEG_BINARY across all subprocess operations."""
+    from scripts.render_video import render_video_ffmpeg
+
+    dummy_ffmpeg = tmp_path / "bin" / "ffmpeg_custom.exe"
+    dummy_ffmpeg.parent.mkdir(parents=True, exist_ok=True)
+    dummy_ffmpeg.write_bytes(b"binary")
+    monkeypatch.setenv("FFMPEG_BINARY", str(dummy_ffmpeg))
+
+    output_video = str(tmp_path / "final_render.mp4")
+    raw_clip_1 = str(tmp_path / "clip_1.mp4")
+    raw_clip_2 = str(tmp_path / "clip_2.mp4")
+    audio_path = str(tmp_path / "narration.mp3")
+
+    with open(raw_clip_1, "wb") as f:
+        f.write(b"0" * 10000)
+    with open(raw_clip_2, "wb") as f:
+        f.write(b"0" * 10000)
+    with open(audio_path, "wb") as f:
+        f.write(b"0" * 1000)
+
+    spec = SpecOutput(
+        topic="Binary Test",
+        video_type="short",
+        sub_format="core_brainblud",
+        seo=SEOMetadata(title="Binary Test #shorts", description="Test", tags=["test"]),
+        scenes=[
+            SceneSpec(scene_id=1, spoken_text="Scene one", phonetic_text="Scene one", stock_video_query="q1", duration_seconds=3.0, word_timestamps=[]),
+            SceneSpec(scene_id=2, spoken_text="Scene two", phonetic_text="Scene two", stock_video_query="q2", duration_seconds=3.0, word_timestamps=[]),
+        ],
+        total_duration_seconds=6.0,
+        audio_path=audio_path
+    )
+
+    clips_manifest = ClipsManifest(
+        topic="Binary Test",
+        video_type="short",
+        clips=[
+            ClipItem(scene_id=1, query="q1", download_url="http://mock.url/1.mp4", provider="pexels", video_id="101"),
+            ClipItem(scene_id=2, query="q2", download_url="http://mock.url/2.mp4", provider="pixabay", video_id="102"),
+        ]
+    )
+
+    channel_cfg = {"handle": "@test", "branding": {"watermark_text": "@test"}}
+    settings_cfg = {"video_profiles": {"short": {"preset": "fast", "fps": 30}}}
+
+    monkeypatch.setattr("scripts.render_video.download_clip", lambda url, dest, prov, vid: dest)
+    monkeypatch.setattr("scripts.render_video.download_cinematic_font", lambda: "Arial")
+    monkeypatch.setattr("scripts.render_video.check_filter_supported", lambda f, *a, **kw: True)
+
+    executed_cmds = []
+
+    def mock_subprocess_run(cmd, *args, **kwargs):
+        executed_cmds.append(cmd)
+        target = cmd[-1]
+        with open(target, "wb") as f:
+            f.write(b"0" * 1000)
+        return MagicMock(returncode=0, stderr="")
+
+    monkeypatch.setattr("subprocess.run", mock_subprocess_run)
+
+    render_video_ffmpeg(
+        spec=spec,
+        clips_manifest=clips_manifest,
+        output_video_path=output_video,
+        channel_cfg=channel_cfg,
+        settings_cfg=settings_cfg
+    )
+
+    # Must execute segment 1, segment 2, concat, and composite commands
+    assert len(executed_cmds) == 4
+    for idx, cmd in enumerate(executed_cmds):
+        assert cmd[0] == str(dummy_ffmpeg), f"Command {idx} invoked '{cmd[0]}' instead of resolved '{dummy_ffmpeg}': {cmd}"
+
+
+def test_render_video_ffmpeg_missing_executable_raises_clear_error(tmp_path, monkeypatch):
+    """Verifies that render_video_ffmpeg raises clear, actionable FileNotFoundError when FFmpeg executable cannot be found."""
+    from scripts.render_video import render_video_ffmpeg
+
+    output_video = str(tmp_path / "final_render.mp4")
+    raw_clip = str(tmp_path / "clip.mp4")
+    audio_path = str(tmp_path / "narration.mp3")
+
+    with open(raw_clip, "wb") as f:
+        f.write(b"0" * 10000)
+    with open(audio_path, "wb") as f:
+        f.write(b"0" * 1000)
+
+    spec = SpecOutput(
+        topic="Error Test",
+        video_type="short",
+        sub_format="core_brainblud",
+        seo=SEOMetadata(title="Error Test #shorts", description="Test", tags=["test"]),
+        scenes=[
+            SceneSpec(scene_id=1, spoken_text="Hook", phonetic_text="Hook", stock_video_query="q", duration_seconds=3.0, word_timestamps=[]),
+        ],
+        total_duration_seconds=3.0,
+        audio_path=audio_path
+    )
+
+    clips_manifest = ClipsManifest(
+        topic="Error Test",
+        video_type="short",
+        clips=[
+            ClipItem(scene_id=1, query="q", download_url="http://mock.url/1.mp4", provider="pexels", video_id="101"),
+        ]
+    )
+
+    channel_cfg = {"handle": "@test", "branding": {"watermark_text": "@test"}}
+    settings_cfg = {"video_profiles": {"short": {"preset": "fast", "fps": 30}}}
+
+    monkeypatch.setattr("scripts.render_video.download_clip", lambda url, dest, prov, vid: dest)
+    monkeypatch.setattr("scripts.render_video.download_cinematic_font", lambda: "Arial")
+    monkeypatch.setattr("scripts.render_video.check_filter_supported", lambda f, *a, **kw: True)
+
+    def mock_subprocess_missing(cmd, *args, **kwargs):
+        raise FileNotFoundError(2, "The system cannot find the file specified", cmd[0])
+
+    monkeypatch.setattr("subprocess.run", mock_subprocess_missing)
+
+    with pytest.raises(FileNotFoundError) as exc_info:
+        render_video_ffmpeg(
+            spec=spec,
+            clips_manifest=clips_manifest,
+            output_video_path=output_video,
+            channel_cfg=channel_cfg,
+            settings_cfg=settings_cfg
+        )
+
+    err_str = str(exc_info.value)
+    assert "FFmpeg executable not found" in err_str
+    assert "FFMPEG_BINARY" in err_str
+
+
+def test_helpers_respect_custom_ffmpeg_binary(tmp_path, monkeypatch):
+    """Verifies that check_filter_supported and _probe_video_duration use custom ffmpeg binary."""
+    from scripts.render_video import check_filter_supported, _probe_video_duration
+
+    dummy_bin = str(tmp_path / "custom_bin")
+    executed_cmds = []
+
+    def mock_run(cmd, *args, **kwargs):
+        executed_cmds.append(cmd)
+        return MagicMock(returncode=0, stdout="--enable-filter=drawtext", stderr="")
+
+    monkeypatch.setattr("subprocess.run", mock_run)
+
+    # 1. Direct pass to check_filter_supported
+    is_supported = check_filter_supported("drawtext", ffmpeg_bin=dummy_bin)
+    assert is_supported is True
+    assert executed_cmds[-1][0] == dummy_bin
+
+    # 2. Direct pass to _probe_video_duration (fallback inspection)
+    dummy_mp4 = str(tmp_path / "test.mp4")
+    with open(dummy_mp4, "wb") as f:
+        f.write(b"0" * 100)
+
+    # Make ffprobe fail so it cascades to ffmpeg -i
+    def mock_probe_run(cmd, *args, **kwargs):
+        executed_cmds.append(cmd)
+        if cmd[0] == "ffprobe":
+            return MagicMock(returncode=1, stdout="", stderr="error")
+        return MagicMock(returncode=0, stdout="", stderr="Duration: 00:00:05.50, start: 0.0")
+
+    monkeypatch.setattr("subprocess.run", mock_probe_run)
+    dur = _probe_video_duration(dummy_mp4, ffmpeg_bin=dummy_bin)
+    assert dur == 5.5
+    # Must have called ffmpeg fallback with dummy_bin
+    ffmpeg_cmd = [c for c in executed_cmds if c[0] == dummy_bin and "-i" in c]
+    assert len(ffmpeg_cmd) == 1

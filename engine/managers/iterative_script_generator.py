@@ -25,7 +25,7 @@ import yaml
 import random
 import pathlib
 import sys
-from typing import List, Dict, Any, Tuple, Optional
+from typing import List, Dict, Any, Tuple, Optional, Union
 
 try:
     if hasattr(sys.stdout, "reconfigure"):
@@ -43,8 +43,7 @@ from engine.managers.editorial_critic import (
     COMPILATION_LOOP_BRIDGES,
     UMBRELLA_TITLE_TEMPLATES,
     _token_overlap,
-    _load_upload_history_titles,
-    _load_curated_replacements
+    _load_upload_history_titles
 )
 from engine.managers.llm_quality_tracker import LLMQualityTracker
 
@@ -215,19 +214,273 @@ def save_past_spoken_thoughts(new_thoughts: List[str]) -> None:
             print(f"⚠️ [MEMORY] Failed to save past thoughts: {e}", flush=True)
 
 
+def _normalize_grounding_facts(grounding: Optional[Union[str, List[Dict[str, Any]]]]) -> str:
+    """Normalizes raw grounding facts (text or structured list) into a clean prompt string."""
+    if not grounding:
+        return ""
+    if isinstance(grounding, str):
+        return grounding.strip()
+    if isinstance(grounding, list):
+        lines = []
+        for f in grounding:
+            if isinstance(f, dict):
+                fact = f.get("fact", "") or f.get("text", "")
+                src = f.get("source", "Curated Archive")
+                if fact:
+                    lines.append(f"- {fact} (Source: {src})")
+            elif isinstance(f, str) and f.strip():
+                lines.append(f"- {f.strip()}")
+        if lines:
+            return "VERIFIED INSPIRATION & FACTUAL REFERENCES:\n" + "\n".join(lines)
+    return ""
+
+
+def _normalize_num_token(token: str) -> str:
+    """
+    Deterministically normalizes numerical token formatting using string operations
+    without floating-point conversions or precision loss, preserving numerical sign.
+    E.g., '-5' -> '-5', '+5' -> '+5', '5' -> '5', '-3.50' -> '-3.5', '10,000' -> '10000'.
+    """
+    sign = ""
+    if token.startswith("-"):
+        sign = "-"
+        token = token[1:]
+    elif token.startswith("+"):
+        sign = "+"
+        token = token[1:]
+
+    cleaned = token.replace(",", "")
+    if "." in cleaned:
+        int_part, frac_part = cleaned.split(".", 1)
+        int_norm = int_part.lstrip("0") or "0"
+        frac_norm = frac_part.rstrip("0")
+        if frac_norm:
+            norm_mag = f"{int_norm}.{frac_norm}"
+        else:
+            norm_mag = int_norm
+    else:
+        norm_mag = cleaned.lstrip("0") or "0"
+
+    return f"{sign}{norm_mag}"
+
+
+def _extract_number_tokens(text: str) -> List[str]:
+    """
+    Extracts normalized numerical tokens for fact preservation, preserving numerical sign
+    while conservatively distinguishing signed values from range notation (e.g. 16-24, 16 - 24).
+    Accounts for integers, high-precision decimals, and comma-formatted values.
+    """
+    pattern = re.compile(r"([+-]?)(?:\b|\B(?=[+-]))(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\b")
+    results = []
+    for match in pattern.finditer(text or ""):
+        full = match.group(0)
+        sign = match.group(1)
+        start = match.start()
+
+        if sign:
+            # Conservative range disambiguation: if preceded by a digit (e.g. '16-24' or '16 - 24'),
+            # the hyphen is a range separator, not a negative sign.
+            prefix = text[:start].rstrip()
+            if start > 0 and (text[start - 1].isdigit() or (prefix and prefix[-1].isdigit())):
+                full = full[1:]
+        results.append(_normalize_num_token(full))
+    return results
+
+
+def derive_grounded_fallback_title(scenes: List[Dict[str, Any]], topic: str = "") -> str:
+    """
+    Derives a concise, grounded YouTube Shorts fallback title from the script's actual substance
+    or verified topic without generic sensationalism or unsupported numerical claims.
+    """
+    from collections import Counter
+    full_script_text = " ".join(s.get("spoken_text", "") for s in (scenes or []) if isinstance(s, dict))
+    script_counts = Counter(_extract_number_tokens(full_script_text))
+
+    # 1. Try deriving from first non-empty scene thought
+    for s in (scenes or []):
+        if not isinstance(s, dict):
+            continue
+        text = s.get("spoken_text", "").strip()
+        if not text:
+            continue
+        # Extract first complete thought or sentence
+        first_thought = re.split(r"(?<=[.!?])\s+", text)[0].strip()
+        clean = re.sub(r"^[.…\-—\s]+|[.…\-—\s]+$", "", first_thought).strip()
+        if clean:
+            if len(clean) > 85:
+                truncated = clean[:85].rsplit(" ", 1)[0].rstrip(",;:-— ")
+                if truncated:
+                    clean = truncated
+            cand = f"{clean} #shorts" if "#shorts" not in clean.lower() else clean
+            # Ensure candidate does not have unsupported numbers
+            cand_counts = Counter(_extract_number_tokens(cand))
+            if all(cand_counts[n] <= script_counts.get(n, 0) for n in cand_counts):
+                return cand
+
+    # 2. Try deriving from topic if topic contains no numbers unsupported by the script
+    if topic and topic.strip():
+        clean_topic = re.sub(r"^[.…\-—\s]+|[.…\-—\s]+$", "", topic.strip()).strip()
+        if clean_topic:
+            topic_nums = Counter(_extract_number_tokens(clean_topic))
+            if all(topic_nums[n] <= script_counts.get(n, 0) for n in topic_nums):
+                return f"{clean_topic} #shorts"
+
+    # 3. If topic had unsupported numbers or no topic/scenes, pick neutral, grounded title
+    return "Observations and Perspectives #shorts"
+
+
+def derive_grounded_fallback_description(scenes: List[Dict[str, Any]], topic: str = "") -> str:
+    """
+    Derives an accurate, natural fallback description from the script's actual observations,
+    using the topic only as supporting context, avoiding boilerplate and unsupported claims.
+    """
+    scene_texts = [s.get("spoken_text", "").strip() for s in (scenes or []) if isinstance(s, dict) and s.get("spoken_text", "").strip()]
+    if scene_texts:
+        # Ground directly in the opening thoughts of the script
+        substance = " ".join(scene_texts[:2])
+        if topic and topic.strip() and topic.lower() not in substance.lower():
+            body = f"{topic.strip()} — {substance}"
+        else:
+            body = substance
+        return f"{body}\n\n#shorts"
+    elif topic and topic.strip():
+        return f"Observations and perspectives on {topic.strip()}.\n\n#shorts"
+    else:
+        return "Observations and perspectives from this video.\n\n#shorts"
+
+
+def derive_grounded_fallback_seo(
+    scenes: List[Dict[str, Any]],
+    topic: str = "",
+    recent_titles: Optional[List[str]] = None
+) -> Dict[str, Any]:
+    """
+    Assembles a complete, grounded SEO metadata dictionary (title, description, tags)
+    from the actual script and topic without relying on LLM generation.
+    """
+    from engine.managers.editorial_critic import TitleScriptAlignmentSkill
+    aligned_title = derive_grounded_fallback_title(scenes=scenes, topic=topic)
+    aligned_title = TitleScriptAlignmentSkill.align_title(
+        title=aligned_title,
+        scenes=scenes,
+        upload_history_titles=recent_titles or [],
+        topic=topic
+    )
+    base_description = derive_grounded_fallback_description(scenes=scenes, topic=topic)
+    full_description = f"{aligned_title}\n\n{base_description}"
+
+    full_script_text = " ".join(s.get("spoken_text", "") for s in (scenes or []) if isinstance(s, dict))
+    from engine.managers.pipeline_runner import extract_keywords
+    script_kws = extract_keywords(full_script_text, max_keywords=8)
+    tags = [topic.lower()] if topic else []
+    tags.extend([kw.lower() for kw in script_kws if kw.lower() not in tags])
+    if "shorts" not in tags:
+        tags.append("shorts")
+
+    return {
+        "title": aligned_title,
+        "description": full_description,
+        "tags": [str(t).strip() for t in tags if str(t).strip()]
+    }
+
+
+def synchronize_seo_description_header(
+    description: Any,
+    old_title: Any,
+    new_title: Any
+) -> str:
+    """
+    Synchronizes the first-line title header of a Shorts SEO description when
+    editorial alignment modifies the title.
+
+    Replaces the first line only if it matches the superseded old_title (with
+    whitespace and optional case tolerance), preserving the rest of the description
+    exactly as-is. If the first line does not match old_title, or if either value
+    is missing/invalid, returns the description unchanged.
+    """
+    if not isinstance(description, str) or not description.strip():
+        return description if isinstance(description, str) else ""
+    if not isinstance(new_title, str) or not new_title.strip():
+        return description
+    if not isinstance(old_title, str) or not old_title.strip():
+        return description
+
+    old_clean = old_title.strip()
+    new_clean = new_title.strip()
+    if old_clean.lower() == new_clean.lower():
+        return description
+
+    lines = description.splitlines(keepends=True)
+    if not lines:
+        return description
+
+    first_line_raw = lines[0]
+    first_line_clean = first_line_raw.strip()
+
+    # Compare first line against old_title
+    match_found = False
+    if first_line_clean.lower() == old_clean.lower():
+        match_found = True
+    else:
+        # Also check without case-insensitive #shorts suffix
+        old_base = re.sub(r"(?i)\s*#shorts\b", "", old_clean).strip()
+        first_base = re.sub(r"(?i)\s*#shorts\b", "", first_line_clean).strip()
+        if old_base and first_base.lower() == old_base.lower():
+            match_found = True
+
+    if not match_found:
+        return description
+
+    # Determine original newline style
+    if first_line_raw.endswith("\r\n"):
+        nl = "\r\n"
+    elif first_line_raw.endswith("\n"):
+        nl = "\n"
+    else:
+        nl = ""
+
+    return f"{new_clean}{nl}" + "".join(lines[1:])
+
+
 class IterativeScriptGenerator:
     """
     High-Retention Circular Script Generator with Triplet Anchor Generation (v4.1),
     Audio-Driven Dynamic Duration Loop, and Targeted LLM Recreation.
     """
 
-    def __init__(self, llm_manager: Optional[Any] = None, quality_tracker: Optional[LLMQualityTracker] = None):
+    def __init__(
+        self,
+        llm_manager: Optional[Any] = None,
+        quality_tracker: Optional[LLMQualityTracker] = None,
+        prompts_cfg: Optional[Dict[str, Any]] = None,
+        channel_premise: str = "",
+        channel_cfg: Optional[Dict[str, Any]] = None,
+    ):
         if llm_manager is None:
             from engine.managers.llm_manager import LLMManager
             llm_manager = LLMManager()
         self.llm = llm_manager
         self.qt = quality_tracker or LLMQualityTracker()
-        self.prompts = self._load_prompts()
+
+        # Resolve prompt configuration:
+        # If prompts_cfg is supplied, consume it directly (already configured by caller/PipelineRunner).
+        # Supplying a configured prompt dictionary does not silently reload or mutate it with duplicate instructions.
+        # If omitted, load raw prompts from disk and apply channel_cfg rules if channel_cfg was provided.
+        if prompts_cfg is not None and isinstance(prompts_cfg, dict):
+            import copy
+            self.prompts = copy.deepcopy(prompts_cfg)
+        else:
+            self.prompts = self._load_prompts()
+            if channel_cfg and isinstance(channel_cfg, dict):
+                from engine.managers.pipeline_runner import apply_prompt_rules_to_config
+                self.prompts = apply_prompt_rules_to_config(self.prompts, channel_cfg)
+
+        # Resolve channel premise: supplied premise, or from channel_cfg, or empty
+        resolved_premise = channel_premise
+        if not resolved_premise and channel_cfg and isinstance(channel_cfg, dict):
+            prompt_settings = channel_cfg.get("prompt_settings", channel_cfg.get("prompt_rules", {}))
+            resolved_premise = prompt_settings.get("channel_premise") or channel_cfg.get("channel_premise", "")
+        self.channel_premise = (resolved_premise or "").strip()
 
     def _load_prompts(self) -> Dict[str, Any]:
         """Loads clean prompts from config/prompts.yaml."""
@@ -307,6 +560,8 @@ class IterativeScriptGenerator:
         topic: str = "",
         voice: str = "am_adam",
         speed: float = 1.02,
+        grounding_facts: Optional[Union[str, List[Dict[str, Any]]]] = None,
+        channel_premise: str = "",
         **kwargs
     ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
         """
@@ -324,31 +579,35 @@ class IterativeScriptGenerator:
         print(f"\n🧠 [ISCG v4.1] Generating audio-driven circular script (Natural stop filter at >= 30.0s, no hard min/max clamping)...")
         recent_titles = _load_upload_history_titles()
         past_thoughts = _load_past_spoken_thoughts()
+        grounding_text = _normalize_grounding_facts(grounding_facts or kwargs.get("grounding_facts"))
+        resolved_premise = (channel_premise or kwargs.get("channel_premise") or self.channel_premise or "").strip()
 
         used_queries: List[str] = []
         from engine.managers.voice_normalizer import VoiceNormalizer
 
-        # ─── STEP 1: TRIPLET ANCHORS (HOOK, PENULTIMATE FACT, LOOP BRIDGE) ────
-        print("🎯 [STEP 1] Generating Triplet Anchors (Scene 1 Hook, Penultimate Fact & Final Loop Bridge)...", flush=True)
-        hook_scene, penultimate_scene, loop_scene = self._generate_anchor_bookends(
+        # ─── STEP 1: TRIPLET ANCHORS (HOOK, PENULTIMATE FACT, ENDING PAYOFF) ────
+        print("🎯 [STEP 1] Generating Anchors (Scene 1 Hook, Penultimate Fact & Ending Payoff)...", flush=True)
+        hook_scene, penultimate_scene, ending_scene = self._generate_anchor_bookends(
             topic=topic,
             used_queries=used_queries,
             recent_titles=recent_titles,
-            past_thoughts=past_thoughts
+            past_thoughts=past_thoughts,
+            grounding_facts=grounding_text,
+            channel_premise=resolved_premise
         )
         used_queries.append(hook_scene["stock_video_query"])
         used_queries.append(penultimate_scene["stock_video_query"])
-        used_queries.append(loop_scene["stock_video_query"])
+        used_queries.append(ending_scene["stock_video_query"])
 
         d_hook = VoiceNormalizer.measure_duration_quick(hook_scene["spoken_text"], voice=voice, speed=speed)
         d_penult = VoiceNormalizer.measure_duration_quick(penultimate_scene["spoken_text"], voice=voice, speed=speed)
-        d_loop = VoiceNormalizer.measure_duration_quick(loop_scene["spoken_text"], voice=voice, speed=speed)
-        t_anchors = round(d_hook + d_penult + d_loop, 2)
+        d_end = VoiceNormalizer.measure_duration_quick(ending_scene["spoken_text"], voice=voice, speed=speed)
+        t_anchors = round(d_hook + d_penult + d_end, 2)
 
-        print(f"   ⏱️ [ANCHOR TIMINGS] Hook: {d_hook:.2f}s | Penultimate: {d_penult:.2f}s | Loop: {d_loop:.2f}s (Anchors subtotal: {t_anchors:.2f}s)")
+        print(f"   ⏱️ [ANCHOR TIMINGS] Hook: {d_hook:.2f}s | Penultimate: {d_penult:.2f}s | Ending: {d_end:.2f}s (Anchors subtotal: {t_anchors:.2f}s)")
         print(f"   ✅ Scene 1 (Hook): '{hook_scene['spoken_text']}'")
         print(f"   ✅ Penultimate Scene: '{penultimate_scene['spoken_text']}'")
-        print(f"   ✅ Final Scene (Loop Bridge): '{loop_scene['spoken_text']}'")
+        print(f"   ✅ Final Scene (Ending): '{ending_scene['spoken_text']}'")
 
         # ─── STEP 2: AUDIO-DRIVEN MIDDLE THOUGHTS LOOP ─────────────────────────
         current_total = t_anchors
@@ -365,10 +624,13 @@ class IterativeScriptGenerator:
             print(f"   Generating Middle Thought #{len(middle_scenes)+1} (projected total: {current_total:.2f}s)...", flush=True)
             mid_scene = self._generate_random_thought(
                 scene_num=scene_counter,
-                existing_scenes=[hook_scene] + middle_scenes + [penultimate_scene, loop_scene],
+                existing_scenes=[hook_scene] + middle_scenes + [penultimate_scene, ending_scene],
                 used_queries=used_queries,
                 recent_titles=recent_titles,
-                past_thoughts=past_thoughts
+                past_thoughts=past_thoughts,
+                grounding_facts=grounding_text,
+                topic=topic,
+                channel_premise=resolved_premise
             )
             d_mid = VoiceNormalizer.measure_duration_quick(mid_scene["spoken_text"], voice=voice, speed=speed)
             current_total = round(current_total + d_mid, 2)
@@ -379,7 +641,7 @@ class IterativeScriptGenerator:
 
         # ─── STEP 3: ASSEMBLE FULL SCRIPT (NO HARD POPPING / TRIMMING) ────────
         # Accept whatever the final duration is without trimming or popping
-        scenes: List[Dict[str, Any]] = [hook_scene] + middle_scenes + [penultimate_scene, loop_scene]
+        scenes: List[Dict[str, Any]] = [hook_scene] + middle_scenes + [penultimate_scene, ending_scene]
         for idx, sc in enumerate(scenes):
             sc["scene_id"] = idx + 1
 
@@ -388,7 +650,7 @@ class IterativeScriptGenerator:
 
         # ─── STEP 4: NORMALIZATION & EMOTION PASS (KOKORO AUDIO POLISHER) ────
         print("🎭 [STEP 4] Running Normalization & Emotion Pass for Kokoro TTS...", flush=True)
-        scenes = self._normalize_and_emotify_script(scenes)
+        scenes = self._normalize_and_emotify_script(scenes, channel_premise=resolved_premise)
 
         # Strictly synchronize phonetic_text on every scene to eliminate split-brain bugs
         for sc in scenes:
@@ -403,7 +665,7 @@ class IterativeScriptGenerator:
 
         # ─── STEP 5: DYNAMIC SEO METADATA GENERATION ──────────────────────────
         print("🏷️  [STEP 5] Generating Dynamic, Video-Specific SEO Metadata...", flush=True)
-        seo_data = self._generate_seo(scenes=scenes, recent_titles=recent_titles)
+        seo_data = self._generate_seo(scenes=scenes, topic=topic, recent_titles=recent_titles)
         print(f"   ✅ Title: '{seo_data.get('title')}'")
 
         return scenes, seo_data
@@ -415,24 +677,35 @@ class IterativeScriptGenerator:
         topic: str = "",
         used_queries: Optional[List[str]] = None,
         recent_titles: Optional[List[str]] = None,
-        past_thoughts: Optional[List[str]] = None
+        past_thoughts: Optional[List[str]] = None,
+        grounding_facts: Optional[Union[str, List[Dict[str, Any]]]] = None,
+        channel_premise: str = "",
+        *args,
+        **kwargs
     ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
         """
-        Generates Scene 1 (Hook), Penultimate Scene (Final Standalone Fact), and
-        Final Scene (Circular Loopback Bridge) TOGETHER in a single LLM call.
-        Ensures the loop bridge transitions from penultimate scene and loops back into hook.
+        Generates Scene 1 (Hook), Penultimate Scene (Setting up conclusion), and
+        Final Scene (Intentional Payoff Ending: Punchline, Observation, Provocation,
+        Resolution, or Natural Circular Loop) TOGETHER in a single LLM call.
         If duplicates or quality audits fail, passes targeted feedback to the LLM.
         """
+        grounding_text = _normalize_grounding_facts(grounding_facts)
         sys_prompt = self.prompts.get("triplet_anchor_scenes", {}).get(
             "system_prompt",
             self.prompts.get("paired_anchor_scene", {}).get(
                 "system_prompt",
-                "You write viral YouTube Shorts with seamless infinite circular loops. Generate THREE specific scenes that anchor this video: 'hook_scene' (10-14 words), 'penultimate_scene' (10-14 words), and 'loop_scene' (6-12 words ending with ...). Return ONLY valid JSON."
+                "You write high-retention YouTube Shorts scripts. Generate THREE anchor scenes: 'hook_scene', 'penultimate_scene', and 'ending_scene' (which can be a punchline, observation, provocation, resolution, or natural loop). Return ONLY valid JSON."
             )
         )
-        user_prompt = "Generate a viral Scene 1 hook thought and a Final Scene loopback bridge with a Penultimate Scene thought that flows seamlessly back into the hook's opening words."
-        if topic and topic.strip():
-            user_prompt += f" Theme/Vibe: {topic.strip()}."
+        user_prompt = "Generate a compelling Scene 1 hook thought and a Final Scene loopback bridge or payoff ending with a Penultimate Scene thought that delivers an intentional conclusion (a punchline, thought-provoking observation, clean resolution, or natural circular loop)."
+        resolved_topic = (topic or kwargs.get("topic") or "").strip()
+        if resolved_topic:
+            user_prompt += f" Theme/Topic: {resolved_topic}."
+        premise = (channel_premise or kwargs.get("channel_premise") or self.channel_premise or "").strip()
+        if premise:
+            user_prompt += f"\n\nChannel Premise / Identity: {premise}"
+        if grounding_text:
+            user_prompt += f"\n\n{grounding_text}\n(Where relevant, draw upon these verified inspiration references for your hook or penultimate fact. Avoid presenting unverified additions as established facts)."
 
         feedback = ""
         for attempt in range(4):
@@ -449,11 +722,11 @@ class IterativeScriptGenerator:
                 )
                 hook_data = res.get("hook_scene", {})
                 penultimate_data = res.get("penultimate_scene", {})
-                loop_data = res.get("loop_scene", {}) or res.get("loop_outro_scene", {})
+                ending_data = res.get("ending_scene") or res.get("loop_scene") or res.get("loop_outro_scene") or {}
 
                 hook_text = hook_data.get("spoken_text", "").strip()
                 penultimate_text = penultimate_data.get("spoken_text", "").strip()
-                loop_text = loop_data.get("spoken_text", "").strip()
+                ending_text = ending_data.get("spoken_text", "").strip()
 
                 # Clean hook
                 hook_text = re.sub(r"^[.…\-—\s]+", "", hook_text).strip()
@@ -465,10 +738,8 @@ class IterativeScriptGenerator:
                 if penultimate_text and penultimate_text[0].islower():
                     penultimate_text = penultimate_text[0].upper() + penultimate_text[1:]
 
-                # Clean loop
-                loop_text = re.sub(r"^[.…\-—\s]+", "", loop_text).strip()
-                if loop_text and not loop_text.endswith("..."):
-                    loop_text = loop_text.rstrip(".!? ") + "..."
+                # Clean ending
+                ending_text = re.sub(r"^[.…\-—\s]+", "", ending_text).strip()
 
                 # Validate hook
                 is_dup_h, reason_h = self._is_duplicate_thought(hook_text, [], recent_titles, past_thoughts)
@@ -481,10 +752,13 @@ class IterativeScriptGenerator:
                 if not penultimate_text:
                     pen_res = self._generate_random_thought(
                         scene_num=2,
-                        existing_scenes=[{"spoken_text": hook_text}, {"spoken_text": loop_text}],
+                        existing_scenes=[{"spoken_text": hook_text}, {"spoken_text": ending_text}],
                         used_queries=used_queries,
                         recent_titles=recent_titles,
-                        past_thoughts=past_thoughts
+                        past_thoughts=past_thoughts,
+                        grounding_facts=grounding_text,
+                        topic=resolved_topic,
+                        channel_premise=premise
                     )
                     penultimate_text = pen_res["spoken_text"]
                     penultimate_query = pen_res["stock_video_query"]
@@ -501,14 +775,36 @@ class IterativeScriptGenerator:
                         continue
                     penultimate_query = penultimate_data.get("stock_video_query")
 
-                # Validate loop bridge
-                repeats, rep_reason = check_loop_repeats_hook(loop_text, hook_text)
-                if repeats:
-                    feedback = f"Loop bridge rejected: repeats hook words ({rep_reason})"
-                    print(f"   🔄 [DEDUP CHECK] {feedback}. Retrying...")
-                    continue
+                # Determine ending intent: prefer explicit ending_type; if absent, treat '...' as loop
+                ending_type = str(ending_data.get("ending_type", "")).strip().lower()
+                if ending_type:
+                    is_intended_loop = ending_type in ("circular_loop", "loop", "circular")
+                else:
+                    # Legacy response-field compatibility: if ending_type is absent,
+                    # treat endings already ending in '...' or legacy loop scene fields as a loop.
+                    # Do not infer loop intent merely from trailing words such as is, are, by, or that.
+                    is_legacy_loop_field = bool(res.get("loop_scene") or res.get("loop_outro_scene"))
+                    is_intended_loop = ending_text.endswith("...") or is_legacy_loop_field
 
-                if hook_text and penultimate_text and loop_text and len(hook_text.split()) >= 6 and len(loop_text.split()) >= 3:
+                if is_intended_loop:
+                    if not ending_text.endswith("..."):
+                        ending_text = ending_text.rstrip(".!? ") + "..."
+                    is_circ, circ_reason = is_valid_circular_bridge(ending_text, hook_text)
+                    if not is_circ:
+                        feedback = f"Circular loop ending rejected: {circ_reason}"
+                        print(f"   🔄 [DEDUP CHECK] {feedback}. Retrying...")
+                        continue
+                else:
+                    # Standalone payoff: punchline, observation, provocation, resolution
+                    if not (ending_text.endswith(".") or ending_text.endswith("!") or ending_text.endswith("?")):
+                        ending_text = ending_text.rstrip(" ,-—") + "."
+                    passed, reason = LoopAuditorSkill.audit_loop(ending_text, hook_text, ending_type=ending_type)
+                    if not passed:
+                        feedback = f"Ending scene rejected: {reason}"
+                        print(f"   🔄 [DEDUP CHECK] {feedback}. Retrying...")
+                        continue
+
+                if hook_text.strip() and penultimate_text.strip() and ending_text.strip():
                     hook_scene = {
                         "scene_id": 1,
                         "spoken_text": hook_text,
@@ -519,53 +815,40 @@ class IterativeScriptGenerator:
                         "spoken_text": penultimate_text,
                         "stock_video_query": self._pick_query(penultimate_query, used_queries)
                     }
-                    loop_scene = {
+                    ending_scene = {
                         "scene_id": None,
-                        "spoken_text": loop_text,
-                        "stock_video_query": self._pick_query(loop_data.get("stock_video_query"), used_queries)
+                        "spoken_text": ending_text,
+                        "stock_video_query": self._pick_query(ending_data.get("stock_video_query"), used_queries),
+                        "ending_type": ending_type or ("circular_loop" if is_intended_loop else "standalone")
                     }
-                    return hook_scene, penultimate_scene, loop_scene
+                    return hook_scene, penultimate_scene, ending_scene
 
             except Exception as e:
                 print(f"   ⚠️ Triplet anchor attempt {attempt+1} failed: {e}")
 
-        # Vetted fallback triplet
-        available_triplets = [
-            t for t in TRIPLET_CIRCULAR_FALLBACKS
-            if not any(_token_overlap(t[0], pt) > 0.35 for pt in (past_thoughts or []))
-        ]
-        chosen = random.choice(available_triplets or TRIPLET_CIRCULAR_FALLBACKS)
-        hook_scene = {
-            "scene_id": 1,
-            "spoken_text": chosen[0],
-            "stock_video_query": self._pick_query("soap carving cubes ASMR", used_queries)
-        }
-        penultimate_scene = {
-            "scene_id": None,
-            "spoken_text": chosen[1],
-            "stock_video_query": self._pick_query("resin lathe turning wood polishing", used_queries)
-        }
-        loop_scene = {
-            "scene_id": None,
-            "spoken_text": chosen[2],
-            "stock_video_query": self._pick_query("sand pendulum harmonograph geometric", used_queries)
-        }
-        return hook_scene, penultimate_scene, loop_scene
+        # Exhausted all attempts without producing fresh triplet anchors
+        raise RuntimeError(
+            f"Failed to generate fresh triplet anchors after 4 attempts (last feedback: {feedback})"
+        )
 
     def _generate_paired_anchors(
         self,
         topic: str = "",
         used_queries: Optional[List[str]] = None,
-        recent_titles: Optional[List[str]] = None
+        recent_titles: Optional[List[str]] = None,
+        channel_premise: str = "",
+        *args,
+        **kwargs
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-        """Backward compatibility wrapper returning (hook_scene, loop_scene)."""
-        h, p, l = self._generate_anchor_bookends(
+        """Backward compatibility wrapper returning (hook_scene, ending_scene)."""
+        h, p, e = self._generate_anchor_bookends(
             topic=topic,
             used_queries=used_queries,
             recent_titles=recent_titles,
-            past_thoughts=_load_past_spoken_thoughts()
+            past_thoughts=_load_past_spoken_thoughts(),
+            channel_premise=channel_premise
         )
-        return h, l
+        return h, e
 
     def _generate_random_thought(
         self,
@@ -573,20 +856,34 @@ class IterativeScriptGenerator:
         existing_scenes: List[Dict[str, Any]],
         used_queries: Optional[List[str]] = None,
         recent_titles: Optional[List[str]] = None,
-        past_thoughts: Optional[List[str]] = None
+        past_thoughts: Optional[List[str]] = None,
+        grounding_facts: Optional[Union[str, List[Dict[str, Any]]]] = None,
+        topic: str = "",
+        channel_premise: str = "",
+        *args,
+        **kwargs
     ) -> Dict[str, Any]:
         """
-        Generates a single standalone random Reddit thought or logical everyday fact.
+        Generates a single standalone observation, fact, or perspective shift.
         If rejected due to duplication or cynical audit, passes targeted feedback to the LLM.
         """
+        grounding_text = _normalize_grounding_facts(grounding_facts)
         already_used = [s.get("spoken_text", "") for s in existing_scenes if s.get("spoken_text")]
         already_used_summary = "\n".join(f"- {t}" for t in already_used[-6:])
 
         sys_prompt = self.prompts.get("thought_scene", {}).get(
             "system_prompt",
-            "Give me ONE standalone, mind-bending random Reddit thought or logical fact that makes you stop and think. Simple and relatable, 10-14 words. Return ONLY JSON with 'spoken_text' and 'stock_video_query'."
+            "Give me ONE standalone, mind-bending random thought, observation, or counterintuitive fact that makes you stop and think. Simple, relatable, and original. Return ONLY JSON with 'spoken_text' and 'stock_video_query'."
         )
-        user_prompt = f"ALREADY USED THOUGHTS IN THIS VIDEO:\n{already_used_summary}\n\nGenerate Scene {scene_num}: Exactly one standalone thought or logical everyday fact (10-14 words)."
+        user_prompt = f"ALREADY USED THOUGHTS IN THIS VIDEO:\n{already_used_summary}\n\nGenerate Scene {scene_num}: Exactly one standalone thought, observation, or surprising everyday fact."
+        resolved_topic = (topic or kwargs.get("topic") or "").strip()
+        if resolved_topic:
+            user_prompt += f"\n\nVideo Topic / Thematic Context: {resolved_topic} (Use this as inspiration or context; unexpected or surprising complementary thoughts across psychology, science, or daily life are welcome)."
+        premise = (channel_premise or kwargs.get("channel_premise") or self.channel_premise or "").strip()
+        if premise:
+            user_prompt += f"\n\nChannel Premise / Identity: {premise}"
+        if grounding_text:
+            user_prompt += f"\n\n{grounding_text}\n(Where relevant, draw upon these verified inspiration references. Avoid presenting unsupported additions as established facts)."
 
         feedback = ""
         for attempt in range(4):
@@ -610,7 +907,7 @@ class IterativeScriptGenerator:
                     feedback = reason
                     continue
 
-                if text and 7 <= len(text.split()) <= 18:
+                if text and text.strip():
                     return {
                         "scene_id": scene_num,
                         "spoken_text": text,
@@ -619,30 +916,27 @@ class IterativeScriptGenerator:
             except Exception as e:
                 print(f"   ⚠️ Scene {scene_num} attempt {attempt+1} failed: {e}")
 
-        # Draw clean vetted replacement from curated vault if LLM repeats
-        vetted = _load_curated_replacements(count=30)
-        for cand in vetted:
-            is_dup, _ = self._is_duplicate_thought(cand, existing_scenes, recent_titles, past_thoughts)
-            if not is_dup:
-                return {
-                    "scene_id": scene_num,
-                    "spoken_text": cand,
-                    "stock_video_query": self._pick_query(None, used_queries)
-                }
-
-        # Safe default
-        return {
-            "scene_id": scene_num,
-            "spoken_text": "A bus ten minutes early is far worse than a bus ten minutes late.",
-            "stock_video_query": self._pick_query(None, used_queries)
-        }
+        # Exhausted all attempts without producing a fresh standalone thought
+        raise RuntimeError(
+            f"Failed to generate fresh standalone thought for Scene {scene_num} after 4 attempts (last feedback: {feedback})"
+        )
 
     # Backward compatibility aliases
     _generate_pillar_scene = _generate_random_thought
     def _generate_single_pillar_scene(self, scene_num: int, *args, **kwargs) -> Dict[str, Any]:
         existing = kwargs.get("existing_scenes") or []
         queries = kwargs.get("used_queries") or []
-        return self._generate_random_thought(scene_num, existing, queries)
+        grounding = kwargs.get("grounding_facts")
+        topic = kwargs.get("topic") or ""
+        premise = kwargs.get("channel_premise") or ""
+        return self._generate_random_thought(
+            scene_num=scene_num,
+            existing_scenes=existing,
+            used_queries=queries,
+            grounding_facts=grounding,
+            topic=topic,
+            channel_premise=premise
+        )
 
     def _generate_hook(
         self,
@@ -658,7 +952,8 @@ class IterativeScriptGenerator:
             topic=topic,
             used_queries=used_queries,
             recent_titles=recent_titles,
-            past_thoughts=_load_past_spoken_thoughts()
+            past_thoughts=_load_past_spoken_thoughts(),
+            channel_premise=channel_premise
         )
         return h
 
@@ -706,18 +1001,42 @@ class IterativeScriptGenerator:
     _generate_brainblud_closer = _generate_cta_closer
     _generate_loop_outro = _generate_cta_closer
 
-    def _normalize_and_emotify_script(self, scenes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _normalize_and_emotify_script(
+        self,
+        scenes: List[Dict[str, Any]],
+        channel_premise: str = ""
+    ) -> List[Dict[str, Any]]:
         """
         Collects the whole assembled script and passes it to the AI
-        to normalize the flow and add emotional punctuation (?, !, ,, —, .)
-        for natural Kokoro TTS inflection without altering core thoughts or breaking circular loops.
+        to normalize the flow, eliminate formulaic/AI writing patterns,
+        and add natural conversational punctuation (?, !, ,, —, .)
+        for neural TTS inflection without altering factual details or breaking endings.
         """
-        sys_prompt = self.prompts.get("script_polish", {}).get(
-            "system_prompt",
-            "You are an audio voiceover director. Take these video scenes and enhance punctuation (?, !, ,, —, .) so Kokoro neural TTS speaks naturally with curiosity and punch. Return JSON with 'scenes'."
-        )
+        polish_entry = self.prompts.get("script_polish", {})
+        if isinstance(polish_entry, dict):
+            sys_prompt = polish_entry.get("system_prompt", "")
+        elif isinstance(polish_entry, str):
+            sys_prompt = polish_entry
+        else:
+            sys_prompt = ""
+        if not sys_prompt:
+            sys_prompt = (
+                "You are an audio voiceover director. Take these video scenes and enhance "
+                "punctuation (?, !, ,, —, .) so neural TTS speaks naturally with curiosity and punch. Return JSON with 'scenes'."
+            )
         scenes_payload = [{"scene_id": s["scene_id"], "spoken_text": s["spoken_text"]} for s in scenes]
-        user_prompt = f"SCENES TO NORMALIZE & EMOTIFY:\n{json.dumps(scenes_payload, indent=2)}\n\nEnhance punctuation for neural voice synthesis while preserving exact meaning. If the final scene ends with '...', you MUST preserve the trailing '...'!"
+
+        premise = (channel_premise or self.channel_premise or "").strip()
+        premise_section = f"CHANNEL PREMISE / TONE: {premise}\n\n" if premise else ""
+
+        user_prompt = (
+            f"{premise_section}SCENES TO NORMALIZE & POLISH:\n"
+            f"{json.dumps(scenes_payload, indent=2)}\n\n"
+            "Refine each scene for natural spoken cadence, removing formulaic AI crutches, hype, and stiff phrasing "
+            "while strictly preserving factual substance and numerical figures. "
+            "If the final scene ends with '...', you MUST preserve the trailing '...'! "
+            "If the final scene ends with '.', '!', or '?', preserve clean terminal punctuation."
+        )
 
         try:
             res = self.llm.generate_json(
@@ -728,40 +1047,80 @@ class IterativeScriptGenerator:
             )
             polished_list = res.get("scenes", [])
             if isinstance(polished_list, list) and len(polished_list) == len(scenes):
+                # Detect whether final scene was intentionally circular before polish pass
+                final_scene = scenes[-1] if scenes else {}
+                final_ending_type = str(final_scene.get("ending_type", "")).strip().lower()
+                if final_ending_type:
+                    final_was_circular = final_ending_type in ("circular_loop", "loop", "circular")
+                else:
+                    final_was_circular = bool(final_scene.get("spoken_text", "").strip().endswith("..."))
+
                 for orig_s, polished_s in zip(scenes, polished_list):
                     if isinstance(polished_s, dict) and polished_s.get("spoken_text"):
                         new_text = polished_s["spoken_text"].strip()
-                        if len(new_text.split()) >= len(orig_s["spoken_text"].split()) * 0.7:
+                        orig_text = orig_s.get("spoken_text", "").strip()
+
+                        # Guard: Factuality / number preservation
+                        # The normalization stage must neither drop, alter, reorder, nor invent numerical claims.
+                        orig_nums = _extract_number_tokens(orig_text)
+                        new_nums = _extract_number_tokens(new_text)
+                        if orig_nums != new_nums:
+                            # Numbers were dropped, altered, reordered, or invented — safely retain original text
+                            continue
+
+                        # Guard: Non-empty and reasonable length (at least 70% of original word count)
+                        if new_text and len(new_text.split()) >= len(orig_text.split()) * 0.7:
                             orig_s["spoken_text"] = new_text
 
-                # Ensure final loop scene ending in '...' is preserved
-                if scenes and scenes[-1]["spoken_text"] and not scenes[-1]["spoken_text"].endswith("..."):
-                    if scenes[-1]["spoken_text"].endswith((".", "!", "?")):
-                        pass
+                # Preserve ending intent: circular loop (...) vs standalone ending (., !, ?)
+                if scenes:
+                    final_text = scenes[-1].get("spoken_text", "").strip()
+                    if final_was_circular:
+                        if not final_text.endswith("..."):
+                            scenes[-1]["spoken_text"] = final_text.rstrip(".!? ") + "..."
                     else:
-                        scenes[-1]["spoken_text"] = scenes[-1]["spoken_text"].rstrip(".!? ") + "..."
+                        # Standalone ending: ensure it does not end with accidental ellipsis
+                        if final_text.endswith("..."):
+                            scenes[-1]["spoken_text"] = final_text.rstrip(".!? ") + "."
+                        elif not (final_text.endswith(".") or final_text.endswith("!") or final_text.endswith("?")):
+                            scenes[-1]["spoken_text"] = final_text.rstrip(" ,-—") + "."
 
-                print(f"   ✅ [EMOTION PASS] Successfully enhanced {len(scenes)} scenes with expressive punctuation.")
-                return scenes
+                print(f"   ✅ [NATURAL VOICE PASS] Successfully refined {len(scenes)} scenes for natural spoken cadence.")
         except Exception as e:
-            print(f"   ⚠️ [EMOTION PASS] Polishing pass skipped due to: {e}. Keeping raw scenes.")
+            print(f"   ⚠️ [NATURAL VOICE PASS] Polishing pass skipped due to: {e}. Keeping raw scenes.")
+
+        # Synchronize phonetic_text on all scenes to preserve pipeline contract and avoid split-brain audio
+        from engine.managers.voice_normalizer import VoiceNormalizer
+        for s in scenes:
+            s["phonetic_text"] = VoiceNormalizer.normalize_text(s.get("spoken_text", ""))
 
         return scenes
 
     def _generate_seo(
         self,
         scenes: List[Dict[str, Any]],
+        topic: str = "",
         premise_line: str = "",
-        recent_titles: Optional[List[str]] = None
+        recent_titles: Optional[List[str]] = None,
+        **kwargs
     ) -> Dict[str, Any]:
-        """Generates dynamic, video-specific SEO based on the assembled script."""
-        full_script = "\n".join(f"Scene {s.get('scene_id')}: {s.get('spoken_text', '')}" for s in scenes)
+        """Generates dynamic, video-specific SEO grounded in the topic and assembled script."""
+        full_script = "\n".join(f"Scene {s.get('scene_id') or idx+1}: {s.get('spoken_text', '')}" for idx, s in enumerate(scenes))
+        active_topic = topic or premise_line or ""
 
-        sys_prompt = self.prompts.get("seo_gen", {}).get(
+        seo_prompt_entry = self.prompts.get("seo_gen", {})
+        sys_prompt = seo_prompt_entry.get(
             "system_prompt",
-            "Generate high-CTR YouTube Shorts metadata tailored to the specific video script provided. Output valid JSON with 'title', 'description', 'tags'."
+            "You generate accurate, compelling, and natural YouTube Shorts metadata (title, description, tags) grounded strictly in the provided script and topic. Output valid JSON with 'title', 'description', 'tags'."
         )
-        user_prompt = f"Generate optimized YouTube metadata for this compilation script:\n{full_script}"
+        user_template = seo_prompt_entry.get("user_template", "")
+        if user_template:
+            try:
+                user_prompt = user_template.format(script_text=full_script, topic=active_topic or "General")
+            except KeyError:
+                user_prompt = f"TOPIC: {active_topic or 'General'}\nSCRIPT:\n{full_script}\n\nGenerate accurate, compelling YouTube Shorts metadata reflecting this specific script."
+        else:
+            user_prompt = f"TOPIC: {active_topic or 'General'}\nSCRIPT:\n{full_script}\n\nGenerate accurate, compelling YouTube Shorts metadata reflecting this specific script."
 
         try:
             res = self.llm.generate_json(
@@ -773,25 +1132,46 @@ class IterativeScriptGenerator:
             raw_title = res.get("title", "").strip()
             raw_desc = res.get("description", "").strip()
             tags = res.get("tags", [])
-            if not isinstance(tags, list) or not tags:
-                tags = [
-                    "shower thoughts", "mind blowing facts", "psychology", "deep thoughts",
-                    "brain glitches", "shorts", "relatable", "facts", "satisfying"
-                ]
 
             if raw_title:
                 if "#shorts" not in raw_title.lower():
-                    raw_title = f"{raw_title.rstrip('.!?')} 🤯 #shorts"
+                    raw_title = f"{raw_title.rstrip('.!?')} #shorts"
                 aligned_title = TitleScriptAlignmentSkill.align_title(
                     title=raw_title,
                     scenes=scenes,
-                    upload_history_titles=recent_titles or []
+                    upload_history_titles=recent_titles or [],
+                    topic=active_topic
                 )
             else:
+                fallback_base = derive_grounded_fallback_title(scenes=scenes, topic=active_topic)
                 aligned_title = TitleScriptAlignmentSkill.align_title(
-                    title="Shower Thoughts That Blow Minds 🤯 #shorts",
+                    title=fallback_base,
                     scenes=scenes,
-                    upload_history_titles=recent_titles or []
+                    upload_history_titles=recent_titles or [],
+                    topic=active_topic
+                )
+
+            # Numerical Factuality Check: Ensure title's numerical claims are supported by the final script.
+            # Multiplicity-aware: token counts in title cannot exceed token counts in full_script.
+            # Topic alone cannot justify numbers absent from the script.
+            # (Lexical token check; does not verify semantic unit relationships).
+            from collections import Counter
+            from engine.managers.iterative_script_generator import _extract_number_tokens
+            script_counts = Counter(_extract_number_tokens(full_script))
+            title_counts = Counter(_extract_number_tokens(aligned_title))
+            unsupported_title_nums = []
+            for num, count in title_counts.items():
+                if count > script_counts.get(num, 0):
+                    unsupported_title_nums.extend([num] * (count - script_counts.get(num, 0)))
+
+            if unsupported_title_nums:
+                # Realign using script-grounded fallback title that has no unsupported numbers
+                fallback_cand = derive_grounded_fallback_title(scenes=scenes, topic=active_topic)
+                aligned_title = TitleScriptAlignmentSkill.align_title(
+                    title=fallback_cand,
+                    scenes=scenes,
+                    upload_history_titles=recent_titles or [],
+                    topic=active_topic
                 )
 
             # Strip any repeated title from description body
@@ -801,15 +1181,19 @@ class IterativeScriptGenerator:
             elif raw_title and clean_desc.startswith(raw_title):
                 clean_desc = clean_desc[len(raw_title):].strip()
 
-            if not clean_desc or len(clean_desc) < 25:
-                clean_desc = (
-                    "Mind-bending shower thoughts and psychological realizations that reset your perception of reality.\n\n"
-                    "Subscribe to @metopato for daily perspective shifts!\n\n"
-                    "#showerthoughts #psychology #deepthoughts #mindblowing #shorts"
-                )
+            if not clean_desc or len(clean_desc) < 20:
+                clean_desc = derive_grounded_fallback_description(scenes=scenes, topic=active_topic)
 
             # Exact title on top always, followed by an empty line, then the SEO description
             full_description = f"{aligned_title}\n\n{clean_desc}"
+
+            if not isinstance(tags, list) or not tags:
+                from engine.managers.pipeline_runner import extract_keywords
+                script_kws = extract_keywords(full_script, max_keywords=8)
+                tags = [active_topic.lower()] if active_topic else []
+                tags.extend([kw.lower() for kw in script_kws if kw.lower() not in tags])
+                if "shorts" not in tags:
+                    tags.append("shorts")
 
             return {
                 "title": aligned_title,
@@ -818,25 +1202,16 @@ class IterativeScriptGenerator:
             }
         except Exception as e:
             print(f"⚠️ [SEO] Dynamic SEO generation failed: {e}. Falling back to rule-based SEO.")
-            aligned_title = TitleScriptAlignmentSkill.align_title(
-                title="Shower Thoughts That Blow Minds 🤯 #shorts",
+            return derive_grounded_fallback_seo(
                 scenes=scenes,
-                upload_history_titles=recent_titles or []
+                topic=active_topic,
+                recent_titles=recent_titles
             )
-            base_description = (
-                "Mind-bending shower thoughts and psychological realizations that reset your daily perception.\n\n"
-                "Subscribe to @metopato for daily perspective shifts!\n\n"
-                "#showerthoughts #psychology #deepthoughts #mindblowing #shorts"
-            )
-            return {
-                "title": aligned_title,
-                "description": f"{aligned_title}\n\n{base_description}",
-                "tags": [
-                    "shower thoughts", "mind blowing facts", "psychology", "paradoxes",
-                    "brain glitches", "deep thoughts", "shorts", "topato", "facts", "satisfying"
-                ]
-            }
 
+    _derive_grounded_fallback_title = staticmethod(derive_grounded_fallback_title)
+    _derive_grounded_fallback_description = staticmethod(derive_grounded_fallback_description)
+    _derive_grounded_fallback_seo = staticmethod(derive_grounded_fallback_seo)
+    _synchronize_seo_description_header = staticmethod(synchronize_seo_description_header)
     _generate_umbrella_seo = _generate_seo  # Backward compatibility alias
 
     def _pick_query(self, preferred: Optional[str] = None, used: Optional[List[str]] = None) -> str:

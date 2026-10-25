@@ -326,8 +326,10 @@ def test_llm_manager_404_auto_banning_and_cascade(monkeypatch):
 
 
 def test_discovery_banned_models_filtering():
-    """Verifies that banned models and banned modalities are strictly rejected."""
-    from engine.discovery import is_model_allowed, is_modality_allowed
+    """Verifies that banned models and banned modalities are strictly rejected, and real production persistence runs isolated."""
+    import pytest
+    import engine.discovery as ed
+    from engine.discovery import is_model_allowed, is_modality_allowed, _save_performance, _load_performance
 
     # Banned modalities
     assert is_modality_allowed("whisper-large-v3") is False
@@ -340,11 +342,131 @@ def test_discovery_banned_models_filtering():
     assert is_model_allowed("llama-3.1-70b-versatile", banned) is False
     assert is_model_allowed("gemini-3-flash-preview", banned) is True
 
+    # 1. Verify original production function identity (not mocked/replaced)
+    assert _save_performance is ed._save_performance
+    assert _load_performance is ed._load_performance
+    assert _save_performance.__module__ == "engine.discovery"
+    assert _load_performance.__module__ == "engine.discovery"
+
+    # 2. Real production JSON serialization and metadata persistence
+    sample_perf = {
+        "providers": {
+            "test_model_iso": {"latency": 0.42, "success": True}
+        },
+        "_meta": {}
+    }
+    _save_performance(sample_perf)
+    assert sample_perf["_meta"]["last_updated"] is not None
+    loaded_perf = _load_performance()
+    assert "test_model_iso" in loaded_perf.get("providers", {})
+    assert loaded_perf["_meta"]["last_updated"] == sample_perf["_meta"]["last_updated"]
+
+    # 3. Real serialization failure behavior (un-serializable types raise TypeError)
+    with pytest.raises(TypeError):
+        _save_performance({"invalid": {1, 2, 3}, "_meta": {}})
+
+    # 4. Real error-handling behavior for corrupted file (graceful fallback)
+    target_file = ed._CFG_DIR / "llm_performance.json"
+    target_file.write_text("{bad json...", encoding="utf-8")
+    fallback = _load_performance()
+    assert fallback["providers"] == {}
+    assert fallback["_meta"]["last_updated"] is None
+
+    # Restore clean state in temporary directory
+    _save_performance(sample_perf)
+
+
+def _isolate_pipeline_persistence(monkeypatch, tmp_path):
+    """
+    Isolates all persistent file writers used by run_spec_stage() under tmp_path:
+    - memory/thought_cache.json
+    - memory/past_spoken_thoughts.json
+    - config/model_quality_scores.json
+    - config/channel_config.yaml
+    - output/spec.json, output/narration.mp3, output/community_post.json
+    """
+    test_output_dir = tmp_path / "output"
+    test_output_dir.mkdir(parents=True, exist_ok=True)
+    test_memory_dir = tmp_path / "memory"
+    test_memory_dir.mkdir(parents=True, exist_ok=True)
+    test_cfg_dir = tmp_path / "config"
+    test_cfg_dir.mkdir(parents=True, exist_ok=True)
+
+    orig_join = os.path.join
+    def safe_join(*args):
+        if args and args[0] == "output":
+            return str(test_output_dir / orig_join(*args[1:]))
+        if args and args[0] == "memory":
+            return str(test_memory_dir / orig_join(*args[1:]))
+        return orig_join(*args)
+
+    monkeypatch.setattr("engine.managers.pipeline_runner.os.path.join", safe_join)
+    monkeypatch.setattr("engine.managers.pipeline_runner._CHANNEL_CONFIG_PATH", str(test_cfg_dir / "channel_config.yaml"))
+    monkeypatch.setattr("engine.managers.pipeline_runner._MEMORY_THOUGHT_CACHE_PATH", str(test_memory_dir / "thought_cache.json"))
+    monkeypatch.setattr("engine.managers.topic_inspector.TopicInspector.REGISTRY_FILE", str(test_memory_dir / "used_topics_registry.json"))
+
+    # Isolate LLMQualityTracker persistence
+    import engine.managers.llm_quality_tracker as qt_module
+    monkeypatch.setattr(qt_module, "_CFG_DIR", test_cfg_dir)
+    monkeypatch.setattr(qt_module, "_QUALITY_SCORES_PATH", test_cfg_dir / "model_quality_scores.json")
+
+    # Isolate save_past_spoken_thoughts and _load_past_spoken_thoughts
+    import engine.managers.iterative_script_generator as iscg_module
+    def isolated_save_past_spoken_thoughts(new_thoughts):
+        target_path = test_memory_dir / "past_spoken_thoughts.json"
+        existing_thoughts = []
+        meta = {
+            "description": "Historical registry of spoken lines from previously uploaded videos to prevent thought repetition across runs.",
+            "version": "1.0"
+        }
+        if target_path.exists():
+            try:
+                with open(target_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    existing_thoughts = data.get("past_thoughts", [])
+                    meta = data.get("_meta", meta)
+            except Exception:
+                pass
+        added = 0
+        for t in new_thoughts:
+            clean_t = t.strip()
+            if clean_t and clean_t not in existing_thoughts:
+                existing_thoughts.append(clean_t)
+                added += 1
+        if added > 0:
+            from datetime import datetime, timezone
+            meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+            try:
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(target_path, "w", encoding="utf-8") as f:
+                    json.dump({"_meta": meta, "past_thoughts": existing_thoughts}, f, indent=2)
+            except Exception:
+                pass
+
+    def isolated_load_past_spoken_thoughts():
+        target_path = test_memory_dir / "past_spoken_thoughts.json"
+        if target_path.exists():
+            try:
+                with open(target_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    return data.get("past_thoughts", [])
+            except Exception:
+                pass
+        return []
+
+    monkeypatch.setattr(iscg_module, "save_past_spoken_thoughts", isolated_save_past_spoken_thoughts)
+    monkeypatch.setattr(iscg_module, "_load_past_spoken_thoughts", isolated_load_past_spoken_thoughts)
+
+    return test_output_dir, test_memory_dir, test_cfg_dir
+
 
 def test_pipeline_runner_run_spec_stage(monkeypatch, tmp_path):
     """Verifies run_spec_stage runs end-to-end for short and long formats without NameError or crash."""
     from engine.managers.pipeline_runner import run_spec_stage
     from engine.models import SpecOutput
+
+    test_output_dir, test_memory_dir, test_cfg_dir = _isolate_pipeline_persistence(monkeypatch, tmp_path)
+    test_spec_path = str(test_output_dir / "spec.json")
 
     # Mock health checks and sync
     monkeypatch.setattr("engine.managers.health_manager.HealthManager.check_and_sync_models", lambda **kw: {})
@@ -376,22 +498,26 @@ def test_pipeline_runner_run_spec_stage(monkeypatch, tmp_path):
         return mock_script_response
 
     monkeypatch.setattr("engine.managers.llm_manager.LLMManager.generate_json", mock_generate_json)
+    monkeypatch.setattr(
+        "engine.managers.iterative_script_generator.IterativeScriptGenerator.generate_scene_chain",
+        lambda self, topic="", channel_premise="", grounding_facts=None: (mock_script_response["scenes"], mock_seo_response)
+    )
     monkeypatch.setattr("engine.managers.voice_normalizer.VoiceNormalizer.synthesize_sync", lambda **kw: (10.0, []))
 
     # Test short stage
     run_spec_stage(video_type="short")
-    assert os.path.exists("output/spec.json")
+    assert os.path.exists(test_spec_path)
 
-    with open("output/spec.json", "r", encoding="utf-8") as f:
+    with open(test_spec_path, "r", encoding="utf-8") as f:
         spec = SpecOutput.model_validate_json(f.read())
     assert spec.video_type == "short"
     assert len(spec.scenes) == 2
 
     # Test long stage
     run_spec_stage(video_type="long")
-    assert os.path.exists("output/spec.json")
+    assert os.path.exists(test_spec_path)
 
-    with open("output/spec.json", "r", encoding="utf-8") as f:
+    with open(test_spec_path, "r", encoding="utf-8") as f:
         spec_long = SpecOutput.model_validate_json(f.read())
     assert spec_long.video_type == "long"
     assert spec_long.sub_format == "documentary_essay"
@@ -494,11 +620,14 @@ def test_stock_video_manager_registry_cooldown(tmp_path, monkeypatch):
     assert StockVideoManager.is_clip_recent("vid_999") is False
 
 
-def test_scene_cut_boundaries_alignment(monkeypatch):
+def test_scene_cut_boundaries_alignment(monkeypatch, tmp_path):
     """Verifies that scene cut boundaries align at sentence pause midpoints and sum to total_duration."""
     from engine.models import WordTimestamp
     from engine.managers.pipeline_runner import run_spec_stage
     from engine.models import SpecOutput
+
+    test_output_dir, test_memory_dir, test_cfg_dir = _isolate_pipeline_persistence(monkeypatch, tmp_path)
+    test_spec_path = str(test_output_dir / "spec.json")
 
     # Mock health checks and sync
     monkeypatch.setattr("engine.managers.health_manager.HealthManager.check_and_sync_models", lambda **kw: {})
@@ -545,12 +674,16 @@ def test_scene_cut_boundaries_alignment(monkeypatch):
 
     monkeypatch.setattr("engine.managers.llm_manager.LLMManager.generate_json",
                         lambda self, sys_p, usr_p, *a, **k: mock_seo_response if "SEO Director" in sys_p else mock_script_response)
+    monkeypatch.setattr(
+        "engine.managers.iterative_script_generator.IterativeScriptGenerator.generate_scene_chain",
+        lambda self, topic="", channel_premise="", grounding_facts=None: (mock_script_response["scenes"], mock_seo_response)
+    )
     monkeypatch.setattr("engine.managers.voice_normalizer.VoiceNormalizer.synthesize_sync",
                         lambda **kw: (total_dur, words))
 
     run_spec_stage(video_type="short")
 
-    with open("output/spec.json", "r", encoding="utf-8") as f:
+    with open(test_spec_path, "r", encoding="utf-8") as f:
         spec = SpecOutput.model_validate_json(f.read())
 
     assert len(spec.scenes) == 2
@@ -1199,11 +1332,13 @@ def test_channel_config_caption_typography_loading():
     assert caps.get("font_file") == "assets/fonts/ZY-Resolve.ttf"
 
 
-def test_calculate_collision_free_publish_time_future_guarantee():
+def test_calculate_collision_free_publish_time_future_guarantee(monkeypatch, tmp_path):
     """Verifies that publishAt is always strictly at least 1 hour in the future."""
     from engine.managers.youtube_manager import YouTubeManager
+    from engine.managers.competitor_spy import CompetitorSpy
     from datetime import datetime, timezone
     
+    monkeypatch.setattr(CompetitorSpy, "TIMING_CACHE_FILE", str(tmp_path / "timing_intelligence.json"))
     mgr = YouTubeManager()
     pub_iso = mgr.calculate_collision_free_publish_time(None)
     pub_dt = datetime.fromisoformat(pub_iso.replace("Z", "+00:00"))
@@ -1213,12 +1348,14 @@ def test_calculate_collision_free_publish_time_future_guarantee():
     assert (pub_dt - now).total_seconds() >= 1800  # at least 30 minutes in future
 
 
-def test_calculate_collision_free_publish_time_collision_advance(monkeypatch):
+def test_calculate_collision_free_publish_time_collision_advance(monkeypatch, tmp_path):
     """Verifies that if target day is occupied, it increments +24h to the next available day."""
     from engine.managers.youtube_manager import YouTubeManager
+    from engine.managers.competitor_spy import CompetitorSpy
     from datetime import datetime, timezone, timedelta
     from unittest.mock import MagicMock
     
+    monkeypatch.setattr(CompetitorSpy, "TIMING_CACHE_FILE", str(tmp_path / "timing_intelligence.json"))
     mgr = YouTubeManager()
     monkeypatch.setenv("TEST_MODE", "false")
     
@@ -1264,6 +1401,8 @@ def test_intelligent_scheduler_spacing_and_negative_jitter(tmp_path, monkeypatch
     cfg_file.write_text(yaml.dump(test_cfg), encoding="utf-8")
     monkeypatch.setattr("builtins.open", lambda p, *a, **kw: open(str(cfg_file) if "channel_config.yaml" in str(p) else p, *a, **kw))
     monkeypatch.setenv("TEST_MODE", "false")
+    from engine.managers.competitor_spy import CompetitorSpy
+    monkeypatch.setattr(CompetitorSpy, "TIMING_CACHE_FILE", str(tmp_path / "timing_intelligence.json"))
 
     mgr = YouTubeManager()
     now = datetime.now(timezone.utc)
@@ -1291,14 +1430,17 @@ def test_intelligent_scheduler_spacing_and_negative_jitter(tmp_path, monkeypatch
     assert 42 <= pub_dt.minute <= 55
 
 
-def test_competitor_niche_timing_intel_caching(tmp_path):
+def test_competitor_niche_timing_intel_caching(tmp_path, monkeypatch):
     """Verifies that CompetitorSpy ranks hours and caches results in memory/timing_intelligence.json."""
     from engine.managers.competitor_spy import CompetitorSpy
+    test_cache = str(tmp_path / "timing_intelligence.json")
+    monkeypatch.setattr(CompetitorSpy, "TIMING_CACHE_FILE", test_cache)
     intel = CompetitorSpy.get_niche_timing_intel(youtube=None, default_slots=[18, 22, 14, 1])
     assert "ranked_hours" in intel
     assert len(intel["ranked_hours"]) == 24
     assert 18 in intel["ranked_hours"][:4]
     assert os.path.exists(CompetitorSpy.TIMING_CACHE_FILE)
+    assert CompetitorSpy.TIMING_CACHE_FILE == test_cache
 
 
 def test_discovery_bans_allam_model():
@@ -1417,8 +1559,10 @@ def test_llm_token_limit_payload_calibration(monkeypatch):
 def test_youtube_upload_metadata_and_thumbnail(tmp_path, monkeypatch):
     """Verifies that upload_one_shot_scheduled_video constructs complete metadata and calls thumbnails().set()."""
     from engine.managers.youtube_manager import YouTubeManager
+    from engine.managers.competitor_spy import CompetitorSpy
 
     monkeypatch.setenv("TEST_MODE", "false")
+    monkeypatch.setattr(CompetitorSpy, "TIMING_CACHE_FILE", str(tmp_path / "timing_intelligence.json"))
     mgr = YouTubeManager()
 
     # Create dummy video and thumbnail
@@ -1545,14 +1689,14 @@ def test_brand_tags_merging_and_capping():
 
 
 def test_calibrate_and_guard_script_resegmentation():
-    """Verifies that 4 multi-sentence scenes with 160 words are re-segmented and trimmed to 10+ scenes and 145-180 words."""
+    """Verifies that 4 multi-sentence scenes with sufficient words are re-segmented to 10+ scenes and 145-180 words without canned fallbacks."""
     from engine.managers.pipeline_runner import calibrate_and_guard_script
 
     raw_scenes = [
-        {"scene_id": 1, "spoken_text": "The only part of your reflection you can lick is your tongue. It proves your brain constructs reality. Mirrors are wild."},
-        {"scene_id": 2, "spoken_text": "Your shadow traveled 93 million miles just to be blocked by your body. Think about how long that light traveled. Space is completely pitch black."},
-        {"scene_id": 3, "spoken_text": "If poison expires does it become more poisonous or less poisonous? Nobody actually wants to test this hypothesis. Some paradoxes remain unsolved."},
-        {"scene_id": 4, "spoken_text": "Sleeping is just charging your biological battery while dreaming is running diagnostics. Which is why you should never overthink these..."}
+        {"scene_id": 1, "spoken_text": "The only part of your reflection that you can lick is your tongue. It proves that your brain actively constructs every visual reality you experience. Mirrors are silent witnesses to the strange twists of evolution."},
+        {"scene_id": 2, "spoken_text": "Your shadow traveled ninety-three million miles across space just to be blocked by your body. Think about how long that ancient solar light traveled through the cold universe. The cosmos is overflowing with unexplained phenomena that defy logic."},
+        {"scene_id": 3, "spoken_text": "If deadly poison expires does it become significantly more poisonous or noticeably less poisonous over time? Nobody actually wants to test this bizarre medical hypothesis in a laboratory. Certain paradoxes will remain permanently unsolved by modern researchers."},
+        {"scene_id": 4, "spoken_text": "Sleeping at night is just charging your biological battery while dreaming is running an elaborate diagnostics test. Your subconscious processes every hidden memory before morning arrives. Which is why you should never overthink these strange psychological quirks..."}
     ]
 
     calibrated = calibrate_and_guard_script(raw_scenes, prompt_settings={})
@@ -1567,7 +1711,7 @@ def test_calibrate_and_guard_script_resegmentation():
 
 
 def test_calibrate_and_guard_script_underbudget_expansion():
-    """Verifies that an under-budget partial script (4 scenes, 45 words) expands up to 145-180 words without exceeding 180 words."""
+    """Verifies that an under-budget script raises ValueError rather than injecting canned thoughts."""
     from engine.managers.pipeline_runner import calibrate_and_guard_script
 
     raw_scenes = [
@@ -1577,11 +1721,8 @@ def test_calibrate_and_guard_script_underbudget_expansion():
         {"scene_id": 4, "spoken_text": "Which is why you should never overthink these..."}
     ]
 
-    calibrated = calibrate_and_guard_script(raw_scenes, prompt_settings={})
-    assert len(calibrated) >= 10
-    total_words = sum(len(s["spoken_text"].split()) for s in calibrated)
-    assert 145 <= total_words <= 180
-    assert calibrated[-1]["spoken_text"].endswith("...")
+    with pytest.raises(ValueError, match="Script calibration failed: insufficient generated content"):
+        calibrate_and_guard_script(raw_scenes, prompt_settings={})
 
 
 def test_calibrate_and_guard_script_overbudget_trim():
@@ -1591,11 +1732,23 @@ def test_calibrate_and_guard_script_overbudget_trim():
     raw_scenes = [
         {"scene_id": 1, "spoken_text": "The only part of your reflection you can lick is your tongue."}
     ]
-    for i in range(2, 15):
-        raw_scenes.append({
-            "scene_id": i,
-            "spoken_text": f"This is scene {i} presenting another lengthy psychological thought that takes quite a few words to speak."
-        })
+    distinct_thoughts = [
+        "Your brain actively deletes the sensation of your tongue resting inside your mouth.",
+        "Every single mirror you have ever bought in a store was in used condition.",
+        "You have never actually touched anything because electron fields repel your atoms.",
+        "Your future self is currently watching you through memories right now at this moment.",
+        "When you wait for the waiter you temporarily become the waiter in that situation.",
+        "The person you think you are only exists in your own personal mind.",
+        "If you rip a hole in a net there are actually fewer holes in it.",
+        "Earth is a giant spaceship traveling through deep space without any seatbelts attached.",
+        "Your alarm clock sound is technically your personal theme song every morning.",
+        "You clean a towel with soap and water but the towel still gets dirty.",
+        "Your skeleton is completely wet and completely dark inside your body all day.",
+        "Every decision you make is simply narrowing down the infinite possible futures.",
+        "Nothing in the entire universe is completely still everything is constantly flying through space."
+    ]
+    for i, thought in enumerate(distinct_thoughts, start=2):
+        raw_scenes.append({"scene_id": i, "spoken_text": thought})
     raw_scenes.append({
         "scene_id": 15,
         "spoken_text": "Which is why you should never overthink these..."
@@ -1743,9 +1896,2122 @@ def test_discord_notification_includes_community_package(monkeypatch):
     pinned_field = next(f for f in embed["fields"] if f["name"] == "📌 Pinned Comment (Copy & Pin in Studio)")
     assert "Which everyday object secretly freaks you out the most?" in pinned_field["value"]
 
+# ─── 13. EDITORIAL GATE MANDATORY ENFORCEMENT (PHASE 2) ─────────────────────────
+
+def test_editorial_gate_rejects_thought_cache_duplicate(monkeypatch, tmp_path):
+    """
+    Phase 2 - Test 1: Verify that a cache-triggered duplicate cannot result in an unvalidated
+    scene rewrite that bypasses the Editorial Critic, and instead raises ValueError and halts spec packaging.
+    """
+    from engine.managers.pipeline_runner import run_spec_stage, _hash_line
+
+    test_output_dir, test_memory_dir, test_cfg_dir = _isolate_pipeline_persistence(monkeypatch, tmp_path)
+    test_spec_path = str(test_output_dir / "spec.json")
+
+    # Force execution of editorial critic and thought cache paths
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.delenv("TEST_MODE", raising=False)
+    monkeypatch.delenv("GHOST_ENGINE_ENABLED", raising=False)
+
+    import engine.managers.llm_quality_tracker as qt_module
+    monkeypatch.setattr(qt_module.LLMQualityTracker, "record_result", lambda *a, **k: None)
+
+    # Mock health checks and topic discovery
+    monkeypatch.setattr("engine.managers.health_manager.HealthManager.check_and_sync_models", lambda **kw: {})
+    monkeypatch.setattr("engine.managers.competitor_spy.CompetitorSpy.get_surge_topic", lambda *a: None)
+    monkeypatch.setattr("engine.managers.topic_inspector.TopicInspector.discover_verified_topic", lambda self, niche, *a, **kw: {
+        "topic": "The Baader-Meinhof Phenomenon",
+        "verified_summary": "Frequency illusion",
+        "source": "verified_trend"
+    })
+
+    duplicate_scene_text = "The only part of your reflection you can lick is your tongue."
+    scenes = [
+        {"scene_id": 1, "spoken_text": duplicate_scene_text, "stock_video_query": "mirror reflection"},
+        {"scene_id": 2, "spoken_text": "Your brain actively deletes the physical sensation of your tongue resting inside your mouth.", "stock_video_query": "mind thought"},
+        {"scene_id": 3, "spoken_text": "Every single mirror you have ever bought in a store was sold in completely used condition.", "stock_video_query": "mirror store"},
+        {"scene_id": 4, "spoken_text": "You have never actually touched anything because electron fields constantly repel your physical atoms.", "stock_video_query": "physics atoms"},
+        {"scene_id": 5, "spoken_text": "Your future self is currently watching you through deep memories right now at this exact moment.", "stock_video_query": "time future"},
+        {"scene_id": 6, "spoken_text": "When you wait for the waiter you temporarily become the actual waiter in that restaurant situation.", "stock_video_query": "restaurant waiter"},
+        {"scene_id": 7, "spoken_text": "The person you think you are only exists in your own personal conscious mind.", "stock_video_query": "identity reflection"},
+        {"scene_id": 8, "spoken_text": "If you rip a physical hole in a net there are actually fewer total holes in it.", "stock_video_query": "net paradox"},
+        {"scene_id": 9, "spoken_text": "Earth is a giant biological spaceship traveling through deep cosmic space without any safety seatbelts.", "stock_video_query": "earth cosmos"},
+        {"scene_id": 10, "spoken_text": "Your loud alarm clock sound is technically your personal energetic theme song every single morning.", "stock_video_query": "morning alarm"},
+        {"scene_id": 11, "spoken_text": "Which is why you should never overthink these strange psychological quirks of reality...", "stock_video_query": "loop ending"}
+    ]
+    mock_script_response = {
+        "thought_process": {"hook": "intriguing", "loop": "circular"},
+        "title": "Why You See Everything Everywhere",
+        "scenes": scenes
+    }
+    mock_seo_response = {
+        "title": "Frequency Illusion #shorts",
+        "description": "Why you see things everywhere. #shorts",
+        "tags": ["psychology", "facts", "shorts"]
+    }
+
+    # Pre-populate thought cache with the duplicate hash of scene 1
+    dup_hash = _hash_line(duplicate_scene_text)
+    monkeypatch.setattr(
+        "engine.managers.pipeline_runner._load_thought_cache",
+        lambda cfg: {"max_entries": 200, "entries": [{"hash": dup_hash, "ts": "2026-01-01T00:00:00Z"}]}
+    )
+
+    rewrite_called = []
+    def mock_generate_json(self, sys_p, usr_p, temperature=0.7, *args, **kwargs):
+        if kwargs.get("task_name") == "rewrite" or "copywriter" in sys_p:
+            rewrite_called.append(usr_p)
+            return {"text": "A rewritten line bypassing critic"}
+        if "SEO Director" in sys_p:
+            return mock_seo_response
+        return mock_script_response
+
+    monkeypatch.setattr("engine.managers.llm_manager.LLMManager.generate_json", mock_generate_json)
+    monkeypatch.setattr(
+        "engine.managers.iterative_script_generator.IterativeScriptGenerator.generate_scene_chain",
+        lambda self, topic="", channel_premise="", grounding_facts=None: (scenes, mock_seo_response)
+    )
+    monkeypatch.setattr("engine.managers.voice_normalizer.VoiceNormalizer.synthesize_scenes_sync",
+                        lambda **kw: (10.0, [], [5.0, 5.0], [[], []]))
+
+    # Mock editorial critic to approve the script
+    critic_called = []
+    def mock_audit(raw_scenes, seo_data, topic, llm_manager):
+        critic_called.append(True)
+        return raw_scenes, seo_data, {"status": "passed", "unresolved_failures": 0}
+
+    monkeypatch.setattr("engine.managers.editorial_critic.audit_and_refine_spec", mock_audit)
+
+    # Must raise ValueError with specific rejection message
+    with pytest.raises(ValueError) as exc_info:
+        run_spec_stage(video_type="short")
+
+    assert "Thought Cache rejected script" in str(exc_info.value)
+    assert "Scene 1 duplicates previously published thought" in str(exc_info.value)
+    # Verify no unvalidated raw-LLM rewrite occurred
+    assert len(rewrite_called) == 0
+    # Critic was called prior to thought-cache check
+    assert len(critic_called) == 1
+    # Verify spec.json was never written/packaged
+    assert not os.path.exists(test_spec_path)
+
+
+def test_editorial_gate_unexpected_exception_stops_spec_generation(monkeypatch, tmp_path):
+    """
+    Phase 2 - Test 2: Verify that unexpected exceptions from editorial_critic.audit_and_refine_spec
+    (such as RuntimeError) are not swallowed, halt spec generation, fail closed, and do not package spec.json.
+    """
+    from engine.managers.pipeline_runner import run_spec_stage
+
+    test_output_dir, test_memory_dir, test_cfg_dir = _isolate_pipeline_persistence(monkeypatch, tmp_path)
+    test_spec_path = str(test_output_dir / "spec.json")
+
+    # Force execution of editorial critic path
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.delenv("TEST_MODE", raising=False)
+    monkeypatch.delenv("GHOST_ENGINE_ENABLED", raising=False)
+
+    monkeypatch.setattr("engine.managers.health_manager.HealthManager.check_and_sync_models", lambda **kw: {})
+    monkeypatch.setattr("engine.managers.competitor_spy.CompetitorSpy.get_surge_topic", lambda *a: None)
+    monkeypatch.setattr("engine.managers.topic_inspector.TopicInspector.discover_verified_topic", lambda self, niche, *a, **kw: {
+        "topic": "The Baader-Meinhof Phenomenon",
+        "verified_summary": "Frequency illusion",
+        "source": "verified_trend"
+    })
+
+    scenes = [
+        {"scene_id": 1, "spoken_text": "The only part of your reflection you can lick is your tongue.", "stock_video_query": "mirror reflection"},
+        {"scene_id": 2, "spoken_text": "Your brain actively deletes the physical sensation of your tongue resting inside your mouth.", "stock_video_query": "mind thought"},
+        {"scene_id": 3, "spoken_text": "Every single mirror you have ever bought in a store was sold in completely used condition.", "stock_video_query": "mirror store"},
+        {"scene_id": 4, "spoken_text": "You have never actually touched anything because electron fields constantly repel your physical atoms.", "stock_video_query": "physics atoms"},
+        {"scene_id": 5, "spoken_text": "Your future self is currently watching you through deep memories right now at this exact moment.", "stock_video_query": "time future"},
+        {"scene_id": 6, "spoken_text": "When you wait for the waiter you temporarily become the actual waiter in that restaurant situation.", "stock_video_query": "restaurant waiter"},
+        {"scene_id": 7, "spoken_text": "The person you think you are only exists in your own personal conscious mind.", "stock_video_query": "identity reflection"},
+        {"scene_id": 8, "spoken_text": "If you rip a physical hole in a net there are actually fewer total holes in it.", "stock_video_query": "net paradox"},
+        {"scene_id": 9, "spoken_text": "Earth is a giant biological spaceship traveling through deep cosmic space without any safety seatbelts.", "stock_video_query": "earth cosmos"},
+        {"scene_id": 10, "spoken_text": "Your loud alarm clock sound is technically your personal energetic theme song every single morning.", "stock_video_query": "morning alarm"},
+        {"scene_id": 11, "spoken_text": "Which is why you should never overthink these strange psychological quirks of reality...", "stock_video_query": "loop ending"}
+    ]
+    mock_script_response = {
+        "thought_process": {"hook": "intriguing", "loop": "circular"},
+        "title": "Why You See Everything Everywhere",
+        "scenes": scenes
+    }
+    monkeypatch.setattr("engine.managers.llm_manager.LLMManager.generate_json", lambda self, sys_p, usr_p, *a, **kw: mock_script_response)
+    monkeypatch.setattr(
+        "engine.managers.iterative_script_generator.IterativeScriptGenerator.generate_scene_chain",
+        lambda self, topic="", channel_premise="", grounding_facts=None: (scenes, {"title": "Why You See Everything Everywhere #shorts"})
+    )
+    monkeypatch.setattr("engine.managers.voice_normalizer.VoiceNormalizer.synthesize_scenes_sync",
+                        lambda **kw: (10.0, [], [5.0, 5.0], [[], []]))
+
+    # Mock editorial critic to raise unexpected RuntimeError
+    def mock_audit_raising(*args, **kwargs):
+        raise RuntimeError("Unexpected Editorial Critic internal database failure")
+
+    monkeypatch.setattr("engine.managers.editorial_critic.audit_and_refine_spec", mock_audit_raising)
+
+    # Must raise the unexpected RuntimeError and fail closed
+    with pytest.raises(RuntimeError) as exc_info:
+        run_spec_stage(video_type="short")
+
+    assert "Unexpected Editorial Critic internal database failure" in str(exc_info.value)
+    # spec.json must not exist
+    assert not os.path.exists(test_spec_path)
+
+
+def test_editorial_gate_rejection_halts_spec_generation(monkeypatch, tmp_path):
+    """
+    Phase 2 - Test 3: Verify that an explicit editorial rejection (status='rejected' or unresolved_failures > 0)
+    raises ValueError, halting spec packaging and preventing unvalidated script output.
+    """
+    from engine.managers.pipeline_runner import run_spec_stage
+
+    test_output_dir, test_memory_dir, test_cfg_dir = _isolate_pipeline_persistence(monkeypatch, tmp_path)
+    test_spec_path = str(test_output_dir / "spec.json")
+
+    # Force execution of editorial critic path
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.delenv("TEST_MODE", raising=False)
+    monkeypatch.delenv("GHOST_ENGINE_ENABLED", raising=False)
+
+    monkeypatch.setattr("engine.managers.health_manager.HealthManager.check_and_sync_models", lambda **kw: {})
+    monkeypatch.setattr("engine.managers.competitor_spy.CompetitorSpy.get_surge_topic", lambda *a: None)
+    monkeypatch.setattr("engine.managers.topic_inspector.TopicInspector.discover_verified_topic", lambda self, niche, *a, **kw: {
+        "topic": "The Baader-Meinhof Phenomenon",
+        "verified_summary": "Frequency illusion",
+        "source": "verified_trend"
+    })
+
+    scenes = [
+        {"scene_id": 1, "spoken_text": "The only part of your reflection you can lick is your tongue.", "stock_video_query": "mirror reflection"},
+        {"scene_id": 2, "spoken_text": "Your brain actively deletes the physical sensation of your tongue resting inside your mouth.", "stock_video_query": "mind thought"},
+        {"scene_id": 3, "spoken_text": "Every single mirror you have ever bought in a store was sold in completely used condition.", "stock_video_query": "mirror store"},
+        {"scene_id": 4, "spoken_text": "You have never actually touched anything because electron fields constantly repel your physical atoms.", "stock_video_query": "physics atoms"},
+        {"scene_id": 5, "spoken_text": "Your future self is currently watching you through deep memories right now at this exact moment.", "stock_video_query": "time future"},
+        {"scene_id": 6, "spoken_text": "When you wait for the waiter you temporarily become the actual waiter in that restaurant situation.", "stock_video_query": "restaurant waiter"},
+        {"scene_id": 7, "spoken_text": "The person you think you are only exists in your own personal conscious mind.", "stock_video_query": "identity reflection"},
+        {"scene_id": 8, "spoken_text": "If you rip a physical hole in a net there are actually fewer total holes in it.", "stock_video_query": "net paradox"},
+        {"scene_id": 9, "spoken_text": "Earth is a giant biological spaceship traveling through deep cosmic space without any safety seatbelts.", "stock_video_query": "earth cosmos"},
+        {"scene_id": 10, "spoken_text": "Your loud alarm clock sound is technically your personal energetic theme song every single morning.", "stock_video_query": "morning alarm"},
+        {"scene_id": 11, "spoken_text": "Which is why you should never overthink these strange psychological quirks of reality...", "stock_video_query": "loop ending"}
+    ]
+    mock_script_response = {
+        "thought_process": {"hook": "intriguing", "loop": "circular"},
+        "title": "Why You See Everything Everywhere",
+        "scenes": scenes
+    }
+    monkeypatch.setattr("engine.managers.llm_manager.LLMManager.generate_json", lambda self, sys_p, usr_p, *a, **kw: mock_script_response)
+    monkeypatch.setattr(
+        "engine.managers.iterative_script_generator.IterativeScriptGenerator.generate_scene_chain",
+        lambda self, topic="", channel_premise="", grounding_facts=None: (scenes, {"title": "Why You See Everything Everywhere #shorts"})
+    )
+    monkeypatch.setattr("engine.managers.voice_normalizer.VoiceNormalizer.synthesize_scenes_sync",
+                        lambda **kw: (10.0, [], [5.0, 5.0], [[], []]))
+
+    # Mock editorial critic returning explicit rejection
+    def mock_audit_rejected(raw_scenes, seo_data, topic, llm_manager):
+        return raw_scenes, seo_data, {"status": "rejected", "unresolved_failures": 2}
+
+    monkeypatch.setattr("engine.managers.editorial_critic.audit_and_refine_spec", mock_audit_rejected)
+
+    # Must raise ValueError with failure count
+    with pytest.raises(ValueError) as exc_info:
+        run_spec_stage(video_type="short")
+
+    assert "Editorial Critic rejected script: 2 unresolvable defect(s)" in str(exc_info.value)
+    # spec.json must not exist
+    assert not os.path.exists(test_spec_path)
+
+
+# ─── 14. REMOVE SHORTS MONOLITHIC FALLBACK (PHASE 5B) ──────────────────────────────
+
+def test_shorts_fails_closed_on_iscg_exception_without_monolithic_fallback(monkeypatch, tmp_path):
+    """
+    Phase 5B - Test 1: Verify that when iterative script generation raises an exception,
+    run_spec_stage(video_type='short') fails closed, propagates the exception directly,
+    never invokes monolithic script_gen, and does not create spec.json.
+    """
+    from engine.managers.pipeline_runner import run_spec_stage
+
+    test_output_dir, test_memory_dir, test_cfg_dir = _isolate_pipeline_persistence(monkeypatch, tmp_path)
+    test_spec_path = str(test_output_dir / "spec.json")
+
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.delenv("TEST_MODE", raising=False)
+    monkeypatch.delenv("GHOST_ENGINE_ENABLED", raising=False)
+
+    monkeypatch.setattr("engine.managers.health_manager.HealthManager.check_and_sync_models", lambda **kw: {})
+    monkeypatch.setattr("engine.managers.competitor_spy.CompetitorSpy.get_surge_topic", lambda *a: None)
+    monkeypatch.setattr("engine.managers.topic_inspector.TopicInspector.discover_verified_topic", lambda self, niche, *a, **kw: {
+        "topic": "The Baader-Meinhof Phenomenon",
+        "verified_summary": "Frequency illusion",
+        "source": "verified_trend"
+    })
+
+    def mock_iscg_fail(*args, **kwargs):
+        raise RuntimeError("Simulated ISCG failure after retry exhaustion")
+
+    monkeypatch.setattr("engine.managers.iterative_script_generator.IterativeScriptGenerator.generate_scene_chain", mock_iscg_fail)
+
+    # Track if monolithic generate_json is called
+    monolithic_calls = []
+    def mock_generate_json(self, sys_p, usr_p, *a, **kw):
+        monolithic_calls.append({"task_name": kw.get("task_name"), "sys_p": sys_p})
+        return {"scenes": [{"scene_id": 1, "spoken_text": "Monolithic fallback text."}]}
+
+    monkeypatch.setattr("engine.managers.llm_manager.LLMManager.generate_json", mock_generate_json)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        run_spec_stage(video_type="short")
+
+    assert "Simulated ISCG failure after retry exhaustion" in str(exc_info.value)
+    # Monolithic LLM generator must NEVER be called as fallback
+    assert len(monolithic_calls) == 0
+    assert not os.path.exists(test_spec_path)
+
+
+def test_shorts_fails_closed_on_empty_iscg_result_without_monolithic_fallback(monkeypatch, tmp_path):
+    """
+    Phase 5B - Test 2: Verify that an empty or invalid iterative generation result
+    raises ValueError rather than silently triggering a fallback to monolithic generation.
+    """
+    from engine.managers.pipeline_runner import run_spec_stage
+
+    test_output_dir, test_memory_dir, test_cfg_dir = _isolate_pipeline_persistence(monkeypatch, tmp_path)
+    test_spec_path = str(test_output_dir / "spec.json")
+
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.delenv("TEST_MODE", raising=False)
+    monkeypatch.delenv("GHOST_ENGINE_ENABLED", raising=False)
+
+    monkeypatch.setattr("engine.managers.health_manager.HealthManager.check_and_sync_models", lambda **kw: {})
+    monkeypatch.setattr("engine.managers.competitor_spy.CompetitorSpy.get_surge_topic", lambda *a: None)
+    monkeypatch.setattr("engine.managers.topic_inspector.TopicInspector.discover_verified_topic", lambda self, niche, *a, **kw: {
+        "topic": "The Baader-Meinhof Phenomenon",
+        "verified_summary": "Frequency illusion",
+        "source": "verified_trend"
+    })
+
+    # Return empty scene list from ISCG
+    monkeypatch.setattr(
+        "engine.managers.iterative_script_generator.IterativeScriptGenerator.generate_scene_chain",
+        lambda self, topic="", channel_premise="", grounding_facts=None: ([], {})
+    )
+
+    monolithic_calls = []
+    def mock_generate_json(self, sys_p, usr_p, *a, **kw):
+        monolithic_calls.append(True)
+        return {"scenes": [{"scene_id": 1, "spoken_text": "Fallback scene."}]}
+
+    monkeypatch.setattr("engine.managers.llm_manager.LLMManager.generate_json", mock_generate_json)
+
+    with pytest.raises(ValueError) as exc_info:
+        run_spec_stage(video_type="short")
+
+    assert "Iterative script generation produced an empty scene array" in str(exc_info.value)
+    assert len(monolithic_calls) == 0
+    assert not os.path.exists(test_spec_path)
+
+
+def test_long_form_preserves_monolithic_chapters_generation(monkeypatch, tmp_path):
+    """
+    Phase 5B - Test 3: Verify that long-form documentary generation (video_type='long')
+    preserves monolithic LLM generation with chapter flattening and packages spec.json.
+    """
+    from engine.managers.pipeline_runner import run_spec_stage
+    from engine.models import SpecOutput
+
+    test_output_dir, test_memory_dir, test_cfg_dir = _isolate_pipeline_persistence(monkeypatch, tmp_path)
+    test_spec_path = str(test_output_dir / "spec.json")
+
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.delenv("TEST_MODE", raising=False)
+    monkeypatch.delenv("GHOST_ENGINE_ENABLED", raising=False)
+
+    monkeypatch.setattr("engine.managers.health_manager.HealthManager.check_and_sync_models", lambda **kw: {})
+    monkeypatch.setattr("engine.managers.competitor_spy.CompetitorSpy.get_surge_topic", lambda *a: None)
+    monkeypatch.setattr("engine.managers.topic_inspector.TopicInspector.discover_verified_topic", lambda self, niche, *a, **kw: {
+        "topic": "The Deep Cosmos",
+        "verified_summary": "Documentary on cosmic expansion",
+        "source": "verified_trend"
+    })
+
+    mock_doc_response = {
+        "thought_process": {"hook": "deep cosmic hook"},
+        "title": "The Infinite Cosmos",
+        "chapters": [
+            {
+                "chapter_id": 1,
+                "scenes": [
+                    {"scene_id": 1, "spoken_text": "Chapter one exploration of the deep cosmic horizon.", "stock_video_query": "deep space galaxy motion"}
+                ]
+            },
+            {
+                "chapter_id": 2,
+                "scenes": [
+                    {"scene_id": 2, "spoken_text": "Chapter two revelation of relativistic physics.", "stock_video_query": "nebula star formation"}
+                ]
+            }
+        ]
+    }
+    mock_seo_response = {
+        "title": "The Infinite Cosmos",
+        "description": "An in-depth documentary exploring the deep cosmos.",
+        "tags": ["documentary", "cosmos", "physics"]
+    }
+
+    calls = []
+    def mock_generate_json(self, sys_p, usr_p, *a, **kw):
+        calls.append(kw.get("task_name"))
+        if "SEO Director" in sys_p or "metadata" in usr_p.lower():
+            return mock_seo_response
+        return mock_doc_response
+
+    monkeypatch.setattr("engine.managers.llm_manager.LLMManager.generate_json", mock_generate_json)
+    monkeypatch.setattr("engine.managers.voice_normalizer.VoiceNormalizer.synthesize_scenes_sync",
+                        lambda **kw: (120.0, [], [60.0, 60.0], [[], []]))
+
+    run_spec_stage(video_type="long")
+
+    assert os.path.exists(test_spec_path)
+    with open(test_spec_path, "r", encoding="utf-8") as f:
+        spec = SpecOutput.model_validate_json(f.read())
+
+    assert spec.video_type == "long"
+    assert spec.sub_format == "documentary_essay"
+    assert len(spec.scenes) == 2
+    assert spec.scenes[0].spoken_text == "Chapter one exploration of the deep cosmic horizon."
+    assert spec.scenes[1].spoken_text == "Chapter two revelation of relativistic physics."
+    assert "generic" in calls
+
+    # Verify persistence occurred strictly inside isolated temporary directory
+    isolated_past = test_memory_dir / "past_spoken_thoughts.json"
+    assert isolated_past.exists()
+    with open(isolated_past, "r", encoding="utf-8") as pf:
+        saved_past = json.load(pf).get("past_thoughts", [])
+    assert "Chapter one exploration of the deep cosmic horizon." in saved_past
+    assert "Chapter two revelation of relativistic physics." in saved_past
+    assert (test_memory_dir / "thought_cache.json").exists()
+
+
+def test_shorts_successful_iscg_runs_editorial_and_thought_cache(monkeypatch, tmp_path):
+    """
+    Phase 5B - Test 4: Verify that successful iterative generation flows through
+    the Editorial Critic and Thought Cache gates and packages output/spec.json.
+    """
+    from engine.managers.pipeline_runner import run_spec_stage
+    from engine.models import SpecOutput
+
+    test_output_dir, test_memory_dir, test_cfg_dir = _isolate_pipeline_persistence(monkeypatch, tmp_path)
+    test_spec_path = str(test_output_dir / "spec.json")
+
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.delenv("TEST_MODE", raising=False)
+    monkeypatch.delenv("GHOST_ENGINE_ENABLED", raising=False)
+
+    monkeypatch.setattr("engine.managers.health_manager.HealthManager.check_and_sync_models", lambda **kw: {})
+    monkeypatch.setattr("engine.managers.competitor_spy.CompetitorSpy.get_surge_topic", lambda *a: None)
+    monkeypatch.setattr("engine.managers.topic_inspector.TopicInspector.discover_verified_topic", lambda self, niche, *a, **kw: {
+        "topic": "The Baader-Meinhof Phenomenon",
+        "verified_summary": "Frequency illusion",
+        "source": "verified_trend"
+    })
+
+    scenes = [
+        {"scene_id": 1, "spoken_text": "The only part of your reflection you can lick is your tongue.", "stock_video_query": "mirror reflection"},
+        {"scene_id": 2, "spoken_text": "Your brain actively deletes the sensation of your tongue resting in your mouth.", "stock_video_query": "mind thought"},
+        {"scene_id": 3, "spoken_text": "Every single mirror you have ever bought in a store was sold in used condition.", "stock_video_query": "mirror store"},
+        {"scene_id": 4, "spoken_text": "Which is why you should never overthink these strange quirks of reality...", "stock_video_query": "loop ending"}
+    ]
+    seo_data = {
+        "title": "Mind Glitches You Experience Daily 🤯 #shorts",
+        "description": "Mind Glitches You Experience Daily 🤯 #shorts\n\nDaily cognitive shifts.\n\n#shorts",
+        "tags": ["mind glitches", "shower thoughts", "shorts"]
+    }
+
+    monkeypatch.setattr(
+        "engine.managers.iterative_script_generator.IterativeScriptGenerator.generate_scene_chain",
+        lambda self, topic="", channel_premise="", grounding_facts=None: (scenes, seo_data)
+    )
+
+    critic_called = []
+    def mock_audit(raw_scenes, seo_data, topic, llm_manager):
+        critic_called.append(True)
+        return raw_scenes, seo_data, {"status": "passed", "unresolved_failures": 0}
+
+    monkeypatch.setattr("engine.managers.editorial_critic.audit_and_refine_spec", mock_audit)
+    monkeypatch.setattr("engine.managers.voice_normalizer.VoiceNormalizer.synthesize_scenes_sync",
+                        lambda **kw: (32.0, [], [8.0, 8.0, 8.0, 8.0], [[], [], [], []]))
+
+    run_spec_stage(video_type="short")
+
+    assert os.path.exists(test_spec_path)
+    with open(test_spec_path, "r", encoding="utf-8") as f:
+        spec = SpecOutput.model_validate_json(f.read())
+
+    assert spec.video_type == "short"
+    assert len(spec.scenes) == 4
+    assert critic_called == [True]
+
+    # Verify persistence occurred strictly inside isolated temporary directory
+    isolated_past = test_memory_dir / "past_spoken_thoughts.json"
+    assert isolated_past.exists()
+    with open(isolated_past, "r", encoding="utf-8") as pf:
+        saved_past = json.load(pf).get("past_thoughts", [])
+    assert "The only part of your reflection you can lick is your tongue." in saved_past
+    assert "Which is why you should never overthink these strange quirks of reality..." in saved_past
+    assert (test_memory_dir / "thought_cache.json").exists()
+    assert (test_cfg_dir / "model_quality_scores.json").exists()
+
+
+# ─── 15. SURGICAL ISCG BOUNDARY VALIDATION (PHASE 5E) ──────────────────────────────
+
+@pytest.mark.parametrize("invalid_scenes,expected_msg", [
+    (None, "Iterative script generation must produce a list of scenes, got: NoneType"),
+    ("not a list of scenes", "Iterative script generation must produce a list of scenes, got: str"),
+    (12345, "Iterative script generation must produce a list of scenes, got: int"),
+    ({"scenes": []}, "Iterative script generation must produce a list of scenes, got: dict"),
+])
+def test_iscg_boundary_rejects_non_list_output(monkeypatch, tmp_path, invalid_scenes, expected_msg):
+    """
+    Phase 5E: Verify that non-list returns from ISCG are rejected immediately at the boundary
+    with a clear ValueError, without invoking Critic, Thought Cache persistence, TTS, or writing spec.json.
+    """
+    from engine.managers.pipeline_runner import run_spec_stage
+
+    test_output_dir, test_memory_dir, test_cfg_dir = _isolate_pipeline_persistence(monkeypatch, tmp_path)
+    test_spec_path = str(test_output_dir / "spec.json")
+
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.delenv("TEST_MODE", raising=False)
+    monkeypatch.delenv("GHOST_ENGINE_ENABLED", raising=False)
+
+    monkeypatch.setattr("engine.managers.health_manager.HealthManager.check_and_sync_models", lambda **kw: {})
+    monkeypatch.setattr("engine.managers.competitor_spy.CompetitorSpy.get_surge_topic", lambda *a: None)
+    monkeypatch.setattr("engine.managers.topic_inspector.TopicInspector.discover_verified_topic", lambda self, niche, *a, **kw: {
+        "topic": "The Baader-Meinhof Phenomenon",
+        "verified_summary": "Frequency illusion",
+        "source": "verified_trend"
+    })
+
+    monkeypatch.setattr(
+        "engine.managers.iterative_script_generator.IterativeScriptGenerator.generate_scene_chain",
+        lambda self, topic="", channel_premise="", grounding_facts=None: (invalid_scenes, {})
+    )
+
+    critic_called = []
+    monkeypatch.setattr("engine.managers.editorial_critic.audit_and_refine_spec",
+                        lambda *a, **kw: critic_called.append(True))
+    tts_called = []
+    monkeypatch.setattr("engine.managers.voice_normalizer.VoiceNormalizer.synthesize_scenes_sync",
+                        lambda **kw: tts_called.append(True))
+
+    with pytest.raises(ValueError) as exc_info:
+        run_spec_stage(video_type="short")
+
+    assert expected_msg in str(exc_info.value)
+    assert len(critic_called) == 0
+    assert len(tts_called) == 0
+    assert not (test_memory_dir / "thought_cache.json").exists()
+    assert not os.path.exists(test_spec_path)
 
 
 
 
+def test_iscg_boundary_rejects_non_dictionary_scene(monkeypatch, tmp_path):
+    """
+    Phase 5E: Verify that scene list containing non-dict elements is rejected at the boundary
+    identifying the scene index, without invoking downstream consumers or persistence.
+    """
+    from engine.managers.pipeline_runner import run_spec_stage
 
+    test_output_dir, test_memory_dir, test_cfg_dir = _isolate_pipeline_persistence(monkeypatch, tmp_path)
+    test_spec_path = str(test_output_dir / "spec.json")
+
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.delenv("TEST_MODE", raising=False)
+    monkeypatch.delenv("GHOST_ENGINE_ENABLED", raising=False)
+
+    monkeypatch.setattr("engine.managers.health_manager.HealthManager.check_and_sync_models", lambda **kw: {})
+    monkeypatch.setattr("engine.managers.competitor_spy.CompetitorSpy.get_surge_topic", lambda *a: None)
+    monkeypatch.setattr("engine.managers.topic_inspector.TopicInspector.discover_verified_topic", lambda self, niche, *a, **kw: {
+        "topic": "The Baader-Meinhof Phenomenon",
+        "verified_summary": "Frequency illusion",
+        "source": "verified_trend"
+    })
+
+    scenes = [
+        {"spoken_text": "The only part of your reflection you can lick is your tongue."},
+        "not a dictionary element",
+        {"spoken_text": "Which is why you should never overthink these strange quirks of reality..."}
+    ]
+
+    monkeypatch.setattr(
+        "engine.managers.iterative_script_generator.IterativeScriptGenerator.generate_scene_chain",
+        lambda self, topic="", channel_premise="", grounding_facts=None: (scenes, {})
+    )
+
+    critic_called = []
+    monkeypatch.setattr("engine.managers.editorial_critic.audit_and_refine_spec",
+                        lambda *a, **kw: critic_called.append(True))
+    tts_called = []
+    monkeypatch.setattr("engine.managers.voice_normalizer.VoiceNormalizer.synthesize_scenes_sync",
+                        lambda **kw: tts_called.append(True))
+
+    with pytest.raises(ValueError) as exc_info:
+        run_spec_stage(video_type="short")
+
+    assert "Scene 2 is not a dictionary: got str" in str(exc_info.value)
+    assert len(critic_called) == 0
+    assert len(tts_called) == 0
+    assert not (test_memory_dir / "thought_cache.json").exists()
+    assert not os.path.exists(test_spec_path)
+
+
+
+
+def test_iscg_boundary_rejects_missing_spoken_text(monkeypatch, tmp_path):
+    """
+    Phase 5E: Verify that a scene missing 'spoken_text' is rejected at the boundary
+    identifying the scene index, without invoking downstream consumers or persistence.
+    """
+    from engine.managers.pipeline_runner import run_spec_stage
+
+    test_output_dir, test_memory_dir, test_cfg_dir = _isolate_pipeline_persistence(monkeypatch, tmp_path)
+    test_spec_path = str(test_output_dir / "spec.json")
+
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.delenv("TEST_MODE", raising=False)
+    monkeypatch.delenv("GHOST_ENGINE_ENABLED", raising=False)
+
+    monkeypatch.setattr("engine.managers.health_manager.HealthManager.check_and_sync_models", lambda **kw: {})
+    monkeypatch.setattr("engine.managers.competitor_spy.CompetitorSpy.get_surge_topic", lambda *a: None)
+    monkeypatch.setattr("engine.managers.topic_inspector.TopicInspector.discover_verified_topic", lambda self, niche, *a, **kw: {
+        "topic": "The Baader-Meinhof Phenomenon",
+        "verified_summary": "Frequency illusion",
+        "source": "verified_trend"
+    })
+
+    scenes = [
+        {"spoken_text": "The only part of your reflection you can lick is your tongue."},
+        {"stock_video_query": "mirror reflection"},  # Missing spoken_text
+        {"spoken_text": "Which is why you should never overthink these strange quirks of reality..."}
+    ]
+
+    monkeypatch.setattr(
+        "engine.managers.iterative_script_generator.IterativeScriptGenerator.generate_scene_chain",
+        lambda self, topic="", channel_premise="", grounding_facts=None: (scenes, {})
+    )
+
+    critic_called = []
+    monkeypatch.setattr("engine.managers.editorial_critic.audit_and_refine_spec",
+                        lambda *a, **kw: critic_called.append(True))
+    tts_called = []
+    monkeypatch.setattr("engine.managers.voice_normalizer.VoiceNormalizer.synthesize_scenes_sync",
+                        lambda **kw: tts_called.append(True))
+
+    with pytest.raises(ValueError) as exc_info:
+        run_spec_stage(video_type="short")
+
+    assert "Scene 2 is missing required 'spoken_text' field" in str(exc_info.value)
+    assert len(critic_called) == 0
+    assert len(tts_called) == 0
+    assert not (test_memory_dir / "thought_cache.json").exists()
+    assert not os.path.exists(test_spec_path)
+
+
+
+
+@pytest.mark.parametrize("bad_spoken", [
+    "",
+    "   ",
+    "\t\n  \r\n",
+])
+def test_iscg_boundary_rejects_empty_or_whitespace_spoken_text(monkeypatch, tmp_path, bad_spoken):
+    """
+    Phase 5E: Verify that empty or whitespace-only spoken_text in any scene (including middle scenes)
+    is caught at the boundary before Critic, Thought Cache, or TTS, preventing thought_cache corruption.
+    """
+    from engine.managers.pipeline_runner import run_spec_stage
+
+    test_output_dir, test_memory_dir, test_cfg_dir = _isolate_pipeline_persistence(monkeypatch, tmp_path)
+    test_spec_path = str(test_output_dir / "spec.json")
+
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.delenv("TEST_MODE", raising=False)
+    monkeypatch.delenv("GHOST_ENGINE_ENABLED", raising=False)
+
+    monkeypatch.setattr("engine.managers.health_manager.HealthManager.check_and_sync_models", lambda **kw: {})
+    monkeypatch.setattr("engine.managers.competitor_spy.CompetitorSpy.get_surge_topic", lambda *a: None)
+    monkeypatch.setattr("engine.managers.topic_inspector.TopicInspector.discover_verified_topic", lambda self, niche, *a, **kw: {
+        "topic": "The Baader-Meinhof Phenomenon",
+        "verified_summary": "Frequency illusion",
+        "source": "verified_trend"
+    })
+
+    scenes = [
+        {"spoken_text": "The only part of your reflection you can lick is your tongue."},
+        {"spoken_text": bad_spoken},  # Empty or whitespace-only
+        {"spoken_text": "Which is why you should never overthink these strange quirks of reality..."}
+    ]
+
+    monkeypatch.setattr(
+        "engine.managers.iterative_script_generator.IterativeScriptGenerator.generate_scene_chain",
+        lambda self, topic="", channel_premise="", grounding_facts=None: (scenes, {})
+    )
+
+    critic_called = []
+    monkeypatch.setattr("engine.managers.editorial_critic.audit_and_refine_spec",
+                        lambda *a, **kw: critic_called.append(True))
+    tts_called = []
+    monkeypatch.setattr("engine.managers.voice_normalizer.VoiceNormalizer.synthesize_scenes_sync",
+                        lambda **kw: tts_called.append(True))
+
+    with pytest.raises(ValueError) as exc_info:
+        run_spec_stage(video_type="short")
+
+    assert "Scene 2 has empty or whitespace-only 'spoken_text'" in str(exc_info.value)
+    assert len(critic_called) == 0
+    assert len(tts_called) == 0
+    assert not (test_memory_dir / "thought_cache.json").exists()
+    assert not os.path.exists(test_spec_path)
+
+
+
+
+def test_iscg_boundary_rejects_non_string_spoken_text(monkeypatch, tmp_path):
+    """
+    Phase 5E: Verify that non-string spoken_text is rejected at the boundary with clear type error.
+    """
+    from engine.managers.pipeline_runner import run_spec_stage
+
+    test_output_dir, test_memory_dir, test_cfg_dir = _isolate_pipeline_persistence(monkeypatch, tmp_path)
+    test_spec_path = str(test_output_dir / "spec.json")
+
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.delenv("TEST_MODE", raising=False)
+    monkeypatch.delenv("GHOST_ENGINE_ENABLED", raising=False)
+
+    monkeypatch.setattr("engine.managers.health_manager.HealthManager.check_and_sync_models", lambda **kw: {})
+    monkeypatch.setattr("engine.managers.competitor_spy.CompetitorSpy.get_surge_topic", lambda *a: None)
+    monkeypatch.setattr("engine.managers.topic_inspector.TopicInspector.discover_verified_topic", lambda self, niche, *a, **kw: {
+        "topic": "The Baader-Meinhof Phenomenon",
+        "verified_summary": "Frequency illusion",
+        "source": "verified_trend"
+    })
+
+    scenes = [
+        {"spoken_text": "The only part of your reflection you can lick is your tongue."},
+        {"spoken_text": 123456},  # Non-string
+        {"spoken_text": "Which is why you should never overthink these strange quirks of reality..."}
+    ]
+
+    monkeypatch.setattr(
+        "engine.managers.iterative_script_generator.IterativeScriptGenerator.generate_scene_chain",
+        lambda self, topic="", channel_premise="", grounding_facts=None: (scenes, {})
+    )
+
+    critic_called = []
+    monkeypatch.setattr("engine.managers.editorial_critic.audit_and_refine_spec",
+                        lambda *a, **kw: critic_called.append(True))
+    tts_called = []
+    monkeypatch.setattr("engine.managers.voice_normalizer.VoiceNormalizer.synthesize_scenes_sync",
+                        lambda **kw: tts_called.append(True))
+
+    with pytest.raises(ValueError) as exc_info:
+        run_spec_stage(video_type="short")
+
+    assert "Scene 2 'spoken_text' must be a string, got int" in str(exc_info.value)
+    assert len(critic_called) == 0
+    assert len(tts_called) == 0
+    assert not (test_memory_dir / "thought_cache.json").exists()
+    assert not os.path.exists(test_spec_path)
+
+
+# ─── 14. TOPIC GATE RELIABILITY & GROUNDING INTEGRATION (PHASE 6A) ───────────
+
+def test_verify_factuality_success_rejection_and_unavailable():
+    """
+    Verifies that TopicInspector.verify_factuality and _fact_check:
+    1. Approve valid facts with status='completed' and verified=True.
+    2. Reject false/hallucinated claims with status='completed' and verified=False.
+    3. Fail closed on LLM exceptions with status='unavailable' and verified=False (never fabricated pass).
+    4. Fail closed on malformed dictionary responses with status='unavailable' and verified=False.
+    """
+    mock_llm = MagicMock()
+    inspector = TopicInspector(llm_manager=mock_llm)
+
+    # 1. Approved fact
+    mock_llm.generate_json.return_value = {
+        "is_factual": True,
+        "confidence": 0.96,
+        "is_niche_relevant": True,
+        "primary_source": "Nature, 2024",
+        "red_flags": []
+    }
+    res_ok = inspector.verify_factuality("Human bones are four times stronger than concrete.")
+    assert res_ok["is_factual"] is True
+    assert res_ok["status"] == "completed"
+    check_ok = inspector._fact_check("Human bones are four times stronger than concrete.")
+    assert check_ok["verified"] is True
+
+    # 2. Rejected claim
+    mock_llm.generate_json.return_value = {
+        "is_factual": False,
+        "confidence": 0.98,
+        "is_niche_relevant": True,
+        "primary_source": "Debunked mythology",
+        "red_flags": ["Completely fabricated"]
+    }
+    res_bad = inspector.verify_factuality("Goldfish have a memory span of only three seconds.")
+    assert res_bad["is_factual"] is False
+    assert res_bad["status"] == "completed"
+    check_bad = inspector._fact_check("Goldfish have a memory span of only three seconds.")
+    assert check_bad["verified"] is False
+    assert check_bad["status"] == "completed"
+
+    # 3. LLM exception (Fail closed: must NOT fabricate pass or approve)
+    mock_llm.generate_json.side_effect = RuntimeError("API connection timeout")
+    res_err = inspector.verify_factuality("Any unverified claim")
+    assert res_err["is_factual"] is False
+    assert res_err["status"] == "unavailable"
+    assert res_err["confidence"] == 0.0
+    check_err = inspector._fact_check("Any unverified claim")
+    assert check_err["verified"] is False
+    assert check_err["status"] == "unavailable"
+
+    # 4. Malformed dictionary (e.g. non-dict or missing 'is_factual')
+    mock_llm.generate_json.side_effect = None
+    mock_llm.generate_json.return_value = {"error": "unexpected format"}
+    res_mal = inspector.verify_factuality("Malformed return")
+    assert res_mal["is_factual"] is False
+    assert res_mal["status"] == "unavailable"
+    check_mal = inspector._fact_check("Malformed return")
+    assert check_mal["verified"] is False
+    assert check_mal["status"] == "unavailable"
+
+
+def test_competitor_surge_verification_approved_and_rejected(monkeypatch, tmp_path):
+    """
+    Verifies that competitor surge topics pass through the factuality gate before use:
+    1. If verified, surge topic is accepted.
+    2. If rejected or unavailable, pipeline falls back to discover_verified_topic().
+    """
+    from engine.managers.pipeline_runner import run_spec_stage
+
+    test_output_dir, test_memory_dir, test_cfg_dir = _isolate_pipeline_persistence(monkeypatch, tmp_path)
+    monkeypatch.setattr("engine.managers.health_manager.HealthManager.check_and_sync_models", lambda **kw: {})
+    monkeypatch.setattr(
+        "engine.managers.voice_normalizer.VoiceNormalizer.synthesize_scenes_sync",
+        lambda **kw: (15.0, [], [5.0, 5.0, 5.0], [[], [], []])
+    )
+
+    dummy_scenes = [
+        {"spoken_text": "The only part of your reflection you can lick is your tongue."},
+        {"spoken_text": "Your future self is currently watching you through your memories."},
+        {"spoken_text": "Which sounds absurd until you remember that..."}
+    ]
+
+    captured_topics = []
+    def mock_generate_chain(self, topic="", **kwargs):
+        captured_topics.append(topic)
+        return dummy_scenes, {"title": f"Title for {topic}"}
+
+    monkeypatch.setattr(
+        "engine.managers.iterative_script_generator.IterativeScriptGenerator.generate_scene_chain",
+        mock_generate_chain
+    )
+
+    # Subtest 1: Approved surge topic
+    monkeypatch.setattr(
+        "engine.managers.competitor_spy.CompetitorSpy.get_surge_topic",
+        lambda *a: {"title": "Verified Surge Topic", "score": 9.2}
+    )
+    monkeypatch.setattr(
+        "engine.managers.topic_inspector.TopicInspector.is_topic_recent",
+        lambda self_or_cls, t: False
+    )
+    monkeypatch.setattr(
+        "engine.managers.topic_inspector.TopicInspector._fact_check",
+        lambda self, t, niche="": {"verified": True, "status": "completed", "summary": "Factually verified"}
+    )
+
+    run_spec_stage(video_type="short")
+    assert len(captured_topics) == 1
+    assert captured_topics[0] == "Verified Surge Topic"
+
+    # Subtest 2: Rejected surge topic falls back to discover_verified_topic()
+    captured_topics.clear()
+    monkeypatch.setattr(
+        "engine.managers.competitor_spy.CompetitorSpy.get_surge_topic",
+        lambda *a: {"title": "Unverified Fake Surge Topic", "score": 9.2}
+    )
+    monkeypatch.setattr(
+        "engine.managers.topic_inspector.TopicInspector._fact_check",
+        lambda self, t, niche="": {"verified": False, "status": "completed", "reason": "Pseudoscience detected"}
+    )
+    monkeypatch.setattr(
+        "engine.managers.topic_inspector.TopicInspector.discover_verified_topic",
+        lambda self, niche, *a, **kw: {
+            "topic": "Evergreen Verified Discovery Topic",
+            "verified_summary": "Solid science",
+            "source": "evergreen"
+        }
+    )
+
+    run_spec_stage(video_type="short")
+    assert len(captured_topics) == 1
+    assert captured_topics[0] == "Evergreen Verified Discovery Topic"
+
+
+def test_custom_topic_verification_approved_rejected_and_unavailable(monkeypatch, tmp_path):
+    """
+    Verifies that custom topic overrides pass through the factuality gate:
+    1. If verified, custom topic is accepted.
+    2. If rejected, raises ValueError with distinct rejection message.
+    3. If unavailable, raises ValueError with distinct unavailable message.
+    """
+    import pathlib
+    from engine.managers.pipeline_runner import run_spec_stage
+
+    real_cache_path = pathlib.Path("memory/competitor_cache.json")
+    initial_cache_bytes = real_cache_path.read_bytes() if real_cache_path.exists() else None
+
+    test_output_dir, test_memory_dir, test_cfg_dir = _isolate_pipeline_persistence(monkeypatch, tmp_path)
+    monkeypatch.setattr("engine.managers.health_manager.HealthManager.check_and_sync_models", lambda **kw: {})
+    monkeypatch.setattr("engine.managers.competitor_spy.CompetitorSpy.get_surge_topic", lambda *a: None)
+    monkeypatch.setattr(
+        "engine.managers.voice_normalizer.VoiceNormalizer.synthesize_scenes_sync",
+        lambda **kw: (15.0, [], [5.0, 5.0, 5.0], [[], [], []])
+    )
+
+    dummy_scenes = [
+        {"spoken_text": "The only part of your reflection you can lick is your tongue."},
+        {"spoken_text": "Your future self is currently watching you through your memories."},
+        {"spoken_text": "Which sounds absurd until you remember that..."}
+    ]
+
+    captured_topics = []
+    def mock_generate_chain(self, topic="", **kwargs):
+        captured_topics.append(topic)
+        return dummy_scenes, {"title": f"Title for {topic}"}
+
+    monkeypatch.setattr(
+        "engine.managers.iterative_script_generator.IterativeScriptGenerator.generate_scene_chain",
+        mock_generate_chain
+    )
+
+    # Subtest 1: Approved custom topic
+    monkeypatch.setattr(
+        "engine.managers.topic_inspector.TopicInspector._fact_check",
+        lambda self, t, niche="": {"verified": True, "status": "completed", "summary": "Approved custom topic"}
+    )
+    run_spec_stage(video_type="short", custom_topic="Legitimate Quantum Paradox")
+    assert len(captured_topics) == 1
+    assert captured_topics[0] == "Legitimate Quantum Paradox"
+
+    # Subtest 2: Rejected custom topic
+    monkeypatch.setattr(
+        "engine.managers.topic_inspector.TopicInspector._fact_check",
+        lambda self, t, niche="": {"verified": False, "status": "completed", "reason": "Hallucinatory claim"}
+    )
+    with pytest.raises(ValueError) as exc_info_rej:
+        run_spec_stage(video_type="short", custom_topic="Fake Hollow Earth Myth")
+    assert "Custom topic rejected by topic verification gate" in str(exc_info_rej.value)
+    assert "Fake Hollow Earth Myth" in str(exc_info_rej.value)
+
+    # Subtest 3: Unavailable verification
+    monkeypatch.setattr(
+        "engine.managers.topic_inspector.TopicInspector._fact_check",
+        lambda self, t, niche="": {"verified": False, "status": "unavailable", "reason": "LLM API timeout"}
+    )
+    with pytest.raises(ValueError) as exc_info_unavail:
+        run_spec_stage(video_type="short", custom_topic="Obscure Topic")
+    assert "Custom topic verification unavailable" in str(exc_info_unavail.value)
+    assert "Obscure Topic" in str(exc_info_unavail.value)
+
+    # Regression assertion: real competitor cache must remain completely untouched
+    if initial_cache_bytes is not None:
+        assert real_cache_path.read_bytes() == initial_cache_bytes
+
+
+def test_grounding_references_reach_shorts_prompts():
+    """
+    Verifies that curated grounding references passed to generate_scene_chain
+    reach both the anchor generation prompt and the middle scene generation prompt.
+    """
+    from engine.managers.iterative_script_generator import IterativeScriptGenerator
+
+    captured_prompts = []
+    mock_llm = MagicMock()
+
+    middle_thoughts = [
+        "Your future self is currently watching you through your memories.",
+        "Water is not wet by itself it only makes other materials wet.",
+        "Every mirror you purchase is technically used since someone tested it.",
+        "Nothing is ever completely on fire, fire is just on things.",
+        "The brain named itself and is now questioning that exact discovery.",
+        "You cannot sneeze with your eyes open without severe physical strain.",
+        "Bananas share fifty percent of their genetic DNA with human beings."
+    ]
+    thought_idx = [0]
+
+    def mock_gen_json(system_prompt="", user_prompt="", **kwargs):
+        captured_prompts.append(user_prompt)
+        # Determine response based on user prompt
+        if "Scene 1 hook thought" in user_prompt:
+            return {
+                "hook_scene": {
+                    "spoken_text": "The only part of your reflection you can lick is your tongue.",
+                    "stock_video_query": "mirror reflection close up"
+                },
+                "penultimate_scene": {
+                    "spoken_text": "Oxygen is slowly rusting our bodies from the inside out over decades.",
+                    "stock_video_query": "oxygen bubbles water macro"
+                },
+                "loop_scene": {
+                    "spoken_text": "And the wildest part about reflections is that...",
+                    "stock_video_query": "infinite mirror hallway dark"
+                }
+            }
+        elif "Generate Scene" in user_prompt:
+            t = middle_thoughts[thought_idx[0] % len(middle_thoughts)]
+            thought_idx[0] += 1
+            return {
+                "spoken_text": t,
+                "stock_video_query": "old photos nostalgic cinematic"
+            }
+        elif "metadata" in user_prompt or "script_text" in user_prompt:
+            return {
+                "title": "Mind Glitches That Feel Illegal To Know 🤯 #shorts",
+                "description": "Mind Glitches That Feel Illegal To Know 🤯 #shorts\n\nDeep thoughts.\n\n#shorts",
+                "tags": ["thoughts", "facts", "shorts"]
+            }
+        return {}
+
+    mock_llm.generate_json.side_effect = mock_gen_json
+
+    generator = IterativeScriptGenerator(llm_manager=mock_llm)
+    grounding_fact_line = "VERIFIED INSPIRATION & FACTUAL REFERENCES:\n- Mpemba effect: hot water can freeze faster than cold water (Source: Royal Society of Chemistry)"
+
+    scenes, seo = generator.generate_scene_chain(
+        topic="Physics Paradoxes",
+        grounding_facts=grounding_fact_line
+    )
+
+    assert len(scenes) >= 3
+    # Check that grounding_fact_line was passed into at least anchor prompt and middle scene prompt
+    anchor_prompts = [p for p in captured_prompts if "Scene 1 hook thought" in p]
+    middle_prompts = [p for p in captured_prompts if "Generate Scene" in p]
+
+    assert len(anchor_prompts) >= 1
+    assert "Mpemba effect: hot water can freeze faster than cold water" in anchor_prompts[0]
+    assert "verified inspiration references for your hook or penultimate fact" in anchor_prompts[0]
+
+    assert len(middle_prompts) >= 1
+    assert "Mpemba effect: hot water can freeze faster than cold water" in middle_prompts[0]
+    assert "verified inspiration references" in middle_prompts[0]
+
+
+def test_grounding_references_reach_long_form_prompt(monkeypatch, tmp_path):
+    """
+    Verifies that run_spec_stage for long-form scripts injects grounding references
+    into the long_form_doc user prompt.
+    """
+    from engine.managers.pipeline_runner import run_spec_stage
+
+    test_output_dir, test_memory_dir, test_cfg_dir = _isolate_pipeline_persistence(monkeypatch, tmp_path)
+    monkeypatch.setattr("engine.managers.health_manager.HealthManager.check_and_sync_models", lambda **kw: {})
+    monkeypatch.setattr(
+        "engine.managers.voice_normalizer.VoiceNormalizer.synthesize_scenes_sync",
+        lambda **kw: (15.0, [], [5.0, 5.0, 5.0], [[], [], []])
+    )
+
+    monkeypatch.setattr(
+        "engine.managers.topic_inspector.TopicInspector.discover_verified_topic",
+        lambda self, niche, *a, **kw: {
+            "topic": "The Mystery of Ocean Depths",
+            "verified_summary": "Deep ocean exploration",
+            "source": "verified_trend"
+        }
+    )
+
+    test_ref = {"type": "fact", "text": "Octopuses have three hearts and blue copper-based blood."}
+    monkeypatch.setattr(
+        "engine.managers.topic_inspector.TopicInspector.get_grounding_references",
+        lambda count=5: [test_ref]
+    )
+
+    captured_prompts = []
+    def mock_llm_gen_json(self, system_prompt, user_prompt, **kwargs):
+        captured_prompts.append((system_prompt, user_prompt))
+        return {
+            "title": "The Secrets of the Ocean Deep",
+            "scenes": [
+                {"scene_id": 1, "spoken_text": "In the deepest oceans, life takes strange and alien forms.", "duration_seconds": 6.0},
+                {"scene_id": 2, "spoken_text": "Light fades entirely within two hundred meters.", "duration_seconds": 6.0}
+            ],
+            "seo": {
+                "title": "The Secrets of the Ocean Deep",
+                "description": "Documentary essay.",
+                "tags": ["ocean", "documentary"]
+            }
+        }
+
+    monkeypatch.setattr("engine.managers.llm_manager.LLMManager.generate_json", mock_llm_gen_json)
+
+    run_spec_stage(video_type="long")
+
+    assert len(captured_prompts) == 1
+    sys_p, usr_p = captured_prompts[0]
+    assert "Octopuses have three hearts and blue copper-based blood." in usr_p
+    assert "Weave verified inspiration references into the narrative" in sys_p
+
+
+def test_empty_grounding_references_backward_compatibility():
+    """
+    Verifies that when grounding_facts is None or empty, generate_scene_chain
+    runs cleanly without injecting empty grounding sections into prompts.
+    """
+    from engine.managers.iterative_script_generator import IterativeScriptGenerator
+
+    captured_prompts = []
+    mock_llm = MagicMock()
+
+    middle_thoughts = [
+        "Your future self is currently watching you through your memories.",
+        "Water is not wet by itself it only makes other materials wet.",
+        "Every mirror you purchase is technically used since someone tested it.",
+        "Nothing is ever completely on fire, fire is just on things.",
+        "The brain named itself and is now questioning that exact discovery.",
+        "You cannot sneeze with your eyes open without severe physical strain.",
+        "Bananas share fifty percent of their genetic DNA with human beings."
+    ]
+    thought_idx = [0]
+
+    def mock_gen_json(system_prompt="", user_prompt="", **kwargs):
+        captured_prompts.append(user_prompt)
+        if "Scene 1 hook thought" in user_prompt:
+            return {
+                "hook_scene": {
+                    "spoken_text": "The only part of your reflection you can lick is your tongue.",
+                    "stock_video_query": "mirror reflection close up"
+                },
+                "penultimate_scene": {
+                    "spoken_text": "Oxygen is slowly rusting our bodies from the inside out over decades.",
+                    "stock_video_query": "oxygen bubbles water macro"
+                },
+                "loop_scene": {
+                    "spoken_text": "And the wildest part about reflections is that...",
+                    "stock_video_query": "infinite mirror hallway dark"
+                }
+            }
+        elif "Generate Scene" in user_prompt:
+            t = middle_thoughts[thought_idx[0] % len(middle_thoughts)]
+            thought_idx[0] += 1
+            return {
+                "spoken_text": t,
+                "stock_video_query": "old photos nostalgic cinematic"
+            }
+        elif "metadata" in user_prompt or "script_text" in user_prompt:
+            return {
+                "title": "Mind Glitches That Feel Illegal To Know 🤯 #shorts",
+                "description": "Mind Glitches That Feel Illegal To Know 🤯 #shorts\n\nDeep thoughts.\n\n#shorts",
+                "tags": ["thoughts", "facts", "shorts"]
+            }
+        return {}
+
+    mock_llm.generate_json.side_effect = mock_gen_json
+
+    generator = IterativeScriptGenerator(llm_manager=mock_llm)
+    scenes, seo = generator.generate_scene_chain(topic="Cosmic Paradoxes", grounding_facts=None)
+
+    assert len(scenes) >= 3
+    for p in captured_prompts:
+        assert "VERIFIED INSPIRATION & FACTUAL REFERENCES" not in p
+        assert "draw upon these verified inspiration references" not in p
+
+
+# ─── 19. SHORTS CLAIM INSPECTION INTEGRATION (PHASE 6B STAGE 3A) ─────────────
+
+def test_shorts_claim_inspection_supported_claims_proceeds_to_spec(monkeypatch, tmp_path):
+    """
+    Phase 6B Stage 3A: Verifies that when all empirical claims in a Short are supported
+    by valid candidate evidence, the pipeline records PASSED, packages spec.json,
+    and stores the in-memory report matching final scenes.
+    """
+    from engine.managers.pipeline_runner import (
+        run_spec_stage,
+        FactualityPolicyStatus,
+        get_last_factuality_decision,
+        get_last_claim_report,
+    )
+    from engine.managers.claim_inspector import (
+        ClaimInspectionReport,
+        ClaimRecord,
+        EvidenceReference,
+        ClaimClassification,
+        VerificationOutcome,
+        RiskLevel,
+    )
+
+    test_output_dir, test_memory_dir, test_cfg_dir = _isolate_pipeline_persistence(monkeypatch, tmp_path)
+    test_spec_path = str(test_output_dir / "spec.json")
+
+    monkeypatch.setattr("engine.managers.health_manager.HealthManager.check_and_sync_models", lambda **kw: {})
+    monkeypatch.setattr("engine.managers.competitor_spy.CompetitorSpy.get_surge_topic", lambda *a: None)
+    monkeypatch.setattr(
+        "engine.managers.topic_inspector.TopicInspector.discover_verified_topic",
+        lambda self, niche, *a, **kw: {
+            "topic": "The Human Body Glitches",
+            "verified_summary": "Body physiology",
+            "source": "verified_trend"
+        }
+    )
+
+    scenes = [
+        {"scene_id": 1, "spoken_text": "The only part of your reflection you can lick is your tongue.", "stock_video_query": "mirror reflection"},
+        {"scene_id": 2, "spoken_text": "You physically cannot hum while holding your nose shut.", "stock_video_query": "throat close up"},
+        {"scene_id": 3, "spoken_text": "Which is why you should never overthink these quirks...", "stock_video_query": "loop ending"}
+    ]
+    seo_data = {"title": "Body Glitches That Feel Illegal 🤯 #shorts", "description": "Body glitches. #shorts", "tags": ["body", "shorts"]}
+
+    monkeypatch.setattr(
+        "engine.managers.iterative_script_generator.IterativeScriptGenerator.generate_scene_chain",
+        lambda self, topic="", channel_premise="", grounding_facts=None: (scenes, seo_data)
+    )
+    monkeypatch.setattr(
+        "engine.managers.voice_normalizer.VoiceNormalizer.synthesize_scenes_sync",
+        lambda **kw: (15.0, [], [5.0, 5.0, 5.0], [[], [], []])
+    )
+
+    def mock_inspect_script(self, scenes, candidate_evidence=None):
+        return ClaimInspectionReport(
+            claims=[
+                ClaimRecord(
+                    claim_id="claim_1_1",
+                    scene_id=1,
+                    original_text=scenes[0]["spoken_text"],
+                    extracted_proposition=scenes[0]["spoken_text"],
+                    classification=ClaimClassification.EMPIRICAL.value,
+                    outcome=VerificationOutcome.SUPPORTED.value,
+                    risk_level=RiskLevel.LOW.value,
+                    evidence=[EvidenceReference(id="ev_01", text="Reflection anatomy.")],
+                    rationale="Directly supported by optical reflection mechanics."
+                ),
+                ClaimRecord(
+                    claim_id="claim_2_1",
+                    scene_id=2,
+                    original_text=scenes[1]["spoken_text"],
+                    extracted_proposition=scenes[1]["spoken_text"],
+                    classification=ClaimClassification.EMPIRICAL.value,
+                    outcome=VerificationOutcome.SUPPORTED.value,
+                    risk_level=RiskLevel.LOW.value,
+                    evidence=[EvidenceReference(id="ev_02", text="Humming requires open nasal airway.")],
+                    rationale="Directly supported by respiratory mechanics."
+                )
+            ],
+            status="completed"
+        )
+
+    monkeypatch.setattr("engine.managers.claim_inspector.ClaimInspector.inspect_script", mock_inspect_script)
+
+    run_spec_stage(video_type="short")
+
+    assert os.path.exists(test_spec_path)
+    dec = get_last_factuality_decision()
+    assert dec is not None
+    assert dec[0] == FactualityPolicyStatus.PASSED
+
+    report = get_last_claim_report()
+    assert report is not None
+    assert len(report.claims) == 2
+    assert report.claims[0].outcome == VerificationOutcome.SUPPORTED.value
+    assert len(report.claims[0].evidence) == 1
+
+
+def test_shorts_claim_inspection_low_risk_unverifiable_passes_with_unverified(monkeypatch, tmp_path):
+    """
+    Phase 6B Stage 3A: Verifies that unverified everyday low-risk claims (e.g. shower thoughts)
+    are permitted to proceed under PASSED_WITH_UNVERIFIED without failing the pipeline.
+    """
+    from engine.managers.pipeline_runner import (
+        run_spec_stage,
+        FactualityPolicyStatus,
+        get_last_factuality_decision,
+        get_last_claim_report,
+    )
+    from engine.managers.claim_inspector import (
+        ClaimInspectionReport,
+        ClaimRecord,
+        ClaimClassification,
+        VerificationOutcome,
+        RiskLevel,
+    )
+
+    test_output_dir, test_memory_dir, test_cfg_dir = _isolate_pipeline_persistence(monkeypatch, tmp_path)
+    test_spec_path = str(test_output_dir / "spec.json")
+
+    monkeypatch.setattr("engine.managers.health_manager.HealthManager.check_and_sync_models", lambda **kw: {})
+    monkeypatch.setattr("engine.managers.competitor_spy.CompetitorSpy.get_surge_topic", lambda *a: None)
+    monkeypatch.setattr(
+        "engine.managers.topic_inspector.TopicInspector.discover_verified_topic",
+        lambda self, niche, *a, **kw: {"topic": "Everyday Paradoxes", "source": "trend"}
+    )
+
+    scenes = [
+        {"scene_id": 1, "spoken_text": "Your shadow is proof light traveled 93 million miles to be blocked by you.", "stock_video_query": "shadow light"},
+        {"scene_id": 2, "spoken_text": "Which is why you should never overthink these quirks...", "stock_video_query": "loop ending"}
+    ]
+    seo_data = {"title": "Everyday Paradoxes #shorts", "description": "Paradoxes. #shorts", "tags": ["thoughts", "shorts"]}
+
+    monkeypatch.setattr(
+        "engine.managers.iterative_script_generator.IterativeScriptGenerator.generate_scene_chain",
+        lambda self, topic="", channel_premise="", grounding_facts=None: (scenes, seo_data)
+    )
+    monkeypatch.setattr(
+        "engine.managers.voice_normalizer.VoiceNormalizer.synthesize_scenes_sync",
+        lambda **kw: (10.0, [], [5.0, 5.0], [[], []])
+    )
+
+    def mock_inspect_script(self, scenes, candidate_evidence=None):
+        return ClaimInspectionReport(
+            claims=[
+                ClaimRecord(
+                    claim_id="claim_1_1",
+                    scene_id=1,
+                    original_text=scenes[0]["spoken_text"],
+                    extracted_proposition=scenes[0]["spoken_text"],
+                    classification=ClaimClassification.EMPIRICAL.value,
+                    outcome=VerificationOutcome.UNVERIFIABLE.value,
+                    risk_level=RiskLevel.LOW.value,
+                    evidence=[],
+                    rationale="No candidate evidence in curated vault."
+                )
+            ],
+            status="completed"
+        )
+
+    monkeypatch.setattr("engine.managers.claim_inspector.ClaimInspector.inspect_script", mock_inspect_script)
+
+    run_spec_stage(video_type="short")
+
+    assert os.path.exists(test_spec_path)
+    dec = get_last_factuality_decision()
+    assert dec is not None
+    assert dec[0] == FactualityPolicyStatus.PASSED_WITH_UNVERIFIED
+    assert "low-risk policy" in dec[1].lower()
+
+
+def test_shorts_claim_inspection_evidence_backed_contradiction_triggers_rewrite_and_passes(monkeypatch, tmp_path):
+    """
+    Phase 6B Stage 3A: Verifies that an evidence-backed contradiction triggers a targeted
+    scene rewrite, re-inspection of the new text, and final packaging of the corrected line.
+    """
+    from engine.managers.pipeline_runner import (
+        run_spec_stage,
+        FactualityPolicyStatus,
+        get_last_factuality_decision,
+        get_last_claim_report,
+    )
+    from engine.models import SpecOutput
+    from engine.managers.claim_inspector import (
+        ClaimInspectionReport,
+        ClaimRecord,
+        EvidenceReference,
+        ClaimClassification,
+        VerificationOutcome,
+        RiskLevel,
+    )
+
+    test_output_dir, test_memory_dir, test_cfg_dir = _isolate_pipeline_persistence(monkeypatch, tmp_path)
+    test_spec_path = str(test_output_dir / "spec.json")
+
+    monkeypatch.setattr("engine.managers.health_manager.HealthManager.check_and_sync_models", lambda **kw: {})
+    monkeypatch.setattr("engine.managers.competitor_spy.CompetitorSpy.get_surge_topic", lambda *a: None)
+    monkeypatch.setattr(
+        "engine.managers.topic_inspector.TopicInspector.discover_verified_topic",
+        lambda self, niche, *a, **kw: {"topic": "Joint Myths", "source": "trend"}
+    )
+
+    initial_scenes = [
+        {"scene_id": 1, "spoken_text": "Cracking your knuckles causes arthritis and permanent joint damage.", "stock_video_query": "hands cracking"},
+        {"scene_id": 2, "spoken_text": "Which is why you should never overthink these quirks...", "stock_video_query": "loop ending"}
+    ]
+    seo_data = {"title": "Joint Myths #shorts", "description": "Myths. #shorts", "tags": ["health", "shorts"]}
+
+    monkeypatch.setattr(
+        "engine.managers.iterative_script_generator.IterativeScriptGenerator.generate_scene_chain",
+        lambda self, topic="", channel_premise="", grounding_facts=None: (initial_scenes, seo_data)
+    )
+    monkeypatch.setattr(
+        "engine.managers.voice_normalizer.VoiceNormalizer.synthesize_scenes_sync",
+        lambda **kw: (10.0, [], [5.0, 5.0], [[], []])
+    )
+
+    inspect_count = [0]
+    def mock_inspect(self, scenes, candidate_evidence=None):
+        inspect_count[0] += 1
+        current_text = scenes[0].get("spoken_text", "")
+        if "causes arthritis" in current_text.lower():
+            return ClaimInspectionReport(
+                claims=[
+                    ClaimRecord(
+                        claim_id="claim_1_1",
+                        scene_id=1,
+                        original_text=current_text,
+                        extracted_proposition="Cracking knuckles causes arthritis.",
+                        classification=ClaimClassification.EMPIRICAL.value,
+                        outcome=VerificationOutcome.CONTRADICTED.value,
+                        risk_level=RiskLevel.LOW.value,
+                        evidence=[EvidenceReference(id="med_01", text="Knuckle cracking does not cause arthritis.")],
+                        rationale="Evidence disproves joint damage assertion."
+                    )
+                ],
+                status="failed"
+            )
+        else:
+            return ClaimInspectionReport(
+                claims=[
+                    ClaimRecord(
+                        claim_id="claim_1_1",
+                        scene_id=1,
+                        original_text=current_text,
+                        extracted_proposition=current_text,
+                        classification=ClaimClassification.EMPIRICAL.value,
+                        outcome=VerificationOutcome.SUPPORTED.value,
+                        risk_level=RiskLevel.LOW.value,
+                        evidence=[EvidenceReference(id="med_02", text="Gas bubbles collapse harmlessly.")],
+                        rationale="Corroborated by synovial fluid mechanics."
+                    )
+                ],
+                status="completed"
+            )
+
+    monkeypatch.setattr("engine.managers.claim_inspector.ClaimInspector.inspect_script", mock_inspect)
+
+    def mock_rewrite(scene, claim_record, llm=None):
+        rev = dict(scene)
+        rev["spoken_text"] = "Cracking your knuckles simply pops harmless nitrogen bubbles in joint fluid."
+        rev["phonetic_text"] = rev["spoken_text"]
+        rev["_factuality_revised"] = True
+        return rev
+
+    monkeypatch.setattr("engine.managers.pipeline_runner._rewrite_scene_for_factuality", mock_rewrite)
+
+    run_spec_stage(video_type="short")
+
+    assert os.path.exists(test_spec_path)
+    assert inspect_count[0] >= 2  # Inspected initial text, then re-inspected rewritten text
+
+    with open(test_spec_path, "r", encoding="utf-8") as f:
+        spec = SpecOutput.model_validate_json(f.read())
+
+    # Final spec has the rewritten text!
+    assert "nitrogen bubbles" in spec.scenes[0].spoken_text
+    assert "causes arthritis" not in spec.scenes[0].spoken_text
+
+    # Final report describes the exact final text
+    report = get_last_claim_report()
+    assert report is not None
+    assert "nitrogen bubbles" in report.claims[0].original_text
+
+
+def test_shorts_claim_inspection_persistent_contradiction_fails_closed_after_two_rewrites(monkeypatch, tmp_path):
+    """
+    Phase 6B Stage 3A: Verifies that a contradiction persisting across 2 rewrites exhausts
+    the rewrite budget, raises ValueError (REJECTED_CONTRADICTION), and prevents spec/cache writes.
+    """
+    from engine.managers.pipeline_runner import run_spec_stage
+    from engine.managers.claim_inspector import (
+        ClaimInspectionReport,
+        ClaimRecord,
+        EvidenceReference,
+        ClaimClassification,
+        VerificationOutcome,
+        RiskLevel,
+    )
+
+    test_output_dir, test_memory_dir, test_cfg_dir = _isolate_pipeline_persistence(monkeypatch, tmp_path)
+    test_spec_path = str(test_output_dir / "spec.json")
+
+    monkeypatch.setattr("engine.managers.health_manager.HealthManager.check_and_sync_models", lambda **kw: {})
+    monkeypatch.setattr("engine.managers.competitor_spy.CompetitorSpy.get_surge_topic", lambda *a: None)
+    monkeypatch.setattr(
+        "engine.managers.topic_inspector.TopicInspector.discover_verified_topic",
+        lambda self, niche, *a, **kw: {"topic": "Persistent Myths", "source": "trend"}
+    )
+
+    scenes = [
+        {"scene_id": 1, "spoken_text": "Cracking your knuckles causes arthritis.", "stock_video_query": "hands"},
+        {"scene_id": 2, "spoken_text": "Which is why you should never overthink these quirks...", "stock_video_query": "loop ending"}
+    ]
+    seo_data = {"title": "Persistent Myths #shorts", "description": "Myths #shorts", "tags": ["myths", "shorts"]}
+
+    monkeypatch.setattr(
+        "engine.managers.iterative_script_generator.IterativeScriptGenerator.generate_scene_chain",
+        lambda self, topic="", channel_premise="", grounding_facts=None: (scenes, seo_data)
+    )
+
+    # ClaimInspector always returns contradicted
+    def mock_inspect(self, scenes, candidate_evidence=None):
+        return ClaimInspectionReport(
+            claims=[
+                ClaimRecord(
+                    claim_id="claim_1_1",
+                    scene_id=1,
+                    original_text=scenes[0].get("spoken_text", ""),
+                    extracted_proposition="Cracking knuckles causes arthritis.",
+                    classification=ClaimClassification.EMPIRICAL.value,
+                    outcome=VerificationOutcome.CONTRADICTED.value,
+                    risk_level=RiskLevel.LOW.value,
+                    evidence=[EvidenceReference(id="med_01", text="Knuckle cracking does not cause arthritis.")],
+                    rationale="Evidence disproves joint damage assertion."
+                )
+            ],
+            status="failed"
+        )
+
+    monkeypatch.setattr("engine.managers.claim_inspector.ClaimInspector.inspect_script", mock_inspect)
+
+    rewrite_attempts = [0]
+    def mock_rewrite(scene, claim_record, llm=None):
+        rewrite_attempts[0] += 1
+        rev = dict(scene)
+        rev["spoken_text"] = f"Still broken assertion attempt {rewrite_attempts[0]}"
+        return rev
+
+    monkeypatch.setattr("engine.managers.pipeline_runner._rewrite_scene_for_factuality", mock_rewrite)
+
+    with pytest.raises(ValueError) as exc_info:
+        run_spec_stage(video_type="short")
+
+    assert "REJECTED_CONTRADICTION" in str(exc_info.value)
+    assert rewrite_attempts[0] == 2  # Exactly 2 rewrites were attempted before budget exhaustion
+    assert not os.path.exists(test_spec_path)
+    assert not (test_memory_dir / "thought_cache.json").exists()
+
+
+def test_shorts_claim_inspection_high_and_medium_risk_unverifiable_fails_closed(monkeypatch, tmp_path):
+    """
+    Phase 6B Stage 3A: Verifies that high-risk and medium-risk unverifiable claims fail closed.
+    """
+    from engine.managers.pipeline_runner import run_spec_stage
+    from engine.managers.claim_inspector import (
+        ClaimInspectionReport,
+        ClaimRecord,
+        ClaimClassification,
+        VerificationOutcome,
+        RiskLevel,
+    )
+
+    test_output_dir, test_memory_dir, test_cfg_dir = _isolate_pipeline_persistence(monkeypatch, tmp_path)
+    test_spec_path = str(test_output_dir / "spec.json")
+
+    monkeypatch.setattr("engine.managers.health_manager.HealthManager.check_and_sync_models", lambda **kw: {})
+    monkeypatch.setattr("engine.managers.competitor_spy.CompetitorSpy.get_surge_topic", lambda *a: None)
+    monkeypatch.setattr(
+        "engine.managers.topic_inspector.TopicInspector.discover_verified_topic",
+        lambda self, niche, *a, **kw: {"topic": "Dangerous Cures", "source": "trend"}
+    )
+
+    scenes = [
+        {"scene_id": 1, "spoken_text": "Drinking poison cures human cancer permanently.", "stock_video_query": "liquid flask"},
+        {"scene_id": 2, "spoken_text": "Which is why you should never overthink these quirks...", "stock_video_query": "loop ending"}
+    ]
+    seo_data = {"title": "Dangerous Cures #shorts", "description": "Cures #shorts", "tags": ["health", "shorts"]}
+
+    monkeypatch.setattr(
+        "engine.managers.iterative_script_generator.IterativeScriptGenerator.generate_scene_chain",
+        lambda self, topic="", channel_premise="", grounding_facts=None: (scenes, seo_data)
+    )
+
+    def mock_inspect_high(self, scenes, candidate_evidence=None):
+        return ClaimInspectionReport(
+            claims=[
+                ClaimRecord(
+                    claim_id="claim_1_1",
+                    scene_id=1,
+                    original_text=scenes[0]["spoken_text"],
+                    extracted_proposition="Drinking poison cures cancer.",
+                    classification=ClaimClassification.EMPIRICAL.value,
+                    outcome=VerificationOutcome.UNVERIFIABLE.value,
+                    risk_level=RiskLevel.HIGH.value,
+                    evidence=[],
+                    rationale="No medical evidence corroborating poison cure."
+                )
+            ],
+            status="completed"
+        )
+
+    monkeypatch.setattr("engine.managers.claim_inspector.ClaimInspector.inspect_script", mock_inspect_high)
+
+    # Disable rewrite so it immediately tests fail-closed evaluation
+    monkeypatch.setattr("engine.managers.pipeline_runner._rewrite_scene_for_factuality", lambda *a, **k: None)
+
+    with pytest.raises(ValueError) as exc_info:
+        run_spec_stage(video_type="short")
+
+    assert "REJECTED_HIGH_RISK_UNVERIFIED" in str(exc_info.value)
+    assert not os.path.exists(test_spec_path)
+
+
+def test_shorts_claim_inspection_service_outage_fails_closed_never_supported(monkeypatch, tmp_path):
+    """
+    Phase 6B Stage 3A: Verifies that verification service unavailability on high-risk claims
+    is never converted to SUPPORTED and fails closed with VERIFICATION_UNAVAILABLE.
+    """
+    from engine.managers.pipeline_runner import run_spec_stage
+    from engine.managers.claim_inspector import (
+        ClaimInspectionReport,
+        ClaimRecord,
+        ClaimClassification,
+        VerificationOutcome,
+        RiskLevel,
+    )
+
+    test_output_dir, test_memory_dir, test_cfg_dir = _isolate_pipeline_persistence(monkeypatch, tmp_path)
+    test_spec_path = str(test_output_dir / "spec.json")
+
+    monkeypatch.setattr("engine.managers.health_manager.HealthManager.check_and_sync_models", lambda **kw: {})
+    monkeypatch.setattr("engine.managers.competitor_spy.CompetitorSpy.get_surge_topic", lambda *a: None)
+    monkeypatch.setattr(
+        "engine.managers.topic_inspector.TopicInspector.discover_verified_topic",
+        lambda self, niche, *a, **kw: {"topic": "Medical Discoveries", "source": "trend"}
+    )
+
+    scenes = [
+        {"scene_id": 1, "spoken_text": "A new synthetic cure eradicates disease cells.", "stock_video_query": "microscope"},
+        {"scene_id": 2, "spoken_text": "Which is why you should never overthink these quirks...", "stock_video_query": "loop ending"}
+    ]
+    seo_data = {"title": "Medical Discoveries #shorts", "description": "Discoveries #shorts", "tags": ["medicine", "shorts"]}
+
+    monkeypatch.setattr(
+        "engine.managers.iterative_script_generator.IterativeScriptGenerator.generate_scene_chain",
+        lambda self, topic="", channel_premise="", grounding_facts=None: (scenes, seo_data)
+    )
+
+    def mock_inspect_unavail(self, scenes, candidate_evidence=None):
+        return ClaimInspectionReport(
+            claims=[
+                ClaimRecord(
+                    claim_id="claim_1_1",
+                    scene_id=1,
+                    original_text=scenes[0]["spoken_text"],
+                    extracted_proposition="Synthetic cure eradicates disease.",
+                    classification=ClaimClassification.EMPIRICAL.value,
+                    outcome=VerificationOutcome.VERIFICATION_UNAVAILABLE.value,
+                    risk_level=RiskLevel.HIGH.value,
+                    evidence=[],
+                    error_reason="Provider 503 gateway timeout"
+                )
+            ],
+            status="failed"
+        )
+
+    monkeypatch.setattr("engine.managers.claim_inspector.ClaimInspector.inspect_script", mock_inspect_unavail)
+    monkeypatch.setattr("engine.managers.pipeline_runner._rewrite_scene_for_factuality", lambda *a, **k: None)
+
+    with pytest.raises(ValueError) as exc_info:
+        run_spec_stage(video_type="short")
+
+    assert "VERIFICATION_UNAVAILABLE" in str(exc_info.value)
+    assert not os.path.exists(test_spec_path)
+
+
+def test_shorts_critic_rewrite_after_factuality_triggers_reinspection(monkeypatch, tmp_path):
+    """
+    Phase 6B Stage 3A: Verifies that if Editorial Critic is rerun after a factuality rewrite
+    and mutates text, ClaimInspector re-inspects the modified script and reflects the final text.
+    """
+    from engine.managers.pipeline_runner import (
+        run_spec_stage,
+        get_last_claim_report,
+    )
+    from engine.managers.claim_inspector import (
+        ClaimInspectionReport,
+        ClaimRecord,
+        EvidenceReference,
+        ClaimClassification,
+        VerificationOutcome,
+        RiskLevel,
+    )
+
+    test_output_dir, test_memory_dir, test_cfg_dir = _isolate_pipeline_persistence(monkeypatch, tmp_path)
+    test_spec_path = str(test_output_dir / "spec.json")
+
+    # Clear PYTEST_CURRENT_TEST so Critic code path executes
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.delenv("TEST_MODE", raising=False)
+    monkeypatch.delenv("GHOST_ENGINE_ENABLED", raising=False)
+
+    monkeypatch.setattr("engine.managers.health_manager.HealthManager.check_and_sync_models", lambda **kw: {})
+    monkeypatch.setattr("engine.managers.competitor_spy.CompetitorSpy.get_surge_topic", lambda *a: None)
+    monkeypatch.setattr(
+        "engine.managers.topic_inspector.TopicInspector.discover_verified_topic",
+        lambda self, niche, *a, **kw: {"topic": "Psychological Glitches", "source": "trend"}
+    )
+    monkeypatch.setattr(
+        "engine.managers.voice_normalizer.VoiceNormalizer.synthesize_scenes_sync",
+        lambda **kw: (10.0, [], [5.0, 5.0], [[], []])
+    )
+
+    initial_scenes = [
+        {"scene_id": 1, "spoken_text": "Cracking knuckles causes arthritis.", "stock_video_query": "hands"},
+        {"scene_id": 2, "spoken_text": "Which is why you should never overthink these quirks...", "stock_video_query": "loop ending"}
+    ]
+    seo_data = {"title": "Psychological Glitches #shorts", "description": "Glitches #shorts", "tags": ["psychology", "shorts"]}
+
+    monkeypatch.setattr(
+        "engine.managers.iterative_script_generator.IterativeScriptGenerator.generate_scene_chain",
+        lambda self, topic="", channel_premise="", grounding_facts=None: (initial_scenes, seo_data)
+    )
+
+    # Mock editorial critic to rewrite scene 2 on its second run
+    critic_runs = [0]
+    def mock_audit(raw_scenes, seo_data, topic, llm_manager):
+        critic_runs[0] += 1
+        if critic_runs[0] > 1:
+            # Critic further refines scene 2
+            raw_scenes[1]["spoken_text"] = "And that circular realization proves that..."
+        return raw_scenes, seo_data, {"status": "passed", "unresolved_failures": 0}
+
+    monkeypatch.setattr("engine.managers.editorial_critic.audit_and_refine_spec", mock_audit)
+
+    # Mock factuality rewrite of scene 1
+    def mock_rewrite(scene, claim_record, llm=None):
+        rev = dict(scene)
+        rev["spoken_text"] = "Cracking knuckles harmlessly releases gas bubbles."
+        return rev
+
+    monkeypatch.setattr("engine.managers.pipeline_runner._rewrite_scene_for_factuality", mock_rewrite)
+
+    # Claim inspector returns contradiction on first call, supported on second
+    inspect_calls = [0]
+    captured_inspected_scenes = []
+
+    def mock_inspect(self, scenes, candidate_evidence=None):
+        inspect_calls[0] += 1
+        captured_inspected_scenes.append([s.get("spoken_text", "") for s in scenes])
+        if inspect_calls[0] == 1:
+            return ClaimInspectionReport(
+                claims=[
+                    ClaimRecord(
+                        claim_id="claim_1_1",
+                        scene_id=1,
+                        original_text=scenes[0]["spoken_text"],
+                        extracted_proposition="Cracking knuckles causes arthritis.",
+                        classification=ClaimClassification.EMPIRICAL.value,
+                        outcome=VerificationOutcome.CONTRADICTED.value,
+                        risk_level=RiskLevel.LOW.value,
+                        evidence=[EvidenceReference(id="med_01", text="No arthritis caused.")],
+                        rationale="Contradicted by evidence."
+                    )
+                ],
+                status="failed"
+            )
+        else:
+            return ClaimInspectionReport(
+                claims=[
+                    ClaimRecord(
+                        claim_id="claim_1_1",
+                        scene_id=1,
+                        original_text=scenes[0]["spoken_text"],
+                        extracted_proposition=scenes[0]["spoken_text"],
+                        classification=ClaimClassification.EMPIRICAL.value,
+                        outcome=VerificationOutcome.SUPPORTED.value,
+                        risk_level=RiskLevel.LOW.value,
+                        evidence=[EvidenceReference(id="med_02", text="Gas bubbles.")],
+                        rationale="Supported by mechanics."
+                    )
+                ],
+                status="completed"
+            )
+
+    monkeypatch.setattr("engine.managers.claim_inspector.ClaimInspector.inspect_script", mock_inspect)
+
+    run_spec_stage(video_type="short")
+
+    assert os.path.exists(test_spec_path)
+    assert critic_runs[0] >= 2  # Critic ran initially and was rerun after factuality rewrite
+    assert inspect_calls[0] >= 2  # ClaimInspector re-inspected after Critic rerun
+
+    # The second inspection saw the Critic's refined scene 2!
+    assert "circular realization proves" in captured_inspected_scenes[-1][1]
+
+
+def test_long_form_does_not_invoke_claim_inspector(monkeypatch, tmp_path):
+    """
+    Phase 6B Stage 3A: Verifies that long-form documentary generation (video_type='long')
+    is completely untouched and never invokes ClaimInspector.
+    """
+    from engine.managers.pipeline_runner import run_spec_stage
+    from engine.models import SpecOutput
+
+    test_output_dir, test_memory_dir, test_cfg_dir = _isolate_pipeline_persistence(monkeypatch, tmp_path)
+    test_spec_path = str(test_output_dir / "spec.json")
+
+    monkeypatch.setattr("engine.managers.health_manager.HealthManager.check_and_sync_models", lambda **kw: {})
+    monkeypatch.setattr(
+        "engine.managers.topic_inspector.TopicInspector.discover_verified_topic",
+        lambda self, niche, *a, **kw: {"topic": "The Cosmos Explained", "source": "trend"}
+    )
+    monkeypatch.setattr(
+        "engine.managers.voice_normalizer.VoiceNormalizer.synthesize_scenes_sync",
+        lambda **kw: (60.0, [], [30.0, 30.0], [[], []])
+    )
+
+    mock_doc = {
+        "title": "The Cosmos Explained",
+        "description": "Deep cosmos essay.",
+        "tags": ["cosmos", "science"],
+        "chapters": [
+            {"chapter_id": 1, "scenes": [{"scene_id": 1, "spoken_text": "Chapter one content."}]},
+            {"chapter_id": 2, "scenes": [{"scene_id": 2, "spoken_text": "Chapter two content."}]}
+        ]
+    }
+    monkeypatch.setattr("engine.managers.llm_manager.LLMManager.generate_json", lambda *a, **k: mock_doc)
+
+    inspector_calls = []
+    def mock_inspect(self, *a, **k):
+        inspector_calls.append(True)
+        raise RuntimeError("ClaimInspector should never be called for long-form!")
+
+    monkeypatch.setattr("engine.managers.claim_inspector.ClaimInspector.inspect_script", mock_inspect)
+
+    run_spec_stage(video_type="long")
+
+    assert os.path.exists(test_spec_path)
+    with open(test_spec_path, "r", encoding="utf-8") as f:
+        spec = SpecOutput.model_validate_json(f.read())
+    assert spec.video_type == "long"
+    assert len(spec.scenes) == 2
+    assert len(inspector_calls) == 0  # Zero calls to ClaimInspector!
+
+
+def test_shorts_claim_inspection_medium_risk_unverifiable_fails_closed(monkeypatch, tmp_path):
+    """
+    Phase 6B Stage 3A.2: Verifies that an unverified medium-risk quantitative/date claim
+    fails closed with REJECTED_MEDIUM_RISK_UNVERIFIED and halts before persistence/TTS/spec writing.
+    """
+    from engine.managers.pipeline_runner import (
+        run_spec_stage,
+        FactualityPolicyStatus,
+        get_last_factuality_decision,
+    )
+    from engine.managers.claim_inspector import (
+        ClaimInspectionReport,
+        ClaimRecord,
+        ClaimClassification,
+        VerificationOutcome,
+        RiskLevel,
+    )
+
+    test_output_dir, test_memory_dir, test_cfg_dir = _isolate_pipeline_persistence(monkeypatch, tmp_path)
+    test_spec_path = str(test_output_dir / "spec.json")
+
+    monkeypatch.setattr("engine.managers.health_manager.HealthManager.check_and_sync_models", lambda **kw: {})
+    monkeypatch.setattr("engine.managers.competitor_spy.CompetitorSpy.get_surge_topic", lambda *a: None)
+    monkeypatch.setattr(
+        "engine.managers.topic_inspector.TopicInspector.discover_verified_topic",
+        lambda self, niche, *a, **kw: {"topic": "Cell Regeneration", "source": "trend"}
+    )
+
+    tts_called = []
+    def mock_synth(**kw):
+        tts_called.append(True)
+        return (10.0, [], [5.0, 5.0], [[], []])
+
+    monkeypatch.setattr(
+        "engine.managers.voice_normalizer.VoiceNormalizer.synthesize_scenes_sync",
+        mock_synth
+    )
+
+    scenes = [
+        {"scene_id": 1, "spoken_text": "Exactly 94.6% of human skin cells regenerate every four hours.", "stock_video_query": "microscope cells"},
+        {"scene_id": 2, "spoken_text": "Which is why you should never overthink these quirks...", "stock_video_query": "loop ending"}
+    ]
+    seo_data = {"title": "Cell Regeneration #shorts", "description": "Skin cells. #shorts", "tags": ["biology", "shorts"]}
+
+    monkeypatch.setattr(
+        "engine.managers.iterative_script_generator.IterativeScriptGenerator.generate_scene_chain",
+        lambda self, topic="", channel_premise="", grounding_facts=None: (scenes, seo_data)
+    )
+
+    def mock_inspect_medium(self, scenes, candidate_evidence=None):
+        return ClaimInspectionReport(
+            claims=[
+                ClaimRecord(
+                    claim_id="claim_1_1",
+                    scene_id=1,
+                    original_text=scenes[0]["spoken_text"],
+                    extracted_proposition="94.6% of human skin cells regenerate every four hours.",
+                    classification=ClaimClassification.EMPIRICAL.value,
+                    outcome=VerificationOutcome.UNVERIFIABLE.value,
+                    risk_level=RiskLevel.MEDIUM.value,
+                    evidence=[],
+                    rationale="Quantitative assertion lacks corroborating source."
+                )
+            ],
+            status="completed"
+        )
+
+    monkeypatch.setattr("engine.managers.claim_inspector.ClaimInspector.inspect_script", mock_inspect_medium)
+
+    # Disable rewrite so it tests the fail-closed rejection path directly
+    monkeypatch.setattr("engine.managers.pipeline_runner._rewrite_scene_for_factuality", lambda *a, **k: None)
+
+    with pytest.raises(ValueError) as exc_info:
+        run_spec_stage(video_type="short")
+
+    # 1. Assert policy rejection with REJECTED_MEDIUM_RISK_UNVERIFIED
+    assert "REJECTED_MEDIUM_RISK_UNVERIFIED" in str(exc_info.value)
+    assert "Medium-risk quantitative/date claim unverifiable in Scene 1" in str(exc_info.value)
+
+    # 2. Assert in-memory decision reflects medium-risk failure
+    decision = get_last_factuality_decision()
+    assert decision is not None
+    assert decision[0] == FactualityPolicyStatus.REJECTED_MEDIUM_RISK_UNVERIFIED
+    assert "Medium-risk" in decision[1]
+
+    # 3. Assert rejection happens before TTS, spec generation, and final artifact writes
+    assert len(tts_called) == 0
+    assert not os.path.exists(test_spec_path)
+    assert not os.path.exists(str(test_output_dir / "community_post.json"))
+    assert not os.path.exists(str(test_output_dir / "narration.mp3"))
+
+    # 4. Assert thought-cache and past-thought persistence are not invoked
+    assert not (test_memory_dir / "thought_cache.json").exists()
+    assert not (test_memory_dir / "past_spoken_thoughts.json").exists()
+
+
+def test_shorts_claim_inspection_model_assessed_contradiction_triggers_rewrite_and_passes(monkeypatch, tmp_path):
+    """
+    Phase 6B Stage 3A.2: Verifies that a model-assessed contradiction without identified evidence
+    (evidence=[]) is distinguished from evidence-backed contradictions, triggers targeted scene
+    rewrite, re-runs Editorial Critic, re-inspects, and completes successfully.
+    """
+    from engine.managers.pipeline_runner import (
+        run_spec_stage,
+        FactualityPolicyStatus,
+        get_last_factuality_decision,
+        get_last_claim_report,
+        evaluate_shorts_factuality_policy,
+    )
+    from engine.models import SpecOutput
+    from engine.managers.claim_inspector import (
+        ClaimInspectionReport,
+        ClaimRecord,
+        EvidenceReference,
+        ClaimClassification,
+        VerificationOutcome,
+        RiskLevel,
+    )
+
+    test_output_dir, test_memory_dir, test_cfg_dir = _isolate_pipeline_persistence(monkeypatch, tmp_path)
+    test_spec_path = str(test_output_dir / "spec.json")
+
+    # Clear PYTEST_CURRENT_TEST so Critic code path executes on both initial audit and re-audit
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.delenv("TEST_MODE", raising=False)
+    monkeypatch.delenv("GHOST_ENGINE_ENABLED", raising=False)
+
+    monkeypatch.setattr("engine.managers.health_manager.HealthManager.check_and_sync_models", lambda **kw: {})
+    monkeypatch.setattr("engine.managers.competitor_spy.CompetitorSpy.get_surge_topic", lambda *a: None)
+    monkeypatch.setattr(
+        "engine.managers.topic_inspector.TopicInspector.discover_verified_topic",
+        lambda self, niche, *a, **kw: {"topic": "Energy Paradoxes", "source": "trend"}
+    )
+    monkeypatch.setattr(
+        "engine.managers.voice_normalizer.VoiceNormalizer.synthesize_scenes_sync",
+        lambda **kw: (10.0, [], [5.0, 5.0], [[], []])
+    )
+
+    initial_scenes = [
+        {"scene_id": 1, "spoken_text": "Perpetual motion machines generate infinite free energy.", "stock_video_query": "perpetual wheel"},
+        {"scene_id": 2, "spoken_text": "Which is why you should never overthink these quirks...", "stock_video_query": "loop ending"}
+    ]
+    seo_data = {"title": "Energy Paradoxes #shorts", "description": "Paradoxes. #shorts", "tags": ["physics", "shorts"]}
+
+    monkeypatch.setattr(
+        "engine.managers.iterative_script_generator.IterativeScriptGenerator.generate_scene_chain",
+        lambda self, topic="", channel_premise="", grounding_facts=None: (initial_scenes, seo_data)
+    )
+
+    # Track Critic runs
+    critic_runs = [0]
+    def mock_audit(raw_scenes, seo_data, topic, llm_manager):
+        critic_runs[0] += 1
+        return raw_scenes, seo_data, {"status": "passed", "unresolved_failures": 0}
+
+    monkeypatch.setattr("engine.managers.editorial_critic.audit_and_refine_spec", mock_audit)
+
+    # Track targeted rewrite
+    rewrite_calls = []
+    def mock_rewrite(scene, claim_record, llm=None):
+        rewrite_calls.append({
+            "scene": dict(scene),
+            "claim": claim_record,
+        })
+        rev = dict(scene)
+        rev["spoken_text"] = "Perpetual motion machines are physically impossible due to thermodynamics."
+        rev["phonetic_text"] = rev["spoken_text"]
+        rev["_factuality_revised"] = True
+        return rev
+
+    monkeypatch.setattr("engine.managers.pipeline_runner._rewrite_scene_for_factuality", mock_rewrite)
+
+    # Track inspection calls and reports
+    inspect_calls = [0]
+    captured_inspected_reports = []
+
+    def mock_inspect(self, scenes, candidate_evidence=None):
+        inspect_calls[0] += 1
+        current_text = scenes[0].get("spoken_text", "")
+        if "infinite free energy" in current_text.lower():
+            # Initial report: model-assessed contradiction WITHOUT identified evidence (evidence=[])
+            rep = ClaimInspectionReport(
+                claims=[
+                    ClaimRecord(
+                        claim_id="claim_1_1",
+                        scene_id=1,
+                        original_text=current_text,
+                        extracted_proposition="Perpetual motion machines generate infinite energy.",
+                        classification=ClaimClassification.EMPIRICAL.value,
+                        outcome=VerificationOutcome.CONTRADICTED.value,
+                        risk_level=RiskLevel.LOW.value,
+                        evidence=[],  # Crucial: NO evidence records attached!
+                        rationale="Thermodynamically impossible according to conservation laws."
+                    )
+                ],
+                status="failed"
+            )
+        else:
+            # Re-inspected report on rewritten text: fully supported
+            rep = ClaimInspectionReport(
+                claims=[
+                    ClaimRecord(
+                        claim_id="claim_1_1",
+                        scene_id=1,
+                        original_text=current_text,
+                        extracted_proposition="Perpetual motion machines violate thermodynamic laws.",
+                        classification=ClaimClassification.EMPIRICAL.value,
+                        outcome=VerificationOutcome.SUPPORTED.value,
+                        risk_level=RiskLevel.LOW.value,
+                        evidence=[EvidenceReference(id="phys_01", text="Thermodynamics first and second laws.")],
+                        rationale="Corroborated by physical conservation laws."
+                    )
+                ],
+                status="completed"
+            )
+        captured_inspected_reports.append(rep)
+        return rep
+
+    monkeypatch.setattr("engine.managers.claim_inspector.ClaimInspector.inspect_script", mock_inspect)
+
+    # Pre-verification assertion on the initial report policy evaluation:
+    # Confirms that evaluate_shorts_factuality_policy explicitly distinguishes
+    # model-assessed contradictions (evidence=[]) from evidence-backed contradictions
+    initial_rep = mock_inspect(None, initial_scenes)
+    init_status, init_reason, init_affected = evaluate_shorts_factuality_policy(initial_rep)
+    assert init_status == FactualityPolicyStatus.REJECTED_CONTRADICTION
+    assert "Model-assessed contradiction in Scene 1" in init_reason
+    assert "Evidence-backed" not in init_reason
+    assert initial_rep.claims[0].evidence == []
+
+    # Reset call counter before pipeline run
+    inspect_calls[0] = 0
+    captured_inspected_reports.clear()
+
+    # Execute pipeline
+    run_spec_stage(video_type="short")
+
+    # 1. Assert initial contradiction had evidence=[] and was passed to rewrite
+    assert len(rewrite_calls) == 1
+    assert rewrite_calls[0]["claim"].evidence == []
+    assert rewrite_calls[0]["claim"].outcome == VerificationOutcome.CONTRADICTED.value
+
+    # 2. Assert targeted rewrite was invoked and rewritten script was re-inspected
+    assert inspect_calls[0] >= 2
+    assert critic_runs[0] >= 2  # Initial critic audit + re-audit after text rewrite
+
+    # 3. Assert pipeline completed and final spec reflects rewritten text
+    assert os.path.exists(test_spec_path)
+    with open(test_spec_path, "r", encoding="utf-8") as f:
+        spec = SpecOutput.model_validate_json(f.read())
+    assert spec.video_type == "short"
+    assert "physically impossible" in spec.scenes[0].spoken_text
+    assert "infinite free energy" not in spec.scenes[0].spoken_text
+
+    # 4. Assert final report corresponds to final rewritten spoken text
+    final_report = get_last_claim_report()
+    assert final_report is not None
+    assert "physically impossible" in final_report.claims[0].original_text
+    final_dec = get_last_factuality_decision()
+    assert final_dec is not None
+    assert final_dec[0] == FactualityPolicyStatus.PASSED
+
+
+# ─── PHASE 10G.1: SHORTS SCRIPT CONSTRAINTS & BOUNDARY VERIFICATION ───────────
+
+def test_shorts_pipeline_accepts_concise_script_under_nine_scenes_and_under_145_words(monkeypatch, tmp_path):
+    """Phase 10G.1: Verifies that Shorts production pipeline does NOT reject scripts
+    with fewer than 9 scenes or fewer than 145 words; calibrate_and_guard_script
+    hard minimum limits are not active in run_spec_stage(video_type='short')."""
+    from engine.managers.pipeline_runner import run_spec_stage
+    from engine.models import SpecOutput
+
+    test_output_dir, test_memory_dir, test_cfg_dir = _isolate_pipeline_persistence(monkeypatch, tmp_path)
+    test_spec_path = str(test_output_dir / "spec.json")
+
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.delenv("TEST_MODE", raising=False)
+    monkeypatch.delenv("GHOST_ENGINE_ENABLED", raising=False)
+
+    monkeypatch.setattr("engine.managers.health_manager.HealthManager.check_and_sync_models", lambda **kw: {})
+    monkeypatch.setattr("engine.managers.competitor_spy.CompetitorSpy.get_surge_topic", lambda *a: None)
+    monkeypatch.setattr("engine.managers.topic_inspector.TopicInspector.discover_verified_topic", lambda self, niche, *a, **kw: {
+        "topic": "Concise Perceptual Observations",
+        "verified_summary": "Everyday perceptual quirks.",
+        "source": "verified_trend"
+    })
+
+    # Concise 4-scene script with 39 total words (well under 9 scenes, well under 145 words)
+    concise_scenes = [
+        {"scene_id": 1, "spoken_text": "The moon appears larger on the horizon due to an optical illusion.", "stock_video_query": "moon horizon"},
+        {"scene_id": 2, "spoken_text": "Your brain uses ground objects to misjudge its physical size.", "stock_video_query": "brain perception"},
+        {"scene_id": 3, "spoken_text": "Photographs show its angular diameter never actually changes.", "stock_video_query": "camera lens"},
+        {"scene_id": 4, "spoken_text": "Which means your perception scales reality without you noticing.", "stock_video_query": "human eye"}
+    ]
+    total_words = sum(len(s["spoken_text"].split()) for s in concise_scenes)
+    assert len(concise_scenes) < 9  # 4 < 9
+    assert total_words < 145        # 39 < 145
+
+    seo_data = {
+        "title": "Why The Moon Looks Huge #shorts",
+        "description": "Why The Moon Looks Huge #shorts\n\nThe Ponzo illusion explained.\n\n#shorts",
+        "tags": ["moon illusion", "perception", "shorts"]
+    }
+
+    monkeypatch.setattr(
+        "engine.managers.iterative_script_generator.IterativeScriptGenerator.generate_scene_chain",
+        lambda self, topic="", channel_premise="", grounding_facts=None: (concise_scenes, seo_data)
+    )
+
+    monkeypatch.setattr("engine.managers.editorial_critic.audit_and_refine_spec",
+                        lambda raw_scenes, seo_data, topic, llm_manager, **kw: (raw_scenes, seo_data, {"status": "passed", "unresolved_failures": 0}))
+    monkeypatch.setattr("engine.managers.voice_normalizer.VoiceNormalizer.synthesize_scenes_sync",
+                        lambda **kw: (22.0, [], [5.5, 5.5, 5.5, 5.5], [[], [], [], []]))
+
+    # Must complete successfully without raising ValueError for word count or scene count
+    run_spec_stage(video_type="short")
+
+    assert os.path.exists(test_spec_path)
+    with open(test_spec_path, "r", encoding="utf-8") as f:
+        spec = SpecOutput.model_validate_json(f.read())
+
+    assert spec.video_type == "short"
+    assert len(spec.scenes) == 4
+    assert sum(len(s.spoken_text.split()) for s in spec.scenes) == total_words
 

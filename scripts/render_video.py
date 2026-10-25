@@ -64,8 +64,15 @@ from engine.managers.music_manager import MusicManager
 def find_ffmpeg_bin() -> str:
     """Finds available FFmpeg binary (favoring environment or PATH)."""
     env_bin = os.environ.get("FFMPEG_BINARY")
-    if env_bin and os.path.exists(env_bin):
-        return env_bin
+    if env_bin:
+        clean_bin = env_bin.strip().strip('"').strip("'")
+        if clean_bin:
+            if os.path.exists(clean_bin):
+                return clean_bin
+            raise FileNotFoundError(
+                f"Configured FFMPEG_BINARY does not exist: '{env_bin}'. "
+                "Please check the path or unset FFMPEG_BINARY to use system PATH."
+            )
     try:
         import shutil
         sys_bin = shutil.which("ffmpeg")
@@ -76,16 +83,17 @@ def find_ffmpeg_bin() -> str:
     return "ffmpeg"
 
 
-def check_filter_supported(filter_name: str) -> bool:
+def check_filter_supported(filter_name: str, ffmpeg_bin: Optional[str] = None) -> bool:
     """Checks whether a specific FFmpeg filter is supported by the installed binary."""
+    bin_path = ffmpeg_bin or find_ffmpeg_bin()
     try:
-        res = subprocess.run(["ffmpeg", "-filters"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10)
+        res = subprocess.run([bin_path, "-filters"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10)
         return bool(re.search(rf"\b{filter_name}\b", res.stdout))
     except Exception:
         return False
 
 
-def _probe_video_duration(file_path: str) -> float:
+def _probe_video_duration(file_path: str, ffmpeg_bin: Optional[str] = None) -> float:
     """Probes the exact duration of an MP4/video file in seconds."""
     if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
         return 0.0
@@ -100,8 +108,9 @@ def _probe_video_duration(file_path: str) -> float:
     except Exception:
         pass
     # Fallback to ffmpeg -i inspection
+    bin_path = ffmpeg_bin or find_ffmpeg_bin()
     try:
-        res = subprocess.run(["ffmpeg", "-i", file_path], capture_output=True, text=True, timeout=10)
+        res = subprocess.run([bin_path, "-i", file_path], capture_output=True, text=True, timeout=10)
         for line in res.stderr.splitlines():
             if "Duration:" in line:
                 dur_str = line.split("Duration:")[1].split(",")[0].strip()
@@ -474,6 +483,7 @@ def render_video_ffmpeg(
 
     # Preset selection (default 'fast' for high quality without excessive encode time)
     preset = settings_cfg.get("video_profiles", {}).get(spec.video_type, {}).get("preset", "fast")
+    ffmpeg_bin = find_ffmpeg_bin()
 
     # 1. Download Clips
     local_clips = []
@@ -598,7 +608,7 @@ def render_video_ffmpeg(
         )
 
         seg_cmd = [
-            "ffmpeg", "-y",
+            ffmpeg_bin, "-y",
             "-stream_loop", "-1",
             "-fflags", "+genpts",
             "-i", clip_path,
@@ -616,7 +626,13 @@ def render_video_ffmpeg(
             seg_output
         ]
 
-        res = subprocess.run(seg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, timeout=120)
+        try:
+            res = subprocess.run(seg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, timeout=120)
+        except FileNotFoundError as e:
+            raise FileNotFoundError(
+                f"FFmpeg executable not found at '{ffmpeg_bin}'. "
+                "Please install FFmpeg on system PATH or set FFMPEG_BINARY to the ffmpeg executable path."
+            ) from e
         if res.returncode != 0:
             err_tail = "\n".join(res.stderr.strip().splitlines()[-15:])
             raise RuntimeError(f"FFmpeg failed to normalize segment {idx + 1} from '{clip_path}':\n{err_tail}")
@@ -636,7 +652,7 @@ def render_video_ffmpeg(
     concat_start = time.time()
 
     concat_cmd = [
-        "ffmpeg", "-y",
+        ffmpeg_bin, "-y",
         "-f", "concat",
         "-safe", "0",
         "-i", concat_list_file,
@@ -644,7 +660,13 @@ def render_video_ffmpeg(
         concat_base
     ]
 
-    res = subprocess.run(concat_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, timeout=60)
+    try:
+        res = subprocess.run(concat_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, timeout=60)
+    except FileNotFoundError as e:
+        raise FileNotFoundError(
+            f"FFmpeg executable not found at '{ffmpeg_bin}'. "
+            "Please install FFmpeg on system PATH or set FFMPEG_BINARY to the ffmpeg executable path."
+        ) from e
     if res.returncode != 0:
         err_tail = "\n".join(res.stderr.strip().splitlines()[-15:])
         raise RuntimeError(f"FFmpeg concat demuxer failed:\n{err_tail}")
@@ -654,11 +676,11 @@ def render_video_ffmpeg(
 
     # Verify concatenated video covers target duration; if stream-copy dropped any trailing segments, re-encode concat
     if not os.environ.get("PYTEST_CURRENT_TEST"):
-        probed_dur = _probe_video_duration(concat_base)
+        probed_dur = _probe_video_duration(concat_base, ffmpeg_bin=ffmpeg_bin)
         if probed_dur > 0 and probed_dur < (total_duration - 0.5):
             print(f"⚠️ [RENDERER] Stream-copy concat duration ({probed_dur:.1f}s) is shorter than target ({total_duration:.1f}s). Re-encoding concat to guarantee complete video...", flush=True)
             reencode_cmd = [
-                "ffmpeg", "-y",
+                ffmpeg_bin, "-y",
                 "-f", "concat",
                 "-safe", "0",
                 "-i", concat_list_file,
@@ -669,7 +691,13 @@ def render_video_ffmpeg(
                 "-an",
                 concat_base
             ]
-            re_res = subprocess.run(reencode_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, timeout=120)
+            try:
+                re_res = subprocess.run(reencode_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, timeout=120)
+            except FileNotFoundError as e:
+                raise FileNotFoundError(
+                    f"FFmpeg executable not found at '{ffmpeg_bin}'. "
+                    "Please install FFmpeg on system PATH or set FFMPEG_BINARY to the ffmpeg executable path."
+                ) from e
             if re_res.returncode == 0:
                 print(f"  ✅ Re-encoded concat fallback completed successfully.", flush=True)
             else:
@@ -677,11 +705,17 @@ def render_video_ffmpeg(
 
     # ─── STAGE 3: COMPOSITE AUDIO, SUBTITLES & WATERMARK ──────────────────────
     print(f"🎨 [RENDERER - STEP 3/3] Compositing audio, subtitles & watermark (target: {total_duration:.1f}s)...", flush=True)
+    def _is_filter_supported(filter_name: str) -> bool:
+        try:
+            return check_filter_supported(filter_name, ffmpeg_bin=ffmpeg_bin)
+        except TypeError:
+            return check_filter_supported(filter_name)
+
     comp_start = time.time()
 
     vf_filters = []
     # Watermark overlay
-    if check_filter_supported("drawtext"):
+    if _is_filter_supported("drawtext"):
         branding = channel_cfg.get("branding", {})
         watermark_text = branding.get("watermark_text", channel_cfg.get("handle", "@metopato"))
         opacity = branding.get("opacity", 0.35)
@@ -716,7 +750,7 @@ def render_video_ffmpeg(
         print("⚠️ [RENDERER] FFmpeg build lacks 'drawtext' filter — skipping watermark overlay.", flush=True)
 
     # Burnt subtitles
-    if check_filter_supported("subtitles") and os.path.exists(ass_path):
+    if _is_filter_supported("subtitles") and os.path.exists(ass_path):
         clean_ass = ass_path.replace("\\", "/")
         font_dir = ""
         if font_file and font_file != "Arial" and os.path.exists(font_file):
@@ -726,13 +760,13 @@ def render_video_ffmpeg(
         fontsdir_arg = f":fontsdir='{font_dir}'" if font_dir else ""
         vf_filters.append(f"subtitles='{clean_ass}'{fontsdir_arg}")
     else:
-        if not check_filter_supported("subtitles"):
+        if not _is_filter_supported("subtitles"):
             print("⚠️ [RENDERER] FFmpeg build lacks 'subtitles' filter — skipping burnt subtitles.", flush=True)
         elif not os.path.exists(ass_path):
             print(f"⚠️ [RENDERER] Subtitle file '{ass_path}' not found — skipping burnt subtitles.", flush=True)
 
     # Ensure video track extends smoothly with tpad clone if video runs slightly short
-    if check_filter_supported("tpad"):
+    if _is_filter_supported("tpad"):
         vf_filters.append("tpad=stop_mode=clone:stop_duration=5")
 
     vf_arg = ["-vf", ",".join(vf_filters)] if vf_filters else []
@@ -820,7 +854,7 @@ def render_video_ffmpeg(
     os.makedirs(os.path.dirname(output_video_path) or ".", exist_ok=True)
 
     comp_cmd = [
-        "ffmpeg", "-y",
+        ffmpeg_bin, "-y",
         "-stream_loop", "-1",
         "-i", concat_base,
         *audio_inputs,
@@ -834,13 +868,19 @@ def render_video_ffmpeg(
         output_video_path
     ]
 
-    res = subprocess.run(
-        comp_cmd,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-        text=True,
-        timeout=300
-    )
+    try:
+        res = subprocess.run(
+            comp_cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=300
+        )
+    except FileNotFoundError as e:
+        raise FileNotFoundError(
+            f"FFmpeg executable not found at '{ffmpeg_bin}'. "
+            "Please install FFmpeg on system PATH or set FFMPEG_BINARY to the ffmpeg executable path."
+        ) from e
 
     if res.returncode != 0:
         err_tail = "\n".join(res.stderr.strip().splitlines()[-30:])

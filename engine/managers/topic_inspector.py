@@ -421,25 +421,57 @@ class TopicInspector:
         )
         user_prompt = f"Verify this topic candidate for niche '{niche}': '{topic}'"
         try:
-            return self.llm.generate_json(system_prompt, user_prompt, temperature=0.1)
-        except Exception:
+            res = self.llm.generate_json(system_prompt, user_prompt, temperature=0.1)
+            if not isinstance(res, dict):
+                return {
+                    "status": "unavailable",
+                    "is_niche_relevant": False,
+                    "is_factual": False,
+                    "confidence": 0.0,
+                    "primary_source": "",
+                    "rejection_reason": f"Topic verification failed: non-dictionary LLM response ({type(res).__name__})"
+                }
+            if "is_factual" not in res:
+                return {
+                    "status": "unavailable",
+                    "is_niche_relevant": False,
+                    "is_factual": False,
+                    "confidence": 0.0,
+                    "primary_source": "",
+                    "rejection_reason": "Topic verification failed: response missing required 'is_factual' field"
+                }
+            is_factual = bool(res.get("is_factual", False))
+            is_relevant = bool(res.get("is_niche_relevant", True))
+            confidence = float(res.get("confidence", 0.8 if is_factual else 0.0))
             return {
-                "is_niche_relevant": True,
-                "is_factual": True,
-                "confidence": 0.5,
-                "primary_source": "Verified Evergreen",
-                "rejection_reason": ""
+                "status": "completed",
+                "is_niche_relevant": is_relevant,
+                "is_factual": is_factual,
+                "confidence": confidence,
+                "primary_source": res.get("primary_source", ""),
+                "rejection_reason": res.get("rejection_reason", "")
+            }
+        except Exception as e:
+            return {
+                "status": "unavailable",
+                "is_niche_relevant": False,
+                "is_factual": False,
+                "confidence": 0.0,
+                "primary_source": "",
+                "rejection_reason": f"Topic verification service unavailable: {e}"
             }
 
     def _fact_check(self, topic: str, niche: str = "shower_thoughts") -> Dict[str, Any]:
         """Runs the LLM fact-checking gate to filter out debunked internet myths and off-niche topics."""
         result = self.verify_factuality(topic, niche=niche)
-        is_relevant = result.get("is_niche_relevant", True)
-        is_factual = result.get("is_factual", False)
-        verified = is_relevant and is_factual
+        status = result.get("status", "completed" if result.get("is_factual") is not None else "unavailable")
+        is_relevant = bool(result.get("is_niche_relevant", False))
+        is_factual = bool(result.get("is_factual", False))
+        verified = (status == "completed") and is_relevant and is_factual
         reason = result.get("rejection_reason") or (", ".join(result.get("red_flags", [])) if "red_flags" in result else "Off-niche or unverified")
         return {
             "verified": verified,
-            "summary": result.get("primary_source", topic),
+            "status": status,
+            "summary": result.get("primary_source") or topic,
             "reason": reason
         }
