@@ -1643,11 +1643,9 @@ def test_pipeline_runner_refreshes_seo_after_factuality_rewrite(monkeypatch, tmp
         scene_id=2,
         original_text="Tachyons travel at 1000 times light speed.",
         extracted_proposition="Tachyons travel at 1000 times light speed.",
-        category="empirical_fact",
-        verification_status="disputed",
-        confidence_score=0.2,
-        policy_action="rewrite",
-        scene_index=1
+        classification="empirical",
+        outcome="contradicted",
+        rationale="Disputed claim requires rewrite"
     )
     policy_calls_1 = [0]
     def fake_evaluate_policy_1(report):
@@ -1758,11 +1756,9 @@ def test_pipeline_runner_factuality_rewrite_seo_refresh_failure_safe_policy(monk
         scene_id=2,
         original_text="Tachyons travel at 1000 times light speed.",
         extracted_proposition="Tachyons travel at 1000 times light speed.",
-        category="empirical_fact",
-        verification_status="disputed",
-        confidence_score=0.2,
-        policy_action="rewrite",
-        scene_index=1
+        classification="empirical",
+        outcome="contradicted",
+        rationale="Disputed claim requires rewrite"
     )
     policy_calls_1 = [0]
     def fake_evaluate_policy_1(report):
@@ -2278,7 +2274,8 @@ def test_pipeline_runner_run_spec_stage_malformed_candidate_retains_base_title(m
 
     for malformed in malformed_returns:
         monkeypatch.setattr("engine.managers.youtube_manager.generate_seo_title", lambda **kw: malformed)
-        spec_path = run_spec_stage(video_type="short")
+        run_spec_stage(video_type="short")
+        spec_path = str(test_out / "spec.json")
 
         with open(spec_path, "r", encoding="utf-8") as f:
             spec_data = json.load(f)
@@ -2497,14 +2494,16 @@ def test_pipeline_runner_run_spec_stage_failsafe_on_corrupt_history(monkeypatch,
     )
 
     # 1. With corrupt history file: must fail safe and retain base title
-    spec_path = run_spec_stage(video_type="short")
+    run_spec_stage(video_type="short")
+    spec_path = str(test_out / "spec.json")
     with open(spec_path, "r", encoding="utf-8") as f:
         spec_data = json.load(f)
     assert spec_data["seo"]["title"] == "Why Clocks Don't Measure Time #shorts"
 
     # 2. Fix history file with valid JSON containing non-duplicate title: must accept enhanced title
     history_file.write_text(json.dumps([{"title": "Unrelated Cosmic Expansion #shorts"}]), encoding="utf-8")
-    spec_path_valid = run_spec_stage(video_type="short")
+    run_spec_stage(video_type="short")
+    spec_path_valid = str(test_out / "spec.json")
     with open(spec_path_valid, "r", encoding="utf-8") as f:
         spec_data_valid = json.load(f)
     assert spec_data_valid["seo"]["title"] == "Why Clocks Measure Entropy Instead #shorts"
@@ -2675,7 +2674,8 @@ def test_pipeline_runner_run_spec_stage_failsafe_on_malformed_history_record(mon
         {"title": "Valid Previous Title #shorts"},
         {"video_id": "missing_title"}
     ]), encoding="utf-8")
-    spec_path = run_spec_stage(video_type="short")
+    run_spec_stage(video_type="short")
+    spec_path = str(test_out / "spec.json")
     with open(spec_path, "r", encoding="utf-8") as f:
         spec_data = json.load(f)
     assert spec_data["seo"]["title"] == "Why Clocks Don't Measure Time #shorts"
@@ -2685,7 +2685,8 @@ def test_pipeline_runner_run_spec_stage_failsafe_on_malformed_history_record(mon
         {"title": "Valid Previous Title #shorts"},
         {"title": "   "}
     ]), encoding="utf-8")
-    spec_path_blank = run_spec_stage(video_type="short")
+    run_spec_stage(video_type="short")
+    spec_path_blank = str(test_out / "spec.json")
     with open(spec_path_blank, "r", encoding="utf-8") as f:
         spec_data_blank = json.load(f)
     assert spec_data_blank["seo"]["title"] == "Why Clocks Don't Measure Time #shorts"
@@ -2695,7 +2696,8 @@ def test_pipeline_runner_run_spec_stage_failsafe_on_malformed_history_record(mon
         {"title": "Valid Previous Title #shorts"},
         {"title": 12345}
     ]), encoding="utf-8")
-    spec_path_nonstr = run_spec_stage(video_type="short")
+    run_spec_stage(video_type="short")
+    spec_path_nonstr = str(test_out / "spec.json")
     with open(spec_path_nonstr, "r", encoding="utf-8") as f:
         spec_data_nonstr = json.load(f)
     assert spec_data_nonstr["seo"]["title"] == "Why Clocks Don't Measure Time #shorts"
@@ -2704,7 +2706,8 @@ def test_pipeline_runner_run_spec_stage_failsafe_on_malformed_history_record(mon
     history_file.write_text(json.dumps([
         {"title": "Valid Previous Title #shorts"}
     ]), encoding="utf-8")
-    spec_path_valid = run_spec_stage(video_type="short")
+    run_spec_stage(video_type="short")
+    spec_path_valid = str(test_out / "spec.json")
     with open(spec_path_valid, "r", encoding="utf-8") as f:
         spec_data_valid = json.load(f)
     assert spec_data_valid["seo"]["title"] == "Why Clocks Measure Entropy Instead #shorts"

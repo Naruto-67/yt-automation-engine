@@ -251,10 +251,11 @@ def test_v4_circular_loop_scene_by_scene():
                         "stock_video_query": "resin lathe turning wood polishing"
                     }
                 }
-            elif "SCENES TO NORMALIZE & EMOTIFY:" in user_prompt:
+            elif "SCENES TO NORMALIZE & POLISH:" in user_prompt or "SCENES TO NORMALIZE & EMOTIFY:" in user_prompt:
                 import json
                 try:
-                    lines = user_prompt.split("SCENES TO NORMALIZE & EMOTIFY:\n")[1].split("\n\n")[0]
+                    split_token = "SCENES TO NORMALIZE & POLISH:\n" if "SCENES TO NORMALIZE & POLISH:\n" in user_prompt else "SCENES TO NORMALIZE & EMOTIFY:\n"
+                    lines = user_prompt.split(split_token)[1].split("\n\n")[0]
                     scs = json.loads(lines)
                     for sc in scs:
                         sc["spoken_text"] = sc["spoken_text"].rstrip(".") + "!"
@@ -1835,9 +1836,17 @@ def test_generate_scene_chain_approximate_30s_stopping_preserves_crossing_scene(
                     "tags": ["space", "shorts"]
                 }
             else:
+                distinct_middle_thoughts = [
+                    "Cosmic radiation passes through spacecraft walls causing astronauts to see bright flashes.",
+                    "The silence of deep vacuum makes every internal heartbeat inside a spacesuit sound loud.",
+                    "Without atmospheric diffusion, distant stars never twinkle and shine like piercing lasers.",
+                    "Microgravity causes the human spinal column to stretch up to three additional inches.",
+                    "Our home planet looks like a tiny fragile oasis suspended in infinite emptiness."
+                ]
+                thought = distinct_middle_thoughts[(self.middle_count) % len(distinct_middle_thoughts)]
                 self.middle_count += 1
                 return {
-                    "spoken_text": f"Middle thought observation number {self.middle_count} about time dilation.",
+                    "spoken_text": thought,
                     "stock_video_query": "spacetime clock"
                 }
 
