@@ -1288,6 +1288,9 @@ def run_spec_stage(video_type: str = "short", custom_topic: Optional[str] = None
         )
 
         spec_dict = spec.model_dump() if hasattr(spec, "model_dump") else spec.dict()
+        if isinstance(script_data.get("seo"), dict) and script_data["seo"].get("_refresh_failed"):
+            spec_dict["seo"]["_refresh_failed"] = True
+            spec_dict["seo"]["_refresh_error"] = script_data["seo"].get("_refresh_error", "")
         if full_channel_cfg.get("upload_settings", {}).get("generate_community_post", True):
             try:
                 from engine.managers.youtube_manager import YouTubeManager
