@@ -1879,7 +1879,7 @@ def test_generate_scene_chain_approximate_30s_stopping_preserves_crossing_scene(
     assert llm.middle_count == 3
     # Crossing scene (Mid 3) brought total to 33.0s; it must be fully preserved
     assert scenes[0]["spoken_text"] == "Astronauts observe sixteen sunrises daily."
-    assert "observation number 3" in scenes[3]["spoken_text"]
+    assert scenes[3]["spoken_text"] == "Without atmospheric diffusion, distant stars never twinkle and shine like piercing lasers."
     assert scenes[4]["spoken_text"] == "Orbital speed compresses an entire day into ninety minutes."
     assert scenes[5]["spoken_text"] == "Living in space completely alters your body clock."
 

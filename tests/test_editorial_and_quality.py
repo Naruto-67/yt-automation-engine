@@ -1793,7 +1793,8 @@ def test_pipeline_runner_factuality_rewrite_seo_refresh_failure_safe_policy(monk
     monkeypatch.setattr("engine.managers.youtube_manager.YouTubeManager.generate_community_post", lambda topic, hook: {"post": "poll"})
 
     # Run spec stage
-    spec_path = run_spec_stage(video_type="short")
+    run_spec_stage(video_type="short")
+    spec_path = str(test_out / "spec.json")
 
     # Read output spec.json
     with open(spec_path, "r", encoding="utf-8") as f:
