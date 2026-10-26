@@ -120,6 +120,130 @@ def test_voice_normalizer_enforce_male_voice():
     assert VoiceNormalizer.enforce_male_voice("en-US-GuyNeural") == "en-US-GuyNeural"
 
 
+def test_voice_normalizer_format_tts_diagnostics_redaction():
+    """Verifies that _format_tts_diagnostics redacts tokens and formats environment packages."""
+    exc = OverflowError("Failed with token hf_secret1234567890 and api_key: pass_secret_9999")
+    report = VoiceNormalizer._format_tts_diagnostics(exc, "Test Monolithic Context")
+
+    assert "==================== KOKORO TTS DIAGNOSTIC REPORT ====================" in report
+    assert "Context: Test Monolithic Context" in report
+    assert "OverflowError: Failed with token hf_***REDACTED*** and api_key: ***REDACTED***" in report
+    assert "hf_secret1234567890" not in report
+    assert "pass_secret_9999" not in report
+    assert "Environment Packages:" in report
+    assert "  - kokoro:" in report
+    assert "  - torch:" in report
+    assert "  - transformers:" in report
+    assert "  - numpy:" in report
+    assert "  - soundfile:" in report
+    assert "Traceback (most recent call last):" in report
+
+
+def test_voice_normalizer_get_package_version_graceful_fallback(monkeypatch):
+    """Verifies _get_package_version safely returns 'not-installed' on missing or failing packages."""
+    assert VoiceNormalizer._get_package_version("non_existent_pkg_xyz_123") == "not-installed"
+
+    import importlib.metadata
+    monkeypatch.setattr(importlib.metadata, "version", MagicMock(side_effect=RuntimeError("Metadata error")))
+    assert VoiceNormalizer._get_package_version("torch") == "not-installed"
+
+
+def test_voice_normalizer_monolithic_kokoro_failure_diagnostics(capsys, monkeypatch, tmp_path):
+    """
+    Verifies that when monolithic Kokoro raises OverflowError, detailed diagnostics
+    are logged and the engine gracefully falls back to Edge-TTS.
+    """
+    import asyncio
+    from engine.models import WordTimestamp
+
+    def mock_fail_kokoro(*args, **kwargs):
+        raise OverflowError("Python int too large to convert to C ssize_t")
+
+    monkeypatch.setattr(VoiceNormalizer, "_synthesize_kokoro", mock_fail_kokoro)
+
+    async def mock_edge_tts(*args, **kwargs):
+        return (4.2, [WordTimestamp(word="hello", start=0.0, end=0.8)])
+
+    monkeypatch.setattr(VoiceNormalizer, "_synthesize_edge_tts", mock_edge_tts)
+
+    out_file = str(tmp_path / "fallback.mp3")
+    dur, words = asyncio.run(
+        VoiceNormalizer.synthesize_with_word_boundaries(
+            phonetic_text="Hello world test",
+            output_audio_path=out_file,
+            voice="am_adam"
+        )
+    )
+
+    assert dur == 4.2
+    assert len(words) == 1
+    assert words[0].word == "hello"
+
+    captured = capsys.readouterr().out
+    assert "==================== KOKORO TTS DIAGNOSTIC REPORT ====================" in captured
+    assert "Context: Monolithic Kokoro synthesis" in captured
+    assert "OverflowError: Python int too large to convert to C ssize_t" in captured
+    assert "Environment Packages:" in captured
+    assert "  - kokoro:" in captured
+    assert "⚠️ [TTS] Kokoro unavailable or failed (Python int too large to convert to C ssize_t) — falling back to Edge-TTS." in captured
+    assert "🎙️ [EDGE-TTS] Synthesizing speech with fallback voice" in captured
+
+
+def test_voice_normalizer_synthesize_scenes_sync_kokoro_failure_diagnostics(capsys, monkeypatch, tmp_path):
+    """
+    Verifies that when scene-bound Kokoro raises OverflowError, detailed diagnostics
+    are logged and synthesis cascades gracefully to monolithic synthesis.
+    """
+    import sys
+    from engine.models import WordTimestamp
+
+    scenes = [
+        {"spoken_text": "First scene.", "phonetic_text": "First scene."},
+        {"spoken_text": "Second scene.", "phonetic_text": "Second scene."},
+    ]
+
+    class FailingKPipeline:
+        def __init__(self, *args, **kwargs):
+            raise OverflowError("Python int too large to convert to C ssize_t")
+
+    mock_kokoro_mod = MagicMock()
+    mock_kokoro_mod.KPipeline = FailingKPipeline
+    monkeypatch.setitem(sys.modules, "kokoro", mock_kokoro_mod)
+
+    def mock_fail_kokoro(*args, **kwargs):
+        raise OverflowError("Python int too large to convert to C ssize_t")
+
+    monkeypatch.setattr(VoiceNormalizer, "_synthesize_kokoro", mock_fail_kokoro)
+
+    async def mock_edge_tts(*args, **kwargs):
+        words = [
+            WordTimestamp(word="First", start=0.0, end=0.5),
+            WordTimestamp(word="scene", start=0.5, end=1.0),
+            WordTimestamp(word="Second", start=1.5, end=2.0),
+            WordTimestamp(word="scene", start=2.0, end=2.5),
+        ]
+        return (3.0, words)
+
+    monkeypatch.setattr(VoiceNormalizer, "_synthesize_edge_tts", mock_edge_tts)
+
+    out_file = str(tmp_path / "scenes.mp3")
+    tot, w_list, cut_durs, slices = VoiceNormalizer.synthesize_scenes_sync(
+        raw_scenes=scenes,
+        output_audio_path=out_file,
+        voice="am_adam"
+    )
+
+    assert tot == 3.0
+    assert len(cut_durs) == 2
+
+    captured = capsys.readouterr().out
+    assert "==================== KOKORO TTS DIAGNOSTIC REPORT ====================" in captured
+    assert "Context: Scene-bound Kokoro synthesis" in captured
+    assert "OverflowError: Python int too large to convert to C ssize_t" in captured
+    assert "Context: Monolithic Kokoro synthesis" in captured
+    assert "Cascading to monolithic synthesis..." in captured
+
+
 def test_music_manager_procedural_lofi_synthesis(tmp_path):
     """Verifies that MusicManager can synthesize high-fidelity procedural Lo-Fi tracks."""
     from engine.managers.music_manager import MusicManager

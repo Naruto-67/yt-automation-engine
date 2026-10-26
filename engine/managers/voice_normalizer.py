@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import re
 import asyncio
+import traceback
 from typing import List, Tuple, Optional, Dict, Any
 
 def _int_to_words(n: int) -> str:
@@ -329,6 +330,73 @@ class VoiceNormalizer:
         )
 
     @classmethod
+    def _get_package_version(cls, package_name: str) -> str:
+        """Safely retrieves the installed version of a package, or 'not-installed'."""
+        try:
+            import importlib.metadata
+            return importlib.metadata.version(package_name)
+        except Exception:
+            return "not-installed"
+
+    @classmethod
+    def _format_tts_diagnostics(cls, exc: Exception, context: str) -> str:
+        """
+        Formats diagnostic information (traceback and package versions) for Kokoro TTS failures.
+        Redacts sensitive tokens and credentials.
+        """
+        tb_str = traceback.format_exc()
+        if not tb_str or tb_str.strip() == "NoneType: None":
+            tb_str = "".join(traceback.format_exception(type(exc), exc, getattr(exc, "__traceback__", None)))
+
+        critical_packages = [
+            "kokoro",
+            "torch",
+            "transformers",
+            "numpy",
+            "soundfile",
+            "misaki",
+            "phonemizer",
+            "phonemizer-fork",
+            "scipy",
+            "huggingface-hub",
+            "safetensors",
+        ]
+
+        def _redact(text: str) -> str:
+            if not text:
+                return ""
+            text = re.sub(r'hf_[A-Za-z0-9_]{10,}', 'hf_***REDACTED***', text)
+            text = re.sub(
+                r'(api[_-]?key|token|secret|authorization)\s*[:=]\s*["\']?[a-zA-Z0-9_\-\.]{8,}["\']?',
+                r'\1: ***REDACTED***',
+                text,
+                flags=re.IGNORECASE,
+            )
+            return text
+
+        lines = [
+            "==================== KOKORO TTS DIAGNOSTIC REPORT ====================",
+            f"Context: {context}",
+            f"Exception: {type(exc).__name__}: {_redact(str(exc))}",
+            "Environment Packages:",
+        ]
+        for pkg in critical_packages:
+            lines.append(f"  - {pkg}: {cls._get_package_version(pkg)}")
+        lines.append("Traceback (most recent call last):")
+        lines.append(_redact(tb_str.strip()))
+        lines.append("======================================================================")
+        return "\n".join(lines)
+
+    @classmethod
+    def _log_tts_diagnostics(cls, exc: Exception, context: str) -> None:
+        """Safely logs diagnostic report without interrupting synthesis fallback."""
+        try:
+            report = cls._format_tts_diagnostics(exc, context)
+            print(report, flush=True)
+        except Exception as log_err:
+            print(f"⚠️ [TTS Diagnostics] Failed to format diagnostic report: {log_err}", flush=True)
+
+    @classmethod
     def _synthesize_kokoro(
         cls,
         phonetic_text: str,
@@ -558,6 +626,7 @@ class VoiceNormalizer:
                     speed=speed
                 )
             except Exception as e:
+                cls._log_tts_diagnostics(e, "Monolithic Kokoro synthesis")
                 print(f"⚠️ [TTS] Kokoro unavailable or failed ({e}) — falling back to Edge-TTS.", flush=True)
 
         # 2. Fallback Engine: Edge-TTS
@@ -820,6 +889,7 @@ class VoiceNormalizer:
                 print(f"✅ [KOKORO] Synthesized {total_duration:.2f}s audio across {num_scenes} scenes ({len(master_words)} words captured).", flush=True)
                 return (total_duration, master_words, scene_cut_durations, scene_word_slices)
             except Exception as e:
+                cls._log_tts_diagnostics(e, "Scene-bound Kokoro synthesis")
                 print(f"⚠️ [TTS] Scene-bound Kokoro synthesis failed ({e}). Cascading to monolithic synthesis...", flush=True)
 
         # Fallback to standard monolithic synthesis if scene synthesis fails
