@@ -158,7 +158,7 @@ title_settings:
 upload_settings:
   # Multi-Shorts Daily Strategy & Timing
   shorts_per_day: 2                  # Daily upload volume: 2 shorts per day
-  min_spacing_hours: 6.0             # Anti-cannibalization buffer between uploads
+  min_spacing_hours: 15.0             # Anti-cannibalization buffer between uploads
   use_negative_jitter: true          # Post 5-18 mins BEFORE peak hour to prime YouTube CDN
   jitter_minutes_min: 5              # Minimum minutes before peak hour (e.g. :55)
   jitter_minutes_max: 18             # Maximum minutes before peak hour (e.g. :42)
