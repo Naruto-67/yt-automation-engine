@@ -248,9 +248,10 @@ def test_voice_normalizer_live_kokoro_diagnostic_probe(capsys, tmp_path):
     """
     Diagnostic probe that runs against live Kokoro when installed on the CI runner.
     Captures and reports the exact exception, traceback, and environment versions
-    without failing the test suite.
+    via pytest warnings summary without failing the regression test suite.
     """
     import sys
+    import warnings
     try:
         import kokoro  # noqa: F401
     except ImportError:
@@ -268,10 +269,10 @@ def test_voice_normalizer_live_kokoro_diagnostic_probe(capsys, tmp_path):
             output_audio_path=out_audio,
             voice="am_adam"
         )
+        warnings.warn("\n[DIAGNOSTIC PROBE] Kokoro synthesis succeeded unexpectedly without error!", UserWarning)
     except Exception as e:
         report = VoiceNormalizer._format_tts_diagnostics(e, "Live Kokoro Diagnostic Probe")
-        sys.stderr.write("\n" + report + "\n")
-        sys.stderr.flush()
+        warnings.warn(f"\n{report}\n", UserWarning)
 
 
 def test_music_manager_procedural_lofi_synthesis(tmp_path):
