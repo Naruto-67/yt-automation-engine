@@ -716,8 +716,10 @@ class VoiceNormalizer:
                             end_idx = min(len(samples), non_silent[-1] + pad + 1)
                             samples = samples[start_idx:end_idx]
                     return round((len(samples) / 24000.0) + 0.12, 2)
-        except Exception:
-            pass
+        except Exception as e:
+            if not getattr(cls, "_quick_diag_logged", False):
+                cls._quick_diag_logged = True
+                cls._log_tts_diagnostics(e, "Quick Duration Measurement (Kokoro)")
 
         # Calibrated fallback: ~3.2 words per second at 1.02x + 0.12s pause
         return round((words_count / (3.2 * max(0.5, speed))) + 0.12, 2)

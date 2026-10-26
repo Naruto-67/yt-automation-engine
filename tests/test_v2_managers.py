@@ -244,6 +244,36 @@ def test_voice_normalizer_synthesize_scenes_sync_kokoro_failure_diagnostics(caps
     assert "Cascading to monolithic synthesis..." in captured
 
 
+def test_voice_normalizer_live_kokoro_diagnostic_probe(capsys, tmp_path):
+    """
+    Diagnostic probe that runs against live Kokoro when installed on the CI runner.
+    Captures and reports the exact exception, traceback, and environment versions
+    without failing the test suite.
+    """
+    import sys
+    try:
+        import kokoro  # noqa: F401
+    except ImportError:
+        pytest.skip("kokoro not installed in local environment")
+
+    # 1. Probe measure_duration_quick
+    dur = VoiceNormalizer.measure_duration_quick("Hello world this is a test.")
+    assert dur > 0.0
+
+    # 2. Probe direct synthesis
+    out_audio = str(tmp_path / "probe_output.wav")
+    try:
+        VoiceNormalizer._synthesize_kokoro(
+            phonetic_text="Hello world this is a test.",
+            output_audio_path=out_audio,
+            voice="am_adam"
+        )
+    except Exception as e:
+        report = VoiceNormalizer._format_tts_diagnostics(e, "Live Kokoro Diagnostic Probe")
+        sys.stderr.write("\n" + report + "\n")
+        sys.stderr.flush()
+
+
 def test_music_manager_procedural_lofi_synthesis(tmp_path):
     """Verifies that MusicManager can synthesize high-fidelity procedural Lo-Fi tracks."""
     from engine.managers.music_manager import MusicManager
