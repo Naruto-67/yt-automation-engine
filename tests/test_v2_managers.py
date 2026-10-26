@@ -269,10 +269,14 @@ def test_voice_normalizer_live_kokoro_diagnostic_probe(capsys, tmp_path):
             output_audio_path=out_audio,
             voice="am_adam"
         )
-        warnings.warn("\n[DIAGNOSTIC PROBE] Kokoro synthesis succeeded unexpectedly without error!", UserWarning)
+        with capsys.disabled():
+            sys.stderr.write("\n[DIAGNOSTIC PROBE] Kokoro synthesis succeeded unexpectedly without error!\n")
+            sys.stderr.flush()
     except Exception as e:
         report = VoiceNormalizer._format_tts_diagnostics(e, "Live Kokoro Diagnostic Probe")
-        warnings.warn(f"\n{report}\n", UserWarning)
+        with capsys.disabled():
+            sys.stderr.write(f"\n{report}\n")
+            sys.stderr.flush()
 
 
 def test_music_manager_procedural_lofi_synthesis(tmp_path):
