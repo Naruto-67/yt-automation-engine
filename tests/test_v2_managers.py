@@ -247,36 +247,45 @@ def test_voice_normalizer_synthesize_scenes_sync_kokoro_failure_diagnostics(caps
 def test_voice_normalizer_live_kokoro_diagnostic_probe(capsys, tmp_path):
     """
     Diagnostic probe that runs against live Kokoro when installed on the CI runner.
-    Captures and reports the exact exception, traceback, and environment versions
-    via pytest warnings summary without failing the regression test suite.
+    Captures and reports the exact exception, traceback, and environment versions.
     """
     import sys
-    import warnings
     try:
         import kokoro  # noqa: F401
     except ImportError:
         pytest.skip("kokoro not installed in local environment")
 
-    # 1. Probe measure_duration_quick
-    dur = VoiceNormalizer.measure_duration_quick("Hello world this is a test.")
+    with capsys.disabled():
+        sys.stderr.write("\n==================== LIVE KOKORO ENVIRONMENT PROBE ====================\n")
+        for pkg in ["kokoro", "torch", "transformers", "numpy", "soundfile", "misaki", "phonemizer", "phonemizer-fork", "safetensors", "huggingface-hub"]:
+            sys.stderr.write(f"  - {pkg}: {VoiceNormalizer._get_package_version(pkg)}\n")
+        sys.stderr.write("=======================================================================\n")
+        sys.stderr.flush()
+
+    # 1. Probe measure_duration_quick with speed=1.02
+    dur = VoiceNormalizer.measure_duration_quick("Hello world this is a test.", speed=1.02)
     assert dur > 0.0
 
-    # 2. Probe direct synthesis
-    out_audio = str(tmp_path / "probe_output.wav")
-    try:
-        VoiceNormalizer._synthesize_kokoro(
-            phonetic_text="Hello world this is a test.",
-            output_audio_path=out_audio,
-            voice="am_adam"
-        )
-        with capsys.disabled():
-            sys.stderr.write("\n[DIAGNOSTIC PROBE] Kokoro synthesis succeeded unexpectedly without error!\n")
-            sys.stderr.flush()
-    except Exception as e:
-        report = VoiceNormalizer._format_tts_diagnostics(e, "Live Kokoro Diagnostic Probe")
-        with capsys.disabled():
-            sys.stderr.write(f"\n{report}\n")
-            sys.stderr.flush()
+    # 2. Probe synthesize_scenes_sync with 3 scenes, speed=1.02
+    scenes = [
+        {"spoken_text": "First scene observation.", "phonetic_text": "First scene observation."},
+        {"spoken_text": "Second scene continuation.", "phonetic_text": "Second scene continuation."},
+        {"spoken_text": "Final ending scene.", "phonetic_text": "Final ending scene."},
+    ]
+    out_audio = str(tmp_path / "probe_scenes.mp3")
+    tot, w_list, cut_durs, slices = VoiceNormalizer.synthesize_scenes_sync(
+        raw_scenes=scenes,
+        output_audio_path=out_audio,
+        voice="am_adam",
+        speed=1.02
+    )
+
+    with capsys.disabled():
+        sys.stderr.write(f"\n[DIAGNOSTIC PROBE] synthesize_scenes_sync result: total={tot:.2f}s, words={len(w_list)}, cuts={cut_durs}\n")
+        sys.stderr.flush()
+
+    assert tot > 0.0
+    assert len(cut_durs) == 3
 
 
 def test_music_manager_procedural_lofi_synthesis(tmp_path):
