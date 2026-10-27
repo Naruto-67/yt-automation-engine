@@ -290,6 +290,7 @@ def test_voice_normalizer_live_kokoro_diagnostic_probe(capsys, tmp_path):
 
 def test_voice_normalizer_resolve_cache_dir_canonical_constant_precedence(monkeypatch):
     """Verifies that imported huggingface_hub.constants.HF_HUB_CACHE takes strict precedence."""
+    import sys
     import types
     mock_constants = types.ModuleType("huggingface_hub.constants")
     mock_constants.HF_HUB_CACHE = "/custom/canonical/hub"
@@ -321,6 +322,7 @@ def test_voice_normalizer_resolve_cache_dir_env_precedence_when_constant_unavail
     Verifies environment fallback precedence when canonical constant is unavailable:
     HF_HUB_CACHE > HUGGINGFACE_HUB_CACHE > HF_HOME/hub > XDG_CACHE_HOME/huggingface/hub > default.
     """
+    import sys
     import types
     # Simulate constant unavailable in module (mock constants has no HF_HUB_CACHE attribute)
     mock_constants = types.ModuleType("huggingface_hub.constants")
