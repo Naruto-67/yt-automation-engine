@@ -4597,14 +4597,14 @@ def test_pipeline_runner_exhausted_rewrites_fail_closed_without_silent_substitut
         lambda self, topic="", channel_premise="", grounding_facts=None: (scenes, seo_data)
     )
 
-    def mock_inspect(self, sc_list, candidate_evidence=None):
+    def mock_inspect(self, scenes, candidate_evidence=None, **kwargs):
         return ClaimInspectionReport(
             claims=[
                 ClaimRecord(
                     claim_id="claim_1_1",
                     scene_id=1,
-                    original_text=sc_list[0].get("spoken_text", ""),
-                    extracted_proposition=sc_list[0].get("spoken_text", ""),
+                    original_text=scenes[0].get("spoken_text", ""),
+                    extracted_proposition=scenes[0].get("spoken_text", ""),
                     classification=ClaimClassification.EMPIRICAL.value,
                     outcome=VerificationOutcome.UNVERIFIABLE.value,
                     risk_level=RiskLevel.MEDIUM.value,

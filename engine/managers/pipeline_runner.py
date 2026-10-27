@@ -719,7 +719,7 @@ def _validate_and_refine_claims(
     while True:
         # 1. Inspect the candidate scene chain
         final_factuality_report = claim_inspector.inspect_script(
-            scenes=raw_scenes,
+            raw_scenes,
             candidate_evidence=grounding_refs
         )
         decision, decision_reason, affected_claims = evaluate_shorts_factuality_policy(final_factuality_report)
