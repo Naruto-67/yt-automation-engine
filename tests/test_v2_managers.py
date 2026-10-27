@@ -4744,3 +4744,300 @@ def test_pipeline_runner_valid_grounded_shorts_spec_completes_validation(monkeyp
     dec = get_last_factuality_decision()
     assert dec is not None
     assert dec[0] == FactualityPolicyStatus.PASSED
+
+
+def test_claim_inspector_pure_poetic_or_subjective_observation_exempt_from_verification():
+    """
+    1. A poetic or subjective observation that should not require scientific verification by itself.
+    Verifies that pure poetic, introspective, or aesthetic reflections without testable empirical,
+    medical, or physical claims are classified as SUBJECTIVE with empty propositions and outcome
+    NOT_APPLICABLE, passing factuality evaluation without requiring scientific citations.
+    """
+    from engine.managers.claim_inspector import (
+        ClaimInspector,
+        ClaimClassification,
+        VerificationOutcome,
+        RiskLevel,
+    )
+    from engine.managers.pipeline_runner import (
+        evaluate_shorts_factuality_policy,
+        FactualityPolicyStatus,
+    )
+
+    inspector = ClaimInspector(llm_manager=None)
+
+    # Poetic / subjective observation
+    poetic_line = "Sunsets feel like the sky taking a deep breath after a long day."
+    cls_type, props, rationale, err = inspector.classify_and_extract(poetic_line)
+
+    assert cls_type == ClaimClassification.SUBJECTIVE.value
+    assert props == []
+    assert err is None
+
+    report = inspector.inspect_script([{"scene_id": 1, "spoken_text": poetic_line}])
+    assert len(report.claims) == 1
+    assert report.claims[0].classification == ClaimClassification.SUBJECTIVE.value
+    assert report.claims[0].outcome == VerificationOutcome.NOT_APPLICABLE.value
+    assert report.claims[0].risk_level == RiskLevel.LOW.value
+
+    policy_status, reason, affected = evaluate_shorts_factuality_policy(report)
+    assert policy_status == FactualityPolicyStatus.PASSED
+    assert len(affected) == 0
+
+
+def test_claim_inspector_mixed_sentence_subjective_opening_with_unsupported_neurological_claim():
+    """
+    2. A mixed sentence containing a subjective opening and an unsupported medical or neurological causal claim;
+    the empirical proposition must remain subject to verification.
+    Verifies that opening with 'feels strangely comforting, but...' does not exempt an asserted neurological
+    mechanism (brain vetoing arm angles to protect cervical spinal cord) from empirical scrutiny, classifying it
+    as MIXED with RiskLevel.HIGH and failing policy when unverified.
+    """
+    from engine.managers.claim_inspector import (
+        ClaimInspector,
+        ClaimClassification,
+        VerificationOutcome,
+        RiskLevel,
+    )
+    from engine.managers.pipeline_runner import (
+        evaluate_shorts_factuality_policy,
+        FactualityPolicyStatus,
+    )
+
+    inspector = ClaimInspector(llm_manager=None)
+
+    mixed_neurological_line = (
+        "It feels strangely comforting, but your brain silently vetoes arm angles that would jam the cervical spinal cord."
+    )
+    cls_type, props, rationale, err = inspector.classify_and_extract(mixed_neurological_line)
+
+    assert cls_type == ClaimClassification.MIXED.value
+    assert len(props) == 1
+    assert "cervical spinal cord" in props[0]["proposition"].lower()
+    assert props[0]["risk_level"] == RiskLevel.HIGH.value
+
+    # Inspect without candidate evidence -> must be UNVERIFIABLE at HIGH risk
+    report = inspector.inspect_script([{"scene_id": 1, "spoken_text": mixed_neurological_line}], candidate_evidence=[])
+    assert len(report.claims) == 1
+    assert report.claims[0].classification == ClaimClassification.MIXED.value
+    assert report.claims[0].outcome == VerificationOutcome.UNVERIFIABLE.value
+    assert report.claims[0].risk_level == RiskLevel.HIGH.value
+
+    policy_status, reason, affected = evaluate_shorts_factuality_policy(report)
+    assert policy_status == FactualityPolicyStatus.REJECTED_HIGH_RISK_UNVERIFIED
+    assert len(affected) == 1
+    assert affected[0][0] == 1
+
+
+def test_claim_inspector_capgras_delusion_elbow_claim_not_exempted_by_metaphor():
+    """
+    3. An unsupported claim connecting Capgras delusion to the inability to lick an elbow;
+    metaphorical phrasing must not exempt the asserted relationship from scrutiny.
+    Verifies that 'feels like a stranger you can never quite recognize—just like Capgras delusion...'
+    is classified as MIXED, extracts the Capgras delusion assertion, assigns RiskLevel.HIGH,
+    and fails policy evaluation with REJECTED_HIGH_RISK_UNVERIFIED.
+    """
+    from engine.managers.claim_inspector import (
+        ClaimInspector,
+        ClaimClassification,
+        VerificationOutcome,
+        RiskLevel,
+    )
+    from engine.managers.pipeline_runner import (
+        evaluate_shorts_factuality_policy,
+        FactualityPolicyStatus,
+    )
+
+    inspector = ClaimInspector(llm_manager=None)
+
+    capgras_scene = (
+        "Your elbow feels like a stranger you can never quite recognize—just like Capgras delusion, which convinces you your mother is an impostor."
+    )
+    cls_type, props, rationale, err = inspector.classify_and_extract(capgras_scene)
+
+    assert cls_type == ClaimClassification.MIXED.value
+    assert len(props) == 1
+    assert "capgras delusion" in props[0]["proposition"].lower()
+    assert props[0]["risk_level"] == RiskLevel.HIGH.value
+
+    report = inspector.inspect_script([{"scene_id": 1, "spoken_text": capgras_scene}], candidate_evidence=[])
+    assert len(report.claims) == 1
+    assert report.claims[0].outcome == VerificationOutcome.UNVERIFIABLE.value
+    assert report.claims[0].risk_level == RiskLevel.HIGH.value
+
+    policy_status, reason, affected = evaluate_shorts_factuality_policy(report)
+    assert policy_status == FactualityPolicyStatus.REJECTED_HIGH_RISK_UNVERIFIED
+    assert len(affected) == 1
+
+
+def test_claim_inspector_rope_resonance_microwave_heating_physical_equivalence_rejected():
+    """
+    4. An asserted physical equivalence between rope-strand resonance and microwave heating of water;
+    unsupported scientific comparisons must not pass merely because they are framed creatively.
+    Verifies that 'When you tie a knot, the rope's fibers resonate in perfect harmony; microwaves heat water by the same dielectric resonance'
+    is classified as MIXED with RiskLevel.MEDIUM (scientific physical mechanism), and fails policy evaluation
+    with REJECTED_MEDIUM_RISK_UNVERIFIED when uncorroborated by evidence.
+    """
+    from engine.managers.claim_inspector import (
+        ClaimInspector,
+        ClaimClassification,
+        VerificationOutcome,
+        RiskLevel,
+    )
+    from engine.managers.pipeline_runner import (
+        evaluate_shorts_factuality_policy,
+        FactualityPolicyStatus,
+    )
+
+    inspector = ClaimInspector(llm_manager=None)
+
+    resonance_scene = (
+        "When you tie a knot, the rope’s fibers resonate in perfect harmony; microwaves heat water by the same dielectric resonance."
+    )
+    cls_type, props, rationale, err = inspector.classify_and_extract(resonance_scene)
+
+    assert cls_type == ClaimClassification.MIXED.value
+    assert len(props) == 1
+    assert "dielectric resonance" in props[0]["proposition"].lower()
+    assert props[0]["risk_level"] == RiskLevel.MEDIUM.value
+
+    report = inspector.inspect_script([{"scene_id": 1, "spoken_text": resonance_scene}], candidate_evidence=[])
+    assert len(report.claims) == 1
+    assert report.claims[0].outcome == VerificationOutcome.UNVERIFIABLE.value
+    assert report.claims[0].risk_level == RiskLevel.MEDIUM.value
+
+    policy_status, reason, affected = evaluate_shorts_factuality_policy(report)
+    assert policy_status == FactualityPolicyStatus.REJECTED_MEDIUM_RISK_UNVERIFIED
+    assert len(affected) == 1
+
+
+def test_claim_inspector_supported_empirical_statement_with_relevant_metaphor_passes():
+    """
+    5. A supported empirical statement and a genuinely relevant metaphor that should still be eligible to pass under the existing policy.
+    Verifies that a scene combining a factual physical statement with a figurative metaphor
+    ('Braided fibers distribute tensile stress across the rope, acting like a team of microscopic acrobats.')
+    extracts the empirical proposition, verifies it against corroborating candidate evidence,
+    and passes factuality evaluation under FactualityPolicyStatus.PASSED.
+    """
+    from engine.managers.claim_inspector import (
+        ClaimInspector,
+        ClaimClassification,
+        VerificationOutcome,
+        EvidenceReference,
+    )
+    from engine.managers.pipeline_runner import (
+        evaluate_shorts_factuality_policy,
+        FactualityPolicyStatus,
+    )
+
+    inspector = ClaimInspector(llm_manager=None)
+
+    metaphor_scene = (
+        "Braided fibers distribute tensile stress across the rope, acting like a team of microscopic acrobats."
+    )
+    cls_type, props, rationale, err = inspector.classify_and_extract(metaphor_scene)
+
+    assert cls_type == ClaimClassification.MIXED.value
+    assert len(props) == 1
+    assert "distribute tensile stress" in props[0]["proposition"].lower()
+
+    evidence = [
+        EvidenceReference(
+            id="ev_tensile_01",
+            text="Braided fibers distribute tensile stress across the rope, allowing thin strands to support immense weight."
+        )
+    ]
+
+    report = inspector.inspect_script(
+        [{"scene_id": 1, "spoken_text": metaphor_scene}],
+        candidate_evidence=evidence
+    )
+    assert len(report.claims) == 1
+    assert report.claims[0].outcome == VerificationOutcome.SUPPORTED.value
+    assert len(report.claims[0].evidence) >= 1
+
+    policy_status, reason, affected = evaluate_shorts_factuality_policy(report)
+    assert policy_status == FactualityPolicyStatus.PASSED
+    assert len(affected) == 0
+
+
+def test_pipeline_runner_rewrite_exhaustion_fails_explicitly_without_fabrication(monkeypatch, tmp_path):
+    """
+    6. Rewrite exhaustion when no supported correction can be established;
+    the pipeline must fail explicitly rather than fabricate evidence or silently accept the original claim.
+    Verifies that when scenes contain unverified medical/neurological claims (Capgras delusion) and
+    rewrite attempts fail to establish supported grounding or remove the defect, the pipeline
+    fails closed with ValueError containing detailed exhaustion diagnostics, creating no spec
+    and committing zero state.
+    """
+    import pytest
+    from engine.managers.pipeline_runner import run_spec_stage
+    from engine.managers.claim_inspector import (
+        ClaimInspectionReport,
+        ClaimRecord,
+        ClaimClassification,
+        VerificationOutcome,
+        RiskLevel,
+    )
+
+    test_output_dir, test_memory_dir, test_cfg_dir = _isolate_pipeline_persistence(monkeypatch, tmp_path)
+    test_spec_path = str(test_output_dir / "spec.json")
+
+    monkeypatch.setattr("engine.managers.health_manager.HealthManager.check_and_sync_models", lambda **kw: {})
+    monkeypatch.setattr("engine.managers.competitor_spy.CompetitorSpy.get_surge_topic", lambda *a: None)
+    monkeypatch.setattr(
+        "engine.managers.topic_inspector.TopicInspector.discover_verified_topic",
+        lambda self, niche, *a, **kw: {"topic": "Elbow Anatomy Curiosities", "source": "trend"}
+    )
+
+    capgras_scene = "Your elbow feels like a stranger you can never quite recognize—just like Capgras delusion, which convinces you your mother is an impostor."
+    scenes = [
+        {"scene_id": 1, "spoken_text": capgras_scene, "stock_video_query": "elbow joint"}
+    ]
+    seo_data = {"title": "Elbow Anatomy Curiosities #shorts", "description": "Elbow facts. #shorts", "tags": ["anatomy", "shorts"]}
+
+    monkeypatch.setattr(
+        "engine.managers.iterative_script_generator.IterativeScriptGenerator.generate_scene_chain",
+        lambda self, topic="", channel_premise="", grounding_facts=None: (scenes, seo_data)
+    )
+
+    # Mock inspect_script returning unverified high-risk Capgras claim on each pass
+    def mock_inspect(self, scenes, candidate_evidence=None, **kwargs):
+        curr_text = scenes[0].get("spoken_text", "")
+        return ClaimInspectionReport(
+            claims=[
+                ClaimRecord(
+                    claim_id="claim_1_1",
+                    scene_id=1,
+                    original_text=curr_text,
+                    extracted_proposition="Capgras delusion explains why you cannot lick your elbow.",
+                    classification=ClaimClassification.MIXED.value,
+                    outcome=VerificationOutcome.UNVERIFIABLE.value,
+                    risk_level=RiskLevel.HIGH.value,
+                    rationale="Neurological delusion claim has no corroborating evidence."
+                )
+            ],
+            status="completed"
+        )
+
+    monkeypatch.setattr("engine.managers.claim_inspector.ClaimInspector.inspect_script", mock_inspect)
+
+    rewrite_count = [0]
+    def mock_rewrite(scene, claim_record, llm=None, **kwargs):
+        rewrite_count[0] += 1
+        rev = dict(scene)
+        rev["spoken_text"] = f"Still ungrounded Capgras claim attempt {rewrite_count[0]}"
+        return rev
+
+    monkeypatch.setattr("engine.managers.pipeline_runner._rewrite_scene_for_factuality", mock_rewrite)
+
+    with pytest.raises(ValueError) as exc_info:
+        run_spec_stage(video_type="short")
+
+    err = str(exc_info.value)
+    assert "REJECTED_HIGH_RISK_UNVERIFIED" in err
+    assert "Rewrite budget exhausted" in err
+    assert "Scene 1" in err
+    assert rewrite_count[0] == 2  # Exactly 2 attempts before fail-closed exhaustion
+    assert not os.path.exists(test_spec_path)
+    assert not (test_memory_dir / "thought_cache.json").exists()

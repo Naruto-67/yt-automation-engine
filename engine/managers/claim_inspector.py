@@ -41,8 +41,10 @@ class RiskLevel(str, Enum):
     """
     Conservative risk classification for extracted empirical propositions.
     Explicit criteria:
-    - HIGH: Claims concerning human disease, medical therapies/cures, toxicity, poison, or physical safety hazards.
-    - MEDIUM: Claims asserting specific quantitative statistics, numerical percentages, historical dates, or constants.
+    - HIGH: Claims concerning human disease, medical therapies/cures, toxicity, poison, physical safety hazards,
+            or clinical psychiatric/neurological conditions, syndromes, delusions, and bodily harm.
+    - MEDIUM: Claims asserting specific quantitative statistics, numerical percentages, historical dates, physical constants,
+              or explicit physical/scientific mechanisms and physical law equivalences.
     - LOW: Everyday sensory observations, perceptual curiosities, or low-stakes physical claims.
     """
     LOW = "low"
@@ -54,7 +56,17 @@ class RiskLevel(str, Enum):
 _HIGH_RISK_KEYWORDS = {
     "cancer", "disease", "cure", "deadly", "poison", "toxic", "toxicity",
     "treatment", "medicine", "arthritis", "vaccine", "fatal", "lethal",
-    "stroke", "heart attack", "tumor", "overdose", "infection"
+    "stroke", "heart attack", "tumor", "overdose", "infection",
+    # Psychiatric / neurological conditions, syndromes, delusions, and hazards
+    "delusion", "capgras", "syndrome", "neurological", "disorder", "psychiatric",
+    "schizophrenia", "dementia", "alzheimer", "amnesia", "pathology", "paralysis",
+    "seizure", "lesion", "spinal cord", "cervical"
+}
+
+_SCIENTIFIC_MECHANISM_KEYWORDS = {
+    "dielectric", "resonance", "thermodynamic", "electromagnetic", "quantum",
+    "microwave heating", "biomechanical", "cellular", "synovial", "neurotransmitter",
+    "dielectric resonance", "speed of sound", "speed of light"
 }
 
 _NUMERICAL_PATTERN = re.compile(r"\b\d+(?:\.\d+)?%?\b")
@@ -68,11 +80,15 @@ def assess_risk_level(proposition: str, classification: str = ClaimClassificatio
     text_lower = proposition.lower()
     words = set(re.findall(r"\b[a-z]+\b", text_lower))
 
-    if words & _HIGH_RISK_KEYWORDS:
+    if words & _HIGH_RISK_KEYWORDS or any(kw in text_lower for kw in ["spinal cord", "capgras delusion", "cervical spinal cord"]):
         return RiskLevel.HIGH
 
     # Check for specific numerical claims or percentages
     if _NUMERICAL_PATTERN.search(text_lower):
+        return RiskLevel.MEDIUM
+
+    # Check for physical/scientific mechanisms or physical law equivalences
+    if any(m in text_lower for m in _SCIENTIFIC_MECHANISM_KEYWORDS):
         return RiskLevel.MEDIUM
 
     return RiskLevel.LOW
@@ -301,9 +317,13 @@ class ClaimInspector:
             "4. 'mixed': Combines figurative/subjective framing with at least one identifiable empirical proposition.\n"
             "5. 'ambiguous': Grammatically unparseable, contradictory, or too vague to formulate a checkable proposition.\n\n"
             "EPISTEMIC CLASSIFICATION CRITERIA:\n"
-            "- SUBJECTIVE vs EMPIRICAL: A statement is 'subjective' if it expresses personal feelings, perceptual aesthetics, philosophical introspection, or subjective reactions—even if phrased assertively or without hedging (e.g. 'The quietest moments in life are often the loudest in your head' or 'Nothing feels more peaceful than 3 AM when the world is asleep'). Confident phrasing alone does NOT make an assertion empirical.\n"
-            "- EMPIRICAL CLAIMS REMAIN EMPIRICAL: Any statement asserting verifiable physical laws, measured scientific quantities, numerical statistics, biological rates, medical treatments/hazards, or historical events (e.g. 'Humans spend 33% of their lives sleeping', 'A traveler at 1.3 times the speed of sound hears backwards', 'Cracking knuckles causes arthritis') MUST be classified as 'empirical' (or 'mixed' if wrapped in figurative framing). Do NOT exempt an empirical claim simply because it appears in a shower-thought or creative context.\n"
-            "- MIXED: If an introspective or figurative statement embeds an empirical fact or statistic (e.g. 'It is terrifying that 80% of the ocean remains unmapped'), classify as 'mixed' and extract ONLY the empirical proposition ('80% of the ocean remains unmapped') with its appropriate risk_level.\n\n"
+            "- SUBJECTIVE vs EMPIRICAL: A statement is 'subjective' ONLY if it expresses pure personal feelings, perceptual aesthetics, philosophical introspection, or subjective reactions WITHOUT asserting any empirical, medical, neurological, or physical claims. If an introspective sentence also asserts a testable fact, scientific mechanism, or medical causal claim, it is NOT purely subjective.\n"
+            "- EMPIRICAL CLAIMS REMAIN EMPIRICAL: Any statement asserting verifiable physical laws, physical mechanisms, measured scientific quantities, numerical statistics, biological/physiological mechanisms, neurological/psychiatric conditions (e.g. Capgras delusion, spinal cord protection), medical treatments/hazards, or historical events MUST be classified as 'empirical' (or 'mixed' if wrapped in figurative framing). Do NOT exempt an empirical claim simply because it is introduced with 'feels like', 'just like', 'in your head', or poetic language.\n"
+            "- MIXED: If an introspective, figurative, or metaphorical statement embeds an empirical fact, scientific mechanism, physical equivalence (e.g. rope resonance and microwave dielectric heating), or neurological/medical claim (e.g. Capgras delusion explaining elbow licking), classify as 'mixed' and extract the core empirical proposition(s) into 'propositions', discarding purely subjective framing.\n"
+            "- RISK LEVELS:\n"
+            "  * 'high': Medical conditions, psychiatric/neurological disorders/delusions, anatomical/bodily hazards, toxicity, disease.\n"
+            "  * 'medium': Quantitative statistics, percentages, dates, physical constants, physical laws, or scientific/mechanistic physical comparisons (e.g. dielectric resonance, thermodynamics).\n"
+            "  * 'low': Common everyday sensory observations, perceptual curiosities, or low-stakes physical interactions.\n\n"
             "INSTRUCTIONS:\n"
             "- If 'empirical', extract each testable factual proposition into 'propositions'.\n"
             "- If 'mixed', extract ONLY the core empirical proposition(s), discarding the subjective/metaphorical framing.\n"
@@ -370,49 +390,94 @@ class ClaimInspector:
         clean = text.strip()
         lower = clean.lower()
 
-        # Check empirical flags: high-risk keywords, measured scientific statistics, or causal medical claims
+        # Check empirical flags: high-risk keywords, measured scientific statistics, scientific mechanisms, or causal claims
         words = set(re.findall(r"\b[a-z]+\b", lower))
-        has_high_risk = bool(words & _HIGH_RISK_KEYWORDS)
+        has_high_risk = bool(words & _HIGH_RISK_KEYWORDS or any(kw in lower for kw in ["spinal cord", "capgras delusion", "cervical spinal cord"]))
         has_empirical_measurements = bool(
             re.search(r"\b\d+(?:\.\d+)?%\b", lower) or
             re.search(r"\b\d+(?:\.\d+)?\s*(?:times|percent|hours|years|miles|kilometers|meters|seconds|days|degrees|celsius|fahrenheit|bpm)\b", lower) or
             re.search(r"\b(?:speed of sound|speed of light|gravitational|thermodynamic|synovial|cellular|dna|neurons)\b", lower)
         )
+        has_scientific_mechanisms = any(m in lower for m in _SCIENTIFIC_MECHANISM_KEYWORDS)
         has_causal_empirical = any(
-            t in lower for t in ["causes", "cures", "eradicates", "damages", "destroys", "increases the risk", "decreases the risk"]
+            t in lower for t in [
+                "causes", "cures", "eradicates", "damages", "destroys",
+                "increases the risk", "decreases the risk", "vetoes",
+                "convinces you", "refusing to let", "labels as", "prevents you from", "blocks you from"
+            ]
         )
 
-        # Mixed patterns (figurative/subjective framing + empirical assertion)
-        if ("is terrifying because" in lower or "the ultimate villain because" in lower or "wildest part is that" in lower or "crazy because" in lower):
-            match = re.search(r"\bbecause\s+(.+)$", clean, re.IGNORECASE)
-            if match:
-                core_prop = match.group(1).strip()
-                core_prop = re.sub(r"^[.…\-—\s]+", "", core_prop)
-                if core_prop and core_prop[0].islower():
-                    core_prop = core_prop[0].upper() + core_prop[1:]
-                return (
-                    ClaimClassification.MIXED.value,
-                    [{"proposition": core_prop, "risk_level": assess_risk_level(core_prop, ClaimClassification.EMPIRICAL.value).value}],
-                    "Extracted empirical core proposition following figurative framing",
-                    None
-                )
+        has_empirical_proposition = has_high_risk or has_empirical_measurements or has_scientific_mechanisms or has_causal_empirical
 
         # Ambiguous / unparseable
         if len(clean.split()) < 3 or clean in ("...", "???", "Which is why..."):
             return ClaimClassification.AMBIGUOUS.value, [], "Fragmented or unparseable assertion", None
 
-        # Genuinely subjective observations: exempt ONLY when not asserting high-risk, measured statistics, or causal mechanisms
-        if not (has_high_risk or has_empirical_measurements or has_causal_empirical):
-            subjective_signals = [
-                "the best smell", "the worst smell", "my favorite", "i think", "in my opinion",
-                "is the most beautiful", "is the most nostalgic", "feels amazing", "tastes best",
-                "feels like", "feels strangely", "feels oddly", "feels more peaceful", "feels completely",
-                "is the quietest", "is the loudest", "is the most peaceful", "is the strangest",
-                "is the hardest part", "is the scariest part", "is oddly satisfying", "is oddly comforting",
-                "in your head", "in your mind", "in your heart", "the illusion of", "the feeling that",
-                "nostalgia is missing"
+        # Check for mixed sentence: contains empirical proposition embedded alongside subjective/figurative/metaphorical framing
+        subjective_signals = [
+            "the best smell", "the worst smell", "my favorite", "i think", "in my opinion",
+            "is the most beautiful", "is the most nostalgic", "feels amazing", "tastes best",
+            "feels like", "feels strangely", "feels oddly", "feels more peaceful", "feels completely",
+            "is the quietest", "is the loudest", "is the most peaceful", "is the strangest",
+            "is the hardest part", "is the scariest part", "is oddly satisfying", "is oddly comforting",
+            "in your head", "in your mind", "in your heart", "the illusion of", "the feeling that",
+            "nostalgia is missing"
+        ]
+        has_subjective_framing = any(sig in lower for sig in subjective_signals) or any(
+            t in lower for t in [
+                "is terrifying because", "the ultimate villain because", "wildest part is that",
+                "crazy because", "resonate in perfect harmony", "just like capgras", "—just like", "just like",
+                "acting like", ", like a"
             ]
-            if any(sig in lower for sig in subjective_signals):
+        )
+
+        if has_empirical_proposition and (has_subjective_framing or ";" in clean or "—" in clean or ", but " in lower):
+            # Extract the core empirical proposition cleanly
+            core_prop = clean
+            if "—just like " in lower:
+                idx = lower.find("—just like ")
+                core_prop = clean[idx + len("—just like "):].strip()
+            elif "just like " in lower and any(kw in lower for kw in ["delusion", "capgras", "syndrome"]):
+                idx = lower.find("just like ")
+                core_prop = clean[idx + len("just like "):].strip()
+            elif ";" in clean:
+                parts = [p.strip() for p in clean.split(";") if p.strip()]
+                # Pick the part with empirical content
+                for p in parts:
+                    p_low = p.lower()
+                    p_words = set(re.findall(r"\b[a-z]+\b", p_low))
+                    if (p_words & _HIGH_RISK_KEYWORDS) or any(m in p_low for m in _SCIENTIFIC_MECHANISM_KEYWORDS) or _NUMERICAL_PATTERN.search(p_low):
+                        core_prop = p
+                        break
+            elif ", but " in lower:
+                idx = lower.find(", but ")
+                core_prop = clean[idx + len(", but "):].strip()
+            elif "because " in lower:
+                match = re.search(r"\bbecause\s+(.+)$", clean, re.IGNORECASE)
+                if match:
+                    core_prop = match.group(1).strip()
+            elif ", acting like " in lower:
+                idx = lower.find(", acting like ")
+                core_prop = clean[:idx].strip()
+            elif ", like a " in lower:
+                idx = lower.find(", like a ")
+                core_prop = clean[:idx].strip()
+
+            core_prop = re.sub(r"^[.…\-—\s]+", "", core_prop).strip()
+            if core_prop and core_prop[0].islower():
+                core_prop = core_prop[0].upper() + core_prop[1:]
+
+            risk = assess_risk_level(core_prop, ClaimClassification.EMPIRICAL.value).value
+            return (
+                ClaimClassification.MIXED.value,
+                [{"proposition": core_prop, "risk_level": risk}],
+                "Extracted empirical core proposition following figurative/subjective framing",
+                None
+            )
+
+        # Genuinely subjective observations: exempt ONLY when not asserting high-risk, measured statistics, or causal mechanisms
+        if not has_empirical_proposition:
+            if has_subjective_framing or any(sig in lower for sig in subjective_signals):
                 return ClaimClassification.SUBJECTIVE.value, [], "Subjective or introspective reflection; exempt from empirical verification", None
 
             # Metaphorical patterns

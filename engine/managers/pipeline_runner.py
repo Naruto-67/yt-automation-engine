@@ -641,7 +641,7 @@ def _rewrite_scene_for_factuality(
         "2. CONTRADICTIONS: If the assertion is contradicted by reality or evidence, replace it with verified, undeniable reality relevant to the topic.\n"
         "3. UNVERIFIED EMPIRICAL CLAIMS:\n"
         "   - If grounding evidence is provided below, you may base an empirical claim directly on that provided evidence.\n"
-        "   - If NO supporting evidence is provided, rephrase the line as a relatable observation, perceptual question, introspective realization, or qualitative insight WITHOUT asserting unverified numbers, percentages, physical constants, or medical claims.\n"
+        "   - If NO supporting evidence is provided, rephrase the line as a relatable observation, perceptual question, introspective realization, or qualitative insight WITHOUT asserting unverified numbers, percentages, physical constants, medical/neurological claims, or speculative scientific mechanisms (such as ungrounded brain vetoes, psychiatric delusions, or resonance physics). Ground the line in undeniable everyday reality or relatable human experience while preserving the topic.\n"
         "4. NO FABRICATION: Do not invent supporting citations, statistics, or empirical claims not grounded in the provided evidence.\n\n"
         "NATURAL-VOICE EDITORIAL GUIDANCE:\n"
         "1. Conversational realism: Deliver the correction in natural spoken English as if an observant person were speaking directly to a friend.\n"
