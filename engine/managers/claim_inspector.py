@@ -66,7 +66,8 @@ _HIGH_RISK_KEYWORDS = {
 _SCIENTIFIC_MECHANISM_KEYWORDS = {
     "dielectric", "resonance", "thermodynamic", "electromagnetic", "quantum",
     "microwave heating", "biomechanical", "cellular", "synovial", "neurotransmitter",
-    "dielectric resonance", "speed of sound", "speed of light"
+    "dielectric resonance", "speed of sound", "speed of light", "tensile",
+    "tensile stress", "tensile strength"
 }
 
 _NUMERICAL_PATTERN = re.compile(r"\b\d+(?:\.\d+)?%?\b")
@@ -417,7 +418,8 @@ class ClaimInspector:
         subjective_signals = [
             "the best smell", "the worst smell", "my favorite", "i think", "in my opinion",
             "is the most beautiful", "is the most nostalgic", "feels amazing", "tastes best",
-            "feels like", "feels strangely", "feels oddly", "feels more peaceful", "feels completely",
+            "feel like", "feels like", "feel strangely", "feels strangely", "feel oddly", "feels oddly",
+            "feels more peaceful", "feels completely", "seem like", "seems like",
             "is the quietest", "is the loudest", "is the most peaceful", "is the strangest",
             "is the hardest part", "is the scariest part", "is oddly satisfying", "is oddly comforting",
             "in your head", "in your mind", "in your heart", "the illusion of", "the feeling that",
