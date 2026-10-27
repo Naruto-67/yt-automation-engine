@@ -339,10 +339,239 @@ class VoiceNormalizer:
             return "not-installed"
 
     @classmethod
+    def _resolve_hf_hub_cache_dir(cls) -> str:
+        """
+        Resolves Hugging Face hub cache directory matching huggingface_hub precedence:
+        1. Imported huggingface_hub.constants.HF_HUB_CACHE (if available)
+        2. HF_HUB_CACHE environment variable
+        3. HUGGINGFACE_HUB_CACHE (legacy environment variable)
+        4. Derived from HF_HOME: os.path.join(HF_HOME, "hub")
+        5. Derived from XDG_CACHE_HOME: os.path.join(XDG_CACHE_HOME, "huggingface", "hub")
+        6. Default: ~/.cache/huggingface/hub
+        """
+        try:
+            import huggingface_hub.constants
+            if hasattr(huggingface_hub.constants, "HF_HUB_CACHE"):
+                val = huggingface_hub.constants.HF_HUB_CACHE
+                if val:
+                    return os.path.abspath(str(val))
+        except Exception:
+            pass
+
+        try:
+            if os.environ.get("HF_HUB_CACHE"):
+                return os.path.abspath(os.environ["HF_HUB_CACHE"])
+
+            if os.environ.get("HUGGINGFACE_HUB_CACHE"):
+                return os.path.abspath(os.environ["HUGGINGFACE_HUB_CACHE"])
+
+            if os.environ.get("HF_HOME"):
+                return os.path.abspath(os.path.join(os.environ["HF_HOME"], "hub"))
+
+            if os.environ.get("XDG_CACHE_HOME"):
+                return os.path.abspath(os.path.join(os.environ["XDG_CACHE_HOME"], "huggingface", "hub"))
+
+            return os.path.abspath(os.path.expanduser("~/.cache/huggingface/hub"))
+        except Exception:
+            return os.path.abspath(os.path.expanduser("~/.cache/huggingface/hub"))
+
+    @classmethod
+    def _classify_checkpoint_header(cls, file_path: str, filename: str) -> str:
+        """
+        Evaluates file prefix signature using format-specific rules and strict byte boundaries.
+        Reads at most 24 bytes for initial check; at most 176 additional bytes only when
+        an apparent Git LFS pointer is detected. Never reads or logs tensor payloads.
+        """
+        try:
+            stat_res = os.stat(file_path)
+            file_size = stat_res.st_size
+        except (OSError, IOError) as e:
+            return f"Unreadable file (OSError: {e})"
+
+        if file_size == 0:
+            return "Empty file (0 bytes)"
+
+        try:
+            with open(file_path, "rb") as f:
+                header = f.read(24)
+                if header.startswith(b"version https://"):
+                    extra = f.read(176)
+                    full_lfs = (header + extra).decode("utf-8", errors="replace")
+                    details = []
+                    oid_match = re.search(r"oid sha256:([a-f0-9]{16,64})", full_lfs)
+                    size_match = re.search(r"size (\d+)", full_lfs)
+                    if oid_match:
+                        details.append(f"oid: {oid_match.group(1)[:16]}...")
+                    if size_match:
+                        details.append(f"declared size: {size_match.group(1)} B")
+                    det_str = f" ({', '.join(details)})" if details else ""
+                    return f"Apparent Git LFS pointer text file{det_str}"
+
+                fname_lower = filename.lower()
+
+                # 1. Configuration files (JSON)
+                if fname_lower == "config.json" or fname_lower.endswith(".json"):
+                    stripped = header.lstrip(b" \t\r\n")
+                    if stripped.startswith(b"{"):
+                        return "Plausible JSON text configuration (preliminary prefix check; unvalidated)"
+                    return f"Unrecognized configuration prefix (header hex: 0x{header[:8].hex()})"
+
+                # 2. SafeTensors checkpoints
+                if fname_lower.endswith(".safetensors"):
+                    if len(header) >= 8:
+                        n = int.from_bytes(header[:8], byteorder="little", signed=False)
+                        rem = file_size - 8
+                        if n <= rem:
+                            if len(header) >= 10 and header[8:10].lstrip().startswith(b"{"):
+                                return f"Plausible SafeTensors container prefix (preliminary prefix check: declared header {n} B <= file size - 8 B ({rem} B); full header and payload unvalidated)"
+                            return f"Plausible SafeTensors length prefix (declared header {n} B <= file size - 8 B ({rem} B); JSON start unvalidated)"
+                        return f"Inconsistent declared SafeTensors header length: declared {n} B exceeds remaining file boundary ({rem} B)"
+                    return "Truncated SafeTensors file (fewer than 8 bytes for length header)"
+
+                # 3. PyTorch checkpoints & voicepacks (*.pth, *.pt, *.bin)
+                if fname_lower.endswith(".pth") or fname_lower.endswith(".pt") or fname_lower.endswith(".bin"):
+                    if header.startswith(b"PK\x03\x04"):
+                        return "Plausible PyTorch Zip container prefix (.pth/.pt archive; unvalidated)"
+                    if len(header) >= 2 and header[0] == 0x80 and header[1] in (2, 3, 4, 5):
+                        return f"Plausible PyTorch pickle stream prefix (protocol {header[1]}; unvalidated)"
+                    return f"Unrecognized PyTorch container prefix (header hex: 0x{header[:8].hex()})"
+
+                # 4. Other/unrecognized files
+                return f"Unrecognized file prefix (header hex: 0x{header[:8].hex()})"
+        except (OSError, IOError) as e:
+            return f"Unreadable file (OSError: {e})"
+
+    @classmethod
+    def _inspect_kokoro_checkpoint_cache(cls) -> Dict[str, Any]:
+        """
+        Bounded, exception-triggered forensic inspection of Kokoro Hugging Face cache.
+        Traverses snapshots/ revisions under models--hexgrad--Kokoro-82M,
+        resolves symlinks into blobs/, evaluates format-specific 24-byte signatures,
+        and records cache lookup evidence. Never raises.
+        """
+        result: Dict[str, Any] = {
+            "cache_exists": False,
+            "hub_cache_dir": "",
+            "repo_cache_dir": "",
+            "cache_lookup_evidence": {},
+            "snapshot_candidates": [],
+            "disclaimer": (
+                "Evidentiary limitation: The loader call stack did not isolate the specific open file path "
+                "at the moment of failure. Candidate files reported reflect the physical cache state present "
+                "immediately following the exception."
+            )
+        }
+        try:
+            hub_cache = cls._resolve_hf_hub_cache_dir()
+            result["hub_cache_dir"] = hub_cache
+            repo_cache = os.path.join(hub_cache, "models--hexgrad--Kokoro-82M")
+            result["repo_cache_dir"] = repo_cache
+
+            if not os.path.isdir(repo_cache):
+                result["status"] = "models--hexgrad--Kokoro-82M directory not found in cache"
+                return result
+
+            result["cache_exists"] = True
+
+            # 1. Query try_to_load_from_cache as cache lookup evidence
+            try:
+                import huggingface_hub
+                if hasattr(huggingface_hub, "try_to_load_from_cache"):
+                    lookup_files = ["config.json", "kokoro-v1_0.pth", "kokoro-v0_19.pth", "voices/am_adam.pt"]
+                    for l_file in lookup_files:
+                        try:
+                            found_path = huggingface_hub.try_to_load_from_cache(
+                                repo_id="hexgrad/Kokoro-82M",
+                                filename=l_file,
+                                cache_dir=hub_cache
+                            )
+                            if isinstance(found_path, str) and os.path.exists(found_path):
+                                result["cache_lookup_evidence"][l_file] = {
+                                    "resolved_path": found_path,
+                                    "size_bytes": os.path.getsize(found_path),
+                                    "is_symlink": os.path.islink(found_path)
+                                }
+                            elif found_path is not None:
+                                result["cache_lookup_evidence"][l_file] = {"lookup_result": str(found_path)}
+                        except Exception as lookup_err:
+                            result["cache_lookup_evidence"][l_file] = {"lookup_error": str(lookup_err)}
+            except Exception:
+                pass
+
+            # 2. Inspect snapshots/ directory
+            snapshots_dir = os.path.join(repo_cache, "snapshots")
+            if not os.path.isdir(snapshots_dir):
+                result["status"] = "No snapshots directory found under repo cache"
+                return result
+
+            candidates = []
+            try:
+                rev_dirs = [d for d in os.listdir(snapshots_dir) if os.path.isdir(os.path.join(snapshots_dir, d))]
+            except Exception as scan_err:
+                result["status"] = f"Failed to list snapshots directory: {scan_err}"
+                return result
+
+            for rev in rev_dirs:
+                rev_path = os.path.join(snapshots_dir, rev)
+                target_paths = []
+                try:
+                    for item in os.listdir(rev_path):
+                        ip = os.path.join(rev_path, item)
+                        if os.path.isfile(ip) or os.path.islink(ip):
+                            target_paths.append((ip, item, f"snapshots/{rev}/{item}"))
+                        elif item == "voices" and os.path.isdir(ip):
+                            for v_item in os.listdir(ip):
+                                vp = os.path.join(ip, v_item)
+                                if os.path.isfile(vp) or os.path.islink(vp):
+                                    target_paths.append((vp, v_item, f"snapshots/{rev}/voices/{v_item}"))
+                except Exception:
+                    continue
+
+                for f_path, f_name, rel_path in target_paths:
+                    f_lower = f_name.lower()
+                    if not (
+                        f_lower == "config.json"
+                        or f_lower.endswith(".pth")
+                        or f_lower.endswith(".pt")
+                        or f_lower.endswith(".safetensors")
+                        or f_lower.endswith(".bin")
+                    ):
+                        continue
+
+                    is_link = os.path.islink(f_path)
+                    link_target = os.readlink(f_path) if is_link else None
+                    real_path = os.path.realpath(f_path)
+
+                    file_size = 0
+                    try:
+                        file_size = os.path.getsize(real_path)
+                    except Exception:
+                        pass
+
+                    sig = cls._classify_checkpoint_header(real_path, f_name)
+
+                    entry = {
+                        "relative_path": rel_path,
+                        "is_symlink": is_link,
+                        "link_target": link_target,
+                        "resolved_path": real_path,
+                        "size_bytes": file_size,
+                        "signature": sig,
+                    }
+                    candidates.append(entry)
+
+            result["snapshot_candidates"] = candidates
+            result["status"] = f"Found {len(candidates)} candidate artifact(s) in snapshots"
+        except Exception as exc:
+            result["status"] = f"Error during checkpoint cache inspection: {exc}"
+
+        return result
+
+    @classmethod
     def _format_tts_diagnostics(cls, exc: Exception, context: str) -> str:
         """
-        Formats diagnostic information (traceback and package versions) for Kokoro TTS failures.
-        Redacts sensitive tokens and credentials.
+        Formats diagnostic information (traceback, package versions, and checkpoint forensics)
+        for Kokoro TTS failures. Redacts sensitive tokens and credentials.
         """
         tb_str = traceback.format_exc()
         if not tb_str or tb_str.strip() == "NoneType: None":
@@ -382,6 +611,34 @@ class VoiceNormalizer:
         ]
         for pkg in critical_packages:
             lines.append(f"  - {pkg}: {cls._get_package_version(pkg)}")
+
+        # Checkpoint cache forensics (strictly fail-safe)
+        try:
+            forensics = cls._inspect_kokoro_checkpoint_cache()
+            lines.append("Checkpoint Cache Forensics:")
+            lines.append(f"  - Hub Cache Dir: {forensics.get('hub_cache_dir', 'unknown')}")
+            lines.append(f"  - Repo Cache Exists: {forensics.get('cache_exists', False)} ({forensics.get('status', '')})")
+
+            lookup_ev = forensics.get("cache_lookup_evidence", {})
+            if lookup_ev:
+                lines.append("  [CACHE LOOKUP EVIDENCE (try_to_load_from_cache)]:")
+                for lk, lv in lookup_ev.items():
+                    lines.append(f"    * {lk}: {lv}")
+
+            candidates = forensics.get("snapshot_candidates", [])
+            if candidates:
+                lines.append("  [POST-EXCEPTION CACHE CANDIDATES (snapshots)]:")
+                for c in candidates:
+                    sym_info = f" -> {c['link_target']}" if c.get("is_symlink") else ""
+                    lines.append(f"    * {c['relative_path']}{sym_info} ({c['size_bytes']} B)")
+                    lines.append(f"      Signature: {c['signature']}")
+            elif forensics.get("cache_exists"):
+                lines.append("  [POST-EXCEPTION CACHE CANDIDATES]: 0 matching artifacts found in snapshots.")
+
+            lines.append(f"  Note: {forensics.get('disclaimer', '')}")
+        except Exception as f_err:
+            lines.append(f"Checkpoint Cache Forensics Failed: {f_err}")
+
         lines.append("Traceback (most recent call last):")
         lines.append(_redact(tb_str.strip()))
         lines.append("======================================================================")

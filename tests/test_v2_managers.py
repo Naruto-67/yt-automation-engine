@@ -288,6 +288,231 @@ def test_voice_normalizer_live_kokoro_diagnostic_probe(capsys, tmp_path):
     assert len(cut_durs) == 3
 
 
+def test_voice_normalizer_resolve_cache_dir_canonical_constant_precedence(monkeypatch):
+    """Verifies that imported huggingface_hub.constants.HF_HUB_CACHE takes strict precedence."""
+    import types
+    mock_constants = types.ModuleType("huggingface_hub.constants")
+    mock_constants.HF_HUB_CACHE = "/custom/canonical/hub"
+    monkeypatch.setitem(sys.modules, "huggingface_hub.constants", mock_constants)
+
+    parent_mod = sys.modules.get("huggingface_hub")
+    if parent_mod is not None:
+        monkeypatch.setattr(parent_mod, "constants", mock_constants, raising=False)
+    else:
+        try:
+            import huggingface_hub
+            monkeypatch.setattr(huggingface_hub, "constants", mock_constants, raising=False)
+        except ImportError:
+            mock_parent = types.ModuleType("huggingface_hub")
+            mock_parent.constants = mock_constants
+            monkeypatch.setitem(sys.modules, "huggingface_hub", mock_parent)
+
+    # Set conflicting environment variables that must be ignored
+    monkeypatch.setenv("HF_HUB_CACHE", "/env/hub")
+    monkeypatch.setenv("HUGGINGFACE_HUB_CACHE", "/legacy/hub")
+    monkeypatch.setenv("HF_HOME", "/env/home")
+
+    resolved = VoiceNormalizer._resolve_hf_hub_cache_dir()
+    assert resolved == os.path.abspath("/custom/canonical/hub")
+
+
+def test_voice_normalizer_resolve_cache_dir_env_precedence_when_constant_unavailable(monkeypatch):
+    """
+    Verifies environment fallback precedence when canonical constant is unavailable:
+    HF_HUB_CACHE > HUGGINGFACE_HUB_CACHE > HF_HOME/hub > XDG_CACHE_HOME/huggingface/hub > default.
+    """
+    import types
+    # Simulate constant unavailable in module (mock constants has no HF_HUB_CACHE attribute)
+    mock_constants = types.ModuleType("huggingface_hub.constants")
+    monkeypatch.setitem(sys.modules, "huggingface_hub.constants", mock_constants)
+
+    parent_mod = sys.modules.get("huggingface_hub")
+    if parent_mod is not None:
+        monkeypatch.setattr(parent_mod, "constants", mock_constants, raising=False)
+    else:
+        try:
+            import huggingface_hub
+            monkeypatch.setattr(huggingface_hub, "constants", mock_constants, raising=False)
+        except ImportError:
+            mock_parent = types.ModuleType("huggingface_hub")
+            mock_parent.constants = mock_constants
+            monkeypatch.setitem(sys.modules, "huggingface_hub", mock_parent)
+
+    # Step 1: HF_HUB_CACHE takes first priority
+    monkeypatch.setenv("HF_HUB_CACHE", "/p1")
+    monkeypatch.setenv("HUGGINGFACE_HUB_CACHE", "/p2")
+    monkeypatch.setenv("HF_HOME", "/p3")
+    monkeypatch.setenv("XDG_CACHE_HOME", "/p4")
+    assert VoiceNormalizer._resolve_hf_hub_cache_dir() == os.path.abspath("/p1")
+
+    # Step 2: HUGGINGFACE_HUB_CACHE takes priority over HF_HOME
+    monkeypatch.delenv("HF_HUB_CACHE", raising=False)
+    assert VoiceNormalizer._resolve_hf_hub_cache_dir() == os.path.abspath("/p2")
+
+    # Step 3: HF_HOME/hub takes priority over XDG_CACHE_HOME
+    monkeypatch.delenv("HUGGINGFACE_HUB_CACHE", raising=False)
+    assert VoiceNormalizer._resolve_hf_hub_cache_dir() == os.path.abspath("/p3/hub")
+
+    # Step 4: XDG_CACHE_HOME/huggingface/hub takes priority over default
+    monkeypatch.delenv("HF_HOME", raising=False)
+    assert VoiceNormalizer._resolve_hf_hub_cache_dir() == os.path.abspath("/p4/huggingface/hub")
+
+    # Step 5: Default ~/.cache/huggingface/hub
+    monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
+    assert VoiceNormalizer._resolve_hf_hub_cache_dir() == os.path.abspath(os.path.expanduser("~/.cache/huggingface/hub"))
+
+
+def test_voice_normalizer_classify_checkpoint_header_format_specific_json(tmp_path):
+    """Verifies that config.json is evaluated as JSON text and never evaluated as SafeTensors."""
+    # 1. Valid JSON with leading whitespace
+    cfg_file = tmp_path / "config.json"
+    cfg_file.write_bytes(b"  \n\t {\n  \"hidden_size\": 512\n}")
+    res = VoiceNormalizer._classify_checkpoint_header(str(cfg_file), "config.json")
+    assert "Plausible JSON text configuration" in res
+    assert "SafeTensors" not in res
+
+    # 2. Empty file
+    empty_file = tmp_path / "empty.json"
+    empty_file.write_bytes(b"")
+    res_empty = VoiceNormalizer._classify_checkpoint_header(str(empty_file), "config.json")
+    assert res_empty == "Empty file (0 bytes)"
+
+    # 3. Unrecognized configuration prefix
+    corrupt_file = tmp_path / "corrupt.json"
+    corrupt_file.write_bytes(b"\x00\x01\x02\x03\x04\x05\x06\x07")
+    res_corrupt = VoiceNormalizer._classify_checkpoint_header(str(corrupt_file), "config.json")
+    assert "Unrecognized configuration prefix" in res_corrupt
+
+
+def test_voice_normalizer_classify_checkpoint_header_detects_lfs_pointer(tmp_path):
+    """Verifies that an apparent Git LFS pointer is detected and recorded neutrally."""
+    lfs_file = tmp_path / "kokoro-v1_0.pth"
+    lfs_content = b"version https://git-lfs.github.com/spec/v1\noid sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890\nsize 350000000\n"
+    lfs_file.write_bytes(lfs_content)
+
+    res = VoiceNormalizer._classify_checkpoint_header(str(lfs_file), "kokoro-v1_0.pth")
+    assert "Apparent Git LFS pointer text file" in res
+    assert "oid: abcdef1234567890..." in res
+    assert "declared size: 350000000 B" in res
+
+
+def test_voice_normalizer_classify_checkpoint_header_safetensors_boundary(tmp_path):
+    """Verifies SafeTensors header boundary consistency: N <= file_size - 8."""
+    # 1. Consistent boundary: file_size = 120 bytes, N = 50 bytes. 50 <= 120 - 8 (112).
+    good_file = tmp_path / "model.safetensors"
+    good_header_len = (50).to_bytes(8, byteorder="little", signed=False)
+    good_file.write_bytes(good_header_len + b'{"__metadata__": {}}' + b"\x00" * 92)
+    res_good = VoiceNormalizer._classify_checkpoint_header(str(good_file), "model.safetensors")
+    assert "Plausible SafeTensors container prefix" in res_good
+    assert "declared header 50 B <= file size - 8 B (112 B)" in res_good
+
+    # 2. Inconsistent boundary: file_size = 40 bytes, N = 100 bytes. 100 > 40 - 8 (32).
+    bad_file = tmp_path / "bad.safetensors"
+    bad_header_len = (100).to_bytes(8, byteorder="little", signed=False)
+    bad_file.write_bytes(bad_header_len + b"\x00" * 32)
+    res_bad = VoiceNormalizer._classify_checkpoint_header(str(bad_file), "bad.safetensors")
+    assert "Inconsistent declared SafeTensors header length" in res_bad
+    assert "declared 100 B exceeds remaining file boundary (32 B)" in res_bad
+
+
+def test_voice_normalizer_classify_checkpoint_header_pytorch_zip_and_pickle(tmp_path):
+    """Verifies recognition of PyTorch Zip container (.pth) and pickle stream (.pt) prefixes."""
+    # 1. PyTorch Zip archive (.pth)
+    pth_file = tmp_path / "kokoro-v1_0.pth"
+    pth_file.write_bytes(b"PK\x03\x04\x14\x00\x00\x00" + b"\x00" * 40)
+    res_pth = VoiceNormalizer._classify_checkpoint_header(str(pth_file), "kokoro-v1_0.pth")
+    assert "Plausible PyTorch Zip container prefix" in res_pth
+
+    # 2. PyTorch pickle stream (voicepack .pt)
+    pt_file = tmp_path / "am_adam.pt"
+    pt_file.write_bytes(b"\x80\x04\x95\x00\x00\x00\x00" + b"\x00" * 40)
+    res_pt = VoiceNormalizer._classify_checkpoint_header(str(pt_file), "am_adam.pt")
+    assert "Plausible PyTorch pickle stream prefix (protocol 4; unvalidated)" in res_pt
+
+
+def test_voice_normalizer_inspect_checkpoint_snapshot_symlink_resolution(tmp_path, monkeypatch):
+    """Verifies traversal of snapshots/ revisions and resolution of extensionless blobs/ symlinks."""
+    hub_dir = tmp_path / "hub"
+    repo_dir = hub_dir / "models--hexgrad--Kokoro-82M"
+    snapshots_dir = repo_dir / "snapshots" / "main"
+    blobs_dir = repo_dir / "blobs"
+    voices_dir = snapshots_dir / "voices"
+
+    snapshots_dir.mkdir(parents=True)
+    blobs_dir.mkdir(parents=True)
+    voices_dir.mkdir(parents=True)
+
+    # Create real payload in extensionless blob
+    blob_name = "4a3f120000000000000000000000000000000000000000000000000000000000"
+    blob_model = blobs_dir / blob_name
+    blob_model.write_bytes(b"PK\x03\x04\x14\x00" + b"\x00" * 244)  # 250 bytes
+
+    # Symlink snapshot to blob using relative target (../../blobs/<blob-name>)
+    rel_target = os.path.join("..", "..", "blobs", blob_name)
+    symlink_model = snapshots_dir / "kokoro-v1_0.pth"
+    os.symlink(rel_target, symlink_model)
+
+    # Create config.json and voicepack in snapshot
+    cfg_file = snapshots_dir / "config.json"
+    cfg_file.write_bytes(b'{"hidden": 512}')
+
+    voice_file = voices_dir / "am_adam.pt"
+    voice_file.write_bytes(b"\x80\x04\x95" + b"\x00" * 97)
+
+    monkeypatch.setattr(VoiceNormalizer, "_resolve_hf_hub_cache_dir", classmethod(lambda cls: str(hub_dir)))
+
+    res = VoiceNormalizer._inspect_kokoro_checkpoint_cache()
+    assert res["cache_exists"] is True
+    candidates = res["snapshot_candidates"]
+    assert len(candidates) == 3
+
+    # Verify kokoro-v1_0.pth symlink resolution
+    model_entry = next(c for c in candidates if "kokoro-v1_0.pth" in c["relative_path"])
+    assert model_entry["relative_path"] == "snapshots/main/kokoro-v1_0.pth"
+    assert model_entry["is_symlink"] is True
+    assert model_entry["link_target"] == rel_target
+    assert model_entry["resolved_path"] == os.path.realpath(str(blob_model))
+    assert model_entry["size_bytes"] == 250
+    assert "Plausible PyTorch Zip container prefix" in model_entry["signature"]
+
+    # Verify config.json entry
+    cfg_entry = next(c for c in candidates if "config.json" in c["relative_path"])
+    assert cfg_entry["size_bytes"] == 15
+    assert "Plausible JSON text configuration" in cfg_entry["signature"]
+
+    # Verify voicepack entry
+    voice_entry = next(c for c in candidates if "am_adam.pt" in c["relative_path"])
+    assert voice_entry["size_bytes"] == 100
+    assert "Plausible PyTorch pickle stream prefix" in voice_entry["signature"]
+
+
+def test_voice_normalizer_inspect_checkpoint_missing_cache_and_permission_isolation(tmp_path, monkeypatch):
+    """Verifies that missing cache and filesystem permission errors are safely isolated."""
+    # 1. Missing cache directory returns structured dict without raising
+    monkeypatch.setattr(VoiceNormalizer, "_resolve_hf_hub_cache_dir", classmethod(lambda cls: str(tmp_path / "non_existent")))
+    res_missing = VoiceNormalizer._inspect_kokoro_checkpoint_cache()
+    assert res_missing["cache_exists"] is False
+    assert "not found in cache" in res_missing["status"]
+
+    # 2. Permission error inside _inspect_kokoro_checkpoint_cache is safely isolated
+    cache_dir = tmp_path / "hub"
+    repo_dir = cache_dir / "models--hexgrad--Kokoro-82M" / "snapshots"
+    repo_dir.mkdir(parents=True)
+    monkeypatch.setattr(VoiceNormalizer, "_resolve_hf_hub_cache_dir", classmethod(lambda cls: str(cache_dir)))
+
+    def mock_listdir_fail(*args, **kwargs):
+        raise PermissionError("EACCES Permission denied")
+
+    monkeypatch.setattr(os, "listdir", mock_listdir_fail)
+    res_perm = VoiceNormalizer._inspect_kokoro_checkpoint_cache()
+    assert "Permission denied" in res_perm["status"]
+
+    # 3. Format report handles error without failing
+    report = VoiceNormalizer._format_tts_diagnostics(RuntimeError("Test error"), "Test Context")
+    assert "==================== KOKORO TTS DIAGNOSTIC REPORT ====================" in report
+    assert "Checkpoint Cache Forensics:" in report
+
+
 def test_music_manager_procedural_lofi_synthesis(tmp_path):
     """Verifies that MusicManager can synthesize high-fidelity procedural Lo-Fi tracks."""
     from engine.managers.music_manager import MusicManager
