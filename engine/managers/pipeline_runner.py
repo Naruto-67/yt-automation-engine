@@ -592,11 +592,15 @@ def evaluate_shorts_factuality_policy(
 def _rewrite_scene_for_factuality(
     scene: Dict[str, Any],
     claim_record: Any,
-    llm: Optional[Any] = None
+    llm: Optional[Any] = None,
+    topic: Optional[str] = None,
+    candidate_evidence: Optional[List[Any]] = None,
+    **kwargs: Any
 ) -> Optional[Dict[str, Any]]:
     """
     Executes a targeted single-scene LLM rewrite to resolve an identified factuality defect.
-    Preserves original meaning and intended narrative tone where possible while enforcing natural spoken voice.
+    Preserves original meaning, intended narrative tone, and requested topic while grounding
+    assertions in candidate evidence and enforcing natural spoken voice.
     """
     if llm is None:
         return None
@@ -604,13 +608,41 @@ def _rewrite_scene_for_factuality(
     prop = getattr(claim_record, "extracted_proposition", "") or getattr(claim_record, "original_text", "")
     risk = getattr(claim_record, "risk_level", "low")
     rationale = getattr(claim_record, "rationale", "")
+    outcome = getattr(claim_record, "outcome", "")
+    claim_ev = getattr(claim_record, "evidence", []) or []
+
+    # Gather available grounding evidence without fabricating citations
+    evidence_pool: List[str] = []
+    for ev in (list(claim_ev) + list(candidate_evidence or [])):
+        if hasattr(ev, "text") and ev.text:
+            txt = ev.text.strip()
+        elif isinstance(ev, dict) and (ev.get("text") or ev.get("fact")):
+            txt = str(ev.get("text") or ev.get("fact")).strip()
+        elif isinstance(ev, str) and ev.strip():
+            txt = ev.strip()
+        else:
+            continue
+        if txt and txt not in evidence_pool:
+            evidence_pool.append(txt)
+
+    if evidence_pool:
+        evidence_lines = [f"- [Evidence #{i+1}] {t}" for i, t in enumerate(evidence_pool[:5])]
+        evidence_block = "\n".join(evidence_lines)
+    else:
+        evidence_block = "None available. (No verified candidate evidence provided; rephrase without unsupported empirical numbers or claims.)"
+
+    topic_str = str(topic or "Intended Topic").strip()
 
     sys_prompt = (
         "You are an expert factual script editor for YouTube Shorts.\n"
-        "Revise the given scene spoken text to resolve the identified factuality defect while preserving the hook, engagement, and narrative flow.\n\n"
-        "FACTUALITY EDITORIAL RULES:\n"
-        "1. If the claim is contradicted, replace or correct it with verified, undeniable reality.\n"
-        "2. If the claim is an unverified statistic or medical/safety assertion, rephrase it as a relatable observation without unsupported numerical claims or health assertions.\n\n"
+        "Revise the given scene spoken text to resolve the identified factuality defect while preserving the hook, engagement, narrative flow, and topic relevance.\n\n"
+        "FACTUALITY & GROUNDING EDITORIAL RULES:\n"
+        f"1. TOPIC PRESERVATION: The revised scene MUST strictly preserve and stay relevant to the intended topic: '{topic_str}'. Do NOT pivot to an unrelated subject or substitute unrelated trivia.\n"
+        "2. CONTRADICTIONS: If the assertion is contradicted by reality or evidence, replace it with verified, undeniable reality relevant to the topic.\n"
+        "3. UNVERIFIED EMPIRICAL CLAIMS:\n"
+        "   - If grounding evidence is provided below, you may base an empirical claim directly on that provided evidence.\n"
+        "   - If NO supporting evidence is provided, rephrase the line as a relatable observation, perceptual question, introspective realization, or qualitative insight WITHOUT asserting unverified numbers, percentages, physical constants, or medical claims.\n"
+        "4. NO FABRICATION: Do not invent supporting citations, statistics, or empirical claims not grounded in the provided evidence.\n\n"
         "NATURAL-VOICE EDITORIAL GUIDANCE:\n"
         "1. Conversational realism: Deliver the correction in natural spoken English as if an observant person were speaking directly to a friend.\n"
         "2. Direct observation: State facts and realities directly rather than adopting formal citations, clinical hedging, or textbook phrasing.\n"
@@ -619,10 +651,12 @@ def _rewrite_scene_for_factuality(
         '5. Return ONLY valid JSON: {"spoken_text": "<revised text>", "stock_video_query": "<visual query>"}'
     )
     user_prompt = (
+        f"Intended Topic: \"{topic_str}\"\n\n"
         f"Original Scene Spoken Text:\n\"{scene.get('spoken_text', '')}\"\n\n"
-        f"Problematic Assertion:\n\"{prop}\" (Risk Level: {risk})\n\n"
+        f"Problematic Assertion:\n\"{prop}\" (Risk Level: {risk}, Outcome: {outcome})\n\n"
         f"Factuality Defect:\n{rationale}\n\n"
-        "Revise the scene spoken text to be factually accurate, natural-sounding, and engaging:"
+        f"Available Grounding Evidence:\n{evidence_block}\n\n"
+        f"Revise the scene spoken text to resolve the defect, preserve topic '{topic_str}', and remain natural and factually accurate:"
     )
 
     try:
@@ -656,6 +690,166 @@ def _rewrite_scene_for_factuality(
     except Exception as e:
         print(f"⚠️  [CLAIM INSPECTOR] Targeted scene rewrite failed: {e}", flush=True)
         return None
+
+
+def _validate_and_refine_claims(
+    raw_scenes: List[Dict[str, Any]],
+    topic: str,
+    claim_inspector: Any,
+    llm: Optional[Any] = None,
+    grounding_refs: Optional[List[Any]] = None,
+    channel_premise: str = "",
+    prompts_cfg: Optional[Dict[str, Any]] = None,
+    script_data: Optional[Dict[str, Any]] = None,
+    max_rewrites_per_scene: int = 2
+) -> Tuple[List[Dict[str, Any]], Any, Tuple[FactualityPolicyStatus, str], bool]:
+    """
+    Validates scene-chain factuality via ClaimInspector and coordinates targeted rewrites.
+    Grounds rewrites with available evidence, preserves the intended topic, enforces
+    fail-closed policy on unresolved empirical claims, and reports explicit diagnosable
+    outcomes on rewrite exhaustion.
+    """
+    global _LAST_CLAIM_INSPECTION_REPORT, _LAST_FACTUALITY_DECISION
+
+    scene_factuality_rewrite_counts: Dict[int, int] = {}
+    final_factuality_report = None
+    final_factuality_decision = None
+    rewrote_any = False
+
+    while True:
+        # 1. Inspect the candidate scene chain
+        final_factuality_report = claim_inspector.inspect_script(
+            scenes=raw_scenes,
+            candidate_evidence=grounding_refs
+        )
+        decision, decision_reason, affected_claims = evaluate_shorts_factuality_policy(final_factuality_report)
+        final_factuality_decision = (decision, decision_reason)
+        _LAST_CLAIM_INSPECTION_REPORT = final_factuality_report
+        _LAST_FACTUALITY_DECISION = final_factuality_decision
+
+        if decision in (FactualityPolicyStatus.PASSED, FactualityPolicyStatus.PASSED_WITH_UNVERIFIED):
+            if decision == FactualityPolicyStatus.PASSED_WITH_UNVERIFIED:
+                print(f"⚠️  [CLAIM INSPECTOR] Script approved under low-risk policy ({decision_reason})", flush=True)
+            else:
+                print(f"✅ [CLAIM INSPECTOR] Script passed factuality verification ({decision_reason})", flush=True)
+            return raw_scenes, final_factuality_report, final_factuality_decision, rewrote_any
+
+        # 2. Policy rejection: evaluate if rewrite budget allows targeted correction
+        scenes_to_rewrite: List[Tuple[int, Any]] = []
+        for s_id, c_rec in affected_claims:
+            if s_id and 1 <= s_id <= len(raw_scenes) and scene_factuality_rewrite_counts.get(s_id, 0) < max_rewrites_per_scene:
+                if not any(s[0] == s_id for s in scenes_to_rewrite):
+                    scenes_to_rewrite.append((s_id, c_rec))
+
+        if not scenes_to_rewrite or llm is None:
+            # Budget exhausted or no LLM available -> fail closed with rich diagnostics
+            exhausted_details = []
+            for s_id, c_rec in affected_claims:
+                attempts = scene_factuality_rewrite_counts.get(s_id, 0)
+                prop = getattr(c_rec, "extracted_proposition", "") or getattr(c_rec, "original_text", "")
+                risk = getattr(c_rec, "risk_level", "unknown")
+                exhausted_details.append(f"[Scene {s_id} | {attempts}/{max_rewrites_per_scene} attempts | Risk: {risk} | Claim: '{prop}']")
+            diag_str = " ".join(exhausted_details) if exhausted_details else "No rewrite attempts remaining"
+
+            is_exhausted = any(
+                scene_factuality_rewrite_counts.get(s[0], 0) >= max_rewrites_per_scene
+                for s in affected_claims
+            )
+            if is_exhausted:
+                raise ValueError(
+                    f"Claim Inspector rejected script ({decision.value}): {decision_reason} (Rewrite budget exhausted: {diag_str})"
+                )
+            else:
+                raise ValueError(
+                    f"Claim Inspector rejected script ({decision.value}): {decision_reason}"
+                )
+
+        # 3. Perform targeted rewrites for eligible affected scenes
+        rewrote_this_pass = False
+        import inspect
+        sig = inspect.signature(_rewrite_scene_for_factuality)
+        supports_kwargs = "topic" in sig.parameters or any(
+            p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+        )
+
+        for s_id, c_rec in scenes_to_rewrite:
+            scene_idx = s_id - 1
+            scene_factuality_rewrite_counts[s_id] = scene_factuality_rewrite_counts.get(s_id, 0) + 1
+            print(
+                f"🔄 [CLAIM INSPECTOR] Rewriting Scene {s_id} for factuality "
+                f"(attempt {scene_factuality_rewrite_counts[s_id]}/{max_rewrites_per_scene}): "
+                f"{getattr(c_rec, 'rationale', '')[:60]}...",
+                flush=True
+            )
+            if supports_kwargs:
+                revised_sc = _rewrite_scene_for_factuality(
+                    scene=raw_scenes[scene_idx],
+                    claim_record=c_rec,
+                    llm=llm,
+                    topic=topic,
+                    candidate_evidence=grounding_refs
+                )
+            else:
+                revised_sc = _rewrite_scene_for_factuality(
+                    scene=raw_scenes[scene_idx],
+                    claim_record=c_rec,
+                    llm=llm
+                )
+            if revised_sc:
+                raw_scenes[scene_idx] = revised_sc
+                rewrote_this_pass = True
+                rewrote_any = True
+
+        if not rewrote_this_pass:
+            raise ValueError(
+                f"Claim Inspector rejected script ({decision.value}): {decision_reason}"
+            )
+
+        # 4. Critical invariant: Re-run Editorial Critic after any text mutation
+        if not os.environ.get("PYTEST_CURRENT_TEST"):
+            try:
+                from engine.managers.editorial_critic import audit_and_refine_spec
+                _title_from_script = ""
+                if script_data:
+                    _title_from_script = script_data.get("seo", {}).get("title") or script_data.get("title", topic)
+                else:
+                    _title_from_script = topic
+                _seo_for_critic = {"title": _title_from_script}
+                raw_scenes, _seo_for_critic, audit_summary = audit_and_refine_spec(
+                    raw_scenes=raw_scenes,
+                    seo_data=_seo_for_critic,
+                    topic=topic,
+                    llm_manager=llm,
+                    channel_premise=channel_premise,
+                    prompts_cfg=prompts_cfg
+                )
+                if audit_summary.get("status") == "rejected" or audit_summary.get("unresolved_failures", 0) > 0:
+                    raise ValueError(
+                        f"Editorial Critic rejected script after factuality rewrite: {audit_summary.get('unresolved_failures', 0)} unresolvable defect(s)"
+                    )
+                if script_data and _seo_for_critic.get("title") and _seo_for_critic["title"] != _title_from_script:
+                    new_aligned_title = _seo_for_critic["title"]
+                    from engine.managers.iterative_script_generator import synchronize_seo_description_header
+                    if "seo" in script_data and isinstance(script_data["seo"], dict):
+                        script_data["seo"]["title"] = new_aligned_title
+                        if "description" in script_data["seo"]:
+                            script_data["seo"]["description"] = synchronize_seo_description_header(
+                                description=script_data["seo"]["description"],
+                                old_title=_title_from_script,
+                                new_title=new_aligned_title
+                            )
+                    elif "title" in script_data:
+                        script_data["title"] = new_aligned_title
+                        if "description" in script_data:
+                            script_data["description"] = synchronize_seo_description_header(
+                                description=script_data["description"],
+                                old_title=_title_from_script,
+                                new_title=new_aligned_title
+                            )
+            except ValueError:
+                raise
+            except Exception as critic_err:
+                print(f"⚠️  [EDITORIAL CRITIC] Post-factuality audit failed: {critic_err}", flush=True)
 
 
 def run_spec_stage(video_type: str = "short", custom_topic: Optional[str] = None) -> None:
@@ -897,115 +1091,20 @@ def run_spec_stage(video_type: str = "short", custom_topic: Optional[str] = None
         # Runs after Editorial Critic has finalized scene text, enforcing factual
         # integrity and risk-aware policy before thought-cache checks, TTS, or spec persistence.
         if video_type == "short":
-            global _LAST_CLAIM_INSPECTION_REPORT, _LAST_FACTUALITY_DECISION
             from engine.managers.claim_inspector import ClaimInspector
             claim_inspector = ClaimInspector(llm_manager=llm)
 
-            MAX_FACTUALITY_REWRITES_PER_SCENE = 2
-            scene_factuality_rewrite_counts: Dict[int, int] = {}
-            final_factuality_report = None
-            final_factuality_decision = None
-            rewrote_any = False
-
-            while True:
-                # 1. Inspect the candidate scene chain
-                final_factuality_report = claim_inspector.inspect_script(
-                    scenes=raw_scenes,
-                    candidate_evidence=grounding_refs if 'grounding_refs' in locals() else None
-                )
-                decision, decision_reason, affected_claims = evaluate_shorts_factuality_policy(final_factuality_report)
-                final_factuality_decision = (decision, decision_reason)
-                _LAST_CLAIM_INSPECTION_REPORT = final_factuality_report
-                _LAST_FACTUALITY_DECISION = final_factuality_decision
-
-                if decision in (FactualityPolicyStatus.PASSED, FactualityPolicyStatus.PASSED_WITH_UNVERIFIED):
-                    if decision == FactualityPolicyStatus.PASSED_WITH_UNVERIFIED:
-                        print(f"⚠️  [CLAIM INSPECTOR] Script approved under low-risk policy ({decision_reason})", flush=True)
-                    else:
-                        print(f"✅ [CLAIM INSPECTOR] Script passed factuality verification ({decision_reason})", flush=True)
-                    break
-
-                # 2. Policy rejection: evaluate if rewrite budget allows targeted correction
-                scenes_to_rewrite: List[Tuple[int, Any]] = []
-                for s_id, c_rec in affected_claims:
-                    if s_id and 1 <= s_id <= len(raw_scenes) and scene_factuality_rewrite_counts.get(s_id, 0) < MAX_FACTUALITY_REWRITES_PER_SCENE:
-                        if not any(s[0] == s_id for s in scenes_to_rewrite):
-                            scenes_to_rewrite.append((s_id, c_rec))
-
-                if not scenes_to_rewrite or llm is None:
-                    # Budget exhausted or no LLM available -> fail closed before downstream side effects
-                    raise ValueError(
-                        f"Claim Inspector rejected script ({decision.value}): {decision_reason}"
-                    )
-
-                # 3. Perform targeted rewrites for eligible affected scenes
-                rewrote_this_pass = False
-                for s_id, c_rec in scenes_to_rewrite:
-                    scene_idx = s_id - 1
-                    scene_factuality_rewrite_counts[s_id] = scene_factuality_rewrite_counts.get(s_id, 0) + 1
-                    print(
-                        f"🔄 [CLAIM INSPECTOR] Rewriting Scene {s_id} for factuality "
-                        f"(attempt {scene_factuality_rewrite_counts[s_id]}/{MAX_FACTUALITY_REWRITES_PER_SCENE}): "
-                        f"{getattr(c_rec, 'rationale', '')[:60]}...",
-                        flush=True
-                    )
-                    revised_sc = _rewrite_scene_for_factuality(
-                        scene=raw_scenes[scene_idx],
-                        claim_record=c_rec,
-                        llm=llm
-                    )
-                    if revised_sc:
-                        raw_scenes[scene_idx] = revised_sc
-                        rewrote_this_pass = True
-                        rewrote_any = True
-
-                if not rewrote_this_pass:
-                    raise ValueError(
-                        f"Claim Inspector rejected script ({decision.value}): {decision_reason}"
-                    )
-
-                # 4. Critical invariant: Re-run Editorial Critic after any text mutation
-                if not os.environ.get("PYTEST_CURRENT_TEST"):
-                    try:
-                        from engine.managers.editorial_critic import audit_and_refine_spec
-                        _title_from_script = script_data.get("seo", {}).get("title") or script_data.get("title", topic)
-                        _seo_for_critic = {"title": _title_from_script}
-                        raw_scenes, _seo_for_critic, audit_summary = audit_and_refine_spec(
-                            raw_scenes=raw_scenes,
-                            seo_data=_seo_for_critic,
-                            topic=topic,
-                            llm_manager=llm,
-                            channel_premise=channel_premise,
-                            prompts_cfg=prompts_cfg
-                        )
-                        if audit_summary.get("status") == "rejected" or audit_summary.get("unresolved_failures", 0) > 0:
-                            raise ValueError(
-                                f"Editorial Critic rejected script after factuality rewrite: {audit_summary.get('unresolved_failures', 0)} unresolvable defect(s)"
-                            )
-                        if _seo_for_critic.get("title") and _seo_for_critic["title"] != _title_from_script:
-                            new_aligned_title = _seo_for_critic["title"]
-                            from engine.managers.iterative_script_generator import synchronize_seo_description_header
-                            if "seo" in script_data and isinstance(script_data["seo"], dict):
-                                script_data["seo"]["title"] = new_aligned_title
-                                if "description" in script_data["seo"]:
-                                    script_data["seo"]["description"] = synchronize_seo_description_header(
-                                        description=script_data["seo"]["description"],
-                                        old_title=_title_from_script,
-                                        new_title=new_aligned_title
-                                    )
-                            elif "title" in script_data:
-                                script_data["title"] = new_aligned_title
-                                if "description" in script_data:
-                                    script_data["description"] = synchronize_seo_description_header(
-                                        description=script_data["description"],
-                                        old_title=_title_from_script,
-                                        new_title=new_aligned_title
-                                    )
-                    except ValueError:
-                        raise
-                    except Exception as critic_err:
-                        print(f"❌ [EDITORIAL CRITIC] Re-audit failed unexpectedly after factuality rewrite: {critic_err}", flush=True)
-                        raise
+            raw_scenes, final_factuality_report, final_factuality_decision, rewrote_any = _validate_and_refine_claims(
+                raw_scenes=raw_scenes,
+                topic=topic,
+                claim_inspector=claim_inspector,
+                llm=llm,
+                grounding_refs=grounding_refs if 'grounding_refs' in locals() else None,
+                channel_premise=channel_premise,
+                prompts_cfg=prompts_cfg,
+                script_data=script_data,
+                max_rewrites_per_scene=2
+            )
 
             # Keep script_data scenes synchronized with verified raw_scenes
             script_data["scenes"] = raw_scenes

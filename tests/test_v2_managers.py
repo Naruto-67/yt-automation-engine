@@ -4410,3 +4410,337 @@ def test_shorts_pipeline_accepts_concise_script_under_nine_scenes_and_under_145_
     assert len(spec.scenes) == 4
     assert sum(len(s.spoken_text.split()) for s in spec.scenes) == total_words
 
+
+# ─── 20. SHORTS CLAIM INSPECTION & REWRITE INTEGRATION CORRECTIONS ───────────
+
+def test_claim_inspector_subjective_philosophical_observation_not_misclassified_as_empirical():
+    """
+    Verifies that genuinely subjective, introspective, or philosophical observations
+    (even when containing confident phrasing or superficial colloquial numerals like '3 AM')
+    are classified as SUBJECTIVE with outcome NOT_APPLICABLE, and pass factuality evaluation
+    without being treated as unverified empirical claims.
+    """
+    from engine.managers.claim_inspector import (
+        ClaimInspector,
+        ClaimClassification,
+        VerificationOutcome,
+        RiskLevel,
+    )
+    from engine.managers.pipeline_runner import (
+        evaluate_shorts_factuality_policy,
+        FactualityPolicyStatus,
+    )
+
+    inspector = ClaimInspector(llm_manager=None)
+
+    # 1. Confidently phrased philosophical shower thought
+    obs1 = "The quietest moments in life are often the loudest in your head."
+    cls1, props1, rat1, err1 = inspector.classify_and_extract(obs1)
+    assert cls1 == ClaimClassification.SUBJECTIVE.value
+    assert props1 == []
+
+    # 2. Subjective observation containing colloquial time reference ('3 AM')
+    obs2 = "Nothing feels more peaceful than 3 AM when the entire world is silent."
+    cls2, props2, rat2, err2 = inspector.classify_and_extract(obs2)
+    assert cls2 == ClaimClassification.SUBJECTIVE.value
+    assert props2 == []
+
+    # 3. Inspect scenes through inspect_script and verify policy evaluation
+    scenes = [
+        {"scene_id": 1, "spoken_text": obs1},
+        {"scene_id": 2, "spoken_text": obs2},
+    ]
+    report = inspector.inspect_script(scenes)
+    assert len(report.claims) == 2
+    for rec in report.claims:
+        assert rec.classification == ClaimClassification.SUBJECTIVE.value
+        assert rec.outcome == VerificationOutcome.NOT_APPLICABLE.value
+        assert rec.risk_level == RiskLevel.LOW.value
+
+    policy_status, reason, affected = evaluate_shorts_factuality_policy(report)
+    assert policy_status == FactualityPolicyStatus.PASSED
+    assert len(affected) == 0
+
+
+def test_claim_inspector_unsupported_empirical_scientific_claim_remains_rejected():
+    """
+    Verifies that empirical numerical statements (e.g. measured percentages or physical constants)
+    remain strictly classified as EMPIRICAL with RiskLevel.MEDIUM, and fail-closed when
+    candidate evidence does not corroborate them.
+    """
+    from engine.managers.claim_inspector import (
+        ClaimInspector,
+        ClaimClassification,
+        VerificationOutcome,
+        RiskLevel,
+    )
+    from engine.managers.pipeline_runner import (
+        evaluate_shorts_factuality_policy,
+        FactualityPolicyStatus,
+    )
+
+    inspector = ClaimInspector(llm_manager=None)
+
+    # Empirical numerical statement about human biology / time
+    empirical_text = "Humans spend 33% of their lives sleeping."
+    cls, props, rat, err = inspector.classify_and_extract(empirical_text)
+    assert cls == ClaimClassification.EMPIRICAL.value
+    assert len(props) == 1
+    assert props[0]["risk_level"] == RiskLevel.MEDIUM.value
+
+    # When inspected without corroborating evidence in the vault
+    report = inspector.inspect_script([{"scene_id": 1, "spoken_text": empirical_text}], candidate_evidence=[])
+    assert len(report.claims) == 1
+    assert report.claims[0].outcome == VerificationOutcome.UNVERIFIABLE.value
+    assert report.claims[0].risk_level == RiskLevel.MEDIUM.value
+
+    policy_status, reason, affected = evaluate_shorts_factuality_policy(report)
+    assert policy_status == FactualityPolicyStatus.REJECTED_MEDIUM_RISK_UNVERIFIED
+    assert len(affected) == 1
+    assert affected[0][0] == 1
+
+
+def test_pipeline_runner_factuality_rewrite_receives_evidence_and_preserves_topic():
+    """
+    Verifies that _rewrite_scene_for_factuality receives the intended topic and available
+    grounding evidence, formats them clearly in prompts to preserve topic relevance without
+    fabrication, and outputs a revised scene with phonetic normalization.
+    """
+    from unittest.mock import MagicMock
+    from engine.managers.pipeline_runner import _rewrite_scene_for_factuality
+    from engine.managers.claim_inspector import ClaimRecord, EvidenceReference, RiskLevel, VerificationOutcome
+
+    mock_llm = MagicMock()
+    captured_calls = []
+
+    def mock_generate_json(sys_p, usr_p, **kwargs):
+        captured_calls.append({"sys": sys_p, "usr": usr_p, "kwargs": kwargs})
+        return {
+            "spoken_text": "Sound waves propagate through molecular vibrations at 343 meters per second.",
+            "stock_video_query": "sound waves vibration"
+        }
+
+    mock_llm.generate_json = mock_generate_json
+
+    scene = {"scene_id": 1, "spoken_text": "Traveling at 1.3 times the speed of sound makes you hear backwards."}
+    claim = ClaimRecord(
+        claim_id="claim_1_1",
+        scene_id=1,
+        original_text=scene["spoken_text"],
+        extracted_proposition=scene["spoken_text"],
+        classification="empirical",
+        outcome=VerificationOutcome.UNVERIFIABLE.value,
+        risk_level=RiskLevel.MEDIUM.value,
+        rationale="Unverified assertion about hearing sound backwards."
+    )
+    evidence = [
+        EvidenceReference(id="ev_sound_01", text="Sound travels at 343 meters per second in dry air at 20 degrees Celsius.")
+    ]
+
+    revised = _rewrite_scene_for_factuality(
+        scene=scene,
+        claim_record=claim,
+        llm=mock_llm,
+        topic="Speed of Sound Mechanics",
+        candidate_evidence=evidence
+    )
+
+    assert revised is not None
+    assert revised["_factuality_revised"] is True
+    assert "Sound waves propagate" in revised["spoken_text"]
+    assert "phonetic_text" in revised
+
+    # Assert prompt received topic and evidence
+    assert len(captured_calls) == 1
+    call = captured_calls[0]
+    assert "Speed of Sound Mechanics" in call["sys"]
+    assert "TOPIC PRESERVATION: The revised scene MUST strictly preserve and stay relevant to the intended topic: 'Speed of Sound Mechanics'" in call["sys"]
+    assert "Speed of Sound Mechanics" in call["usr"]
+    assert "343 meters per second in dry air" in call["usr"]
+    assert "NO FABRICATION" in call["sys"]
+
+
+def test_pipeline_runner_exhausted_rewrites_fail_closed_without_silent_substitution(monkeypatch, tmp_path):
+    """
+    Verifies that when factuality rewrites for an unsupported empirical claim are exhausted,
+    the pipeline fails closed with ValueError containing explicit diagnostics, does NOT
+    silently substitute unrelated content, and does NOT generate spec or persist state.
+    """
+    import pytest
+    from engine.managers.pipeline_runner import run_spec_stage
+    from engine.managers.claim_inspector import (
+        ClaimInspectionReport,
+        ClaimRecord,
+        ClaimClassification,
+        VerificationOutcome,
+        RiskLevel,
+    )
+
+    test_output_dir, test_memory_dir, test_cfg_dir = _isolate_pipeline_persistence(monkeypatch, tmp_path)
+    test_spec_path = str(test_output_dir / "spec.json")
+
+    monkeypatch.setattr("engine.managers.health_manager.HealthManager.check_and_sync_models", lambda **kw: {})
+    monkeypatch.setattr("engine.managers.competitor_spy.CompetitorSpy.get_surge_topic", lambda *a: None)
+    monkeypatch.setattr(
+        "engine.managers.topic_inspector.TopicInspector.discover_verified_topic",
+        lambda self, niche, *a, **kw: {"topic": "Deep Sea Mysteries", "source": "trend"}
+    )
+
+    scenes = [
+        {"scene_id": 1, "spoken_text": "Giant squids have hearts that beat 500 times per minute under pressure.", "stock_video_query": "deep sea squid"},
+        {"scene_id": 2, "spoken_text": "Which is why the abyss remains an alien frontier...", "stock_video_query": "ocean trench"}
+    ]
+    seo_data = {"title": "Deep Sea Mysteries #shorts", "description": "Abyss facts. #shorts", "tags": ["ocean", "shorts"]}
+
+    monkeypatch.setattr(
+        "engine.managers.iterative_script_generator.IterativeScriptGenerator.generate_scene_chain",
+        lambda self, topic="", channel_premise="", grounding_facts=None: (scenes, seo_data)
+    )
+
+    def mock_inspect(self, sc_list, candidate_evidence=None):
+        return ClaimInspectionReport(
+            claims=[
+                ClaimRecord(
+                    claim_id="claim_1_1",
+                    scene_id=1,
+                    original_text=sc_list[0].get("spoken_text", ""),
+                    extracted_proposition=sc_list[0].get("spoken_text", ""),
+                    classification=ClaimClassification.EMPIRICAL.value,
+                    outcome=VerificationOutcome.UNVERIFIABLE.value,
+                    risk_level=RiskLevel.MEDIUM.value,
+                    rationale="Unsupported quantitative heart rate statistic."
+                )
+            ],
+            status="completed"
+        )
+
+    monkeypatch.setattr("engine.managers.claim_inspector.ClaimInspector.inspect_script", mock_inspect)
+
+    rewrite_attempts = [0]
+    def mock_rewrite(scene, claim_record, llm=None, **kwargs):
+        rewrite_attempts[0] += 1
+        rev = dict(scene)
+        rev["spoken_text"] = f"Still unverified claim attempt {rewrite_attempts[0]}"
+        return rev
+
+    monkeypatch.setattr("engine.managers.pipeline_runner._rewrite_scene_for_factuality", mock_rewrite)
+
+    with pytest.raises(ValueError) as exc_info:
+        run_spec_stage(video_type="short")
+
+    err_msg = str(exc_info.value)
+    assert "REJECTED_MEDIUM_RISK_UNVERIFIED" in err_msg
+    assert "Rewrite budget exhausted" in err_msg
+    assert "Scene 1" in err_msg
+    assert rewrite_attempts[0] == 2  # Exactly 2 attempts before exhaustion
+    assert not os.path.exists(test_spec_path)
+    assert not (test_memory_dir / "thought_cache.json").exists()
+
+
+def test_pipeline_runner_valid_grounded_shorts_spec_completes_validation(monkeypatch, tmp_path):
+    """
+    Verifies that a valid Shorts spec undergoing targeted factuality rewrite with available
+    grounding evidence completes validation, packages spec.json, and passes without rewrite exhaustion.
+    """
+    from engine.managers.pipeline_runner import (
+        run_spec_stage,
+        FactualityPolicyStatus,
+        get_last_factuality_decision,
+        get_last_claim_report,
+    )
+    from engine.models import SpecOutput
+    from engine.managers.claim_inspector import (
+        ClaimInspectionReport,
+        ClaimRecord,
+        EvidenceReference,
+        ClaimClassification,
+        VerificationOutcome,
+        RiskLevel,
+    )
+
+    test_output_dir, test_memory_dir, test_cfg_dir = _isolate_pipeline_persistence(monkeypatch, tmp_path)
+    test_spec_path = str(test_output_dir / "spec.json")
+
+    monkeypatch.setattr("engine.managers.health_manager.HealthManager.check_and_sync_models", lambda **kw: {})
+    monkeypatch.setattr("engine.managers.competitor_spy.CompetitorSpy.get_surge_topic", lambda *a: None)
+    monkeypatch.setattr(
+        "engine.managers.topic_inspector.TopicInspector.discover_verified_topic",
+        lambda self, niche, *a, **kw: {"topic": "Acoustic Phenomena", "source": "trend"}
+    )
+    monkeypatch.setattr(
+        "engine.managers.voice_normalizer.VoiceNormalizer.synthesize_scenes_sync",
+        lambda **kw: (12.0, [], [6.0, 6.0], [[], []])
+    )
+
+    initial_scenes = [
+        {"scene_id": 1, "spoken_text": "Traveling at 1.3 times the speed of sound makes you hear backwards.", "stock_video_query": "jet sound"},
+        {"scene_id": 2, "spoken_text": "Which means sonic physics bends your perception in unexpected ways...", "stock_video_query": "sound waves"}
+    ]
+    seo_data = {"title": "Acoustic Phenomena #shorts", "description": "Sound physics. #shorts", "tags": ["acoustics", "shorts"]}
+
+    monkeypatch.setattr(
+        "engine.managers.iterative_script_generator.IterativeScriptGenerator.generate_scene_chain",
+        lambda self, topic="", channel_premise="", grounding_facts=None: (initial_scenes, seo_data)
+    )
+
+    inspect_calls = [0]
+    def mock_inspect(self, scenes, candidate_evidence=None):
+        inspect_calls[0] += 1
+        curr_text = scenes[0].get("spoken_text", "")
+        if "1.3 times" in curr_text:
+            # First pass: medium-risk unverified claim
+            return ClaimInspectionReport(
+                claims=[
+                    ClaimRecord(
+                        claim_id="claim_1_1",
+                        scene_id=1,
+                        original_text=curr_text,
+                        extracted_proposition="Traveling at 1.3 times speed of sound makes you hear backwards.",
+                        classification=ClaimClassification.EMPIRICAL.value,
+                        outcome=VerificationOutcome.UNVERIFIABLE.value,
+                        risk_level=RiskLevel.MEDIUM.value,
+                        rationale="Acoustic proposition not supported by candidate evidence."
+                    )
+                ],
+                status="completed"
+            )
+        else:
+            # Second pass after rewrite: supported by evidence
+            return ClaimInspectionReport(
+                claims=[
+                    ClaimRecord(
+                        claim_id="claim_1_1",
+                        scene_id=1,
+                        original_text=curr_text,
+                        extracted_proposition="Sound waves propagate through air at 343 meters per second.",
+                        classification=ClaimClassification.EMPIRICAL.value,
+                        outcome=VerificationOutcome.SUPPORTED.value,
+                        risk_level=RiskLevel.MEDIUM.value,
+                        evidence=[EvidenceReference(id="ev_01", text="Sound speed is 343 m/s.")],
+                        rationale="Directly supported by acoustic physics."
+                    )
+                ],
+                status="completed"
+            )
+
+    monkeypatch.setattr("engine.managers.claim_inspector.ClaimInspector.inspect_script", mock_inspect)
+
+    def mock_rewrite(scene, claim_record, llm=None, topic=None, candidate_evidence=None, **kwargs):
+        rev = dict(scene)
+        rev["spoken_text"] = "Sound waves propagate through air at 343 meters per second."
+        rev["phonetic_text"] = rev["spoken_text"]
+        rev["_factuality_revised"] = True
+        return rev
+
+    monkeypatch.setattr("engine.managers.pipeline_runner._rewrite_scene_for_factuality", mock_rewrite)
+
+    run_spec_stage(video_type="short")
+
+    assert os.path.exists(test_spec_path)
+    assert inspect_calls[0] >= 2
+    with open(test_spec_path, "r", encoding="utf-8") as f:
+        spec = SpecOutput.model_validate_json(f.read())
+    assert "343 meters per second" in spec.scenes[0].spoken_text
+    dec = get_last_factuality_decision()
+    assert dec is not None
+    assert dec[0] == FactualityPolicyStatus.PASSED

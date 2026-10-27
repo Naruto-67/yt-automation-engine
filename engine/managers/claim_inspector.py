@@ -300,6 +300,10 @@ class ClaimInspector:
             "3. 'metaphorical': Figurative, poetic, or analogical observation not asserting literal physical truth.\n"
             "4. 'mixed': Combines figurative/subjective framing with at least one identifiable empirical proposition.\n"
             "5. 'ambiguous': Grammatically unparseable, contradictory, or too vague to formulate a checkable proposition.\n\n"
+            "EPISTEMIC CLASSIFICATION CRITERIA:\n"
+            "- SUBJECTIVE vs EMPIRICAL: A statement is 'subjective' if it expresses personal feelings, perceptual aesthetics, philosophical introspection, or subjective reactions—even if phrased assertively or without hedging (e.g. 'The quietest moments in life are often the loudest in your head' or 'Nothing feels more peaceful than 3 AM when the world is asleep'). Confident phrasing alone does NOT make an assertion empirical.\n"
+            "- EMPIRICAL CLAIMS REMAIN EMPIRICAL: Any statement asserting verifiable physical laws, measured scientific quantities, numerical statistics, biological rates, medical treatments/hazards, or historical events (e.g. 'Humans spend 33% of their lives sleeping', 'A traveler at 1.3 times the speed of sound hears backwards', 'Cracking knuckles causes arthritis') MUST be classified as 'empirical' (or 'mixed' if wrapped in figurative framing). Do NOT exempt an empirical claim simply because it appears in a shower-thought or creative context.\n"
+            "- MIXED: If an introspective or figurative statement embeds an empirical fact or statistic (e.g. 'It is terrifying that 80% of the ocean remains unmapped'), classify as 'mixed' and extract ONLY the empirical proposition ('80% of the ocean remains unmapped') with its appropriate risk_level.\n\n"
             "INSTRUCTIONS:\n"
             "- If 'empirical', extract each testable factual proposition into 'propositions'.\n"
             "- If 'mixed', extract ONLY the core empirical proposition(s), discarding the subjective/metaphorical framing.\n"
@@ -366,28 +370,20 @@ class ClaimInspector:
         clean = text.strip()
         lower = clean.lower()
 
-        # Subjective patterns
-        subjective_signals = [
-            "the best smell", "the worst smell", "my favorite", "i think", "in my opinion",
-            "is the most beautiful", "is the most nostalgic", "feels amazing", "tastes best"
-        ]
-        if any(sig in lower for sig in subjective_signals):
-            return ClaimClassification.SUBJECTIVE.value, [], "Contains explicit aesthetic or personal judgment", None
+        # Check empirical flags: high-risk keywords, measured scientific statistics, or causal medical claims
+        words = set(re.findall(r"\b[a-z]+\b", lower))
+        has_high_risk = bool(words & _HIGH_RISK_KEYWORDS)
+        has_empirical_measurements = bool(
+            re.search(r"\b\d+(?:\.\d+)?%\b", lower) or
+            re.search(r"\b\d+(?:\.\d+)?\s*(?:times|percent|hours|years|miles|kilometers|meters|seconds|days|degrees|celsius|fahrenheit|bpm)\b", lower) or
+            re.search(r"\b(?:speed of sound|speed of light|gravitational|thermodynamic|synovial|cellular|dna|neurons)\b", lower)
+        )
+        has_causal_empirical = any(
+            t in lower for t in ["causes", "cures", "eradicates", "damages", "destroys", "increases the risk", "decreases the risk"]
+        )
 
-        # Metaphorical patterns
-        metaphor_signals = [
-            "is just charging your biological battery",
-            "is running a background diagnostic",
-            "the universe is a clock",
-            "life is a video game",
-            "clapping is just repeatedly slapping yourself"
-        ]
-        if any(sig in lower for sig in metaphor_signals) and "because" not in lower and "damages" not in lower:
-            return ClaimClassification.METAPHORICAL.value, [], "Figurative or poetic observation; non-literal assertion", None
-
-        # Mixed patterns (figurative framing + empirical assertion)
-        if ("is terrifying because" in lower or "the ultimate villain because" in lower or "wildest part is that" in lower):
-            # Extract proposition following the causal bridge
+        # Mixed patterns (figurative/subjective framing + empirical assertion)
+        if ("is terrifying because" in lower or "the ultimate villain because" in lower or "wildest part is that" in lower or "crazy because" in lower):
             match = re.search(r"\bbecause\s+(.+)$", clean, re.IGNORECASE)
             if match:
                 core_prop = match.group(1).strip()
@@ -404,6 +400,33 @@ class ClaimInspector:
         # Ambiguous / unparseable
         if len(clean.split()) < 3 or clean in ("...", "???", "Which is why..."):
             return ClaimClassification.AMBIGUOUS.value, [], "Fragmented or unparseable assertion", None
+
+        # Genuinely subjective observations: exempt ONLY when not asserting high-risk, measured statistics, or causal mechanisms
+        if not (has_high_risk or has_empirical_measurements or has_causal_empirical):
+            subjective_signals = [
+                "the best smell", "the worst smell", "my favorite", "i think", "in my opinion",
+                "is the most beautiful", "is the most nostalgic", "feels amazing", "tastes best",
+                "feels like", "feels strangely", "feels oddly", "feels more peaceful", "feels completely",
+                "is the quietest", "is the loudest", "is the most peaceful", "is the strangest",
+                "is the hardest part", "is the scariest part", "is oddly satisfying", "is oddly comforting",
+                "in your head", "in your mind", "in your heart", "the illusion of", "the feeling that",
+                "nostalgia is missing"
+            ]
+            if any(sig in lower for sig in subjective_signals):
+                return ClaimClassification.SUBJECTIVE.value, [], "Subjective or introspective reflection; exempt from empirical verification", None
+
+            # Metaphorical patterns
+            metaphor_signals = [
+                "is just charging your biological battery",
+                "is running a background diagnostic",
+                "the universe is a clock",
+                "life is a video game",
+                "clapping is just repeatedly slapping yourself",
+                "your mind is a", "your brain is a", "is nature's way of",
+                "is basically just", "is essentially just"
+            ]
+            if any(sig in lower for sig in metaphor_signals) and "because" not in lower:
+                return ClaimClassification.METAPHORICAL.value, [], "Figurative or poetic observation; non-literal assertion", None
 
         # Default to empirical
         risk = assess_risk_level(clean, ClaimClassification.EMPIRICAL.value).value
