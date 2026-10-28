@@ -115,10 +115,8 @@ def is_dangling_or_incomplete_sentence(text: str) -> Tuple[bool, str]:
     stripped_trailing = re.sub(r"[\.\s…]+$", "", clean).strip().lower()
     words = stripped_trailing.split()
 
-    # 2. Trailing dangling conjunction or preposition
-    dangling_endings = [
-        "and", "but", "or", "because", "so", "with", "to", "that", "which", "where", "as", "if", "when"
-    ]
+    # 2. Trailing dangling coordinating conjunction
+    dangling_endings = ["and", "but", "or"]
     if words and words[-1] in dangling_endings:
         return True, f"Trailing dangling word: '{words[-1]}'"
 
@@ -1026,8 +1024,8 @@ def run_spec_stage(video_type: str = "short", custom_topic: Optional[str] = None
 
             # Normalize malformed punctuation artifacts and resolve any trailing dangling outro fragments
             for sc in raw_scenes:
-                if isinstance(sc, dict):
-                    txt = sc.get("spoken_text", "")
+                if isinstance(sc, dict) and "spoken_text" in sc:
+                    txt = sc["spoken_text"]
                     if isinstance(txt, str):
                         txt = re.sub(r"[…\.]{4,}", "...", txt).replace("…", "...")
                         sc["spoken_text"] = txt

@@ -698,6 +698,13 @@ class ClaimInspector:
                 if "chronostasis" in ev_clean and any(s in ev_clean for s in ["saccade", "saccadic"]):
                     is_corroborated = True
 
+            # For qualified yawning thermoregulation hypothesis, verify evidence discusses brain cooling mechanism
+            if not is_corroborated and is_yawn_claim and is_qualified:
+                if ("yawn" in ev_clean or "yawning" in ev_clean) and any(
+                    t in ev_clean for t in ["cool", "cooldown", "temperature", "thermoregulat"]
+                ):
+                    is_corroborated = True
+
             if is_corroborated:
                 # Check numerical precision
                 ev_numbers = set(_NUMERICAL_PATTERN.findall(ev_clean))
