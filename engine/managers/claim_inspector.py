@@ -690,18 +690,13 @@ class ClaimInspector:
         for ev in candidate_evidence:
             ev_clean = ev.text.strip().lower()
 
-            # Direct match or content token overlap
-            p_tokens = set(re.findall(r"\b[a-z]{3,}\b", p_clean)) - {
-                "the", "and", "that", "this", "with", "from", "for", "your",
-                "you", "have", "are", "was", "were", "been", "they", "their",
-                "just", "about", "into", "because", "what", "which", "when",
-                "one", "leading", "scientific", "hypothesis", "suggests", "occurs"
-            }
-            ev_tokens = set(re.findall(r"\b[a-z]{3,}\b", ev_clean))
-            overlap = p_tokens & ev_tokens
-            is_corroborated = (p_clean in ev_clean or ev_clean in p_clean) or (
-                len(overlap) >= 4 or (len(p_tokens) >= 3 and len(overlap) >= 3 and len(overlap) / len(p_tokens) >= 0.4)
-            )
+            # Direct match
+            is_corroborated = p_clean in ev_clean or ev_clean in p_clean
+
+            # For chronostasis with saccadic eye movements, verify evidence confirms the saccadic mechanism
+            if not is_corroborated and is_chronostasis_claim and any(s in p_clean for s in ["saccade", "saccadic"]):
+                if "chronostasis" in ev_clean and any(s in ev_clean for s in ["saccade", "saccadic"]):
+                    is_corroborated = True
 
             if is_corroborated:
                 # Check numerical precision

@@ -98,34 +98,43 @@ def is_dangling_or_incomplete_sentence(text: str) -> Tuple[bool, str]:
     """
     Checks whether a spoken text line is an unfinished sentence or dangling fragment.
     Enforces script and scene completion:
-    - Rejects malformed punctuation endings such as double ellipses ('…...', '....').
+    - Rejects malformed punctuation endings such as double or quadruple ellipses ('…...', '....').
     - Rejects trailing dangling subordinate clauses ending in an ellipsis without an independent clause
-      (e.g., 'So the next time your mind rewinds...', 'Which means that...').
-    - Rejects fragments ending in dangling commas or conjunctions.
+      (e.g., 'So the next time your mind rewinds...', 'The next time you blink...').
+    - Rejects fragments ending in dangling conjunctions or prepositions.
     """
     clean = text.strip()
     if not clean:
         return True, "Empty spoken text"
 
-    # Malformed or duplicated ellipsis punctuation
-    if "…..." in clean or "...." in clean or clean.endswith(",...") or clean.endswith(",…"):
+    # 1. Corrupted or duplicated ellipsis punctuation (e.g. '…...', '....', ',...')
+    if re.search(r"[…\.]{4,}", clean) or "….." in clean or clean.endswith(",...") or clean.endswith(",…"):
         return True, "Malformed or duplicated ellipsis punctuation"
 
     lower = clean.lower()
-    dangling_starters = [
-        "so the next time", "the next time", "which means that", "which means",
-        "which is why", "and whenever", "whenever you", "if you ever", "because when",
-        "until you", "as long as", "unless you", "so next time", "which leaves you",
-        "leaving you to"
+    stripped_trailing = re.sub(r"[\.\s…]+$", "", clean).strip().lower()
+    words = stripped_trailing.split()
+
+    # 2. Trailing dangling conjunction or preposition
+    dangling_endings = [
+        "and", "but", "or", "because", "so", "with", "to", "that", "which", "where", "as", "if", "when"
     ]
-    if clean.endswith("...") or clean.endswith("…"):
-        words = clean.split()
-        for starter in dangling_starters:
-            if lower.startswith(starter):
-                has_clause_break = any(p in clean for p in [",", "—", ";", " - "])
-                # If there's no independent clause following the starter or words < 8
-                if not has_clause_break or len(words) < 8:
-                    return True, f"Unfinished subordinate clause ending in dangling ellipsis: '{starter}...'"
+    if words and words[-1] in dangling_endings:
+        return True, f"Trailing dangling word: '{words[-1]}'"
+
+    # 3. Unfinished introductory dependent clauses ending in ellipsis or truncated (< 8 words)
+    intro_dependent_starters = [
+        "so the next time", "the next time", "next time",
+        "whenever you", "when you", "if you ever", "because when",
+        "as if you", "just like when", "while you"
+    ]
+    ends_in_ellipsis = clean.endswith("...") or clean.endswith("…")
+    for starter in intro_dependent_starters:
+        if lower.startswith(starter):
+            has_clause_break = any(p in clean for p in [",", "—", ";", " - "])
+            # If it has no clause break and is short (< 8 words), or ends in ellipsis without main clause
+            if not has_clause_break and (len(words) < 8 or ends_in_ellipsis):
+                return True, f"Unfinished subordinate clause ending in dangling ellipsis: '{starter}...'"
 
     return False, ""
 
@@ -1010,13 +1019,20 @@ def run_spec_stage(video_type: str = "short", custom_topic: Optional[str] = None
                 channel_premise=channel_premise,
                 grounding_facts=grounding_facts_section
             )
+            if not isinstance(raw_scenes, list):
+                raise ValueError(
+                    f"Iterative script generation must produce a list of scenes, got: {type(raw_scenes).__name__}"
+                )
+
             # Normalize malformed punctuation artifacts and resolve any trailing dangling outro fragments
             for sc in raw_scenes:
-                txt = sc.get("spoken_text", "")
-                txt = re.sub(r"[…\.]{2,}", "...", txt).replace("…", "...")
-                sc["spoken_text"] = txt
+                if isinstance(sc, dict):
+                    txt = sc.get("spoken_text", "")
+                    if isinstance(txt, str):
+                        txt = re.sub(r"[…\.]{4,}", "...", txt).replace("…", "...")
+                        sc["spoken_text"] = txt
 
-            if raw_scenes and llm:
+            if raw_scenes and llm and isinstance(raw_scenes[-1], dict):
                 last_sc = raw_scenes[-1]
                 is_dang, _ = is_dangling_or_incomplete_sentence(last_sc.get("spoken_text", ""))
                 if is_dang:
