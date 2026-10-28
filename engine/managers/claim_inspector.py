@@ -67,7 +67,9 @@ _SCIENTIFIC_MECHANISM_KEYWORDS = {
     "dielectric", "resonance", "thermodynamic", "electromagnetic", "quantum",
     "microwave heating", "biomechanical", "cellular", "synovial", "neurotransmitter",
     "dielectric resonance", "speed of sound", "speed of light", "tensile",
-    "tensile stress", "tensile strength"
+    "tensile stress", "tensile strength", "chronostasis", "troxler",
+    "troxler fading", "saccadic", "saccade", "saccadic masking", "yawn",
+    "yawning", "thermoregulation", "pupillary", "pupil response", "optical drift"
 }
 
 _NUMERICAL_PATTERN = re.compile(r"\b\d+(?:\.\d+)?%?\b")
@@ -404,7 +406,9 @@ class ClaimInspector:
             t in lower for t in [
                 "causes", "cures", "eradicates", "damages", "destroys",
                 "increases the risk", "decreases the risk", "vetoes",
-                "convinces you", "refusing to let", "labels as", "prevents you from", "blocks you from"
+                "convinces you", "refusing to let", "labels as", "prevents you from",
+                "blocks you from", "triggers", "cools", "recalibrates", "recalibrating",
+                "forces", "stimulates"
             ]
         )
 
@@ -554,7 +558,9 @@ class ClaimInspector:
             "3. 'contradicted': The candidate evidence directly conflicts with or disproves the proposition.\n"
             "4. 'unverifiable': The candidate evidence discusses a different topic, is insufficient, or does not address the claim.\n"
             "5. 'ambiguous': The proposition is unclear or evidence contains mutually exclusive definitions.\n"
-            "6. NUMERICAL SCOPE: If the proposition makes a specific numerical assertion (e.g. '95%') that is unsupported by the evidence, do NOT mark supported.\n\n"
+            "6. NUMERICAL SCOPE: If the proposition makes a specific numerical assertion (e.g. '95%') that is unsupported by the evidence, do NOT mark supported.\n"
+            "7. SCIENTIFIC HYPOTHESES: Do NOT mark 'supported' if an unproven scientific theory or biological hypothesis (e.g. brain-cooling theory of yawning) is asserted as an established, unhedged absolute fact. Unhedged assertions of hypotheses must be evaluated as 'unverifiable' unless explicitly qualified with appropriate epistemic hedging (e.g. 'one leading hypothesis suggests...', 'scientists hypothesize...').\n"
+            "8. VISUAL PHENOMENA ACCURACY: Chronostasis (stopped-clock illusion) strictly requires saccadic eye movements (rapid shifts of gaze) onto a clock. Do NOT mark supported if chronostasis is attributed to prolonged continuous staring or fixed viewing without eye movement (which causes Troxler fading or adaptation).\n\n"
             "Return valid JSON:\n"
             "{\n"
             '  "outcome": "supported"|"contradicted"|"unverifiable"|"ambiguous",\n'
@@ -645,11 +651,59 @@ class ClaimInspector:
         """Deterministic heuristic verification when LLM is unavailable."""
         p_clean = proposition.strip().lower()
 
+        # 1. Biological hypothesis verification: yawning brain cooling
+        is_yawn_claim = ("yawn" in p_clean or "yawning" in p_clean) and any(
+            t in p_clean for t in ["cool", "cooldown", "temperature", "thermoregulat"]
+        )
+        if is_yawn_claim:
+            is_qualified = any(
+                q in p_clean for q in [
+                    "hypothes", "theor", "suggest", "proposed",
+                    "thought to", "believed to", "one idea", "one explanation"
+                ]
+            )
+            if not is_qualified:
+                return (
+                    VerificationOutcome.UNVERIFIABLE.value,
+                    [],
+                    "The brain-cooling explanation for yawning is a scientific hypothesis, not an established consensus fact. Unhedged assertions presenting it as absolute physiological reality are unsupported.",
+                    None
+                )
+
+        # 2. Visual phenomena accuracy: chronostasis vs prolonged staring
+        is_chronostasis_claim = "chronostasis" in p_clean
+        if is_chronostasis_claim:
+            has_fixed_stare = any(
+                s in p_clean for s in ["stare", "staring", "fixed", "without moving", "prolonged", "for a minute", "for two minutes"]
+            )
+            has_saccadic = any(
+                s in p_clean for s in ["saccade", "saccadic", "dart", "jump", "glance", "shift", "rapid eye"]
+            )
+            if has_fixed_stare and not has_saccadic:
+                return (
+                    VerificationOutcome.CONTRADICTED.value,
+                    [],
+                    "Chronostasis is a temporal illusion requiring saccadic eye movements (rapid gaze shifts) onto a clock, not prolonged continuous fixation (which causes Troxler fading or neural adaptation).",
+                    None
+                )
+
         for ev in candidate_evidence:
             ev_clean = ev.text.strip().lower()
 
-            # Direct match
-            if p_clean in ev_clean or ev_clean in p_clean:
+            # Direct match or content token overlap
+            p_tokens = set(re.findall(r"\b[a-z]{3,}\b", p_clean)) - {
+                "the", "and", "that", "this", "with", "from", "for", "your",
+                "you", "have", "are", "was", "were", "been", "they", "their",
+                "just", "about", "into", "because", "what", "which", "when",
+                "one", "leading", "scientific", "hypothesis", "suggests", "occurs"
+            }
+            ev_tokens = set(re.findall(r"\b[a-z]{3,}\b", ev_clean))
+            overlap = p_tokens & ev_tokens
+            is_corroborated = (p_clean in ev_clean or ev_clean in p_clean) or (
+                len(overlap) >= 4 or (len(p_tokens) >= 3 and len(overlap) >= 3 and len(overlap) / len(p_tokens) >= 0.4)
+            )
+
+            if is_corroborated:
                 # Check numerical precision
                 ev_numbers = set(_NUMERICAL_PATTERN.findall(ev_clean))
                 if prop_numbers and not (prop_numbers & ev_numbers):

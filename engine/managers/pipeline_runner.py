@@ -94,11 +94,48 @@ def _add_to_cache(line: str, cache_cfg: Dict[str, Any]) -> None:
         cache_cfg["entries"] = entries[-max_sz:]
 
 
+def is_dangling_or_incomplete_sentence(text: str) -> Tuple[bool, str]:
+    """
+    Checks whether a spoken text line is an unfinished sentence or dangling fragment.
+    Enforces script and scene completion:
+    - Rejects malformed punctuation endings such as double ellipses ('…...', '....').
+    - Rejects trailing dangling subordinate clauses ending in an ellipsis without an independent clause
+      (e.g., 'So the next time your mind rewinds...', 'Which means that...').
+    - Rejects fragments ending in dangling commas or conjunctions.
+    """
+    clean = text.strip()
+    if not clean:
+        return True, "Empty spoken text"
+
+    # Malformed or duplicated ellipsis punctuation
+    if "…..." in clean or "...." in clean or clean.endswith(",...") or clean.endswith(",…"):
+        return True, "Malformed or duplicated ellipsis punctuation"
+
+    lower = clean.lower()
+    dangling_starters = [
+        "so the next time", "the next time", "which means that", "which means",
+        "which is why", "and whenever", "whenever you", "if you ever", "because when",
+        "until you", "as long as", "unless you", "so next time", "which leaves you",
+        "leaving you to"
+    ]
+    if clean.endswith("...") or clean.endswith("…"):
+        words = clean.split()
+        for starter in dangling_starters:
+            if lower.startswith(starter):
+                has_clause_break = any(p in clean for p in [",", "—", ";", " - "])
+                # If there's no independent clause following the starter or words < 8
+                if not has_clause_break or len(words) < 8:
+                    return True, f"Unfinished subordinate clause ending in dangling ellipsis: '{starter}...'"
+
+    return False, ""
+
+
 def _validate_iscg_scenes_boundary(scenes: Any) -> None:
     """
     Validates iterative Shorts scene output at the pipeline boundary.
     Enforces that scenes is a non-empty list of dictionaries, each containing
-    a valid, non-empty, non-whitespace spoken_text string.
+    a valid, non-empty, non-whitespace spoken_text string, and rejects incomplete
+    or dangling trailing fragments.
     """
     if not isinstance(scenes, list):
         raise ValueError(
@@ -120,6 +157,12 @@ def _validate_iscg_scenes_boundary(scenes: Any) -> None:
             )
         if not spoken.strip():
             raise ValueError(f"Scene {idx + 1} has empty or whitespace-only 'spoken_text'")
+
+        is_dangling, reason = is_dangling_or_incomplete_sentence(spoken)
+        if is_dangling:
+            raise ValueError(
+                f"Script completion validation failed: Scene {idx + 1} has an incomplete or dangling ending ({reason}): '{spoken}'"
+            )
 
 
 # ─── FUZZY SEMANTIC DEDUPLICATION (JACCARD) ───────────────────────────────────
@@ -642,7 +685,10 @@ def _rewrite_scene_for_factuality(
         "3. UNVERIFIED EMPIRICAL CLAIMS:\n"
         "   - If grounding evidence is provided below, you may base an empirical claim directly on that provided evidence.\n"
         "   - If NO supporting evidence is provided, rephrase the line as a relatable observation, perceptual question, introspective realization, or qualitative insight WITHOUT asserting unverified numbers, percentages, physical constants, medical/neurological claims, or speculative scientific mechanisms (such as ungrounded brain vetoes, psychiatric delusions, or resonance physics). Ground the line in undeniable everyday reality or relatable human experience while preserving the topic.\n"
-        "4. NO FABRICATION: Do not invent supporting citations, statistics, or empirical claims not grounded in the provided evidence.\n\n"
+        "4. NO FABRICATION: Do not invent supporting citations, statistics, or empirical claims not grounded in the provided evidence.\n"
+        "5. VISUAL PHENOMENA ACCURACY: Distinguish visual perception phenomena accurately. Chronostasis (the stopped-clock illusion) strictly occurs upon rapid eye movement (saccade) when shifting gaze to a clock, NOT from continuous prolonged staring without eye movement (which causes Troxler fading or neural adaptation). Do not attribute chronostasis to prolonged fixed viewing.\n"
+        "6. SCIENTIFIC HYPOTHESES: Do NOT state unproven biological theories (such as the brain-cooling hypothesis of yawning) as established absolute facts. State them as hypotheses or theories (e.g. 'one leading hypothesis suggests...', 'scientists theorize...') or rephrase as relatable everyday observations.\n"
+        "7. SCRIPT COMPLETION: Every revised scene MUST be a grammatically complete, natural sentence. Never leave an unfinished subordinate clause or dangling ellipsis.\n\n"
         "NATURAL-VOICE EDITORIAL GUIDANCE:\n"
         "1. Conversational realism: Deliver the correction in natural spoken English as if an observant person were speaking directly to a friend.\n"
         "2. Direct observation: State facts and realities directly rather than adopting formal citations, clinical hedging, or textbook phrasing.\n"
@@ -964,6 +1010,33 @@ def run_spec_stage(video_type: str = "short", custom_topic: Optional[str] = None
                 channel_premise=channel_premise,
                 grounding_facts=grounding_facts_section
             )
+            # Normalize malformed punctuation artifacts and resolve any trailing dangling outro fragments
+            for sc in raw_scenes:
+                txt = sc.get("spoken_text", "")
+                txt = re.sub(r"[…\.]{2,}", "...", txt).replace("…", "...")
+                sc["spoken_text"] = txt
+
+            if raw_scenes and llm:
+                last_sc = raw_scenes[-1]
+                is_dang, _ = is_dangling_or_incomplete_sentence(last_sc.get("spoken_text", ""))
+                if is_dang:
+                    comp_prompt = (
+                        "You are an expert script editor for YouTube Shorts.\n"
+                        "The following trailing outro scene is an incomplete sentence or dangling fragment.\n"
+                        "Complete it into a full, natural, grammatically complete closing sentence that resolves the thought with impact and cadence.\n"
+                        "Return ONLY valid JSON: {\"spoken_text\": \"<completed sentence>\"}"
+                    )
+                    user_p = f"Incomplete Fragment: \"{last_sc.get('spoken_text', '')}\"\nTopic: \"{topic}\""
+                    try:
+                        c_res = llm.generate_json(comp_prompt, user_p, temperature=0.5, task_name="script_completion")
+                        if isinstance(c_res, dict) and c_res.get("spoken_text"):
+                            comp_text = c_res["spoken_text"].strip()
+                            if comp_text and not is_dangling_or_incomplete_sentence(comp_text)[0]:
+                                last_sc["spoken_text"] = comp_text
+                                print(f"✨ [SCRIPT COMPLETION] Completed trailing outro fragment into: '{comp_text}'", flush=True)
+                    except Exception as comp_err:
+                        print(f"⚠️ [SCRIPT COMPLETION] Outro completion failed: {comp_err}", flush=True)
+
             _validate_iscg_scenes_boundary(raw_scenes)
             script_data = {
                 "scenes": raw_scenes,

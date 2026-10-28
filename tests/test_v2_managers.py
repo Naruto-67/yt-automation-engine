@@ -5041,3 +5041,201 @@ def test_pipeline_runner_rewrite_exhaustion_fails_explicitly_without_fabrication
     assert rewrite_count[0] == 2  # Exactly 2 attempts before fail-closed exhaustion
     assert not os.path.exists(test_spec_path)
     assert not (test_memory_dir / "thought_cache.json").exists()
+
+
+def test_claim_inspector_yawning_brain_cooling_unhedged_claim_rejected():
+    """
+    Verifies that asserting the brain-cooling mechanism of yawning as an absolute,
+    unhedged physiological fact without qualification is evaluated as UNVERIFIABLE,
+    failing policy with REJECTED_MEDIUM_RISK_UNVERIFIED.
+    """
+    from engine.managers.claim_inspector import (
+        ClaimInspector,
+        ClaimClassification,
+        VerificationOutcome,
+        EvidenceReference,
+        RiskLevel,
+    )
+    from engine.managers.pipeline_runner import (
+        evaluate_shorts_factuality_policy,
+        FactualityPolicyStatus,
+    )
+
+    inspector = ClaimInspector(llm_manager=None)
+
+    unhedged_yawn = "A yawn triggers a quick cooldown for your brain when it works too hard."
+    cls_type, props, rationale, err = inspector.classify_and_extract(unhedged_yawn)
+    assert cls_type in (ClaimClassification.MIXED.value, ClaimClassification.EMPIRICAL.value)
+    assert len(props) == 1
+    assert props[0]["risk_level"] == RiskLevel.MEDIUM.value
+
+    # Even with curated vault evidence present, unhedged claims are rejected as an unproven hypothesis
+    candidate_evidence = [
+        EvidenceReference(
+            id="ev_yawn_01",
+            text="Yawning cools down your brain when blood temperature inside the cranial cavity rises."
+        )
+    ]
+    report = inspector.inspect_script(
+        [{"scene_id": 1, "spoken_text": unhedged_yawn}],
+        candidate_evidence=candidate_evidence
+    )
+    assert len(report.claims) == 1
+    assert report.claims[0].outcome == VerificationOutcome.UNVERIFIABLE.value
+    assert "hypothesis" in report.claims[0].rationale.lower()
+
+    policy_status, reason, affected = evaluate_shorts_factuality_policy(report)
+    assert policy_status == FactualityPolicyStatus.REJECTED_MEDIUM_RISK_UNVERIFIED
+    assert len(affected) == 1
+
+
+def test_claim_inspector_yawning_brain_cooling_hypothesis_qualified_passes():
+    """
+    Verifies that properly qualifying the brain-cooling explanation of yawning as a
+    scientific hypothesis allows it to be corroborated by candidate evidence and pass policy.
+    """
+    from engine.managers.claim_inspector import (
+        ClaimInspector,
+        ClaimClassification,
+        VerificationOutcome,
+        EvidenceReference,
+    )
+    from engine.managers.pipeline_runner import (
+        evaluate_shorts_factuality_policy,
+        FactualityPolicyStatus,
+    )
+
+    inspector = ClaimInspector(llm_manager=None)
+
+    qualified_yawn = "One leading scientific hypothesis suggests that yawning helps cool down the brain."
+    candidate_evidence = [
+        EvidenceReference(
+            id="ev_yawn_01",
+            text="Yawning cools down your brain when blood temperature inside the cranial cavity rises."
+        )
+    ]
+    report = inspector.inspect_script(
+        [{"scene_id": 1, "spoken_text": qualified_yawn}],
+        candidate_evidence=candidate_evidence
+    )
+    assert len(report.claims) == 1
+    assert report.claims[0].outcome == VerificationOutcome.SUPPORTED.value
+
+    policy_status, reason, affected = evaluate_shorts_factuality_policy(report)
+    assert policy_status == FactualityPolicyStatus.PASSED
+    assert len(affected) == 0
+
+
+def test_claim_inspector_chronostasis_staring_conflation_rejected():
+    """
+    Verifies that describing prolonged fixed-clock viewing as chronostasis without
+    the requisite saccadic eye-movement context is evaluated as CONTRADICTED,
+    failing policy with REJECTED_CONTRADICTION.
+    """
+    from engine.managers.claim_inspector import (
+        ClaimInspector,
+        VerificationOutcome,
+        EvidenceReference,
+    )
+    from engine.managers.pipeline_runner import (
+        evaluate_shorts_factuality_policy,
+        FactualityPolicyStatus,
+    )
+
+    inspector = ClaimInspector(llm_manager=None)
+
+    conflated_scene = "Staring fixedly at a clock face for two minutes without moving your eyes causes chronostasis."
+    candidate_evidence = [
+        EvidenceReference(
+            id="ev_chrono_01",
+            text="Chronostasis is a temporal illusion occurring when eyes make a rapid saccade onto a clock."
+        )
+    ]
+    report = inspector.inspect_script(
+        [{"scene_id": 1, "spoken_text": conflated_scene}],
+        candidate_evidence=candidate_evidence
+    )
+    assert len(report.claims) == 1
+    assert report.claims[0].outcome == VerificationOutcome.CONTRADICTED.value
+    assert "chronostasis" in report.claims[0].rationale.lower()
+    assert "saccadic" in report.claims[0].rationale.lower()
+
+    policy_status, reason, affected = evaluate_shorts_factuality_policy(report)
+    assert policy_status == FactualityPolicyStatus.REJECTED_CONTRADICTION
+    assert len(affected) == 1
+
+
+def test_claim_inspector_chronostasis_saccadic_context_supported():
+    """
+    Verifies that accurately describing chronostasis with proper saccadic eye-movement
+    context is verified as SUPPORTED by evidence and passes factuality policy.
+    """
+    from engine.managers.claim_inspector import (
+        ClaimInspector,
+        VerificationOutcome,
+        EvidenceReference,
+    )
+    from engine.managers.pipeline_runner import (
+        evaluate_shorts_factuality_policy,
+        FactualityPolicyStatus,
+    )
+
+    inspector = ClaimInspector(llm_manager=None)
+
+    accurate_scene = "Chronostasis occurs when your eyes saccade onto a ticking clock, making the first second seem to freeze."
+    candidate_evidence = [
+        EvidenceReference(
+            id="ev_chrono_01",
+            text="Chronostasis is a temporal illusion occurring when eyes make a rapid saccade onto a clock."
+        )
+    ]
+    report = inspector.inspect_script(
+        [{"scene_id": 1, "spoken_text": accurate_scene}],
+        candidate_evidence=candidate_evidence
+    )
+    assert len(report.claims) == 1
+    assert report.claims[0].outcome == VerificationOutcome.SUPPORTED.value
+
+    policy_status, reason, affected = evaluate_shorts_factuality_policy(report)
+    assert policy_status == FactualityPolicyStatus.PASSED
+    assert len(affected) == 0
+
+
+def test_pipeline_runner_dangling_ellipsis_outro_rejected_at_boundary():
+    """
+    Verifies that a trailing unfinished subordinate fragment or corrupted ellipsis
+    (such as 'So the next time your mind rewinds…...') is rejected at the pipeline boundary.
+    """
+    import pytest
+    from engine.managers.pipeline_runner import _validate_iscg_scenes_boundary
+
+    # Dangling fragment with duplicated ellipsis
+    scenes = [
+        {"scene_id": 1, "spoken_text": "Your eyes deceive you when shifting focus to a clock."},
+        {"scene_id": 2, "spoken_text": "The first second appears frozen in time."},
+        {"scene_id": 3, "spoken_text": "So the next time your mind rewinds…..."}
+    ]
+
+    with pytest.raises(ValueError) as exc_info:
+        _validate_iscg_scenes_boundary(scenes)
+
+    err = str(exc_info.value)
+    assert "Script completion validation failed" in err
+    assert "Scene 3" in err
+
+
+def test_pipeline_runner_completed_narrative_outro_passes():
+    """
+    Verifies that a grammatically complete, intentional narrative outro ending passes
+    boundary validation without false-positive rejection.
+    """
+    from engine.managers.pipeline_runner import _validate_iscg_scenes_boundary
+
+    scenes = [
+        {"scene_id": 1, "spoken_text": "Your eyes deceive you when shifting focus to a clock."},
+        {"scene_id": 2, "spoken_text": "The first second appears frozen in time."},
+        {"scene_id": 3, "spoken_text": "The next time you glance at a clock, remember your brain is actively editing your reality."}
+    ]
+
+    # Must pass without raising ValueError
+    _validate_iscg_scenes_boundary(scenes)
